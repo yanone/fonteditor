@@ -1987,6 +1987,16 @@ export class TextRunEditor {
                     variationLocation ?? this.axesManager.variationSettings;
                 if (Object.keys(location).length > 0) {
                     shapingFont.setVariations(location);
+                    // Keep the drawing font's variations in lockstep so
+                    // glyphHAdvance / glyphToPath for explicit tokens track
+                    // the same interpolated location as reshaping.
+                    if (
+                        this.hbFont &&
+                        this.hbFont !== shapingFont &&
+                        typeof this.hbFont.setVariations === 'function'
+                    ) {
+                        this.hbFont.setVariations(location);
+                    }
                 }
                 if (this.bidi) {
                     this.shapeTextWithBidi(shapingFont);
@@ -3046,33 +3056,99 @@ export class TextRunEditor {
         }
     }
 
+    /**
+     * Prefer the compiled editing font's variation-aware advance for explicit
+     * /.name tokens that are present in the subset. This is what lets layer /
+     * master switch animation update `/A` spacing the same way typed glyphs do.
+     * Display-string shaping of `/A` itself cannot be reused: HarfBuzz shapes
+     * the slash and name characters, not the named glyph.
+     */
+    private resolveExplicitGlyphAdvanceFromBinaryFont(
+        glyphName: string
+    ): number | null {
+        const gid = this.editingFontNameToGid.get(glyphName);
+        if (gid === undefined || gid === 0) {
+            return null;
+        }
+
+        const fonts = [this.hbFont, this.getActiveShapingFont()];
+        for (const font of fonts) {
+            if (!font || typeof font.glyphHAdvance !== 'function') {
+                continue;
+            }
+            const advance = font.glyphHAdvance(gid);
+            if (typeof advance === 'number' && Number.isFinite(advance)) {
+                return advance;
+            }
+        }
+
+        return null;
+    }
+
+    private resolveExplicitGlyphAdvanceFromModel(
+        glyphName: string
+    ): number | null {
+        const outlineEditor = window.glyphCanvas?.outlineEditor;
+        if (
+            outlineEditor?.active &&
+            window.glyphCanvas?.getCurrentGlyphName?.() === glyphName
+        ) {
+            const liveWidth = outlineEditor.layerData?.width;
+            if (typeof liveWidth === 'number' && Number.isFinite(liveWidth)) {
+                return liveWidth;
+            }
+        }
+
+        const fontModel = window.currentFontModel;
+        if (!fontModel) {
+            return null;
+        }
+
+        const glyph = fontModel.findGlyph(glyphName);
+        if (!glyph) {
+            return null;
+        }
+
+        const selectedMasterLayer =
+            this.selectedMasterId && glyph.findLayerByMasterId
+                ? glyph.findLayerByMasterId(this.selectedMasterId)
+                : null;
+        if (
+            selectedMasterLayer &&
+            typeof selectedMasterLayer.width === 'number'
+        ) {
+            return selectedMasterLayer.width;
+        }
+
+        const matchingLayer = outlineEditor?.findMatchingLayer?.(glyphName);
+        if (matchingLayer && typeof matchingLayer.width === 'number') {
+            return matchingLayer.width;
+        }
+
+        const fallbackLayer = glyph.layers?.[0];
+        if (fallbackLayer && typeof fallbackLayer.width === 'number') {
+            return fallbackLayer.width;
+        }
+
+        return null;
+    }
+
     estimateExplicitGlyphAdvance(glyphName: string): number {
+        const binaryAdvance =
+            this.resolveExplicitGlyphAdvanceFromBinaryFont(glyphName);
+        if (binaryAdvance !== null) {
+            return binaryAdvance;
+        }
+
         const cachedAdvance = this.getCachedExplicitGlyphAdvance(glyphName);
         if (cachedAdvance !== null) {
             return cachedAdvance;
         }
 
-        const fontModel = window.currentFontModel;
-        if (!fontModel) {
-            return 250;
-        }
-
-        const glyph = fontModel.findGlyph(glyphName);
-        if (!glyph) {
-            return 250;
-        }
-
-        let layer =
-            this.selectedMasterId && glyph.findLayerByMasterId
-                ? glyph.findLayerByMasterId(this.selectedMasterId)
-                : undefined;
-
-        if (!layer && glyph.layers && glyph.layers.length > 0) {
-            layer = glyph.layers[0];
-        }
-
-        if (layer && typeof layer.width === 'number') {
-            return layer.width;
+        const modelAdvance =
+            this.resolveExplicitGlyphAdvanceFromModel(glyphName);
+        if (modelAdvance !== null) {
+            return modelAdvance;
         }
 
         return 250;

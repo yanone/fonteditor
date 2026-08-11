@@ -21,6 +21,11 @@ describe('TextRunEditor explicit token EOL append behavior', () => {
                 return null;
             })
         };
+        delete window.glyphCanvas;
+    });
+
+    afterEach(() => {
+        delete window.glyphCanvas;
     });
 
     test('keeps EOL token boundary when first trailing space is typed', () => {
@@ -80,5 +85,101 @@ describe('TextRunEditor explicit token EOL append behavior', () => {
         expect(
             editor.prefetchExplicitGlyphOutlinesForCurrentState
         ).toHaveBeenCalled();
+    });
+
+    test('prefers binary glyphHAdvance over discrete model width for in-subset explicit tokens', () => {
+        const editor = makeEditor();
+        editor.editingFontNameToGid.set('A', 4);
+        editor.hbFont = {
+            glyphHAdvance: jest.fn(() => 740),
+            setVariations: jest.fn()
+        };
+        editor.axesManager.variationSettings = { wght: 700 };
+
+        window.currentFontModel = {
+            findGlyph: jest.fn(() => ({
+                name: 'A',
+                findLayerByMasterId: jest.fn(() => ({ width: 500 })),
+                layers: [{ width: 500 }, { width: 900 }]
+            }))
+        };
+
+        expect(editor.estimateExplicitGlyphAdvance('A')).toBe(740);
+        expect(editor.hbFont.glyphHAdvance).toHaveBeenCalledWith(4);
+    });
+
+    test('reshape updates explicit token advance when binary advance changes with location', () => {
+        const editor = makeEditor();
+        editor.editingFontNameToGid.set('A', 4);
+        editor.bidi = null;
+        editor.call = jest.fn();
+        editor.prefetchExplicitGlyphOutlinesForCurrentState = jest.fn();
+        editor.hb = {
+            createBuffer: () => ({
+                addText: jest.fn(),
+                guessSegmentProperties: jest.fn(),
+                json: () => [{ dx: 0, dy: 0, ax: 12, ay: 0, cl: 0, g: 0 }],
+                destroy: jest.fn()
+            }),
+            shape: jest.fn()
+        };
+
+        let advance = 500;
+        editor.hbFont = {
+            glyphHAdvance: jest.fn(() => advance),
+            setVariations: jest.fn()
+        };
+        editor.axesManager.variationSettings = { wght: 400 };
+        editor.textBuffer = '/A ';
+
+        window.currentFontModel = {
+            findGlyph: jest.fn((name) => {
+                if (name === 'A') {
+                    return {
+                        name: 'A',
+                        layers: [{ width: 500 }]
+                    };
+                }
+                return null;
+            })
+        };
+
+        editor.shapeText(true);
+        expect(editor.shapedGlyphs[0].explicitGlyphName).toBe('A');
+        expect(editor.shapedGlyphs[0].ax).toBe(500);
+        expect(editor.shapedGlyphs[0].g).toBe(4);
+
+        advance = 820;
+        editor.axesManager.variationSettings = { wght: 800 };
+        editor.shapeText(true, { wght: 800 });
+
+        expect(editor.hbFont.setVariations).toHaveBeenCalledWith({
+            wght: 800
+        });
+        expect(editor.shapedGlyphs[0].ax).toBe(820);
+    });
+
+    test('uses live edited layer width when binary advance is unavailable', () => {
+        const editor = makeEditor();
+        editor.hbFont = null;
+        editor.shapingHbFont = null;
+
+        window.glyphCanvas = {
+            outlineEditor: {
+                active: true,
+                layerData: { width: 733 },
+                findMatchingLayer: jest.fn(() => null)
+            },
+            getCurrentGlyphName: () => 'A'
+        };
+
+        window.currentFontModel = {
+            findGlyph: jest.fn(() => ({
+                name: 'A',
+                layers: [{ width: 400 }]
+            }))
+        };
+
+        expect(editor.estimateExplicitGlyphAdvance('A')).toBe(733);
     });
 });
