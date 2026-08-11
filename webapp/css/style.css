@@ -2209,6 +2209,65 @@ kbd + kbd {
     color: var(--autorun-active-focused-text) !important;
 }
 
+/* Editor edit tools (left of View / Plugins) */
+.editor-edit-tools {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    height: 100%;
+}
+
+.view-title-button.editor-edit-tool-btn {
+    min-width: 28px;
+    justify-content: center;
+    padding: 0 6px;
+    color: var(--text-primary) !important;
+}
+
+.view-title-button.editor-edit-tool-btn .material-symbols-outlined {
+    font-size: 16px;
+}
+
+.view-title-button.editor-edit-tool-btn.active {
+    color: var(--accent-cyan) !important;
+    background-color: var(--input-bg);
+}
+
+.view-title-button.editor-edit-tool-btn.unavailable,
+.view-title-button.editor-edit-tool-btn:disabled {
+    color: var(--text-faint) !important;
+    opacity: 0.45;
+    cursor: default;
+    pointer-events: none;
+    background-color: transparent;
+}
+
+.view-title-button.editor-edit-tool-btn.unavailable .material-symbols-outlined,
+.view-title-button.editor-edit-tool-btn:disabled .material-symbols-outlined {
+    color: var(--text-faint);
+}
+
+.tool-cursor-badge {
+    position: fixed;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    padding: 0;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 2147483646;
+    color: var(--text-primary);
+    background: transparent;
+}
+
+.tool-cursor-badge-icon {
+    font-size: 14px;
+    line-height: 1;
+}
+
 /* Editor Plugins Toggle */
 .editor-plugins-toggle {
     display: flex;

@@ -1893,6 +1893,8 @@ async function refreshCanvasFromCommittedModelSync(
                 gc.render();
             }
         }
+
+        oe?.syncEditToolAvailability?.();
     }
 }
 

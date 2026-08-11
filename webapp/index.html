@@ -590,6 +590,77 @@
                             </div>
                         </div>
                         <div class="editor-plugins-toggle">
+                            <div
+                                class="editor-edit-tools"
+                                id="editor-edit-tools"
+                                role="toolbar"
+                                aria-label="Editor tools"
+                            >
+                                <button
+                                    type="button"
+                                    id="editor-tool-text"
+                                    class="view-title-button editor-edit-tool-btn active"
+                                    title="Text mode (T)"
+                                    aria-pressed="true"
+                                    data-edit-tool="text"
+                                >
+                                    <span class="material-symbols-outlined"
+                                        >title</span
+                                    >
+                                </button>
+                                <button
+                                    type="button"
+                                    id="editor-tool-select"
+                                    class="view-title-button editor-edit-tool-btn unavailable"
+                                    title="Select (V)"
+                                    aria-pressed="false"
+                                    data-edit-tool="select"
+                                    disabled
+                                >
+                                    <span class="material-symbols-outlined"
+                                        >arrow_selector_tool</span
+                                    >
+                                </button>
+                                <button
+                                    type="button"
+                                    id="editor-tool-pen"
+                                    class="view-title-button editor-edit-tool-btn unavailable"
+                                    title="Draw path (P)"
+                                    aria-pressed="false"
+                                    data-edit-tool="pen"
+                                    disabled
+                                >
+                                    <span class="material-symbols-outlined"
+                                        >draw</span
+                                    >
+                                </button>
+                                <button
+                                    type="button"
+                                    id="editor-tool-insert"
+                                    class="view-title-button editor-edit-tool-btn unavailable"
+                                    title="Insert node (I)"
+                                    aria-pressed="false"
+                                    data-edit-tool="insert"
+                                    disabled
+                                >
+                                    <span class="material-symbols-outlined"
+                                        >add</span
+                                    >
+                                </button>
+                                <button
+                                    type="button"
+                                    id="editor-tool-convert"
+                                    class="view-title-button editor-edit-tool-btn unavailable"
+                                    title="Line to curve (C)"
+                                    aria-pressed="false"
+                                    data-edit-tool="convert"
+                                    disabled
+                                >
+                                    <span class="material-symbols-outlined"
+                                        >gesture</span
+                                    >
+                                </button>
+                            </div>
                             <button
                                 id="editor-stack-preview-menu-btn"
                                 class="editor-plugins-dropdown-btn"
@@ -1690,6 +1761,11 @@
                                 <kbd>Tab</kbd> Measurement tool (custom line by
                                 click+drag)
                             </li>
+                            <li><kbd>T</kbd> Text mode (exit glyph editing)</li>
+                            <li><kbd>V</kbd> Select tool</li>
+                            <li><kbd>P</kbd> Draw path (Pen)</li>
+                            <li><kbd>I</kbd> Insert node on segment</li>
+                            <li><kbd>C</kbd> Convert line to curve</li>
                             <li>
                                 <kbd>Cmd/Ctrl</kbd> +
                                 <strong>Click on segment:</strong> Add point to

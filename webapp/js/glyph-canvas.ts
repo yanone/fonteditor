@@ -2131,6 +2131,7 @@ class GlyphCanvas {
 
                 if (ix != -1) {
                     this.outlineEditor.active = true;
+                    this.outlineEditor.syncEditToolAvailability(!wasInEditMode);
                     // Dispatch mode change event for URL sync
                     window.dispatchEvent(
                         new CustomEvent('editorModeChanged', {
@@ -2465,6 +2466,7 @@ class GlyphCanvas {
         if (
             this.measurementKeyPressed ||
             this.outlineEditor.cmdKeyPressed ||
+            this.outlineEditor.isPenDrawArmed() ||
             this.outlineEditor.shouldRenderCommandPathPreview()
         ) {
             this.render();
@@ -2559,7 +2561,7 @@ class GlyphCanvas {
             return;
         }
 
-        if (this.outlineEditor.active && this.outlineEditor.cmdKeyPressed) {
+        if (this.outlineEditor.active && this.outlineEditor.isPenDrawArmed()) {
             if (this.outlineEditor.hoveredGlyphIndex !== -1) {
                 this.outlineEditor.hoveredGlyphIndex = -1;
                 this.render();
@@ -2998,6 +3000,7 @@ class GlyphCanvas {
         this.outlineEditor.active = false;
         this.textRunEditor!.selectedGlyphIndex = -1;
         this.outlineEditor.selectedLayerId = null;
+        this.outlineEditor.notifyEditToolsChanged();
 
         // Dispatch mode change event for URL sync
         window.dispatchEvent(

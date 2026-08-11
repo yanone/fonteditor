@@ -54,6 +54,8 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     MeasurementTool: false,
     OpentypeFeatures: false,
     OutlineEditor: false,
+    EditorEditTools: false,
+    ToolCursorBadge: false,
     Clipboard: false,
     PythonPostExecution: false,
     Renderer: false,

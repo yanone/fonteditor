@@ -18,6 +18,17 @@ import {
 } from '../babelfont-model';
 import { beginLoadingCursor, endLoadingCursor } from '../loading-cursor';
 import {
+    chooseDefaultStickyEditTool,
+    ensureStickyEditToolAvailable,
+    resolveHighlightedEditTool,
+    resolvePointerBadgeTool,
+    shortcutKeyToStickyEditTool,
+    type EditToolAvailability,
+    type EditToolUiSnapshot,
+    type StickyEditTool
+} from './edit-tools';
+import { clearToolCursorBadge } from '../tool-cursor-badge';
+import {
     beginStartupInteractionLock,
     endStartupInteractionLock
 } from '../startup-interaction-lock';
@@ -3175,6 +3186,7 @@ export class OutlineEditor {
     lastPointDragShiftKey: boolean | null = null;
     altKeyPressed: boolean = false;
     cmdKeyPressed: boolean = false;
+    activeEditTool: StickyEditTool = 'select';
     canvas: HTMLCanvasElement | null = null;
 
     glyphStack: string = '';
@@ -6758,6 +6770,8 @@ export class OutlineEditor {
                 bridge.endTransaction();
             }
         }
+
+        this.syncEditToolAvailability();
     }
 
     private getCurrentGlyphStructuralLayerTargets(): Array<{
@@ -10520,6 +10534,212 @@ export class OutlineEditor {
         this.pendingCommandPathEdit = null;
         this.resetMarqueeSelection();
         this.layerDataDirty = false;
+        this.notifyEditToolsChanged();
+    }
+
+    notifyEditToolsChanged(): void {
+        window.dispatchEvent(new CustomEvent('editorEditToolsChanged'));
+    }
+
+    getEditToolAvailability(): EditToolAvailability {
+        if (!this.active) {
+            return {
+                text: true,
+                select: false,
+                pen: false,
+                insert: false,
+                convert: false
+            };
+        }
+
+        const layerData = this.getCurrentLayerDataFromStack() || this.layerData;
+        let hasPathSegments = false;
+        let hasLineSegments = false;
+
+        if (layerData) {
+            const shapes = layerData.shapes || [];
+            for (const shape of shapes) {
+                if (this.isComponentShape(shape)) {
+                    continue;
+                }
+                const contour = getEditableContour(shape);
+                if (!contour?.nodes || contour.nodes.length < 2) {
+                    continue;
+                }
+                const descriptors = Layer.getPathSegmentDescriptors({
+                    nodes: contour.nodes,
+                    closed: contour.closed
+                });
+                if (descriptors.length > 0) {
+                    hasPathSegments = true;
+                }
+                if (
+                    descriptors.some((descriptor) => descriptor.type === 'line')
+                ) {
+                    hasLineSegments = true;
+                }
+            }
+        }
+
+        return {
+            text: true,
+            select: true,
+            pen: true,
+            insert: hasPathSegments,
+            convert: hasLineSegments
+        };
+    }
+
+    getEditToolUiSnapshot(): EditToolUiSnapshot {
+        const availability = this.getEditToolAvailability();
+        const stickyTool = this.active
+            ? ensureStickyEditToolAvailable(this.activeEditTool, availability)
+            : this.activeEditTool;
+        if (this.active && stickyTool !== this.activeEditTool) {
+            this.activeEditTool = stickyTool;
+        }
+
+        const highlightedTool = resolveHighlightedEditTool({
+            isEditMode: this.active,
+            stickyTool,
+            cmdKeyPressed: this.cmdKeyPressed,
+            altKeyPressed: this.altKeyPressed,
+            hasAddPointPreview: !!this.hoveredAddPointPreview
+        });
+
+        return {
+            isEditMode: this.active,
+            stickyTool,
+            highlightedTool,
+            availability,
+            pointerBadge: resolvePointerBadgeTool(highlightedTool)
+        };
+    }
+
+    syncEditToolAvailability(forceDefault: boolean = false): void {
+        if (!this.active) {
+            clearToolCursorBadge();
+            this.notifyEditToolsChanged();
+            return;
+        }
+
+        const availability = this.getEditToolAvailability();
+        const nextTool = forceDefault
+            ? chooseDefaultStickyEditTool(availability)
+            : ensureStickyEditToolAvailable(this.activeEditTool, availability);
+
+        if (nextTool !== this.activeEditTool) {
+            this.activeEditTool = nextTool;
+            this.performHitDetection(null);
+            this.glyphCanvas.updateCursorStyle();
+        }
+
+        this.notifyEditToolsChanged();
+    }
+
+    setActiveEditTool(tool: StickyEditTool): boolean {
+        if (!this.active) {
+            return false;
+        }
+
+        const availability = this.getEditToolAvailability();
+        if (!availability[tool]) {
+            return false;
+        }
+
+        if (tool === this.activeEditTool) {
+            this.notifyEditToolsChanged();
+            return true;
+        }
+
+        const previousTool = this.activeEditTool;
+        if (
+            previousTool === 'pen' ||
+            previousTool === 'insert' ||
+            previousTool === 'convert'
+        ) {
+            this.finalizePendingCommandPathEdit();
+        }
+
+        this.activeEditTool = tool;
+        this.performHitDetection(null);
+        this.glyphCanvas.updateCursorStyle();
+        this.glyphCanvas.render();
+        this.notifyEditToolsChanged();
+        return true;
+    }
+
+    isPenDrawArmed(): boolean {
+        if (!this.active || this.isPreviewMode) {
+            return false;
+        }
+        if (this.cmdKeyPressed && !this.altKeyPressed) {
+            return true;
+        }
+        return this.activeEditTool === 'pen';
+    }
+
+    isInsertArmed(): boolean {
+        if (!this.active || this.isPreviewMode) {
+            return false;
+        }
+        if (this.cmdKeyPressed && !this.altKeyPressed) {
+            return true;
+        }
+        return this.activeEditTool === 'insert';
+    }
+
+    isConvertArmed(): boolean {
+        if (!this.active || this.isPreviewMode) {
+            return false;
+        }
+        if (this.altKeyPressed && !this.cmdKeyPressed) {
+            return true;
+        }
+        return this.activeEditTool === 'convert';
+    }
+
+    async requestExitGlyphEditMode(): Promise<void> {
+        if (!this.active) {
+            return;
+        }
+
+        if (this.glyphCanvas.axesManager?.isLoopAnimating) {
+            this.glyphCanvas.axesManager.stopAllLoopAnimations();
+            return;
+        }
+
+        const previousState = this.escapeState.peek();
+        if (previousState) {
+            if (this.escapeState.matchesCurrent(this.selectedLayerId)) {
+                console.log(
+                    'Already on previous layer, clearing state and continuing to exit'
+                );
+                this.escapeState.clear();
+            } else {
+                console.log('Restoring previous layer by selecting it');
+                const layerToSelect = this.getFullLayerData(
+                    previousState.selectionId
+                );
+                if (layerToSelect) {
+                    console.log('Found previous layer:', layerToSelect.id);
+                    this.isInterpolating = false;
+                    this.escapeState.clear();
+                    await this.selectLayer(layerToSelect);
+                    return;
+                }
+                console.warn('Previous layer not found, clearing state');
+                this.escapeState.clear();
+            }
+        }
+
+        if (this.isEditingComponent()) {
+            this.exitComponentEditing();
+            return;
+        }
+
+        this.finalizePendingCommandPathEdit();
+        this.glyphCanvas.exitGlyphEditMode();
     }
 
     clearAllSelections() {
@@ -10559,72 +10779,12 @@ export class OutlineEditor {
         // Priority -1: Exit stack preview mode if active (handled in glyph-canvas.ts)
         // This is checked before reaching here
 
-        // Priority 0: Stop any active loop animations (play button sine waves)
-        if (this.glyphCanvas.axesManager?.isLoopAnimating) {
-            e.preventDefault();
-            this.glyphCanvas.axesManager.stopAllLoopAnimations();
-            return;
-        }
-
         e.preventDefault();
-
-        const previousState = this.escapeState.peek();
-
-        console.log('Escape pressed. Previous state:', {
-            layerId: previousState?.selectionId || null,
-            settings: previousState?.variationSettings || null,
-            componentStackDepth: this.getComponentDepth()
-        });
-
-        // Priority 1: If we have a saved previous state from slider interaction, restore it first
-        // (This takes precedence over exiting component editing)
-        // However, if the previous layer is the same as the current layer, skip restoration
-        if (previousState) {
-            // Check if we're already on the previous layer
-            if (this.escapeState.matchesCurrent(this.selectedLayerId)) {
-                console.log(
-                    'Already on previous layer, clearing state and continuing to exit'
-                );
-                this.escapeState.clear();
-                // Don't return - fall through to exit component or edit mode
-            } else {
-                console.log('Restoring previous layer by selecting it');
-
-                // Get full layer data from font model
-                const layerToSelect = this.getFullLayerData(
-                    previousState.selectionId
-                );
-
-                if (layerToSelect) {
-                    console.log('Found previous layer:', layerToSelect.id);
-                    // Clear interpolating flag since we're transitioning to a real layer
-                    this.isInterpolating = false;
-
-                    // Clear previous state before calling selectLayer
-                    // (selectLayer will also clear these, but we do it here to be explicit)
-                    this.escapeState.clear();
-
-                    // Imitate clicking on the layer in the list by calling selectLayer
-                    // This will handle everything: fetch data, animate sliders, update UI
-                    await this.selectLayer(layerToSelect);
-                    return;
-                }
-
-                // Fallback if layer not found - just clear state
-                console.warn('Previous layer not found, clearing state');
-                this.escapeState.clear();
-            }
-        }
-
-        // Priority 2: Check if we're in component editing mode
-        if (this.isEditingComponent()) {
-            // Exit one level of component editing
-            this.exitComponentEditing();
-            return;
-        }
-
-        // Priority 3: No previous state and not in component - just exit edit mode
-        this.glyphCanvas.exitGlyphEditMode();
+        console.log(
+            'Escape pressed. Component stack depth:',
+            this.getComponentDepth()
+        );
+        await this.requestExitGlyphEditMode();
     }
 
     restoreFocus() {
@@ -10956,10 +11116,12 @@ export class OutlineEditor {
             return;
 
         if (this.handleAltCurveConversionGesture(e)) {
+            this.syncEditToolAvailability();
             return;
         }
 
         if (this.handleCommandPathGesture(e)) {
+            this.syncEditToolAvailability();
             return;
         }
 
@@ -10973,8 +11135,27 @@ export class OutlineEditor {
         }
 
         const isCmdClick = (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
-        if (isCmdClick && this.hoveredAddPointPreview) {
-            void this.commitHoveredAddPointPreview();
+        const isInsertToolClick =
+            this.activeEditTool === 'insert' &&
+            !e.metaKey &&
+            !e.ctrlKey &&
+            !e.altKey &&
+            !e.shiftKey;
+        if ((isCmdClick || isInsertToolClick) && this.hoveredAddPointPreview) {
+            void this.commitHoveredAddPointPreview().then(() => {
+                if (isInsertToolClick && !this.cmdKeyPressed) {
+                    this.finalizePendingCommandPathEdit();
+                }
+                this.syncEditToolAvailability();
+            });
+            return;
+        }
+
+        // Sticky insert/convert only perform their gestures; otherwise no-op.
+        if (
+            this.activeEditTool === 'insert' ||
+            this.activeEditTool === 'convert'
+        ) {
             return;
         }
 
@@ -12471,7 +12652,7 @@ export class OutlineEditor {
      * Build snap visualization state for the current command-path preview.
      */
     private _getCommandPathPreviewSnapVisualizationState(): SnapVisualizationState | null {
-        if (!this.active || this.isPreviewMode || !this.cmdKeyPressed) {
+        if (!this.active || this.isPreviewMode || !this.isPenDrawArmed()) {
             return null;
         }
 
@@ -14585,6 +14766,22 @@ export class OutlineEditor {
             this.canvas!.style.cursor = 'crosshair';
             return null;
         }
+        if (
+            this.activeEditTool === 'insert' &&
+            this.isInsertArmed() &&
+            !this.cmdKeyPressed
+        ) {
+            this.canvas!.style.cursor = 'crosshair';
+            return null;
+        }
+        if (
+            this.activeEditTool === 'convert' &&
+            this.isConvertArmed() &&
+            !this.altKeyPressed
+        ) {
+            this.canvas!.style.cursor = 'crosshair';
+            return null;
+        }
         if (this.shouldShowCommandCutCrosshair()) {
             this.canvas!.style.cursor = 'crosshair';
             return null;
@@ -15266,7 +15463,7 @@ export class OutlineEditor {
             return;
         }
 
-        if (!this.cmdKeyPressed || this.altKeyPressed) {
+        if (!this.isInsertArmed()) {
             this.clearHoveredAddPointPreview();
             return;
         }
@@ -15330,6 +15527,9 @@ export class OutlineEditor {
         if (previousPreview !== nextPreview) {
             this.hoveredAddPointPreview = bestPreview;
             this.glyphCanvas.render();
+            if (this.cmdKeyPressed) {
+                this.notifyEditToolsChanged();
+            }
         }
     }
 
@@ -15375,8 +15575,7 @@ export class OutlineEditor {
             !this.layerData ||
             this.layerData.isInterpolated ||
             !this.selectedLayerId ||
-            !this.altKeyPressed ||
-            this.cmdKeyPressed ||
+            !this.isConvertArmed() ||
             this.activePathDrawingSession
         ) {
             this.clearHoveredCommandCurvePreview();
@@ -15410,7 +15609,14 @@ export class OutlineEditor {
         if (!pressed) {
             this.suppressSelectedEndpointCommandSeedUntilCommandRelease = false;
             this.hoveredAddPointPreview = null;
+            const stickyPenSession =
+                this.activeEditTool === 'pen'
+                    ? this.activePathDrawingSession
+                    : null;
             this.finalizePendingCommandPathEdit();
+            if (stickyPenSession) {
+                this.activePathDrawingSession = stickyPenSession;
+            }
             if (!this.altKeyPressed) {
                 this.glyphCanvas.stopModifierFocusWatch();
             }
@@ -15430,6 +15636,8 @@ export class OutlineEditor {
                 this.glyphCanvas.render();
             }
         }
+
+        this.notifyEditToolsChanged();
     }
 
     setAltKeyPressed(pressed: boolean): void {
@@ -15461,6 +15669,8 @@ export class OutlineEditor {
             this.glyphCanvas.updateCursorStyle();
             this.glyphCanvas.render();
         }
+
+        this.notifyEditToolsChanged();
     }
 
     private async commitHoveredAddPointPreview(): Promise<void> {
@@ -15594,11 +15804,19 @@ export class OutlineEditor {
 
     private handleCommandPathGesture(e: MouseEvent): boolean {
         const isCmdClick = (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
-        if (!isCmdClick) {
+        const isPenToolClick =
+            this.activeEditTool === 'pen' &&
+            !e.metaKey &&
+            !e.ctrlKey &&
+            !e.altKey &&
+            !e.shiftKey;
+        if (!isCmdClick && !isPenToolClick) {
             return false;
         }
 
-        this.setCommandKeyPressed(true, false);
+        if (isCmdClick) {
+            this.setCommandKeyPressed(true, false);
+        }
 
         if (this.tryHandleActivePathDrawingSessionClick()) {
             return true;
@@ -15612,7 +15830,8 @@ export class OutlineEditor {
             return this.closeActivePathDrawingSession(selectedEndpointSeed);
         }
 
-        if (this.hoveredAddPointPreview) {
+        // Cmd keeps combined draw+insert; sticky pen only draws.
+        if (isCmdClick && this.hoveredAddPointPreview) {
             return false;
         }
 
@@ -15625,18 +15844,33 @@ export class OutlineEditor {
 
     private handleAltCurveConversionGesture(e: MouseEvent): boolean {
         const isAltClick = e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey;
-        if (!isAltClick || !this.isNeutralCommandCanvasTarget()) {
+        const isConvertToolClick =
+            this.activeEditTool === 'convert' &&
+            !e.metaKey &&
+            !e.ctrlKey &&
+            !e.altKey &&
+            !e.shiftKey;
+        if (
+            (!isAltClick && !isConvertToolClick) ||
+            !this.isNeutralCommandCanvasTarget()
+        ) {
             return false;
         }
 
-        this.altKeyPressed = true;
+        if (isAltClick) {
+            this.altKeyPressed = true;
+        }
 
         const segmentHit = this.findClosestPathSegmentHit();
         if (segmentHit?.descriptor.type !== 'line') {
             return false;
         }
 
-        return this.convertLineSegmentToCurve(segmentHit);
+        const converted = this.convertLineSegmentToCurve(segmentHit);
+        if (converted && isConvertToolClick && !this.altKeyPressed) {
+            this.finalizePendingCommandPathEdit();
+        }
+        return converted;
     }
 
     private isNeutralCommandCanvasTarget(): boolean {
@@ -16730,7 +16964,7 @@ export class OutlineEditor {
     }
 
     private shouldHideCommandPathPreviewWhileHoveringPoint(): boolean {
-        if (!this.cmdKeyPressed || !this.hoveredPointIndex) {
+        if (!this.isPenDrawArmed() || !this.hoveredPointIndex) {
             return false;
         }
 
@@ -16774,7 +17008,7 @@ export class OutlineEditor {
     shouldRenderCommandPathPreview(): boolean {
         return Boolean(
             this.active &&
-            this.cmdKeyPressed &&
+            this.isPenDrawArmed() &&
             !this.isPreviewMode &&
             !this.shouldHideCommandPathPreviewWhileHoveringPoint() &&
             this.getCommandPathPreviewStartPoint()
@@ -16818,7 +17052,7 @@ export class OutlineEditor {
     }
 
     private shouldShowCommandPathCrosshair(): boolean {
-        if (!this.active || !this.cmdKeyPressed || this.isPreviewMode) {
+        if (!this.active || !this.isPenDrawArmed() || this.isPreviewMode) {
             return false;
         }
 
@@ -17741,6 +17975,7 @@ export class OutlineEditor {
             this.glyphCanvas.textRunEditor
         );
         this.glyphCanvas.render();
+        this.syncEditToolAvailability();
     }
 
     onGlyphSelected() {
@@ -17751,6 +17986,7 @@ export class OutlineEditor {
             this.updateHoveredPointAndAnchor();
             this.updateHoveredAddPointPreview();
         }
+        this.syncEditToolAvailability();
     }
 
     private syncCurrentContourDataFromModel(
@@ -19144,6 +19380,8 @@ export class OutlineEditor {
                 })
             );
         }
+
+        this.syncEditToolAvailability();
     }
 
     onSpaceKeyReleased() {
@@ -19487,6 +19725,21 @@ export class OutlineEditor {
                 this.glyphCanvas.render();
             }
             return;
+        }
+
+        // Editor tool shortcuts (T/V/P/I/C) — mouse-parity sticky tools
+        if (!e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat) {
+            const toolShortcut = shortcutKeyToStickyEditTool(e.key);
+            if (toolShortcut === 'text') {
+                e.preventDefault();
+                await this.requestExitGlyphEditMode();
+                return;
+            }
+            if (toolShortcut) {
+                e.preventDefault();
+                this.setActiveEditTool(toolShortcut);
+                return;
+            }
         }
 
         // Handle Cmd+Left/Right to navigate through glyphs in logical order
