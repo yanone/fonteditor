@@ -261,14 +261,21 @@ export class AxisMapEditor {
     }
 
     private clampUserspace(value: number): number {
-        const min = this.getAxisMin();
-        const max = this.getAxisMax();
-        return Math.min(max, Math.max(min, this.toEditableInteger(value)));
+        // Map points may extend past the current axis min/max (editing the
+        // endpoint is how users raise max). Only round — do not clamp to the
+        // declared userspace range.
+        return this.toEditableInteger(value);
     }
 
     private clampDesignspace(value: number): number {
-        const { min, max } = this.getDesignBounds();
-        return Math.min(max, Math.max(min, this.toEditableInteger(value)));
+        return this.toEditableInteger(value);
+    }
+
+    private getUserspaceBoundsForUniqueness(): { min: number; max: number } {
+        const pointValues = this.points.map((point) => point.userspace);
+        const min = Math.min(this.getAxisMin(), ...pointValues);
+        const max = Math.max(this.getAxisMax(), ...pointValues);
+        return { min, max };
     }
 
     private ensureUniqueUserspace(
@@ -282,8 +289,7 @@ export class AxisMapEditor {
                 .filter((point) => point.id !== pointId)
                 .map((point) => point.userspace)
         );
-        const min = this.getAxisMin();
-        const max = this.getAxisMax();
+        const { min, max } = this.getUserspaceBoundsForUniqueness();
 
         const preferredStep = direction >= 0 ? 1 : -1;
         while (otherValues.has(nextValue)) {
@@ -299,10 +305,27 @@ export class AxisMapEditor {
                 continue;
             }
 
+            // Allow stepping outside the previous bounds when resolving clashes
+            // at a newly typed endpoint (e.g. raising 875 → 900).
+            nextValue = preferredCandidate;
             break;
         }
 
         return this.clampUserspace(nextValue);
+    }
+
+    private syncAxisUserspaceExtentFromPoints(): void {
+        if (this.points.length === 0) {
+            return;
+        }
+        const userspaceValues = this.points.map((point) => point.userspace);
+        const nextMin = Math.min(...userspaceValues);
+        const nextMax = Math.max(...userspaceValues);
+        this.axis = {
+            ...this.axis,
+            min: nextMin,
+            max: nextMax
+        };
     }
 
     private interpolateDesignspace(userspace: number): number {
@@ -396,6 +419,7 @@ export class AxisMapEditor {
             (a, b) => a.userspace - b.userspace
         );
         this.selectedPointId = point.id;
+        this.syncAxisUserspaceExtentFromPoints();
         this.render();
         this.commit();
         this.focus();
@@ -547,6 +571,7 @@ export class AxisMapEditor {
                     : point
             )
             .sort((a, b) => a.userspace - b.userspace);
+        this.syncAxisUserspaceExtentFromPoints();
         this.render();
     }
 

@@ -1,7 +1,7 @@
 use crate::interpolation::interpolate_glyph_layer;
 use crate::{
-    get_or_rebuild_font_cache, ydoc_get_layer_json_with_txn,
-    ydoc_get_top_level_json_with_txn, Y_DOC,
+    get_or_rebuild_font_cache, ydoc_get_layer_json_with_txn, ydoc_get_top_level_json_with_txn,
+    Y_DOC,
 };
 use babelfont::{Layer, LayerType, Master};
 use js_sys::{Object, Reflect, Uint8Array};
@@ -23,11 +23,17 @@ struct BatchLayerOperation {
     glyph_name: String,
     layer_id: String,
     old_value: Option<JsonValue>,
-    new_value: JsonValue,
+    new_value: Option<JsonValue>,
 }
 
 #[derive(Clone, Debug)]
 struct BatchMastersOperation {
+    old_value: Option<JsonValue>,
+    new_value: JsonValue,
+}
+
+#[derive(Clone, Debug)]
+struct BatchAxesOperation {
     old_value: Option<JsonValue>,
     new_value: JsonValue,
 }
@@ -38,6 +44,7 @@ struct BatchMetadata {
     layer_targets: Vec<BatchLayerTarget>,
     layer_operations: Vec<BatchLayerOperation>,
     masters_operation: Option<BatchMastersOperation>,
+    axes_operation: Option<BatchAxesOperation>,
 }
 
 #[derive(Clone, Debug)]
@@ -60,6 +67,16 @@ struct AddMasterBatchPayload {
     master: Master,
     #[serde(default)]
     interpolation_locations: Vec<AddMasterInterpolationLocation>,
+    #[serde(default)]
+    axes: Option<JsonValue>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LayerSnapshotOverride {
+    glyph_name: String,
+    layer_id: String,
+    layer: JsonValue,
 }
 
 fn warn_batch(message: &str) {
@@ -182,13 +199,11 @@ fn fill_json_array(
     Ok(())
 }
 
-fn upsert_layer_json(
-    txn: &mut yrs::TransactionMut,
+fn glyph_maps_for_layer_edit<'a, T: ReadTxn>(
+    txn: &'a T,
     font_map: &yrs::MapRef,
     glyph_name: &str,
-    layer_id: &str,
-    layer_json: &JsonValue,
-) -> Result<(), JsValue> {
+) -> Result<(yrs::MapRef, yrs::MapRef), JsValue> {
     let glyphs_value = font_map
         .get(txn, "glyphs")
         .ok_or_else(|| JsValue::from_str("Missing glyphs map in Y.Doc"))?;
@@ -216,7 +231,82 @@ fn upsert_layer_json(
         )));
     };
 
-    set_json_map_entry(txn, &layers_map, layer_id, layer_json)
+    Ok((glyph_map, layers_map))
+}
+
+fn ensure_layer_order_contains(
+    txn: &mut yrs::TransactionMut,
+    glyph_map: &yrs::MapRef,
+    layer_id: &str,
+) -> Result<(), JsValue> {
+    match glyph_map.get(txn, "layerOrder") {
+        Some(yrs::types::Value::YArray(order)) => {
+            let already_present = (0..order.len(txn)).any(|index| {
+                matches!(
+                    order.get(txn, index),
+                    Some(yrs::types::Value::Any(Any::String(value))) if value.as_ref() == layer_id
+                )
+            });
+            if !already_present {
+                order.push_back(txn, layer_id.to_string());
+            }
+        }
+        Some(_) => {
+            return Err(JsValue::from_str("layerOrder entry is not a Y.Array"));
+        }
+        None => {
+            let order: yrs::ArrayRef =
+                glyph_map.insert(txn, "layerOrder", ArrayPrelim::from(Vec::<Any>::new()));
+            order.push_back(txn, layer_id.to_string());
+        }
+    }
+    Ok(())
+}
+
+fn remove_layer_id_from_order(
+    txn: &mut yrs::TransactionMut,
+    glyph_map: &yrs::MapRef,
+    layer_id: &str,
+) {
+    let Some(yrs::types::Value::YArray(order)) = glyph_map.get(txn, "layerOrder") else {
+        return;
+    };
+    let mut index = 0;
+    while index < order.len(txn) {
+        let matches_layer = matches!(
+            order.get(txn, index),
+            Some(yrs::types::Value::Any(Any::String(value))) if value.as_ref() == layer_id
+        );
+        if matches_layer {
+            order.remove(txn, index);
+            continue;
+        }
+        index += 1;
+    }
+}
+
+fn upsert_layer_json(
+    txn: &mut yrs::TransactionMut,
+    font_map: &yrs::MapRef,
+    glyph_name: &str,
+    layer_id: &str,
+    layer_json: &JsonValue,
+) -> Result<(), JsValue> {
+    let (glyph_map, layers_map) = glyph_maps_for_layer_edit(txn, font_map, glyph_name)?;
+    set_json_map_entry(txn, &layers_map, layer_id, layer_json)?;
+    ensure_layer_order_contains(txn, &glyph_map, layer_id)
+}
+
+fn remove_layer_json(
+    txn: &mut yrs::TransactionMut,
+    font_map: &yrs::MapRef,
+    glyph_name: &str,
+    layer_id: &str,
+) -> Result<(), JsValue> {
+    let (glyph_map, layers_map) = glyph_maps_for_layer_edit(txn, font_map, glyph_name)?;
+    layers_map.remove(txn, layer_id);
+    remove_layer_id_from_order(txn, &glyph_map, layer_id);
+    Ok(())
 }
 
 fn layer_id_for_batch(layer: &Layer) -> Option<String> {
@@ -328,6 +418,23 @@ fn clone_font_without_target_layer(
     cloned
 }
 
+fn font_with_axes(
+    font: &babelfont::Font,
+    next_axes: Option<&JsonValue>,
+) -> Result<babelfont::Font, JsValue> {
+    let Some(axes_json) = next_axes else {
+        return Ok(font.clone());
+    };
+    let mut cloned = font.clone();
+    cloned.axes = serde_json::from_value(axes_json.clone()).map_err(|error| {
+        JsValue::from_str(&format!(
+            "Failed to apply extended axes for add-master interpolation: {}",
+            error
+        ))
+    })?;
+    Ok(cloned)
+}
+
 fn build_reinterpolated_layer(
     font: &babelfont::Font,
     glyph_name: &str,
@@ -370,10 +477,7 @@ fn build_reinterpolated_layer(
         .map_err(|error| JsValue::from_str(&format!("Layer serialization failed: {}", error)))
 }
 
-fn merge_reinterpolated_layer(
-    existing: &JsonValue,
-    regenerated: JsonValue,
-) -> JsonValue {
+fn merge_reinterpolated_layer(existing: &JsonValue, regenerated: JsonValue) -> JsonValue {
     let JsonValue::Object(regenerated) = regenerated else {
         return regenerated;
     };
@@ -392,19 +496,26 @@ fn merge_reinterpolated_layer(
 
 fn parse_add_master_batch_payload(
     payload_json: &str,
-) -> Result<(Master, HashMap<String, fontdrasil::coords::DesignLocation>), String> {
+) -> Result<
+    (
+        Master,
+        HashMap<String, fontdrasil::coords::DesignLocation>,
+        Option<JsonValue>,
+    ),
+    String,
+> {
     if let Ok(payload) = serde_json::from_str::<AddMasterBatchPayload>(payload_json) {
         let locations = payload
             .interpolation_locations
             .into_iter()
             .map(|location| (location.glyph_name, location.design_location))
             .collect();
-        return Ok((payload.master, locations));
+        return Ok((payload.master, locations, payload.axes));
     }
 
     let master: Master = serde_json::from_str(payload_json)
         .map_err(|error| format!("Master parse failed for Rust batch add-master: {}", error))?;
-    Ok((master, HashMap::new()))
+    Ok((master, HashMap::new(), None))
 }
 
 fn encode_result(update: Vec<u8>, metadata: &BatchMetadata) -> Result<JsValue, JsValue> {
@@ -429,6 +540,12 @@ fn encode_result(update: Vec<u8>, metadata: &BatchMetadata) -> Result<JsValue, J
             }))
             .collect::<Vec<JsonValue>>(),
         "mastersOperation": metadata.masters_operation.as_ref().map(|operation| {
+            serde_json::json!({
+                "oldValue": operation.old_value,
+                "newValue": operation.new_value,
+            })
+        }),
+        "axesOperation": metadata.axes_operation.as_ref().map(|operation| {
             serde_json::json!({
                 "oldValue": operation.old_value,
                 "newValue": operation.new_value,
@@ -461,6 +578,7 @@ pub fn reinterpolate_master_layers_yjs(master_id: &str) -> Result<JsValue, JsVal
                 layer_targets: Vec::new(),
                 layer_operations: Vec::new(),
                 masters_operation: None,
+                axes_operation: None,
             },
         );
     }
@@ -500,17 +618,14 @@ pub fn reinterpolate_master_layers_yjs(master_id: &str) -> Result<JsValue, JsVal
                 }
             };
 
-            let old_value = ydoc_get_layer_json_with_txn(
-                &target.glyph_name,
-                &target.layer_id,
-                &txn,
-            )
-            .ok_or_else(|| {
-                JsValue::from_str(&format!(
-                    "Missing raw Y.Doc layer {}::{} during reinterpolation",
-                    target.glyph_name, target.layer_id
-                ))
-            })?;
+            let old_value =
+                ydoc_get_layer_json_with_txn(&target.glyph_name, &target.layer_id, &txn)
+                    .ok_or_else(|| {
+                        JsValue::from_str(&format!(
+                            "Missing raw Y.Doc layer {}::{} during reinterpolation",
+                            target.glyph_name, target.layer_id
+                        ))
+                    })?;
             let new_value = merge_reinterpolated_layer(&old_value, regenerated_value);
 
             upsert_layer_json(
@@ -530,7 +645,7 @@ pub fn reinterpolate_master_layers_yjs(master_id: &str) -> Result<JsValue, JsVal
                 glyph_name: target.glyph_name,
                 layer_id: target.layer_id,
                 old_value: Some(old_value),
-                new_value,
+                new_value: Some(new_value),
             });
         }
     }
@@ -543,6 +658,7 @@ pub fn reinterpolate_master_layers_yjs(master_id: &str) -> Result<JsValue, JsVal
             layer_targets,
             layer_operations,
             masters_operation: None,
+            axes_operation: None,
         },
     )
 }
@@ -560,6 +676,7 @@ fn build_reinterpolate_layer_batch(
                 layer_targets: Vec::new(),
                 layer_operations: Vec::new(),
                 masters_operation: None,
+                axes_operation: None,
             },
         ));
     };
@@ -577,17 +694,13 @@ fn build_reinterpolate_layer_batch(
     let (clone_doc, base_state_vector) = clone_current_ydoc()?;
     let (old_value, new_value) = {
         let txn = clone_doc.transact();
-        let old_value = ydoc_get_layer_json_with_txn(
-            &target.glyph_name,
-            &target.layer_id,
-            &txn,
-        )
-        .ok_or_else(|| {
-            JsValue::from_str(&format!(
-                "Missing raw Y.Doc layer {}::{} during reinterpolation",
-                target.glyph_name, target.layer_id
-            ))
-        })?;
+        let old_value = ydoc_get_layer_json_with_txn(&target.glyph_name, &target.layer_id, &txn)
+            .ok_or_else(|| {
+                JsValue::from_str(&format!(
+                    "Missing raw Y.Doc layer {}::{} during reinterpolation",
+                    target.glyph_name, target.layer_id
+                ))
+            })?;
         let new_value = merge_reinterpolated_layer(&old_value, regenerated_value);
         (old_value, new_value)
     };
@@ -618,9 +731,10 @@ fn build_reinterpolate_layer_batch(
                 glyph_name: target.glyph_name,
                 layer_id: target.layer_id,
                 old_value: Some(old_value),
-                new_value,
+                new_value: Some(new_value),
             }],
             masters_operation: None,
+            axes_operation: None,
         },
     ))
 }
@@ -633,18 +747,22 @@ pub fn reinterpolate_layer_yjs(glyph_name: &str, layer_id: &str) -> Result<JsVal
 
 #[wasm_bindgen]
 pub fn add_master_with_interpolated_layers_yjs(master_json: &str) -> Result<JsValue, JsValue> {
-    let (new_master, interpolation_locations) =
+    let (new_master, interpolation_locations, next_axes) =
         parse_add_master_batch_payload(master_json).map_err(|error| JsValue::from_str(&error))?;
     let font = get_or_rebuild_font_cache()?;
+    let interpolation_font = font_with_axes(&font, next_axes.as_ref())?;
     let (clone_doc, base_state_vector) = clone_current_ydoc()?;
 
-    let old_masters = {
+    let (old_masters, old_axes) = {
         let guard = Y_DOC.lock().unwrap();
         let doc = guard
             .as_ref()
             .ok_or_else(|| JsValue::from_str("Y.Doc not initialized"))?;
         let txn = doc.transact();
-        ydoc_get_top_level_json_with_txn("masters", &txn)
+        (
+            ydoc_get_top_level_json_with_txn("masters", &txn),
+            ydoc_get_top_level_json_with_txn("axes", &txn),
+        )
     };
     let mut next_masters = font.masters.clone();
     next_masters.push(new_master.clone());
@@ -658,6 +776,15 @@ pub fn add_master_with_interpolated_layers_yjs(master_json: &str) -> Result<JsVa
     let mut changed_glyphs = HashSet::new();
     let mut layer_targets = Vec::new();
     let mut layer_operations = Vec::new();
+    let axes_operation = next_axes.as_ref().and_then(|axes_json| {
+        if old_axes.as_ref() == Some(axes_json) {
+            return None;
+        }
+        Some(BatchAxesOperation {
+            old_value: old_axes.clone(),
+            new_value: axes_json.clone(),
+        })
+    });
 
     {
         let mut txn = clone_doc.transact_mut();
@@ -665,9 +792,14 @@ pub fn add_master_with_interpolated_layers_yjs(master_json: &str) -> Result<JsVa
             .get_map("font")
             .ok_or_else(|| JsValue::from_str("Missing font map in cloned Y.Doc"))?;
 
+        if axes_operation.is_some() {
+            if let Some(axes_json) = next_axes.as_ref() {
+                set_json_map_entry(&mut txn, &font_map, "axes", axes_json)?;
+            }
+        }
         set_json_map_entry(&mut txn, &font_map, "masters", &next_masters_json)?;
 
-        for glyph in font.glyphs.iter() {
+        for glyph in interpolation_font.glyphs.iter() {
             let glyph_name = glyph.name.to_string();
             if glyph_name.is_empty() {
                 continue;
@@ -686,7 +818,7 @@ pub fn add_master_with_interpolated_layers_yjs(master_json: &str) -> Result<JsVa
                 .unwrap_or_else(|| new_master.location.clone());
 
             let new_value = build_reinterpolated_layer(
-                &font,
+                &interpolation_font,
                 &glyph_name,
                 &prototype_layer,
                 &layer_id,
@@ -706,7 +838,7 @@ pub fn add_master_with_interpolated_layers_yjs(master_json: &str) -> Result<JsVa
                 glyph_name,
                 layer_id,
                 old_value: None,
-                new_value,
+                new_value: Some(new_value),
             });
         }
     }
@@ -722,6 +854,208 @@ pub fn add_master_with_interpolated_layers_yjs(master_json: &str) -> Result<JsVa
                 old_value: old_masters,
                 new_value: next_masters_json,
             }),
+            axes_operation,
+        },
+    )
+}
+
+#[wasm_bindgen]
+pub fn refine_layer_snapshots_yjs(
+    base_update: &[u8],
+    overrides_json: &str,
+) -> Result<JsValue, JsValue> {
+    let overrides: Vec<LayerSnapshotOverride> =
+        serde_json::from_str(overrides_json).map_err(|error| {
+            JsValue::from_str(&format!("Layer snapshot override parse failed: {}", error))
+        })?;
+    if overrides.is_empty() {
+        return encode_result(
+            base_update.to_vec(),
+            &BatchMetadata {
+                changed_glyphs: Vec::new(),
+                layer_targets: Vec::new(),
+                layer_operations: Vec::new(),
+                masters_operation: None,
+                axes_operation: None,
+            },
+        );
+    }
+
+    let (clone_doc, base_state_vector) = clone_current_ydoc()?;
+    {
+        let update = yrs::Update::decode_v1(base_update).map_err(|error| {
+            JsValue::from_str(&format!(
+                "refine_layer_snapshots_yjs decode failed: {:?}",
+                error
+            ))
+        })?;
+        let mut txn = clone_doc.transact_mut();
+        txn.apply_update(update);
+    }
+
+    let mut changed_glyphs = HashSet::new();
+    let mut layer_targets = Vec::new();
+    let mut layer_operations = Vec::new();
+
+    {
+        let mut txn = clone_doc.transact_mut();
+        let font_map = txn
+            .get_map("font")
+            .ok_or_else(|| JsValue::from_str("Missing font map in cloned Y.Doc"))?;
+
+        for override_entry in overrides {
+            let old_value = ydoc_get_layer_json_with_txn(
+                &override_entry.glyph_name,
+                &override_entry.layer_id,
+                &txn,
+            );
+            upsert_layer_json(
+                &mut txn,
+                &font_map,
+                &override_entry.glyph_name,
+                &override_entry.layer_id,
+                &override_entry.layer,
+            )?;
+
+            changed_glyphs.insert(override_entry.glyph_name.clone());
+            layer_targets.push(BatchLayerTarget {
+                glyph_name: override_entry.glyph_name.clone(),
+                layer_id: override_entry.layer_id.clone(),
+            });
+            layer_operations.push(BatchLayerOperation {
+                glyph_name: override_entry.glyph_name,
+                layer_id: override_entry.layer_id,
+                old_value,
+                new_value: Some(override_entry.layer),
+            });
+        }
+    }
+
+    let update = clone_doc.transact().encode_diff_v1(&base_state_vector);
+    encode_result(
+        update,
+        &BatchMetadata {
+            changed_glyphs: changed_glyphs.into_iter().collect(),
+            layer_targets,
+            layer_operations,
+            masters_operation: None,
+            axes_operation: None,
+        },
+    )
+}
+
+#[wasm_bindgen]
+pub fn remove_masters_yjs(master_ids_json: &str) -> Result<JsValue, JsValue> {
+    let master_ids: Vec<String> = serde_json::from_str(master_ids_json).map_err(|error| {
+        JsValue::from_str(&format!(
+            "Master id list parse failed for Rust batch remove-master: {}",
+            error
+        ))
+    })?;
+    let normalized_master_ids: Vec<String> = master_ids
+        .into_iter()
+        .filter(|master_id| !master_id.is_empty())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    if normalized_master_ids.is_empty() {
+        return encode_result(
+            Vec::new(),
+            &BatchMetadata {
+                changed_glyphs: Vec::new(),
+                layer_targets: Vec::new(),
+                layer_operations: Vec::new(),
+                masters_operation: None,
+                axes_operation: None,
+            },
+        );
+    }
+
+    let font = get_or_rebuild_font_cache()?;
+    let old_masters = {
+        let guard = Y_DOC.lock().unwrap();
+        let doc = guard
+            .as_ref()
+            .ok_or_else(|| JsValue::from_str("Y.Doc not initialized"))?;
+        let txn = doc.transact();
+        ydoc_get_top_level_json_with_txn("masters", &txn)
+    };
+
+    let next_masters: Vec<Master> = font
+        .masters
+        .iter()
+        .filter(|master| !normalized_master_ids.iter().any(|id| id == &master.id))
+        .cloned()
+        .collect();
+    if next_masters.len() == font.masters.len() {
+        return encode_result(
+            Vec::new(),
+            &BatchMetadata {
+                changed_glyphs: Vec::new(),
+                layer_targets: Vec::new(),
+                layer_operations: Vec::new(),
+                masters_operation: None,
+                axes_operation: None,
+            },
+        );
+    }
+
+    let next_masters_json = serde_json::to_value(&next_masters).map_err(|error| {
+        JsValue::from_str(&format!(
+            "Failed to serialize masters list for remove-master batch: {}",
+            error
+        ))
+    })?;
+
+    let mut targets = Vec::new();
+    for master_id in &normalized_master_ids {
+        targets.extend(collect_reinterpolation_targets(&font, master_id));
+    }
+
+    let (clone_doc, base_state_vector) = clone_current_ydoc()?;
+    let mut changed_glyphs = HashSet::new();
+    let mut layer_targets = Vec::new();
+    let mut layer_operations = Vec::new();
+
+    {
+        let mut txn = clone_doc.transact_mut();
+        let font_map = txn
+            .get_map("font")
+            .ok_or_else(|| JsValue::from_str("Missing font map in cloned Y.Doc"))?;
+
+        set_json_map_entry(&mut txn, &font_map, "masters", &next_masters_json)?;
+
+        for target in targets {
+            let old_value =
+                ydoc_get_layer_json_with_txn(&target.glyph_name, &target.layer_id, &txn);
+            remove_layer_json(&mut txn, &font_map, &target.glyph_name, &target.layer_id)?;
+
+            changed_glyphs.insert(target.glyph_name.clone());
+            layer_targets.push(BatchLayerTarget {
+                glyph_name: target.glyph_name.clone(),
+                layer_id: target.layer_id.clone(),
+            });
+            layer_operations.push(BatchLayerOperation {
+                glyph_name: target.glyph_name,
+                layer_id: target.layer_id,
+                old_value,
+                new_value: None,
+            });
+        }
+    }
+
+    let update = clone_doc.transact().encode_diff_v1(&base_state_vector);
+    encode_result(
+        update,
+        &BatchMetadata {
+            changed_glyphs: changed_glyphs.into_iter().collect(),
+            layer_targets,
+            layer_operations,
+            masters_operation: Some(BatchMastersOperation {
+                old_value: old_masters,
+                new_value: next_masters_json,
+            }),
+            axes_operation: None,
         },
     )
 }
@@ -874,9 +1208,11 @@ mod tests {
             ]
         });
 
-        let (master, locations) = parse_add_master_batch_payload(&payload.to_string()).unwrap();
+        let (master, locations, axes) =
+            parse_add_master_batch_payload(&payload.to_string()).unwrap();
 
         assert_eq!(master.id, "M3");
+        assert!(axes.is_none());
         assert_eq!(
             serde_json::to_value(locations.get("A").unwrap()).unwrap(),
             json!([["wght", 400.0]])
@@ -1054,8 +1390,7 @@ mod tests {
             let mut txn = author.transact_mut();
             let glyphs_map: yrs::MapRef =
                 font_map.insert(&mut txn, "glyphs", MapPrelim::<Any>::new());
-            let glyph_map: yrs::MapRef =
-                glyphs_map.insert(&mut txn, "A", MapPrelim::<Any>::new());
+            let glyph_map: yrs::MapRef = glyphs_map.insert(&mut txn, "A", MapPrelim::<Any>::new());
             let layers_map: yrs::MapRef =
                 glyph_map.insert(&mut txn, "layers", MapPrelim::<Any>::new());
             let layer_map: yrs::MapRef =
@@ -1100,12 +1435,17 @@ mod tests {
         };
         assert_eq!(receiver_layer["width"], json!(600));
         assert_eq!(receiver_layer["guides"][0]["name"], json!("baseline"));
-        assert_eq!(receiver_layer["customLayerData"], json!({ "retained": true }));
-        assert_eq!(receiver_layer["format_specific"], json!({ "com.example.layer": "retained" }));
+        assert_eq!(
+            receiver_layer["customLayerData"],
+            json!({ "retained": true })
+        );
+        assert_eq!(
+            receiver_layer["format_specific"],
+            json!({ "com.example.layer": "retained" })
+        );
         assert_eq!(
             metadata["layerOperations"][0]["oldValue"],
             font_json["glyphs"][0]["layers"][2]
         );
     }
-
 }

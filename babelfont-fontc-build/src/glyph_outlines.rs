@@ -180,13 +180,7 @@ pub fn interpolate_glyph_json_cached(
     location_json: &str,
     extrapolate: bool,
 ) -> Result<String, JsValue> {
-    interpolate_glyph_json_cached_for_domain(
-        font,
-        glyph_name,
-        location_json,
-        extrapolate,
-        "",
-    )
+    interpolate_glyph_json_cached_for_domain(font, glyph_name, location_json, extrapolate, "")
 }
 
 pub fn interpolate_glyph_json_cached_for_domain(

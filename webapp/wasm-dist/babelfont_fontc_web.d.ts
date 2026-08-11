@@ -397,12 +397,19 @@ export function prime_preview_layout_closure_cache(
     glyph_names_json: string
 ): number;
 
+export function refine_layer_snapshots_yjs(
+    base_update: Uint8Array,
+    overrides_json: string
+): any;
+
 export function reinterpolate_layer_yjs(
     glyph_name: string,
     layer_id: string
 ): any;
 
 export function reinterpolate_master_layers_yjs(master_id: string): any;
+
+export function remove_masters_yjs(master_ids_json: string): any;
 
 /**
  * Serialize a babelfont JSON string as a Glyphs 3 source file.
@@ -597,6 +604,26 @@ export interface InitOutput {
         a: number,
         b: number
     ) => [number, number, number];
+    readonly refine_layer_snapshots_yjs: (
+        a: number,
+        b: number,
+        c: number,
+        d: number
+    ) => [number, number, number];
+    readonly reinterpolate_layer_yjs: (
+        a: number,
+        b: number,
+        c: number,
+        d: number
+    ) => [number, number, number];
+    readonly reinterpolate_master_layers_yjs: (
+        a: number,
+        b: number
+    ) => [number, number, number];
+    readonly remove_masters_yjs: (
+        a: number,
+        b: number
+    ) => [number, number, number];
     readonly get_font_axes: (
         a: number,
         b: number
@@ -622,16 +649,6 @@ export interface InitOutput {
         a: number,
         b: number
     ) => [number, number, number, number];
-    readonly reinterpolate_layer_yjs: (
-        a: number,
-        b: number,
-        c: number,
-        d: number
-    ) => [number, number, number];
-    readonly reinterpolate_master_layers_yjs: (
-        a: number,
-        b: number
-    ) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (
         a: number,

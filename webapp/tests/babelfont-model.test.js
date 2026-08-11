@@ -290,6 +290,149 @@ describe('Babelfont Object Model', () => {
         }
     });
 
+    test('Font.addMaster extends axis range when the new master is outside existing coverage', async () => {
+        const addMasterFont = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 200,
+                    default: 400,
+                    max: 800,
+                    map: [
+                        [200, 30],
+                        [400, 75],
+                        [800, 135]
+                    ]
+                }
+            ],
+            cross_axis_mappings: [],
+            instances: [],
+            masters: [
+                {
+                    name: { dflt: 'Regular' },
+                    id: 'master-1',
+                    location: { wght: 75 },
+                    guides: [],
+                    metrics: {},
+                    kerning: {}
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            width: 500,
+                            id: 'master-1',
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            }
+                        }
+                    ]
+                }
+            ],
+            note: '',
+            date: new Date('2020-01-01T00:00:00.000Z'),
+            names: {},
+            features: {
+                classes: {},
+                prefixes: {},
+                features: []
+            }
+        });
+        const previousFontModel = window.currentFontModel;
+        const previousBridge = window.patchSyncEngine;
+        const previousFontManager = window.fontManager;
+        const applyLocalGeneratedYjsUpdate = jest.fn();
+        const workerBatchSpy = jest
+            .spyOn(
+                fontManager,
+                'buildWorkerAddMasterWithInterpolatedLayersBatch'
+            )
+            .mockResolvedValue({
+                update: new Uint8Array([1, 2, 3]),
+                metadata: {
+                    changedGlyphs: ['A'],
+                    layerTargets: [],
+                    layerOperations: [],
+                    mastersOperation: {
+                        oldValue: addMasterFont._data.masters,
+                        newValue: [
+                            ...addMasterFont._data.masters,
+                            { id: 'master-2' }
+                        ]
+                    },
+                    axesOperation: {
+                        oldValue: addMasterFont._data.axes,
+                        newValue: [
+                            {
+                                ...addMasterFont._data.axes[0],
+                                max: 900,
+                                map: [
+                                    [200, 30],
+                                    [400, 75],
+                                    [800, 135],
+                                    [900, 150]
+                                ]
+                            }
+                        ]
+                    }
+                }
+            });
+
+        window.currentFontModel = addMasterFont;
+        window.fontManager = fontManager;
+        window.patchSyncEngine = {
+            applyLocalGeneratedYjsUpdate
+        };
+
+        try {
+            await addMasterFont.addMaster({
+                id: 'master-2',
+                name: { dflt: 'Black' },
+                location: { wght: 150 },
+                guides: [],
+                metrics: {},
+                kerning: {}
+            });
+
+            expect(addMasterFont.axes[0].max).toBe(900);
+            expect(addMasterFont.axes[0].map).toEqual([
+                [200, 30],
+                [400, 75],
+                [800, 135],
+                [900, 150]
+            ]);
+            expect(workerBatchSpy).toHaveBeenCalledWith(
+                expect.objectContaining({ id: 'master-2' }),
+                expect.any(Array),
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        tag: 'wght',
+                        max: 900
+                    })
+                ])
+            );
+            const operations = applyLocalGeneratedYjsUpdate.mock.calls[0][1];
+            expect(operations[0]).toEqual(
+                expect.objectContaining({
+                    path: ['axes']
+                })
+            );
+        } finally {
+            window.currentFontModel = previousFontModel;
+            window.patchSyncEngine = previousBridge;
+            window.fontManager = previousFontManager;
+            workerBatchSpy.mockRestore();
+        }
+    });
+
     test('Font.addMaster creates a default master when no explicit record is provided', async () => {
         const defaultMasterFont = Font.fromData({
             upm: 1000,
@@ -642,6 +785,506 @@ describe('Babelfont Object Model', () => {
         expect(
             removableFont.findGlyph('A').findLayerById('master-1')
         ).toBeDefined();
+    });
+
+    test('Font.removeMastersByIds uses a lean worker Yjs update when the bridge is live', async () => {
+        const removableFont = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            cross_axis_mappings: [],
+            instances: [],
+            masters: [
+                {
+                    name: { dflt: 'Regular' },
+                    id: 'master-1',
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: {}
+                },
+                {
+                    name: { dflt: 'Bold' },
+                    id: 'master-2',
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: {}
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            width: 500,
+                            id: 'master-1',
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            }
+                        },
+                        {
+                            width: 600,
+                            id: 'master-2',
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-2'
+                            }
+                        }
+                    ]
+                }
+            ],
+            note: '',
+            date: new Date('2020-01-01T00:00:00.000Z'),
+            names: {},
+            features: {
+                classes: {},
+                prefixes: {},
+                features: []
+            }
+        });
+        const previousFontModel = window.currentFontModel;
+        const previousBridge = window.patchSyncEngine;
+        const previousFontManager = window.fontManager;
+        const applyLocalGeneratedYjsUpdate = jest.fn();
+        const workerBatchSpy = jest
+            .spyOn(fontManager, 'buildWorkerRemoveMastersBatch')
+            .mockResolvedValue({
+                update: new Uint8Array([9, 8, 7]),
+                metadata: {
+                    changedGlyphs: ['A'],
+                    layerTargets: [{ glyphName: 'A', layerId: 'master-2' }],
+                    layerOperations: [
+                        {
+                            glyphName: 'A',
+                            layerId: 'master-2',
+                            oldValue: { id: 'master-2', width: 600 },
+                            newValue: null
+                        }
+                    ],
+                    mastersOperation: {
+                        oldValue: removableFont._data.masters,
+                        newValue: [removableFont._data.masters[0]]
+                    }
+                }
+            });
+
+        window.currentFontModel = removableFont;
+        window.fontManager = fontManager;
+        window.patchSyncEngine = {
+            applyLocalGeneratedYjsUpdate
+        };
+
+        try {
+            const removed = await removableFont.removeMastersByIds([
+                'master-2'
+            ]);
+            expect(removed).toBe(true);
+            expect(workerBatchSpy).toHaveBeenCalledWith(['master-2']);
+            expect(applyLocalGeneratedYjsUpdate).toHaveBeenCalledWith(
+                expect.any(Uint8Array),
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        op: 'remove',
+                        path: ['glyphs', 'A', 'layers', 'master-2']
+                    })
+                ]),
+                'Remove master'
+            );
+        } finally {
+            window.currentFontModel = previousFontModel;
+            window.patchSyncEngine = previousBridge;
+            window.fontManager = previousFontManager;
+            workerBatchSpy.mockRestore();
+        }
+    });
+
+    test('Font.addMaster recomposes only new automatic layers before applying the Yjs update', async () => {
+        const alignmentKey = 'com.schriftgestalt.Glyphs.alignment';
+        const addMasterFont = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 100,
+                    default: 400,
+                    max: 900
+                }
+            ],
+            cross_axis_mappings: [],
+            instances: [],
+            masters: [
+                {
+                    name: { dflt: 'Regular' },
+                    id: 'master-1',
+                    location: { wght: 400 },
+                    guides: [],
+                    metrics: {},
+                    kerning: {}
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'a',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            width: 500,
+                            id: 'master-1',
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        {
+                                            x: 0,
+                                            y: 0,
+                                            type: 'line',
+                                            smooth: false
+                                        },
+                                        {
+                                            x: 100,
+                                            y: 0,
+                                            type: 'line',
+                                            smooth: false
+                                        },
+                                        {
+                                            x: 100,
+                                            y: 100,
+                                            type: 'line',
+                                            smooth: false
+                                        }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [{ name: 'top', x: 50, y: 100 }]
+                        }
+                    ]
+                },
+                {
+                    name: 'adieresis',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            width: 500,
+                            id: 'master-1',
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    reference: 'a',
+                                    transform: [1, 0, 0, 1, 0, 0],
+                                    format_specific: {
+                                        [alignmentKey]: 1
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ],
+            note: '',
+            date: new Date('2020-01-01T00:00:00.000Z'),
+            names: {},
+            features: {
+                classes: {},
+                prefixes: {},
+                features: []
+            }
+        });
+
+        const previousFontModel = window.currentFontModel;
+        const previousBridge = window.patchSyncEngine;
+        const previousFontManager = window.fontManager;
+        const applyLocalGeneratedYjsUpdate = jest.fn();
+        const interpolatedAdieresisLayer = {
+            id: 'master-2',
+            width: 500,
+            master: {
+                type: 'DefaultForMaster',
+                master: 'master-2'
+            },
+            shapes: [
+                {
+                    reference: 'a',
+                    transform: [1, 0, 0, 1, 12, 34],
+                    format_specific: {
+                        [alignmentKey]: 1
+                    }
+                }
+            ]
+        };
+        const interpolatedALayer = {
+            id: 'master-2',
+            width: 520,
+            master: {
+                type: 'DefaultForMaster',
+                master: 'master-2'
+            },
+            shapes: [
+                {
+                    nodes: [
+                        { x: 0, y: 0, type: 'line', smooth: false },
+                        { x: 120, y: 0, type: 'line', smooth: false },
+                        { x: 120, y: 120, type: 'line', smooth: false }
+                    ],
+                    closed: true
+                }
+            ],
+            anchors: [{ name: 'top', x: 60, y: 120 }]
+        };
+        const addBatchSpy = jest
+            .spyOn(
+                fontManager,
+                'buildWorkerAddMasterWithInterpolatedLayersBatch'
+            )
+            .mockResolvedValue({
+                update: new Uint8Array([1, 2, 3]),
+                metadata: {
+                    changedGlyphs: ['a', 'adieresis'],
+                    layerTargets: [
+                        { glyphName: 'a', layerId: 'master-2' },
+                        { glyphName: 'adieresis', layerId: 'master-2' }
+                    ],
+                    layerOperations: [
+                        {
+                            glyphName: 'a',
+                            layerId: 'master-2',
+                            oldValue: null,
+                            newValue: interpolatedALayer
+                        },
+                        {
+                            glyphName: 'adieresis',
+                            layerId: 'master-2',
+                            oldValue: null,
+                            newValue: interpolatedAdieresisLayer
+                        }
+                    ],
+                    mastersOperation: {
+                        oldValue: addMasterFont._data.masters,
+                        newValue: [
+                            ...addMasterFont._data.masters,
+                            {
+                                id: 'master-2',
+                                name: { dflt: 'Bold' },
+                                location: { wght: 900 },
+                                guides: [],
+                                metrics: {},
+                                kerning: {}
+                            }
+                        ]
+                    }
+                }
+            });
+        const refineSpy = jest
+            .spyOn(fontManager, 'buildWorkerRefineLayerSnapshotsBatch')
+            .mockResolvedValue({
+                update: new Uint8Array([4, 5, 6]),
+                metadata: {
+                    changedGlyphs: ['adieresis'],
+                    layerTargets: [
+                        { glyphName: 'adieresis', layerId: 'master-2' }
+                    ],
+                    layerOperations: [],
+                    mastersOperation: null
+                }
+            });
+
+        window.currentFontModel = addMasterFont;
+        window.fontManager = fontManager;
+        window.patchSyncEngine = {
+            applyLocalGeneratedYjsUpdate
+        };
+
+        try {
+            await addMasterFont.addMaster({
+                id: 'master-2',
+                name: { dflt: 'Bold' },
+                location: { wght: 900 },
+                guides: [],
+                metrics: {},
+                kerning: {}
+            });
+
+            expect(refineSpy).toHaveBeenCalledTimes(1);
+            const [, overrides] = refineSpy.mock.calls[0];
+            expect(overrides).toEqual([
+                expect.objectContaining({
+                    glyphName: 'adieresis',
+                    layerId: 'master-2'
+                })
+            ]);
+            expect(overrides.some((entry) => entry.glyphName === 'a')).toBe(
+                false
+            );
+            expect(applyLocalGeneratedYjsUpdate).toHaveBeenCalledWith(
+                new Uint8Array([4, 5, 6]),
+                expect.any(Array),
+                'Add master'
+            );
+        } finally {
+            window.currentFontModel = previousFontModel;
+            window.patchSyncEngine = previousBridge;
+            window.fontManager = previousFontManager;
+            addBatchSpy.mockRestore();
+            refineSpy.mockRestore();
+        }
+    });
+
+    test('Font.addMaster skips refine when no new automatic layers exist', async () => {
+        const addMasterFont = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 100,
+                    default: 400,
+                    max: 900
+                }
+            ],
+            cross_axis_mappings: [],
+            instances: [],
+            masters: [
+                {
+                    name: { dflt: 'Regular' },
+                    id: 'master-1',
+                    location: { wght: 400 },
+                    guides: [],
+                    metrics: {},
+                    kerning: {}
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            width: 500,
+                            id: 'master-1',
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            }
+                        }
+                    ]
+                }
+            ],
+            note: '',
+            date: new Date('2020-01-01T00:00:00.000Z'),
+            names: {},
+            features: {
+                classes: {},
+                prefixes: {},
+                features: []
+            }
+        });
+        const previousFontModel = window.currentFontModel;
+        const previousBridge = window.patchSyncEngine;
+        const previousFontManager = window.fontManager;
+        const applyLocalGeneratedYjsUpdate = jest.fn();
+        const addBatchSpy = jest
+            .spyOn(
+                fontManager,
+                'buildWorkerAddMasterWithInterpolatedLayersBatch'
+            )
+            .mockResolvedValue({
+                update: new Uint8Array([1, 2, 3]),
+                metadata: {
+                    changedGlyphs: ['A'],
+                    layerTargets: [{ glyphName: 'A', layerId: 'master-2' }],
+                    layerOperations: [
+                        {
+                            glyphName: 'A',
+                            layerId: 'master-2',
+                            oldValue: null,
+                            newValue: {
+                                id: 'master-2',
+                                width: 500,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-2'
+                                },
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            {
+                                                x: 0,
+                                                y: 0,
+                                                type: 'line',
+                                                smooth: false
+                                            }
+                                        ],
+                                        closed: true
+                                    }
+                                ]
+                            }
+                        }
+                    ],
+                    mastersOperation: {
+                        oldValue: addMasterFont._data.masters,
+                        newValue: [
+                            ...addMasterFont._data.masters,
+                            {
+                                id: 'master-2',
+                                name: { dflt: 'Bold' },
+                                location: { wght: 900 },
+                                guides: [],
+                                metrics: {},
+                                kerning: {}
+                            }
+                        ]
+                    }
+                }
+            });
+        const refineSpy = jest.spyOn(
+            fontManager,
+            'buildWorkerRefineLayerSnapshotsBatch'
+        );
+
+        window.currentFontModel = addMasterFont;
+        window.fontManager = fontManager;
+        window.patchSyncEngine = {
+            applyLocalGeneratedYjsUpdate
+        };
+
+        try {
+            await addMasterFont.addMaster({
+                id: 'master-2',
+                name: { dflt: 'Bold' },
+                location: { wght: 900 },
+                guides: [],
+                metrics: {},
+                kerning: {}
+            });
+            expect(refineSpy).not.toHaveBeenCalled();
+            expect(applyLocalGeneratedYjsUpdate).toHaveBeenCalledWith(
+                new Uint8Array([1, 2, 3]),
+                expect.any(Array),
+                'Add master'
+            );
+        } finally {
+            window.currentFontModel = previousFontModel;
+            window.patchSyncEngine = previousBridge;
+            window.fontManager = previousFontManager;
+            addBatchSpy.mockRestore();
+            refineSpy.mockRestore();
+        }
     });
 
     describe('parent() method', () => {

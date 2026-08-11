@@ -533,4 +533,28 @@ describe('fontc-worker applyYjsUpdate metadata', () => {
         expect(metadata.nonGlyphChangeHints).toEqual(['feature-code']);
         expect(metadata.invalidateLayoutClosure).toBe(true);
     });
+
+    test('falls back to whole-glyph snapshots when layerTargets exceed the sparse cap', () => {
+        const layerTargets = Array.from({ length: 513 }, (_, index) => ({
+            glyphName: `g${index % 3}`,
+            layerId: `layer-${index}`
+        }));
+
+        const metadata = JSON.parse(
+            buildApplyYjsUpdateMetadataJson({
+                changedGlyphs: ['g0'],
+                nonGlyphChangeHints: ['masters'],
+                layerTargets,
+                invalidateLayoutClosure: true
+            })
+        );
+
+        expect(metadata.layerTargets).toEqual([]);
+        expect(metadata.changedGlyphs.sort()).toEqual(['g0', 'g1', 'g2']);
+        expect(metadata.nonGlyphChangeHints).toEqual([
+            'masters',
+            'top-level:axes'
+        ]);
+        expect(metadata.invalidateLayoutClosure).toBe(true);
+    });
 });

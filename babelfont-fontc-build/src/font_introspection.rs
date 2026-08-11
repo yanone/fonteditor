@@ -94,7 +94,9 @@ impl fmt::Display for InspectionError {
             Self::OutputLimitExceeded => formatter.write_str("inspection output limit exceeded"),
             Self::ListLimitExceeded => formatter.write_str("inspection list limit exceeded"),
             Self::RawDataLimitExceeded => formatter.write_str("inspection raw data limit exceeded"),
-            Self::RecursionLimitExceeded => formatter.write_str("inspection recursion limit exceeded"),
+            Self::RecursionLimitExceeded => {
+                formatter.write_str("inspection recursion limit exceeded")
+            }
             Self::InvalidPath(path) => write!(formatter, "invalid font path: {path}"),
             Self::InvalidValue(value) => write!(formatter, "invalid font path value: {value}"),
             Self::Font(error) => write!(formatter, "font inspection failed: {error}"),
@@ -168,8 +170,8 @@ pub fn inspect_font_bytes(
     }
 
     let result = InspectionResult { values };
-    let encoded = serde_json::to_vec(&result)
-        .map_err(|error| InspectionError::Font(error.to_string()))?;
+    let encoded =
+        serde_json::to_vec(&result).map_err(|error| InspectionError::Font(error.to_string()))?;
     if encoded.len() > MAX_OUTPUT_BYTES {
         return Err(InspectionError::OutputLimitExceeded);
     }
@@ -250,7 +252,8 @@ pub fn list_font_children(
             children: Vec::new(),
             truncated: false,
             note: Some(
-                "cmap codepoints are inspect-only; enumerate exact codepoint paths directly.".to_owned(),
+                "cmap codepoints are inspect-only; enumerate exact codepoint paths directly."
+                    .to_owned(),
             ),
         }),
         _ => {
@@ -261,13 +264,7 @@ pub fn list_font_children(
                 name_id,
             }) = parse_path(&format!("{path}/string"))
             {
-                let value = resolve_name(
-                    &font,
-                    platform_id,
-                    encoding_id,
-                    language_id,
-                    name_id,
-                )?;
+                let value = resolve_name(&font, platform_id, encoding_id, language_id, name_id)?;
                 return Ok(FontChildrenResult {
                     path: path.to_owned(),
                     children: vec![FontChildEntry {
@@ -284,10 +281,7 @@ pub fn list_font_children(
             if let Ok(FontPath::VariationAxis { index, field: None }) = parse_path(path) {
                 return Ok(FontChildrenResult {
                     path: path.to_owned(),
-                    children: variation_axis_children(
-                        &font,
-                        index,
-                    )?,
+                    children: variation_axis_children(&font, index)?,
                     truncated: false,
                     note: None,
                 });
@@ -304,8 +298,7 @@ pub fn list_font_children(
                 });
             }
 
-            if let Ok(FontPath::GlyphOutline { glyph_id }) =
-                parse_path(&format!("{path}/outline"))
+            if let Ok(FontPath::GlyphOutline { glyph_id }) = parse_path(&format!("{path}/outline"))
             {
                 return Ok(FontChildrenResult {
                     path: path.to_owned(),
@@ -350,10 +343,7 @@ fn list_name_records(
         if record.length() as usize > MAX_RAW_BYTES {
             return Err(InspectionError::RawDataLimitExceeded);
         }
-        let string = record
-            .string(data)
-            .map_err(font_error)?
-            .to_string();
+        let string = record.string(data).map_err(font_error)?.to_string();
         if string.len() > MAX_RAW_BYTES {
             return Err(InspectionError::RawDataLimitExceeded);
         }
@@ -492,16 +482,10 @@ fn list_horizontal_metrics(
     let count = max_glyphs.min(limit + 1);
     let mut children = Vec::new();
     for gid in 0..count {
-        let value = resolve_horizontal_metric(
-            font,
-            gid as u16,
-            HorizontalMetricField::AdvanceWidth,
-        )?;
-        let side_bearing = resolve_horizontal_metric(
-            font,
-            gid as u16,
-            HorizontalMetricField::SideBearing,
-        )?;
+        let value =
+            resolve_horizontal_metric(font, gid as u16, HorizontalMetricField::AdvanceWidth)?;
+        let side_bearing =
+            resolve_horizontal_metric(font, gid as u16, HorizontalMetricField::SideBearing)?;
         children.push(FontChildEntry {
             path: format!("/tables/hmtx/metrics/gid={gid}"),
             label: format!("gid={gid}"),
@@ -535,21 +519,13 @@ fn horizontal_metric_children(
             path: format!("/tables/hmtx/metrics/gid={glyph_id}/advanceWidth"),
             label: "advanceWidth".to_owned(),
             kind: "leaf".to_owned(),
-            value: resolve_horizontal_metric(
-                font,
-                glyph_id,
-                HorizontalMetricField::AdvanceWidth,
-            )?,
+            value: resolve_horizontal_metric(font, glyph_id, HorizontalMetricField::AdvanceWidth)?,
         },
         FontChildEntry {
             path: format!("/tables/hmtx/metrics/gid={glyph_id}/sideBearing"),
             label: "sideBearing".to_owned(),
             kind: "leaf".to_owned(),
-            value: resolve_horizontal_metric(
-                font,
-                glyph_id,
-                HorizontalMetricField::SideBearing,
-            )?,
+            value: resolve_horizontal_metric(font, glyph_id, HorizontalMetricField::SideBearing)?,
         },
     ])
 }
@@ -599,10 +575,7 @@ fn list_glyph_children(
 
 fn resolve_path(font: &FontRef<'_>, path: &FontPath) -> Result<Value, InspectionError> {
     match path {
-        FontPath::UnitsPerEm => Ok(json!(font
-            .head()
-            .map_err(font_error)?
-            .units_per_em())),
+        FontPath::UnitsPerEm => Ok(json!(font.head().map_err(font_error)?.units_per_em())),
         FontPath::NumGlyphs => Ok(json!(font.maxp().map_err(font_error)?.num_glyphs())),
         FontPath::Name {
             platform_id,
@@ -644,10 +617,7 @@ fn resolve_name(
     if record.length() as usize > MAX_RAW_BYTES {
         return Err(InspectionError::RawDataLimitExceeded);
     }
-    let string = record
-        .string(data)
-        .map_err(font_error)?
-        .to_string();
+    let string = record.string(data).map_err(font_error)?.to_string();
     if string.len() > MAX_RAW_BYTES {
         return Err(InspectionError::RawDataLimitExceeded);
     }
@@ -701,9 +671,9 @@ fn resolve_horizontal_metric(
     let glyph_id = GlyphId::new(glyph_id as u32);
     let value = match field {
         HorizontalMetricField::AdvanceWidth => metrics.advance(glyph_id).map(|value| json!(value)),
-        HorizontalMetricField::SideBearing => metrics
-            .side_bearing(glyph_id)
-            .map(|value| json!(value)),
+        HorizontalMetricField::SideBearing => {
+            metrics.side_bearing(glyph_id).map(|value| json!(value))
+        }
     };
     Ok(value.unwrap_or(Value::Null))
 }
@@ -765,10 +735,12 @@ fn resolve_glyph_outline(font: &FontRef<'_>, glyph_id: u16) -> Result<Value, Ins
             let components = composite
                 .component_glyphs_and_flags()
                 .take(MAX_LIST_SIZE + 1)
-                .map(|(component, flags)| json!({
-                    "gid": component.to_u32(),
-                    "flags": flags.bits(),
-                }))
+                .map(|(component, flags)| {
+                    json!({
+                        "gid": component.to_u32(),
+                        "flags": flags.bits(),
+                    })
+                })
                 .collect::<Vec<_>>();
             if components.len() > MAX_LIST_SIZE {
                 return Err(InspectionError::ListLimitExceeded);
@@ -888,7 +860,9 @@ mod tests {
             Ok(FontPath::UnitsPerEm)
         );
         assert_eq!(
-            parse_path("/tables/name/records/platformID=3/encodingID=1/languageID=0x0409/nameID=1/string"),
+            parse_path(
+                "/tables/name/records/platformID=3/encodingID=1/languageID=0x0409/nameID=1/string"
+            ),
             Ok(FontPath::Name {
                 platform_id: 3,
                 encoding_id: 1,
@@ -955,7 +929,12 @@ mod tests {
         assert_eq!(first, second);
         assert_eq!(
             first.values,
-            vec![json!(1058), json!(1000), json!(1), json!("Fustat ExtraLight")]
+            vec![
+                json!(1058),
+                json!(1000),
+                json!(1),
+                json!("Fustat ExtraLight")
+            ]
         );
     }
 

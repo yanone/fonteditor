@@ -5957,7 +5957,6 @@ class FontInfoManager {
             return;
         }
 
-        beginLoadingCursor();
         try {
             const metricTemplateMasterId = rawArray(font.masters)[
                 this.selectedMasterIndex
@@ -5983,8 +5982,6 @@ class FontInfoManager {
                 err
             );
             throw err;
-        } finally {
-            endLoadingCursor();
         }
     }
 
@@ -6542,7 +6539,10 @@ class FontInfoManager {
             newValue: clonedNextAxes,
             applyLocal: () => this.applyLocalAxesList(clonedNextAxes),
             markDirtyKey: 'font-info-axes-list',
-            refresh: () => this.forceRefreshVisibleAxesContent()
+            refresh: () => {
+                this.forceRefreshVisibleAxesContent();
+                void window.glyphCanvas?.axesManager?.updateAxesUI?.();
+            }
         });
     }
 
@@ -6622,7 +6622,10 @@ class FontInfoManager {
                 );
             },
             markDirtyKey: 'font-info-axes-list',
-            refresh: () => this.forceRefreshVisibleAxesContent()
+            refresh: () => {
+                this.forceRefreshVisibleAxesContent();
+                void window.glyphCanvas?.axesManager?.updateAxesUI?.();
+            }
         });
     }
 
@@ -6759,7 +6762,10 @@ class FontInfoManager {
                     }
                 },
                 markDirtyKey: 'font-info-axes-list',
-                refresh: () => this.forceRefreshVisibleAxesContent()
+                refresh: () => {
+                    this.forceRefreshVisibleAxesContent();
+                    void window.glyphCanvas?.axesManager?.updateAxesUI?.();
+                }
             });
         });
     }
@@ -7013,21 +7019,72 @@ class FontInfoManager {
             return;
         }
 
-        this.commitFontPathChange({
+        const changes: Array<{
+            op?: 'set' | 'remove';
+            path: (string | number)[];
+            oldValue: unknown;
+            newValue: unknown;
+        }> = [
+            {
+                path: ['axes', axisIndex, field],
+                oldValue: previousValue,
+                newValue: nextValue
+            }
+        ];
+
+        // Keep map endpoints aligned with userspace min/max when the range moves.
+        if (
+            (field === 'min' || field === 'max') &&
+            typeof previousValue === 'number' &&
+            Array.isArray(axis.map) &&
+            axis.map.length > 0
+        ) {
+            const previousMap = (axis.map ?? []) as [number, number][];
+            let replaced = false;
+            const nextMap = previousMap
+                .map(([userspace, designspace]) => {
+                    if (userspace === previousValue) {
+                        replaced = true;
+                        return [nextValue, designspace] as [number, number];
+                    }
+                    return [userspace, designspace] as [number, number];
+                })
+                .sort((left, right) => left[0] - right[0]);
+            if (replaced) {
+                changes.push({
+                    path: ['axes', axisIndex, 'map'],
+                    oldValue: previousMap,
+                    newValue: nextMap
+                });
+            }
+        }
+
+        this.commitMultipleFontPathChanges({
             label: `Edit axis ${field}`,
-            path: ['axes', axisIndex, field],
-            oldValue: previousValue,
-            newValue: nextValue,
+            changes,
             applyLocal: () => {
                 const liveAxis = (
                     window.currentFontModel as unknown as
                         Babelfont.Font | undefined
                 )?.axes?.[axisIndex] as any;
-                if (liveAxis) {
-                    liveAxis[field] = nextValue;
+                if (!liveAxis) {
+                    return;
+                }
+                liveAxis[field] = nextValue;
+                const mapChange = changes.find(
+                    (change) =>
+                        Array.isArray(change.path) && change.path[2] === 'map'
+                );
+                if (mapChange) {
+                    liveAxis.map = mapChange.newValue;
                 }
             },
-            markDirtyKey: `font-info-axis-${field}`
+            markDirtyKey: `font-info-axis-${field}`,
+            refresh: () => {
+                this.refreshAxisSidebarItemSummary(axisIndex);
+                this.forceRefreshVisibleAxesContent();
+                void window.glyphCanvas?.axesManager?.updateAxesUI?.();
+            }
         });
     }
 
@@ -7146,21 +7203,68 @@ class FontInfoManager {
             return;
         }
 
-        this.commitFontPathChange({
+        const changes: Array<{
+            op?: 'set' | 'remove';
+            path: (string | number)[];
+            oldValue: unknown;
+            newValue: unknown;
+        }> = [
+            {
+                path: ['axes', axisIndex, 'map'],
+                oldValue: previousMap,
+                newValue: newMap
+            }
+        ];
+
+        let nextMin = axis.min as number | undefined;
+        let nextMax = axis.max as number | undefined;
+        if (newMap && newMap.length > 0) {
+            const userspaceValues = newMap.map(([userspace]) => userspace);
+            const mapMin = Math.min(...userspaceValues);
+            const mapMax = Math.max(...userspaceValues);
+            if (typeof nextMin !== 'number' || mapMin < nextMin) {
+                changes.push({
+                    path: ['axes', axisIndex, 'min'],
+                    oldValue: axis.min,
+                    newValue: mapMin
+                });
+                nextMin = mapMin;
+            }
+            if (typeof nextMax !== 'number' || mapMax > nextMax) {
+                changes.push({
+                    path: ['axes', axisIndex, 'max'],
+                    oldValue: axis.max,
+                    newValue: mapMax
+                });
+                nextMax = mapMax;
+            }
+        }
+
+        this.commitMultipleFontPathChanges({
             label,
-            path: ['axes', axisIndex, 'map'],
-            oldValue: previousMap,
-            newValue: newMap,
+            changes,
             applyLocal: () => {
                 const liveAxis = (
                     window.currentFontModel as unknown as
                         Babelfont.Font | undefined
                 )?.axes?.[axisIndex] as any;
-                if (liveAxis) {
-                    liveAxis.map = newMap;
+                if (!liveAxis) {
+                    return;
+                }
+                liveAxis.map = newMap;
+                if (typeof nextMin === 'number') {
+                    liveAxis.min = nextMin;
+                }
+                if (typeof nextMax === 'number') {
+                    liveAxis.max = nextMax;
                 }
             },
-            markDirtyKey: 'font-info-axis-map'
+            markDirtyKey: 'font-info-axis-map',
+            refresh: () => {
+                this.refreshAxisSidebarItemSummary(axisIndex);
+                this.forceRefreshVisibleAxesContent();
+                void window.glyphCanvas?.axesManager?.updateAxesUI?.();
+            }
         });
     }
 

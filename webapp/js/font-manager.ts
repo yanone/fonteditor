@@ -121,9 +121,13 @@ export type RustBatchMetadata = {
         glyphName: string;
         layerId: string;
         oldValue?: unknown;
-        newValue: unknown;
+        newValue?: unknown;
     }>;
     mastersOperation?: {
+        oldValue?: unknown;
+        newValue: unknown;
+    } | null;
+    axesOperation?: {
         oldValue?: unknown;
         newValue: unknown;
     } | null;
@@ -1066,12 +1070,21 @@ class FontManager {
                       newValue: unknown;
                   })
                 : null;
+        const axesOperation =
+            rawMetadata.axesOperation &&
+            typeof rawMetadata.axesOperation === 'object'
+                ? (rawMetadata.axesOperation as {
+                      oldValue?: unknown;
+                      newValue: unknown;
+                  })
+                : null;
 
         return {
             changedGlyphs,
             layerTargets,
             layerOperations,
-            mastersOperation
+            mastersOperation,
+            axesOperation
         };
     }
 
@@ -1117,12 +1130,38 @@ class FontManager {
 
     async buildWorkerAddMasterWithInterpolatedLayersBatch(
         master: Babelfont.Master,
-        interpolationLocations?: AddMasterInterpolationLocation[]
+        interpolationLocations?: AddMasterInterpolationLocation[],
+        axes?: Babelfont.Axis[]
     ): Promise<RustBatchResult> {
         return this.requestRustBatchFromWorker({
             type: 'addMasterWithInterpolatedLayersYjs',
             master,
-            interpolationLocations: interpolationLocations ?? []
+            interpolationLocations: interpolationLocations ?? [],
+            ...(axes ? { axes } : {})
+        });
+    }
+
+    async buildWorkerRefineLayerSnapshotsBatch(
+        baseUpdate: Uint8Array,
+        overrides: Array<{
+            glyphName: string;
+            layerId: string;
+            layer: unknown;
+        }>
+    ): Promise<RustBatchResult> {
+        return this.requestRustBatchFromWorker({
+            type: 'refineLayerSnapshotsYjs',
+            baseUpdate,
+            overrides
+        });
+    }
+
+    async buildWorkerRemoveMastersBatch(
+        masterIds: string[]
+    ): Promise<RustBatchResult> {
+        return this.requestRustBatchFromWorker({
+            type: 'removeMastersYjs',
+            masterIds
         });
     }
 
@@ -4496,11 +4535,22 @@ class FontManager {
             // already settled for the steady-state hot path.
             await fontCompilation.awaitWorkerDocumentSync();
 
-            if (
-                !fontCompilation?.isInitialized ||
-                this.workerMirrorQuarantined
-            ) {
+            if (!fontCompilation?.isInitialized) {
                 return false;
+            }
+
+            // Quarantine is an exceptional failure state (e.g. a prior
+            // applyYjsUpdate throw). Re-seed from the authoritative bridge
+            // once so later incremental edits are not stuck forever; this is
+            // the same recovery class as cloud reconnect rebaseline.
+            if (this.workerMirrorQuarantined) {
+                const recovered =
+                    await this.recoverWorkerCacheFromAuthoritativeState(
+                        'sendWorkerYjsUpdate while quarantined'
+                    );
+                if (!recovered || this.workerMirrorQuarantined) {
+                    return false;
+                }
             }
 
             const hasRefreshMetadata =

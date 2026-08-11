@@ -1055,6 +1055,27 @@ export function prime_preview_layout_closure_cache(
 }
 
 /**
+ * @param {Uint8Array} base_update
+ * @param {string} overrides_json
+ * @returns {any}
+ */
+export function refine_layer_snapshots_yjs(base_update, overrides_json) {
+    const ptr0 = passArray8ToWasm0(base_update, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(
+        overrides_json,
+        wasm.__wbindgen_malloc,
+        wasm.__wbindgen_realloc
+    );
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.refine_layer_snapshots_yjs(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * @param {string} glyph_name
  * @param {string} layer_id
  * @returns {any}
@@ -1091,6 +1112,24 @@ export function reinterpolate_master_layers_yjs(master_id) {
     );
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.reinterpolate_master_layers_yjs(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {string} master_ids_json
+ * @returns {any}
+ */
+export function remove_masters_yjs(master_ids_json) {
+    const ptr0 = passStringToWasm0(
+        master_ids_json,
+        wasm.__wbindgen_malloc,
+        wasm.__wbindgen_realloc
+    );
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.remove_masters_yjs(ptr0, len0);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }

@@ -4,7 +4,8 @@ const {
     refreshGlyphOverviewFromGlyphNames,
     syncRustCacheAndRefreshCanvas,
     buildCascadingRecompositionOperations,
-    runBridgeUndoRedo
+    runBridgeUndoRedo,
+    committedEntriesTouchAxes
 } = require('../js/change-bridge-init');
 const {
     fontCompilation,
@@ -1826,7 +1827,7 @@ describe('handleRemoteChangeRefresh', () => {
         expect(refreshOrder).toEqual(['sync', 'compile']);
     });
 
-    test('refreshes local replay targets for forwarded add-master batch packets before compile', async () => {
+    test('classifies local add-master batch packets as full editing compiles', async () => {
         const refreshOrder = [];
         const awaitWorkerSync = jest.fn(async () => {
             refreshOrder.push('sync');
@@ -1880,10 +1881,107 @@ describe('handleRemoteChangeRefresh', () => {
         expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
         expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestCompile).toHaveBeenCalledWith(
-            'keyboard-outline',
-            'outline'
+            'change-bridge-local',
+            null
         );
         expect(refreshOrder).toEqual(['sync', 'compile']);
+    });
+
+    test('classifies local remove-master packets as full editing compiles', async () => {
+        const awaitWorkerSync = jest.fn(async () => {});
+        const requestCompile = jest.fn(async () => {});
+        const queueCacheRefresh = jest.fn(async () => {});
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set())
+                }
+            },
+            lastChangeSource: null,
+            lastEditType: null
+        };
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Remove master',
+                        path: 'masters'
+                    },
+                    {
+                        transactionLabel: 'Remove master',
+                        path: 'glyphs.A.layers.master-3',
+                        workerReplayTargets: [
+                            {
+                                glyphName: 'A',
+                                layerId: 'master-3'
+                            }
+                        ]
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync,
+                    requestCompile,
+                    queueCacheRefresh
+                }
+            );
+        } finally {
+            delete window.fontManager;
+        }
+
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
+        expect(requestCompile).toHaveBeenCalledWith(
+            'change-bridge-local',
+            null
+        );
+    });
+
+    test('rebuilds editor axis sliders after committed axis range edits', async () => {
+        expect(committedEntriesTouchAxes([{ path: 'axes.0.max' }])).toBe(true);
+        expect(committedEntriesTouchAxes([{ path: 'masters' }])).toBe(false);
+
+        const awaitWorkerSync = jest.fn(async () => {});
+        const requestCompile = jest.fn(async () => {});
+        const updateAxesUI = jest.fn(async () => {});
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set())
+                }
+            },
+            lastChangeSource: null,
+            lastEditType: null
+        };
+        window.glyphCanvas = {
+            axesManager: {
+                updateAxesUI
+            }
+        };
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Edit axis max',
+                        path: 'axes.0.max'
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync,
+                    requestCompile
+                }
+            );
+        } finally {
+            delete window.fontManager;
+            delete window.glyphCanvas;
+        }
+
+        expect(updateAxesUI).toHaveBeenCalledTimes(1);
+        expect(requestCompile).toHaveBeenCalled();
     });
 
     test('skips bootstrap-style local compile wake-up before the first editing font exists', async () => {
@@ -2401,7 +2499,7 @@ describe('handleRemoteChangeRefresh', () => {
         );
     });
 
-    test('classifies forwarded add-master batch packets as remote outline edits', async () => {
+    test('classifies forwarded add-master batch packets as full remote compiles', async () => {
         const replayTargets = [{ glyphName: 'A', layerId: 'master-3' }];
         const queueCacheRefresh = jest.fn(async () => {});
         const requestCompile = jest.fn(async () => {});
@@ -2425,10 +2523,35 @@ describe('handleRemoteChangeRefresh', () => {
         );
 
         expect(queueCacheRefresh).not.toHaveBeenCalled();
-        expect(requestCompile).toHaveBeenCalledWith(
-            'remote-outline',
-            'outline'
+        expect(requestCompile).toHaveBeenCalledWith('remote-change', null);
+    });
+
+    test('classifies forwarded remove-master packets as full remote compiles', async () => {
+        const queueCacheRefresh = jest.fn(async () => {});
+        const requestCompile = jest.fn(async () => {});
+
+        await handleRemoteChangeRefresh(
+            [
+                {
+                    transactionLabel: 'Remove master',
+                    path: 'masters'
+                },
+                {
+                    transactionLabel: 'Remove master',
+                    path: 'glyphs.A.layers.master-3',
+                    workerReplayTargets: [
+                        { glyphName: 'A', layerId: 'master-3' }
+                    ]
+                }
+            ],
+            {
+                requestCompile,
+                queueCacheRefresh
+            }
         );
+
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
+        expect(requestCompile).toHaveBeenCalledWith('remote-change', null);
     });
 
     test('local GUI commit with downstream replay targets refreshes dependents before compile', async () => {

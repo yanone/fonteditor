@@ -969,11 +969,20 @@ function inferCommittedEditTypeFromEntries(
                 changeSource: 'feature-code'
             };
         }
+        // Master topology changes must rebuild fvar/avar/gvar. Classifying them
+        // as outline-only leaves the editing VF without the new/removed master
+        // tuple, so locations past the previous extrema fall back to the default
+        // master (e.g. Regular at the new axis max).
+        if (label === 'Add master' || label === 'Remove master') {
+            return {
+                editType: null,
+                changeSource: changeSourceFor(null)
+            };
+        }
         if (
             hasReplayTargets &&
             (label === 'Reinterpolate layer batch sync' ||
-                label === 'Reinterpolate layer sync' ||
-                label === 'Add master')
+                label === 'Reinterpolate layer sync')
         ) {
             return {
                 editType: 'outline',
@@ -2610,6 +2619,14 @@ function changesComponentReferences(entry: ChangeLogEntry): boolean {
     );
 }
 
+/** Detect Font Info / model axis topology edits that require slider rebuild. */
+export function committedEntriesTouchAxes(entries: ChangeLogEntry[]): boolean {
+    return entries.some((entry) => {
+        const path = entry.path ?? '';
+        return path === 'axes' || path.startsWith('axes.');
+    });
+}
+
 /**
  * Refresh committed changes through one post-commit funnel for both the
  * local sender and remote receivers. Remote packets still run their
@@ -2666,6 +2683,9 @@ export async function handleCommittedChangeRefresh(
             return;
         }
         postCommitUiRefreshed = true;
+        if (committedEntriesTouchAxes(entries)) {
+            await window.glyphCanvas?.axesManager?.updateAxesUI?.();
+        }
         await refreshGlyphOverviewFromCommittedEntries(entries);
         await window.glyphOverviewFilterManager?.handleCommittedChangeEntries(
             entries

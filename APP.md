@@ -304,7 +304,13 @@ When an automatically aligned component has more than one eligible target anchor
 
 #### Automatic Glyph Composition
 
-Layers that contain only components and no paths are automatically composed by the editor only when every component explicitly stores `alignment = 1`.
+Layers that contain only components and no paths are automatically composed by the editor only when every component explicitly stores `alignment = 1`. When a new master is added, newly created master layers that qualify as automatic are recomposed in the same add-master Yjs packet (after Rust interpolation, before the packet is applied); non-automatic new layers keep their interpolated placements. Adding or removing a master must then run a full editing-font compile (not outline-only) so the compiled variable font absorbs the changed master topology in `fvar` / `avar` / `gvar`; otherwise locations at the new extrema fall back to the default master while the object-model outlines look correct.
+
+When a new master's designspace location lies outside the current axis coverage, that same add-master commit must extend the axis userspace min/max (and, when an axis map exists, append an extrapolated map endpoint) so the new master is inside the declared range before interpolation, slider rebuild, live outline interpolation, and full compile run. Layer interpolation for the new master must use the master's designspace location (never the extrapolated userspace endpoint as if it were designspace), and must normalize against the extended axes. When add/remove-master produces more sparse `layerTargets` than the worker metadata soft cap, the forwarded `applyYjsUpdate` metadata falls back to whole-glyph cache refresh (plus masters/axes hints) instead of failing and quarantining the worker.
+
+Font Info axis Mapping edits may move map-point userspace values past the previous axis min/max; committing those points must widen userspace min/max to cover the map. Editing userspace Minimum/Maximum must also retarget any map endpoint that sat on the previous min/max value.
+
+Editor variable-axis sliders always follow the font model's userspace axis min/max/default (and rebuild immediately when those fields or the axis map/list change). They must not remain pinned to a stale compiled-font `fvar` range after Font Info extends or shrinks an axis.
 
 Anchors serve both OpenType GPOS attachment features and automatic component arrangement in the editor at design-time. A base component may expose anchors such as `top` or `bottom`, and a mark component may expose matching attachment anchors such as `_top` or `_bottom`. During automatic composition, a mark component must snap to the matching base anchor in the same way mark-to-base positioning would attach the mark glyph.
 

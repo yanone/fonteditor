@@ -3896,10 +3896,7 @@ export class PatchSyncEngine {
                     transactionLabel: label,
                     transactionId: null,
                     op: operation.op,
-                    undoScope: this._deriveUndoScope(
-                        deriveGlyphName(operation.path),
-                        deriveLayerId(operation.path)
-                    ),
+                    undoScope: scopeInfo.scope,
                     path: joinPathWithGlyphSeparator(operation.path),
                     oldValue: operation.oldValue,
                     newValue: operation.newValue,

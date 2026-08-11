@@ -151,7 +151,7 @@ import {
     decomposedAffineToAffine
 } from './glyph-path-geometry';
 import { LayerDataNormalizer } from './layer-data-normalizer';
-import { designspaceToUserspace, userspaceToDesignspace } from './locations';
+import { extendAxesForDesignspaceLocation } from './locations';
 import type { DesignspaceLocation, UserspaceLocation } from './locations';
 import { Bezier } from 'bezier-js';
 import { Logger } from './logger';
@@ -434,9 +434,13 @@ export type InterpolationRustBatchMetadata = {
         glyphName: string;
         layerId: string;
         oldValue?: unknown;
-        newValue: unknown;
+        newValue?: unknown;
     }>;
     mastersOperation?: {
+        oldValue?: unknown;
+        newValue: unknown;
+    } | null;
+    axesOperation?: {
         oldValue?: unknown;
         newValue: unknown;
     } | null;
@@ -2748,6 +2752,15 @@ export function buildInterpolationRustBatchOperations(
 ): TransactionBufferedOperation[] {
     const operations: TransactionBufferedOperation[] = [];
 
+    if (metadata.axesOperation) {
+        operations.push({
+            op: 'set',
+            path: ['axes'],
+            oldValue: metadata.axesOperation.oldValue,
+            newValue: metadata.axesOperation.newValue
+        });
+    }
+
     if (metadata.mastersOperation) {
         operations.push({
             op: 'set',
@@ -2758,19 +2771,45 @@ export function buildInterpolationRustBatchOperations(
     }
 
     operations.push(
-        ...metadata.layerOperations.map((operation) => ({
-            op: 'set' as const,
-            path: ['glyphs', operation.glyphName, 'layers', operation.layerId],
-            oldValue: operation.oldValue,
-            newValue: operation.newValue,
-            applyMode: 'layer-snapshot' as const,
-            workerReplayTargets: [
-                {
-                    glyphName: operation.glyphName,
-                    layerId: operation.layerId
-                }
-            ]
-        }))
+        ...metadata.layerOperations.map((operation) => {
+            const path = [
+                'glyphs',
+                operation.glyphName,
+                'layers',
+                operation.layerId
+            ] as (string | number)[];
+            if (
+                operation.newValue === undefined ||
+                operation.newValue === null
+            ) {
+                return {
+                    op: 'remove' as const,
+                    path,
+                    oldValue: operation.oldValue,
+                    newValue: undefined,
+                    workerReplayTargets: [
+                        {
+                            glyphName: operation.glyphName,
+                            layerId: operation.layerId
+                        }
+                    ]
+                };
+            }
+
+            return {
+                op: 'set' as const,
+                path,
+                oldValue: operation.oldValue,
+                newValue: operation.newValue,
+                applyMode: 'layer-snapshot' as const,
+                workerReplayTargets: [
+                    {
+                        glyphName: operation.glyphName,
+                        layerId: operation.layerId
+                    }
+                ]
+            };
+        })
     );
 
     return operations;
@@ -12927,26 +12966,21 @@ export class Font extends ModelBase {
     private getAddMasterInterpolationLocations(
         targetLocation: DesignspaceLocation | undefined
     ): AddMasterInterpolationLocation[] {
-        const axes = this.axes || [];
         const locations: AddMasterInterpolationLocation[] = [];
 
         if (!targetLocation || Object.keys(targetLocation).length === 0) {
             return locations;
         }
 
-        const userspaceLocation = designspaceToUserspace(
-            targetLocation,
-            axes as unknown as Babelfont.Axis[]
-        );
-        const roundTrippedDesignLocation = userspaceToDesignspace(
-            userspaceLocation,
-            axes as unknown as Babelfont.Axis[]
-        );
+        // Master locations are designspace. Pass them through directly — do not
+        // round-trip via userspace (that path previously risked feeding the
+        // extrapolated userspace endpoint back as a design coordinate).
+        const designLocation = this.clonePlainValue(targetLocation);
 
         for (const glyph of this.glyphs) {
             locations.push({
                 glyphName: glyph.name,
-                designLocation: this.clonePlainValue(roundTrippedDesignLocation)
+                designLocation
             });
         }
 
@@ -12989,15 +13023,28 @@ export class Font extends ModelBase {
             }
 
             const taken = existingByAxis[tag] ?? new Set<number>();
-            const axisMax = axis.max as number | undefined;
-            const axisMin = axis.min as number | undefined;
+            const map = Array.isArray(axis.map) ? axis.map : [];
+            const designValues = map
+                .map((entry) => Number(entry?.[1]))
+                .filter((value) => Number.isFinite(value));
+            const axisMaxDesign =
+                designValues.length > 0
+                    ? Math.max(...designValues)
+                    : (axis.max as number | undefined);
+            const axisMinDesign =
+                designValues.length > 0
+                    ? Math.min(...designValues)
+                    : (axis.min as number | undefined);
             const axisDefault = axis.default as number | undefined;
 
             let chosen = axisDefault ?? 0;
-            if (axisMax !== undefined && !taken.has(axisMax)) {
-                chosen = axisMax;
-            } else if (axisMin !== undefined && !taken.has(axisMin)) {
-                chosen = axisMin;
+            if (axisMaxDesign !== undefined && !taken.has(axisMaxDesign)) {
+                chosen = axisMaxDesign;
+            } else if (
+                axisMinDesign !== undefined &&
+                !taken.has(axisMinDesign)
+            ) {
+                chosen = axisMinDesign;
             }
 
             entries.push([tag, chosen]);
@@ -13037,18 +13084,154 @@ export class Font extends ModelBase {
         };
     }
 
-    private getInterpolatedLayerDataForLocation(
-        designLocation: DesignspaceLocation | undefined
-    ): Map<string, Babelfont.Layer> {
-        void designLocation;
-        const interpolatedLayers = new Map<string, Babelfont.Layer>();
-        return interpolatedLayers;
-    }
-
     private setLocalMastersList(nextMasters: Babelfont.Master[]): void {
         assertModelMutationAllowed();
         this._data.masters = nextMasters;
         this._masterWrappers = null;
+    }
+
+    private collectAutomaticNewLayerOverrides(
+        metadata: InterpolationRustBatchMetadata
+    ): Array<{
+        glyphName: string;
+        layerId: string;
+        layer: Babelfont.Layer;
+    }> {
+        if (
+            !metadata.mastersOperation?.newValue ||
+            !Array.isArray(metadata.layerOperations) ||
+            metadata.layerOperations.length === 0
+        ) {
+            return [];
+        }
+
+        return withSuppressedModelRecording(() => {
+            const overlayData = this.clonePlainValue(
+                this._data
+            ) as Babelfont.Font;
+            overlayData.masters = this.clonePlainValue(
+                metadata.mastersOperation!.newValue
+            ) as Babelfont.Master[];
+
+            for (const operation of metadata.layerOperations) {
+                if (
+                    operation.newValue === undefined ||
+                    operation.newValue === null
+                ) {
+                    continue;
+                }
+                const glyphData = overlayData.glyphs?.find(
+                    (glyph) => glyph.name === operation.glyphName
+                );
+                if (!glyphData) {
+                    continue;
+                }
+                if (!Array.isArray(glyphData.layers)) {
+                    glyphData.layers = [];
+                }
+                const nextLayer = this.clonePlainValue(
+                    operation.newValue
+                ) as Babelfont.Layer;
+                const existingIndex = glyphData.layers.findIndex(
+                    (layer) => layer.id === operation.layerId
+                );
+                if (existingIndex >= 0) {
+                    glyphData.layers[existingIndex] = nextLayer;
+                } else {
+                    glyphData.layers.push(nextLayer);
+                }
+            }
+
+            const overlay = Font.fromData(overlayData);
+            type AutoTarget = {
+                glyphName: string;
+                layerId: string;
+                layer: Layer;
+                componentRefs: string[];
+            };
+            const autoTargets: AutoTarget[] = [];
+            for (const operation of metadata.layerOperations) {
+                const layer = overlay
+                    .findGlyph(operation.glyphName)
+                    ?.findLayerById(operation.layerId);
+                if (!layer?.isAutomaticAlignedLayer()) {
+                    continue;
+                }
+                autoTargets.push({
+                    glyphName: operation.glyphName,
+                    layerId: operation.layerId,
+                    layer,
+                    componentRefs: layer.components
+                        .map((component) => component.reference)
+                        .filter(
+                            (reference): reference is string =>
+                                typeof reference === 'string' &&
+                                reference.length > 0
+                        )
+                });
+            }
+            if (!autoTargets.length) {
+                return [];
+            }
+
+            const autoGlyphNames = new Set(
+                autoTargets.map((target) => target.glyphName)
+            );
+            const remaining = new Map(
+                autoTargets.map((target) => [target.glyphName, target])
+            );
+            const ordered: AutoTarget[] = [];
+            while (remaining.size > 0) {
+                let progressed = false;
+                for (const [glyphName, target] of [...remaining]) {
+                    const blocked = target.componentRefs.some(
+                        (reference) =>
+                            autoGlyphNames.has(reference) &&
+                            remaining.has(reference)
+                    );
+                    if (blocked) {
+                        continue;
+                    }
+                    ordered.push(target);
+                    remaining.delete(glyphName);
+                    progressed = true;
+                }
+                if (!progressed) {
+                    ordered.push(...remaining.values());
+                    break;
+                }
+            }
+
+            const sourceDataCache = new WeakMap<
+                object,
+                AutomaticCompositionSourceData
+            >();
+            const overrides: Array<{
+                glyphName: string;
+                layerId: string;
+                layer: Babelfont.Layer;
+            }> = [];
+            for (const target of ordered) {
+                const before = JSON.stringify(target.layer.toJSON());
+                const changed =
+                    target.layer.rebuildAutomaticComposition(sourceDataCache);
+                if (!changed) {
+                    continue;
+                }
+                const afterData = this.clonePlainValue(
+                    target.layer.toJSON()
+                ) as Babelfont.Layer;
+                if (JSON.stringify(afterData) === before) {
+                    continue;
+                }
+                overrides.push({
+                    glyphName: target.glyphName,
+                    layerId: target.layerId,
+                    layer: afterData
+                });
+            }
+            return overrides;
+        });
     }
 
     async addMaster(
@@ -13059,6 +13242,14 @@ export class Font extends ModelBase {
         const clonedMaster = this.clonePlainValue(
             master ?? this.buildDefaultMasterRecord(options)
         );
+        const previousAxes = this.clonePlainValue(this._data.axes ?? []);
+        const axisExtension = extendAxesForDesignspaceLocation(
+            previousAxes,
+            clonedMaster.location
+        );
+        if (axisExtension.changed) {
+            this._data.axes = axisExtension.axes;
+        }
         const bridge = getPatchSyncEngine() as
             | (PatchSyncEngine & {
                   applyLocalGeneratedYjsUpdate?: (
@@ -13082,17 +13273,60 @@ export class Font extends ModelBase {
                         clonedMaster,
                         this.getAddMasterInterpolationLocations(
                             clonedMaster.location
-                        )
-                    );
-                if (batchResult.update.length) {
-                    bridge.applyLocalGeneratedYjsUpdate(
-                        batchResult.update,
-                        buildInterpolationRustBatchOperations(
-                            batchResult.metadata
                         ),
-                        'Add master'
+                        // Always send the axes snapshot used for interpolation.
+                        // Even when min/max/map did not change, the worker
+                        // FONT_CACHE can lag (e.g. prior structural sync
+                        // quarantine); omitting axes then extrapolates with a
+                        // stale avar map and produces frankenstein layers.
+                        this._data.axes ?? []
                     );
+                if (!batchResult.update.length) {
+                    if (axisExtension.changed) {
+                        this._data.axes = previousAxes;
+                    }
+                    return this.findMaster(clonedMaster.id || '') || null;
                 }
+
+                let finalUpdate = batchResult.update;
+                const metadata = batchResult.metadata;
+                if (axisExtension.changed && !metadata.axesOperation) {
+                    metadata.axesOperation = {
+                        oldValue: previousAxes,
+                        newValue: axisExtension.axes
+                    };
+                }
+                const overrides =
+                    this.collectAutomaticNewLayerOverrides(metadata);
+                if (overrides.length) {
+                    const refined =
+                        await window.fontManager.buildWorkerRefineLayerSnapshotsBatch(
+                            batchResult.update,
+                            overrides
+                        );
+                    if (refined.update.length) {
+                        finalUpdate = refined.update;
+                    }
+                    const overrideByKey = new Map(
+                        overrides.map((override) => [
+                            `${override.glyphName}::${override.layerId}`,
+                            override.layer
+                        ])
+                    );
+                    for (const operation of metadata.layerOperations) {
+                        const key = `${operation.glyphName}::${operation.layerId}`;
+                        const overrideLayer = overrideByKey.get(key);
+                        if (overrideLayer !== undefined) {
+                            operation.newValue = overrideLayer;
+                        }
+                    }
+                }
+
+                bridge.applyLocalGeneratedYjsUpdate(
+                    finalUpdate,
+                    buildInterpolationRustBatchOperations(metadata),
+                    'Add master'
+                );
             } finally {
                 endStartupInteractionLock();
                 endLoadingCursor();
@@ -13106,9 +13340,6 @@ export class Font extends ModelBase {
             ),
             clonedMaster
         ];
-        const interpolatedLayerData = this.getInterpolatedLayerDataForLocation(
-            clonedMaster.location
-        );
         this.setLocalMastersList(nextMasters);
 
         const masterId = clonedMaster.id;
@@ -13116,7 +13347,7 @@ export class Font extends ModelBase {
             for (const glyph of this.glyphs) {
                 const sourceLayer = glyph.layers?.[glyph.layers.length - 1];
                 const sourceWidth = sourceLayer?.width ?? 500;
-                const newLayer = glyph.addLayer(
+                glyph.addLayer(
                     sourceWidth,
                     {
                         type: 'DefaultForMaster',
@@ -13124,20 +13355,6 @@ export class Font extends ModelBase {
                     },
                     masterId
                 );
-                const interpolatedLayer = interpolatedLayerData.get(glyph.name);
-                if (!interpolatedLayer) {
-                    continue;
-                }
-
-                const newLayerData = newLayer.toJSON() as Babelfont.Layer;
-                Object.assign(newLayerData, interpolatedLayer, {
-                    id: masterId,
-                    master: {
-                        type: 'DefaultForMaster',
-                        master: masterId
-                    }
-                });
-                delete (newLayerData as Partial<Babelfont.Layer>).location;
             }
         }
 
@@ -13146,10 +13363,6 @@ export class Font extends ModelBase {
                 ? (window as Unsafe).fontManager?.currentFont
                 : null;
         currentFont?.markDirty?.('font-info-masters-list');
-
-        if (masterId) {
-            await this.findMaster(masterId)?.reinterpolateLayers();
-        }
 
         return this.findMaster(clonedMaster.id || '') || null;
     }
@@ -13206,55 +13419,37 @@ export class Font extends ModelBase {
 
         const bridge = getPatchSyncEngine() as
             | (PatchSyncEngine & {
-                  applySyntheticChangeSet?: (
-                      label: string,
-                      operations: Array<{
-                          op: 'set' | 'remove';
-                          path: (string | number)[];
-                          oldValue: unknown;
-                          newValue: unknown;
-                      }>
-                  ) => void;
-                  runWithoutRecording?: <T>(fn: () => T) => T;
+                  applyLocalGeneratedYjsUpdate?: (
+                      update: Uint8Array,
+                      operations: TransactionBufferedOperation[],
+                      label: string | null,
+                      historyTarget?: TransactionHistoryTarget | null
+                  ) => unknown;
               })
             | null;
 
         if (
             getCurrentWindowFontModel() === this &&
-            bridge?.beginTransaction &&
-            bridge?.endTransaction &&
-            bridge?.applySyntheticChangeSet
+            bridge?.applyLocalGeneratedYjsUpdate
         ) {
-            bridge.beginTransaction('Remove master');
+            beginLoadingCursor();
+            beginStartupInteractionLock();
             try {
-                const applyLocalMasters = () => {
-                    this.setLocalMastersList(
-                        nextMasters.map((master: Babelfont.Master) =>
-                            this.clonePlainValue(master)
-                        )
+                const batchResult =
+                    await window.fontManager.buildWorkerRemoveMastersBatch(
+                        normalizedMasterIds
                     );
-                };
-                if (bridge.runWithoutRecording) {
-                    bridge.runWithoutRecording(applyLocalMasters);
-                } else {
-                    applyLocalMasters();
+                if (!batchResult.update.length) {
+                    return false;
                 }
-
-                bridge.applySyntheticChangeSet('Remove master', [
-                    {
-                        op: 'set',
-                        path: ['masters'],
-                        oldValue:
-                            previousMasters.length > 0
-                                ? previousMasters
-                                : undefined,
-                        newValue:
-                            nextMasters.length > 0 ? nextMasters : undefined
-                    }
-                ]);
-                removeMasterBoundLayers();
+                bridge.applyLocalGeneratedYjsUpdate(
+                    batchResult.update,
+                    buildInterpolationRustBatchOperations(batchResult.metadata),
+                    'Remove master'
+                );
             } finally {
-                bridge.endTransaction();
+                endStartupInteractionLock();
+                endLoadingCursor();
             }
             return true;
         }

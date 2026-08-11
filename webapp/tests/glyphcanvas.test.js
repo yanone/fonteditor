@@ -20345,6 +20345,31 @@ describe('AxesManager coordinate fields', () => {
             global.requestAnimationFrame = originalRequestAnimationFrame;
         }
     });
+
+    test('prefers live model axis ranges over compiled-font axes for slider bounds', async () => {
+        const originalRequestAnimationFrame = global.requestAnimationFrame;
+        global.requestAnimationFrame = (callback) => {
+            callback(0);
+            return 1;
+        };
+
+        getVariationAxesSpy.mockRestore();
+        window.currentFontModel.axes[0].max = 1000;
+        canvas.axesManager.variationSettings = { wght: 1000 };
+
+        try {
+            await canvas.axesManager.updateAxesUI();
+            const slider = document.querySelector(
+                '.editor-axis-slider[data-axis-tag="wght"]'
+            );
+            expect(slider.min).toBe('0');
+            expect(slider.max).toBe('1000');
+            expect(slider.value).toBe('1000');
+            expect(canvas.axesManager.variationSettings.wght).toBe(1000);
+        } finally {
+            global.requestAnimationFrame = originalRequestAnimationFrame;
+        }
+    });
 });
 
 // ==================== Text Run Editor Mirrored Functions ====================

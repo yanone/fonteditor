@@ -280,7 +280,67 @@ export class AxesManager {
         });
     }
 
+    /**
+     * Editor axis sliders follow the font model's userspace axis ranges.
+     * Compiled-font fvar can lag behind Font Info edits (min/max/map), which
+     * previously left sliders stuck at the old extrema and made layer jumps
+     * past that stale max interpolate incorrectly.
+     */
+    private getModelVariationAxes(): VariationAxis[] {
+        const fontModel = window.currentFontModel as
+            | {
+                  axes?: Array<{
+                      tag?: string;
+                      name?: string | { dflt?: string };
+                      min?: number;
+                      max?: number;
+                      default?: number;
+                      hidden?: boolean;
+                  }>;
+              }
+            | null
+            | undefined;
+        const axes = fontModel?.axes;
+        if (!Array.isArray(axes) || axes.length === 0) {
+            return [];
+        }
+
+        const modelAxes: VariationAxis[] = [];
+        for (const axis of axes) {
+            if (!axis || axis.hidden || typeof axis.tag !== 'string') {
+                continue;
+            }
+            const min = Number(axis.min);
+            const max = Number(axis.max);
+            const defaultValue = Number(axis.default);
+            if (
+                !Number.isFinite(min) ||
+                !Number.isFinite(max) ||
+                !Number.isFinite(defaultValue)
+            ) {
+                continue;
+            }
+            const name =
+                typeof axis.name === 'string'
+                    ? axis.name
+                    : axis.name?.dflt || axis.tag;
+            modelAxes.push({
+                tag: axis.tag,
+                name,
+                min,
+                max,
+                default: defaultValue
+            });
+        }
+        return modelAxes;
+    }
+
     async getVariationAxes(): Promise<VariationAxis[]> {
+        const modelAxes = this.getModelVariationAxes();
+        if (modelAxes.length > 0) {
+            return modelAxes;
+        }
+
         if (!this.fontBytes) {
             console.log('[AxesManager]', 'No fontBytes available');
             return [];
@@ -415,11 +475,20 @@ export class AxesManager {
             slider.step = '1';
             slider.setAttribute('data-axis-tag', axis.tag);
 
-            // Restore value if it exists, otherwise use default
-            const initialValue =
+            // Restore value if it exists, otherwise use default. Clamp into the
+            // current model range so shrinking max/min cannot leave a stale
+            // out-of-range variation setting driving interpolation.
+            let initialValue =
                 this.variationSettings[axis.tag] !== undefined
                     ? Number(this.variationSettings[axis.tag])
                     : Number(axis.default);
+            if (!Number.isFinite(initialValue)) {
+                initialValue = Number(axis.default);
+            }
+            initialValue = Math.min(
+                Number(axis.max),
+                Math.max(Number(axis.min), initialValue)
+            );
 
             slider.value = initialValue.toString();
 

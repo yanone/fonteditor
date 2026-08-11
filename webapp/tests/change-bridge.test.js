@@ -1795,6 +1795,87 @@ describe('change-log', () => {
         expect(layerItems[0].undoScope).toBe('font');
     });
 
+    test('add/remove master history stays font-context despite layer paths', () => {
+        resetLogCounter();
+        const addMasterEntries = [
+            createLogEntry({
+                timestamp: 1,
+                windowId: 'w',
+                windowRoleLabel: 'Main',
+                historyItemId: 'history-add-master',
+                historyAction: 'change',
+                transactionLabel: 'Add master',
+                transactionId: 1,
+                op: 'set',
+                undoScope: 'font',
+                path: 'masters',
+                oldValue: [{ id: 'master-1' }],
+                newValue: [{ id: 'master-1' }, { id: 'master-2' }]
+            }),
+            createLogEntry({
+                timestamp: 1,
+                windowId: 'w',
+                windowRoleLabel: 'Main',
+                historyItemId: 'history-add-master',
+                historyAction: 'change',
+                transactionLabel: 'Add master',
+                transactionId: 1,
+                op: 'set',
+                undoScope: 'font',
+                path: 'glyphs.A:layers.master-2',
+                oldValue: null,
+                newValue: { id: 'master-2', width: 500 }
+            })
+        ];
+        const removeMasterEntries = [
+            createLogEntry({
+                timestamp: 2,
+                windowId: 'w',
+                windowRoleLabel: 'Main',
+                historyItemId: 'history-remove-master',
+                historyAction: 'change',
+                transactionLabel: 'Remove master',
+                transactionId: 2,
+                op: 'set',
+                undoScope: 'font',
+                path: 'masters',
+                oldValue: [{ id: 'master-1' }, { id: 'master-2' }],
+                newValue: [{ id: 'master-1' }]
+            }),
+            createLogEntry({
+                timestamp: 2,
+                windowId: 'w',
+                windowRoleLabel: 'Main',
+                historyItemId: 'history-remove-master',
+                historyAction: 'change',
+                transactionLabel: 'Remove master',
+                transactionId: 2,
+                op: 'remove',
+                undoScope: 'font',
+                path: 'glyphs.A:layers.master-2',
+                oldValue: { id: 'master-2', width: 500 },
+                newValue: undefined
+            })
+        ];
+
+        for (const entries of [addMasterEntries, removeMasterEntries]) {
+            const fontItems = buildHistoryStackItems(entries, {
+                surface: 'font'
+            });
+            expect(fontItems).toHaveLength(1);
+            expect(fontItems[0].undoScope).toBe('font');
+            expect(fontItems[0].originatingGlyphName).toBeNull();
+            expect(fontItems[0].originatingLayerId).toBeNull();
+            expect(
+                buildHistoryStackItems(entries, {
+                    glyphName: 'A',
+                    layerId: 'master-2',
+                    surface: 'canvas'
+                })
+            ).toHaveLength(0);
+        }
+    });
+
     test('getUndoReachabilityForContext mirrors Cmd+Z active stack filtering', () => {
         resetLogCounter();
         const editA = createLogEntry({

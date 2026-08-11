@@ -587,6 +587,23 @@ function deriveHistoryItemUndoScope(
     return 'layer';
 }
 
+/**
+ * True for font-root edits (masters, axes, names, …). Layer paths under
+ * `glyphs.*` are not structural even when the history item is font-scoped
+ * for undo (e.g. sidebearing cascades).
+ */
+function isFontStructuralChangePath(path: string): boolean {
+    return (
+        typeof path === 'string' &&
+        path.length > 0 &&
+        !path.startsWith('glyphs.')
+    );
+}
+
+function historyItemHasFontStructuralPath(entries: ChangeLogEntry[]): boolean {
+    return entries.some((entry) => isFontStructuralChangePath(entry.path));
+}
+
 function stripMutableHistoryItem(
     item: MutableHistoryStackItem
 ): HistoryStackItem {
@@ -748,6 +765,14 @@ function processHistoryEntry(entry: ChangeLogEntry, state: HistoryState): void {
             item.glyphNameSet,
             item.layerIdSet
         );
+        // Master add/remove (and similar) mix a font-root write with many
+        // glyph layer paths. Keep them on the Font undo surface — do not
+        // attribute the transaction to the first touched layer, or History
+        // labels them "Layer" and Font-context undo cannot reach them.
+        if (historyItemHasFontStructuralPath(item.entries)) {
+            item.originatingGlyphName = null;
+            item.originatingLayerId = null;
+        }
 
         if (!item.scopeKeys.has(glyphScopeKey)) {
             item.scopeKeys.add(glyphScopeKey);
@@ -755,13 +780,17 @@ function processHistoryEntry(entry: ChangeLogEntry, state: HistoryState): void {
         }
 
         const layerScopeKey = getLayerScopeKey(entryGlyphName, entryLayerId);
-        if (layerScopeKey && !item.scopeKeys.has(layerScopeKey)) {
+        if (
+            layerScopeKey &&
+            !item.scopeKeys.has(layerScopeKey) &&
+            !historyItemHasFontStructuralPath(item.entries)
+        ) {
             item.scopeKeys.add(layerScopeKey);
             getStack(activeByScope, layerScopeKey).push(item.id);
         }
 
         getStack(undoneByScope, glyphScopeKey).length = 0;
-        if (layerScopeKey) {
+        if (layerScopeKey && !historyItemHasFontStructuralPath(item.entries)) {
             getStack(undoneByScope, layerScopeKey).length = 0;
         }
         return;
@@ -966,11 +995,16 @@ function historyItemMatchesSurface(
             return item.glyphNameSet.size > 0 || item.undoScope === 'glyph';
         }
         case 'font': {
+            if (item.historyTargetKeySet.size > 0) {
+                return false;
+            }
             if (item.originatingLayerId) {
                 return false;
             }
-            if (item.historyTargetKeySet.size > 0) {
-                return false;
+            // Master add/remove (and similar) rewrite glyph layers but are
+            // font-structural transactions — keep them on the Font surface.
+            if (historyItemHasFontStructuralPath(item.entries)) {
+                return item.undoScope === 'font';
             }
             if (item.glyphNameSet.size > 0 || item.undoScope === 'glyph') {
                 return false;

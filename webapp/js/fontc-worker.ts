@@ -17,6 +17,8 @@ import init, {
     dump_layer_state_json,
     dump_worker_cache_state_json,
     add_master_with_interpolated_layers_yjs,
+    refine_layer_snapshots_yjs,
+    remove_masters_yjs,
     get_debug_cached_font_bytes,
     inspect_debug_cached_font,
     list_debug_cached_font_children,
@@ -1944,7 +1946,7 @@ self.onmessage = async (event) => {
             const addMasterSpanId = timelineSpanStart(
                 'font.worker.addMasterWithInterpolatedLayersYjs'
             );
-            const { id, master, interpolationLocations } = data;
+            const { id, master, interpolationLocations, axes } = data;
 
             try {
                 timelineMark(
@@ -1952,6 +1954,7 @@ self.onmessage = async (event) => {
                 );
                 const payload = JSON.stringify({
                     master,
+                    ...(Array.isArray(axes) && axes.length ? { axes } : {}),
                     ...(Array.isArray(interpolationLocations) &&
                     interpolationLocations.length
                         ? {
@@ -2001,6 +2004,86 @@ self.onmessage = async (event) => {
                 });
             } finally {
                 timelineSpanEnd(addMasterSpanId);
+            }
+            return;
+        }
+
+        if (data.type === 'refineLayerSnapshotsYjs') {
+            const refineSpanId = timelineSpanStart(
+                'font.worker.refineLayerSnapshotsYjs'
+            );
+            const { id, baseUpdate, overrides } = data;
+
+            try {
+                timelineMark('font.worker.refineLayerSnapshotsYjs.started');
+                const result = refine_layer_snapshots_yjs(
+                    baseUpdate instanceof Uint8Array
+                        ? baseUpdate
+                        : new Uint8Array(baseUpdate || []),
+                    JSON.stringify(overrides ?? [])
+                ) as {
+                    update?: Uint8Array;
+                    metadataJson?: string;
+                };
+                self.postMessage({
+                    id,
+                    type: 'refineLayerSnapshotsYjs',
+                    success: true,
+                    update: result.update ?? new Uint8Array(),
+                    metadataJson: result.metadataJson ?? '{}'
+                });
+                timelineMark('font.worker.refineLayerSnapshotsYjs.success');
+            } catch (e: any) {
+                timelineMark('font.worker.refineLayerSnapshotsYjs.failed');
+                console.error(
+                    '[Fontc Worker] refineLayerSnapshotsYjs error:',
+                    e
+                );
+                self.postMessage({
+                    id,
+                    type: 'refineLayerSnapshotsYjs',
+                    success: false,
+                    error: e.toString()
+                });
+            } finally {
+                timelineSpanEnd(refineSpanId);
+            }
+            return;
+        }
+
+        if (data.type === 'removeMastersYjs') {
+            const removeMastersSpanId = timelineSpanStart(
+                'font.worker.removeMastersYjs'
+            );
+            const { id, masterIds } = data;
+
+            try {
+                timelineMark('font.worker.removeMastersYjs.started');
+                const result = remove_masters_yjs(
+                    JSON.stringify(masterIds ?? [])
+                ) as {
+                    update?: Uint8Array;
+                    metadataJson?: string;
+                };
+                self.postMessage({
+                    id,
+                    type: 'removeMastersYjs',
+                    success: true,
+                    update: result.update ?? new Uint8Array(),
+                    metadataJson: result.metadataJson ?? '{}'
+                });
+                timelineMark('font.worker.removeMastersYjs.success');
+            } catch (e: any) {
+                timelineMark('font.worker.removeMastersYjs.failed');
+                console.error('[Fontc Worker] removeMastersYjs error:', e);
+                self.postMessage({
+                    id,
+                    type: 'removeMastersYjs',
+                    success: false,
+                    error: e.toString()
+                });
+            } finally {
+                timelineSpanEnd(removeMastersSpanId);
             }
             return;
         }
