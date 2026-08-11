@@ -3,11 +3,11 @@ import {
     deriveGlyphNameFromPath,
     deriveLayerIdFromPath,
     deriveObjectInfoFromPath,
-    deriveOriginatingLayerFromPaths,
     getPathSegments,
     joinPathWithGlyphSeparator,
     normalizeGlyphRenames,
     normalizeWorkerReplayTargets,
+    resolveCollaborationOriginatingLayer,
     type ChangeLogEntry,
     type ChangeOp,
     type HistoryAction,
@@ -299,8 +299,9 @@ export function createCollaborationMessageEnvelopeFromChangeLogEntries(
             historyTargetLabel: entries[0].historyTargetLabel,
             undoScope: entries[0].undoScope,
             ...(() => {
-                const origin = deriveOriginatingLayerFromPaths(
-                    entries.map((entry) => entry.path)
+                const origin = resolveCollaborationOriginatingLayer(
+                    entries[0].undoScope,
+                    entries
                 );
                 return {
                     originatingGlyphName: origin.glyphName,

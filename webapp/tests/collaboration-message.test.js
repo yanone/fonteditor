@@ -458,4 +458,63 @@ describe('collaboration-message scaffold', () => {
         expect(envelopes[0].localSequence).toBe(10);
         expect(envelopes[1].localSequence).toBe(11);
     });
+
+    test('does not invent a layer origin for font-scoped packets with layer paths', () => {
+        const entries = [
+            createLogEntry({
+                timestamp: 1,
+                windowId: 'main',
+                windowRoleLabel: 'main',
+                historyItemId: 'history-add-master',
+                transactionLabel: 'Add master',
+                transactionId: 1,
+                op: 'set',
+                undoScope: 'font',
+                path: 'axes',
+                oldValue: [],
+                newValue: []
+            }),
+            createLogEntry({
+                timestamp: 1,
+                windowId: 'main',
+                windowRoleLabel: 'main',
+                historyItemId: 'history-add-master',
+                transactionLabel: 'Add master',
+                transactionId: 1,
+                op: 'set',
+                undoScope: 'font',
+                path: 'masters',
+                oldValue: [],
+                newValue: []
+            }),
+            createLogEntry({
+                timestamp: 1,
+                windowId: 'main',
+                windowRoleLabel: 'main',
+                historyItemId: 'history-add-master',
+                transactionLabel: 'Add master',
+                transactionId: 1,
+                op: 'set',
+                undoScope: 'font',
+                path: 'glyphs.u:layers.master-4:',
+                oldValue: undefined,
+                newValue: { id: 'master-4' }
+            })
+        ];
+
+        const envelope = createCollaborationMessageEnvelopeFromChangeLogEntries(
+            entries,
+            {
+                localSequence: 1,
+                source: 'unit-test',
+                windowId: 'main'
+            }
+        );
+
+        expect(envelope.label).toBe('Add master');
+        expect(envelope.summary).toBe('Add master');
+        expect(envelope.metadata.undoScope).toBe('font');
+        expect(envelope.metadata.originatingGlyphName).toBeNull();
+        expect(envelope.metadata.originatingLayerId).toBeNull();
+    });
 });

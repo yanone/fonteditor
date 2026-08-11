@@ -385,6 +385,89 @@ describe('history view', () => {
         expect(document.body.textContent).not.toContain('Layer · A / layer-1');
     });
 
+    test('labels font-scoped master topology edits as Font even with layer paths', () => {
+        resetLogCounter();
+
+        const collaborationItems = [
+            baseItem({
+                id: 'message-add-master',
+                timestamp: 1000,
+                summary: 'Add master',
+                label: 'Add master',
+                historyItemId: 'history-add-master',
+                historyAction: 'change',
+                undoScope: 'font',
+                // Stale path-derived origin must not win over undoScope.
+                originatingGlyphName: 'u',
+                originatingLayerId: '5d59e801-4022-4fcb-a178-aeb2dbf7453f',
+                updateByteLength: 64,
+                changedGlyphNames: ['u', 'A'],
+                changedLayerIds: ['5d59e801-4022-4fcb-a178-aeb2dbf7453f'],
+                workerReplayTargets: [
+                    {
+                        glyphName: 'u',
+                        layerId: '5d59e801-4022-4fcb-a178-aeb2dbf7453f'
+                    }
+                ],
+                changes: [
+                    { op: 'set', path: 'axes' },
+                    { op: 'set', path: 'masters' },
+                    {
+                        op: 'set',
+                        path: 'glyphs.u:layers.5d59e801-4022-4fcb-a178-aeb2dbf7453f:'
+                    }
+                ]
+            })
+        ];
+
+        mountHistoryView({
+            collaborationItems,
+            changeLogEntries: [],
+            showUnreachable: true,
+            focusedMainView: 'view-fontinfo'
+        });
+
+        expect(document.body.textContent).toContain('Add master');
+        expect(document.body.textContent).toContain('Font');
+        expect(document.body.textContent).not.toContain('Layer · u /');
+    });
+
+    test('labels glyph-scoped edits as Overview', () => {
+        resetLogCounter();
+
+        const collaborationItems = [
+            baseItem({
+                id: 'message-rename',
+                timestamp: 1000,
+                summary: 'Rename glyph',
+                label: 'Rename glyph',
+                historyItemId: 'history-rename',
+                historyAction: 'change',
+                undoScope: 'glyph',
+                originatingGlyphName: null,
+                originatingLayerId: null,
+                updateByteLength: 16,
+                changedGlyphNames: ['A'],
+                changedLayerIds: [],
+                workerReplayTargets: [],
+                changes: [{ op: 'set', path: 'glyphs.A:name' }]
+            })
+        ];
+
+        mountHistoryView({
+            collaborationItems,
+            changeLogEntries: [],
+            showUnreachable: true,
+            focusedMainView: 'view-overview',
+            glyphName: 'A',
+            layerId: null
+        });
+
+        expect(document.body.textContent).toContain('Rename glyph');
+        expect(document.body.textContent).toContain('Overview');
+        expect(document.body.textContent).not.toContain('Layer ·');
+    });
+
     test('keeps the previous main-view undo context when History becomes focused', async () => {
         resetLogCounter();
 

@@ -1,6 +1,7 @@
 import type { CollaborationLogItem } from './patch-sync-engine';
 import {
     deriveOriginatingLayerFromPaths,
+    formatHistoryOriginLabel,
     getUndoReachabilityForContext
 } from './change-log';
 import { getUndoRedoContext } from './undo-redo-context';
@@ -561,49 +562,16 @@ class HistoryViewController {
     }
 
     private buildOriginLabel(item: HistoryDisplayItem): string {
-        if (item.historyTargetKey || item.historyTargetLabel) {
-            return `Feature · ${item.historyTargetLabel || item.historyTargetKey}`;
-        }
-
-        const originatingGlyph =
-            item.originatingGlyphName ??
-            deriveOriginatingLayerFromPaths(
-                item.changes.map((change) => change.path)
-            ).glyphName;
-        const originatingLayer =
-            item.originatingLayerId ??
-            deriveOriginatingLayerFromPaths(
-                item.changes.map((change) => change.path)
-            ).layerId;
-
-        if (originatingGlyph && originatingLayer) {
-            const layerLabel = this.resolveLayerMasterDisplayName(
-                originatingGlyph,
-                originatingLayer
-            );
-            return `Layer · ${originatingGlyph} / ${layerLabel}`;
-        }
-
-        if (
-            item.changedGlyphNames.length > 0 ||
-            item.undoScope === 'glyph' ||
-            !originatingLayer
-        ) {
-            if (
-                item.undoScope === 'font' &&
-                item.changedGlyphNames.length === 0
-            ) {
-                return 'Font';
-            }
-            if (!originatingLayer && item.changedGlyphNames.length > 0) {
-                return 'Overview';
-            }
-            if (item.undoScope === 'glyph') {
-                return 'Overview';
-            }
-        }
-
-        return 'Font';
+        return formatHistoryOriginLabel({
+            undoScope: item.undoScope,
+            historyTargetKey: item.historyTargetKey,
+            historyTargetLabel: item.historyTargetLabel,
+            originatingGlyphName: item.originatingGlyphName,
+            originatingLayerId: item.originatingLayerId,
+            changePaths: item.changes.map((change) => change.path),
+            resolveLayerMasterDisplayName: (glyphName, layerOrMasterId) =>
+                this.resolveLayerMasterDisplayName(glyphName, layerOrMasterId)
+        });
     }
 
     /**
@@ -687,6 +655,13 @@ class HistoryViewController {
     }
 
     private countDownstreamRecompositions(item: HistoryDisplayItem): number {
+        // Cascade markers are for layer-origin edits that also refreshed
+        // dependents. Font/glyph structural packets often list every touched
+        // layer as a replay target without being a cascade from one origin.
+        if (item.undoScope !== 'layer') {
+            return 0;
+        }
+
         const originGlyph =
             item.originatingGlyphName ??
             deriveOriginatingLayerFromPaths(

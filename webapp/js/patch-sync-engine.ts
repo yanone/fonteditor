@@ -41,7 +41,6 @@ import {
     deriveLayerIdFromPath,
     deriveLayerIdsFromPaths,
     deriveObjectInfoFromPath,
-    deriveOriginatingLayerFromPaths,
     getPathSegments,
     invalidateHistoryStateCache,
     joinPathWithGlyphSeparator,
@@ -49,6 +48,7 @@ import {
     normalizeGlyphRenames,
     glyphRenamesForHistoryAction,
     normalizeChangeLogEntry,
+    resolveCollaborationOriginatingLayer,
     resolveHistoryTargetItem,
     resetLogCounter
 } from './change-log';
@@ -6820,16 +6820,30 @@ export class PatchSyncEngine {
         direction: 'local' | 'remote',
         derivedForwardChanges: DerivedForwardChange[]
     ): CollaborationLogItem {
-        const originating =
-            message.metadata.originatingGlyphName ||
-            message.metadata.originatingLayerId
-                ? {
-                      glyphName: message.metadata.originatingGlyphName ?? null,
-                      layerId: message.metadata.originatingLayerId ?? null
-                  }
-                : deriveOriginatingLayerFromPaths(
-                      message.changes.map((change) => change.path)
-                  );
+        const originating = resolveCollaborationOriginatingLayer(
+            message.metadata.undoScope,
+            message.changes.length
+                ? message.changes.map((change, index) => ({
+                      path: change.path,
+                      originatingGlyphName:
+                          index === 0
+                              ? (message.metadata.originatingGlyphName ?? null)
+                              : null,
+                      originatingLayerId:
+                          index === 0
+                              ? (message.metadata.originatingLayerId ?? null)
+                              : null
+                  }))
+                : [
+                      {
+                          path: '',
+                          originatingGlyphName:
+                              message.metadata.originatingGlyphName ?? null,
+                          originatingLayerId:
+                              message.metadata.originatingLayerId ?? null
+                      }
+                  ]
+        );
         return {
             id: collaborationMessageKey(message),
             direction,

@@ -63,6 +63,85 @@ export function deriveOriginatingLayerFromPaths(paths: string[]): {
     return { glyphName: null, layerId: null };
 }
 
+/**
+ * Originating layer for collaboration / history display metadata.
+ *
+ * Only layer-scoped edits invent an origin from paths. Font- and glyph-scoped
+ * packets often include many layer paths as structural payloads (add/remove
+ * master, glyph paste cascades); those must not become a fake Layer origin.
+ */
+export function resolveCollaborationOriginatingLayer(
+    undoScope: UndoScope,
+    entries: Array<{
+        path: string;
+        originatingGlyphName?: string | null;
+        originatingLayerId?: string | null;
+    }>
+): { glyphName: string | null; layerId: string | null } {
+    for (const entry of entries) {
+        if (entry.originatingGlyphName && entry.originatingLayerId) {
+            return {
+                glyphName: entry.originatingGlyphName,
+                layerId: entry.originatingLayerId
+            };
+        }
+    }
+
+    if (undoScope !== 'layer') {
+        return { glyphName: null, layerId: null };
+    }
+
+    return deriveOriginatingLayerFromPaths(entries.map((entry) => entry.path));
+}
+
+/**
+ * History row origin subtitle: which undo surface owns this edit.
+ * Prefers stamped undoScope over path-inferred layer identity.
+ */
+export function formatHistoryOriginLabel(options: {
+    undoScope: UndoScope;
+    historyTargetKey?: string | null;
+    historyTargetLabel?: string | null;
+    originatingGlyphName?: string | null;
+    originatingLayerId?: string | null;
+    changePaths?: string[];
+    resolveLayerMasterDisplayName?: (
+        glyphName: string,
+        layerOrMasterId: string
+    ) => string;
+}): string {
+    if (options.historyTargetKey || options.historyTargetLabel) {
+        return `Feature · ${options.historyTargetLabel || options.historyTargetKey}`;
+    }
+
+    if (options.undoScope === 'font') {
+        return 'Font';
+    }
+
+    if (options.undoScope === 'glyph') {
+        return 'Overview';
+    }
+
+    const pathOrigin = deriveOriginatingLayerFromPaths(
+        options.changePaths ?? []
+    );
+    const originatingGlyph =
+        options.originatingGlyphName ?? pathOrigin.glyphName;
+    const originatingLayer = options.originatingLayerId ?? pathOrigin.layerId;
+
+    if (originatingGlyph && originatingLayer) {
+        const layerLabel = options.resolveLayerMasterDisplayName
+            ? options.resolveLayerMasterDisplayName(
+                  originatingGlyph,
+                  originatingLayer
+              )
+            : originatingLayer;
+        return `Layer · ${originatingGlyph} / ${layerLabel}`;
+    }
+
+    return 'Font';
+}
+
 export function normalizeGlyphRenames(
     renames: Iterable<GlyphRename | null | undefined> | null | undefined
 ): GlyphRename[] {

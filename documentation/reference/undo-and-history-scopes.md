@@ -32,7 +32,7 @@ Canvas undo keys off where the forward edit **started**, not every layer touched
 
 - **Title** — transaction summary
 - **Action chip** — `edit` (grayscale), `undo` / `redo` (colored)
-- **Origin** — `Layer · {glyph} / {master}` (layer id resolved to Master name) / `Overview` / `Font` / `Feature · …` (where to switch to undo a faded row)
+- **Origin** — follows the item’s **undo scope**, not the first layer path in the packet: `Layer · {glyph} / {master}` (layer-scoped), `Overview` (glyph-scoped), `Font` (font-scoped, including add/remove master even when many layer paths are present), `Feature · …` (feature target). This is where to switch to undo a faded row.
 - **`account_tree`** — transaction recomposed dependent layers
 - Time / duration / size — development builds only
 
