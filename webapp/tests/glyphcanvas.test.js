@@ -2672,7 +2672,7 @@ describe('GlyphCanvas onMouseUp', () => {
                 {
                     editSource: 'mouse-drag-outline',
                     changeSource: 'mouse-drag-outline',
-                    editType: 'outline'
+                    editType: null
                 }
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();
@@ -2753,7 +2753,7 @@ describe('GlyphCanvas onMouseUp', () => {
                 {
                     editSource: 'mouse-drag-outline',
                     changeSource: 'mouse-drag-outline',
-                    editType: 'outline'
+                    editType: null
                 }
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();
@@ -2909,7 +2909,7 @@ describe('GlyphCanvas onMouseUp', () => {
                 {
                     editSource: 'mouse-drag-outline',
                     changeSource: 'mouse-drag-outline',
-                    editType: 'outline'
+                    editType: null
                 }
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();
@@ -3214,7 +3214,7 @@ describe('GlyphCanvas onMouseUp', () => {
                 {
                     editSource: 'mouse-drag-outline',
                     changeSource: 'mouse-drag-outline',
-                    editType: 'outline'
+                    editType: null
                 }
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();
@@ -3497,7 +3497,7 @@ describe('GlyphCanvas onMouseUp', () => {
                 {
                     editSource: 'mouse-drag-outline',
                     changeSource: 'mouse-drag-outline',
-                    editType: 'outline'
+                    editType: null
                 }
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();
@@ -12063,7 +12063,7 @@ describe('GlyphCanvas anchor movement', () => {
                 {
                     editSource: 'mouse-drag-anchor',
                     changeSource: 'mouse-drag-anchor',
-                    editType: 'anchor'
+                    editType: null
                 }
             );
 
@@ -12204,7 +12204,7 @@ describe('GlyphCanvas anchor movement', () => {
                 {
                     editSource: 'keyboard-outline',
                     changeSource: 'keyboard-outline',
-                    editType: 'outline'
+                    editType: null
                 }
             );
             expect(
@@ -12387,7 +12387,7 @@ describe('GlyphCanvas anchor movement', () => {
                 {
                     editSource: 'mouse-drag-outline',
                     changeSource: 'mouse-drag-outline',
-                    editType: 'outline'
+                    editType: null
                 }
             );
 
@@ -12520,7 +12520,7 @@ describe('GlyphCanvas anchor movement', () => {
                 {
                     editSource: 'mouse-drag-anchor',
                     changeSource: 'mouse-drag-anchor',
-                    editType: 'anchor'
+                    editType: null
                 }
             );
 
@@ -12649,7 +12649,7 @@ describe('GlyphCanvas anchor movement', () => {
                 {
                     editSource: 'mouse-drag-outline',
                     changeSource: 'mouse-drag-outline',
-                    editType: 'outline'
+                    editType: null
                 }
             );
 
@@ -12892,7 +12892,7 @@ describe('GlyphCanvas anchor movement', () => {
                 ],
                 'keyboard-outline',
                 'keyboard-outline',
-                'outline'
+                null
             );
         } finally {
             window.patchSyncEngine = originalPatchSyncEngine;
@@ -12921,6 +12921,57 @@ describe('GlyphCanvas component movement', () => {
 
     afterEach(() => {
         canvas.destroy();
+    });
+
+    test('committed outline and anchor metadata stamp full compile (editType null)', () => {
+        expect(
+            canvas.outlineEditor.getCommittedCompileMetadata(
+                'mouse-drag-outline'
+            )
+        ).toEqual({
+            editSource: 'mouse-drag-outline',
+            changeSource: 'mouse-drag-outline',
+            editType: null
+        });
+        expect(
+            canvas.outlineEditor.getCommittedCompileMetadata('keyboard-outline')
+        ).toEqual({
+            editSource: 'keyboard-outline',
+            changeSource: 'keyboard-outline',
+            editType: null
+        });
+        expect(
+            canvas.outlineEditor.getCommittedCompileMetadata(
+                'mouse-drag-anchor'
+            )
+        ).toEqual({
+            editSource: 'mouse-drag-anchor',
+            changeSource: 'mouse-drag-anchor',
+            editType: null
+        });
+        expect(
+            canvas.outlineEditor.getCommittedCompileMetadata('keyboard-anchor')
+        ).toEqual({
+            editSource: 'keyboard-anchor',
+            changeSource: 'keyboard-anchor',
+            editType: null
+        });
+        expect(
+            canvas.outlineEditor.getCommittedCompileMetadata(
+                'keyboard-sidebearing'
+            )
+        ).toEqual({
+            editSource: 'keyboard-sidebearing',
+            changeSource: 'keyboard-sidebearing',
+            editType: null
+        });
+        expect(
+            canvas.outlineEditor.getCommittedCompileMetadata('mouse-drag-guide')
+        ).toEqual({
+            editSource: 'mouse-drag-guide',
+            changeSource: 'mouse-drag-guide',
+            editType: 'guide'
+        });
     });
 
     test('should move selected components by delta', () => {

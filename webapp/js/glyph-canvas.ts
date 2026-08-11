@@ -10662,9 +10662,11 @@ function setupFontLoadingListener() {
                     // Live outline previews skip reshaping: the preview font
                     // omits features/kerning for speed, so a reshape would
                     // jump the canvas wherever kerning precedes the active
-                    // glyphs. A committed outline-only result must reshape,
-                    // otherwise its swapped blob can retain stale advances
-                    // from before undo/redo recomposition.
+                    // glyphs. Local preview-backed outline/component/anchor
+                    // commits now stamp editType null and compile as full, so
+                    // they do not take this incomplete authoritative path.
+                    // Remote/inferred outline-only packets may still reshape
+                    // here; that path must not become the local commit contract.
                     if (compilationMode === 'outline-only') {
                         const fontBytesArray = new Uint8Array(arrayBuffer);
                         gc.fontBytes = fontBytesArray;

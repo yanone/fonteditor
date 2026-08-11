@@ -763,7 +763,7 @@ test.describe('Open/Close Path across linked masters', () => {
         expect((await getCompatibility(page)).compatible).toBe(true);
     });
 
-    test('opening a path preserves text advances through the deferred full compile', async ({
+    test('opening a path preserves text advances through the committed full compile', async ({
         page
     }) => {
         await loadTestFont(page);
@@ -860,22 +860,6 @@ test.describe('Open/Close Path across linked masters', () => {
                     (
                         window as any
                     ).__openCloseAdvanceTest?.compilationModes?.includes(
-                        'outline-only'
-                    ),
-                { timeout: 15000 }
-            );
-            const afterOutlineOnly = await page.evaluate(() =>
-                (window as any).glyphCanvas.textRunEditor.shapedGlyphs.map(
-                    (glyph: any) => glyph.ax
-                )
-            );
-            expect(afterOutlineOnly).toEqual(before.advances);
-
-            await page.waitForFunction(
-                () =>
-                    (
-                        window as any
-                    ).__openCloseAdvanceTest?.compilationModes?.includes(
                         'full'
                     ),
                 { timeout: 15000 }
@@ -892,6 +876,8 @@ test.describe('Open/Close Path across linked masters', () => {
                     widths: glyph.layers.map((layer: any) => layer.width),
                     advanceSamples: (window as any).__openCloseAdvanceTest
                         .advanceSamples,
+                    compilationModes: (window as any).__openCloseAdvanceTest
+                        .compilationModes,
                     diagnosticSamples: (
                         window as any
                     ).__liveTextDiagnostics.entries.map((entry: any) => ({
@@ -903,6 +889,7 @@ test.describe('Open/Close Path across linked masters', () => {
 
             expect(settled.advances).toEqual(before.advances);
             expect(settled.widths).toEqual(before.widths);
+            expect(settled.compilationModes).not.toContain('outline-only');
             expect(settled.advanceSamples).not.toEqual([]);
             for (const sample of settled.advanceSamples) {
                 expect(sample.advances).toEqual(before.advances);

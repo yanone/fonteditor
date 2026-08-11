@@ -21028,11 +21028,16 @@ export class OutlineEditor {
             };
         }
 
+        // Preview-backed outline/component/anchor interactions already compiled
+        // from the live overlay under the no-jitter canvas contract. Commit
+        // stamps editType null so the funnel runs one authoritative full
+        // compile (like sidebearing) instead of incomplete outline-only /
+        // anchor-only + deferred full.
         if (changeSource.endsWith('-anchor')) {
             return {
                 editSource: changeSource,
                 changeSource,
-                editType: 'anchor'
+                editType: null
             };
         }
 
@@ -21051,7 +21056,7 @@ export class OutlineEditor {
             return {
                 editSource: changeSource,
                 changeSource,
-                editType: 'outline'
+                editType: null
             };
         }
 
