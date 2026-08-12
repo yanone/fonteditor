@@ -1425,7 +1425,9 @@ kbd + kbd {
 .view:not(.view-editor).collapsed .view-title-bar .view-title-button,
 .view:not(.view-editor).collapsed .view-title-bar .ai-context-toggle,
 .view:not(.view-editor).collapsed .view-title-bar .view-title-action-btn,
-.view:not(.view-editor).collapsed .view-title-bar .editor-plugins-toggle {
+.view:not(.view-editor).collapsed .view-title-bar .editor-plugins-toggle,
+.view:not(.view-editor).collapsed .view-title-bar .script-file-dropdown-btn,
+.view:not(.view-editor).collapsed .view-title-bar .script-file-reload-btn {
     display: none !important;
 }
 
