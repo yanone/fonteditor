@@ -127,6 +127,23 @@ export function resolveCollaborationOriginatingLayer(
     return deriveOriginatingLayerFromPaths(entries.map((entry) => entry.path));
 }
 
+function collectTouchedLayerIdsForGlyph(
+    paths: string[],
+    glyphName: string
+): Set<string> {
+    const layerIds = new Set<string>();
+    for (const path of paths) {
+        if (deriveGlyphNameFromPath(path) !== glyphName) {
+            continue;
+        }
+        const layerId = deriveLayerIdFromPath(path);
+        if (layerId) {
+            layerIds.add(layerId);
+        }
+    }
+    return layerIds;
+}
+
 /**
  * History row origin subtitle: which undo surface owns this edit.
  * Prefers stamped undoScope over path-inferred layer identity.
@@ -152,9 +169,25 @@ export function formatHistoryOriginLabel(options: {
     }
 
     if (options.undoScope === 'glyph') {
+        const layerOriginLabel = formatLayerHistoryOriginLabel(options);
+        if (layerOriginLabel) {
+            return layerOriginLabel;
+        }
         return 'Overview';
     }
 
+    return formatLayerHistoryOriginLabel(options) ?? 'Font';
+}
+
+function formatLayerHistoryOriginLabel(options: {
+    originatingGlyphName?: string | null;
+    originatingLayerId?: string | null;
+    changePaths?: string[];
+    resolveLayerMasterDisplayName?: (
+        glyphName: string,
+        layerOrMasterId: string
+    ) => string;
+}): string | null {
     const pathOrigin = deriveOriginatingLayerFromPaths(
         options.changePaths ?? []
     );
@@ -162,17 +195,25 @@ export function formatHistoryOriginLabel(options: {
         options.originatingGlyphName ?? pathOrigin.glyphName;
     const originatingLayer = options.originatingLayerId ?? pathOrigin.layerId;
 
-    if (originatingGlyph && originatingLayer) {
-        const layerLabel = options.resolveLayerMasterDisplayName
-            ? options.resolveLayerMasterDisplayName(
-                  originatingGlyph,
-                  originatingLayer
-              )
-            : originatingLayer;
-        return `Layer · ${originatingGlyph} / ${layerLabel}`;
+    if (!originatingGlyph || !originatingLayer) {
+        return null;
     }
 
-    return 'Font';
+    const touchedLayerIds = collectTouchedLayerIdsForGlyph(
+        options.changePaths ?? [],
+        originatingGlyph
+    );
+    if (touchedLayerIds.size > 1) {
+        return `Layer · ${originatingGlyph}`;
+    }
+
+    const layerLabel = options.resolveLayerMasterDisplayName
+        ? options.resolveLayerMasterDisplayName(
+              originatingGlyph,
+              originatingLayer
+          )
+        : originatingLayer;
+    return `Layer · ${originatingGlyph} / ${layerLabel}`;
 }
 
 export function normalizeGlyphRenames(
@@ -458,7 +499,7 @@ export interface HistoryStackItem {
     lastAction: HistoryAction;
     historyTargetKeys: string[];
     workerReplayTargets: WorkerReplayTarget[];
-    /** Layer where the forward edit started (canvas undo key); null for overview/font/feature. */
+    /** Glyph/layer where the forward edit started; canvas undo also includes other written layers of this glyph. */
     originatingGlyphName: string | null;
     originatingLayerId: string | null;
 }
@@ -1074,6 +1115,25 @@ function inferHistoryUndoSurface(options: {
     return null;
 }
 
+/**
+ * Canvas Cmd+Z includes every layer of the originating glyph that this item
+ * actually wrote. Dependent glyphs in the same packet stay off that stack.
+ */
+function historyItemTouchesCanvasLayer(
+    item: MutableHistoryStackItem,
+    glyphName: string,
+    layerId: string
+): boolean {
+    if (item.originatingGlyphName !== glyphName) {
+        return false;
+    }
+    if (item.originatingLayerId === layerId) {
+        return true;
+    }
+    const touchKey = getLayerTouchKey(glyphName, layerId);
+    return !!touchKey && item.touchedLayerKeySet.has(touchKey);
+}
+
 function historyItemMatchesSurface(
     item: MutableHistoryStackItem,
     surface: HistoryUndoSurface,
@@ -1092,10 +1152,7 @@ function historyItemMatchesSurface(
             if (!glyphName || !layerId) {
                 return false;
             }
-            return (
-                item.originatingGlyphName === glyphName &&
-                item.originatingLayerId === layerId
-            );
+            return historyItemTouchesCanvasLayer(item, glyphName, layerId);
         }
         case 'overview': {
             if (item.originatingLayerId) {

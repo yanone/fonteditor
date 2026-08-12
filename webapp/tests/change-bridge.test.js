@@ -1770,6 +1770,80 @@ describe('change-log', () => {
         ).toHaveLength(0);
     });
 
+    test('buildHistoryStackItems includes every written layer of the originating glyph', () => {
+        resetLogCounter();
+        const historyItemId = 'history-item-multi-layer';
+        const entries = [
+            createLogEntry({
+                timestamp: 1,
+                windowId: 'w',
+                windowRoleLabel: 'Main',
+                historyItemId,
+                historyAction: 'change',
+                transactionLabel: 'Set component automatic alignment',
+                transactionId: 1,
+                op: 'set',
+                undoScope: 'layer',
+                path: 'glyphs.A:layers.layer-1:shapes.0.format_specific',
+                oldValue: { alignment: -1 },
+                newValue: { alignment: 1 }
+            }),
+            createLogEntry({
+                timestamp: 1,
+                windowId: 'w',
+                windowRoleLabel: 'Main',
+                historyItemId,
+                historyAction: 'change',
+                transactionLabel: 'Set component automatic alignment',
+                transactionId: 1,
+                op: 'set',
+                undoScope: 'layer',
+                path: 'glyphs.A:layers.layer-1b:shapes.0.format_specific',
+                oldValue: { alignment: -1 },
+                newValue: { alignment: 1 }
+            }),
+            createLogEntry({
+                timestamp: 1,
+                windowId: 'w',
+                windowRoleLabel: 'Main',
+                historyItemId,
+                historyAction: 'change',
+                transactionLabel: 'Set component automatic alignment',
+                transactionId: 1,
+                op: 'set',
+                undoScope: 'layer',
+                path: 'glyphs.B:layers.layer-2:width',
+                oldValue: 650,
+                newValue: 680
+            })
+        ];
+
+        expect(
+            buildHistoryStackItems(entries, {
+                glyphName: 'A',
+                layerId: 'layer-1'
+            })
+        ).toHaveLength(1);
+        expect(
+            buildHistoryStackItems(entries, {
+                glyphName: 'A',
+                layerId: 'layer-1b'
+            })
+        ).toHaveLength(1);
+        expect(
+            buildHistoryStackItems(entries, {
+                glyphName: 'A',
+                layerId: 'layer-unwritten'
+            })
+        ).toHaveLength(0);
+        expect(
+            buildHistoryStackItems(entries, {
+                glyphName: 'B',
+                layerId: 'layer-2'
+            })
+        ).toHaveLength(0);
+    });
+
     test('buildHistoryStackItems shows font-scoped glyph-touching items in layer history', () => {
         resetLogCounter();
         const fontScopedEntry = createLogEntry({
@@ -2460,10 +2534,11 @@ describe('ChangeBridge', () => {
         });
 
         expect(layer1Items).toHaveLength(1);
-        expect(layer1bItems).toHaveLength(0);
+        expect(layer1bItems).toHaveLength(1);
+        expect(layer1bItems[0].id).toBe(layer1Items[0].id);
         expect(layer1Items[0].undoScope).toBe('glyph');
 
-        expect(bridge.undo('A', 'layer-1')).not.toBeNull();
+        expect(bridge.undo('A', 'layer-1b')).not.toBeNull();
         expect(
             getYPath(bridge.fontMap, [
                 'glyphs',
@@ -2483,7 +2558,7 @@ describe('ChangeBridge', () => {
             ])
         ).toBe(620);
 
-        expect(bridge.redo('A', 'layer-1')).toEqual(
+        expect(bridge.redo('A', 'layer-1b')).toEqual(
             expect.objectContaining({
                 scope: 'glyph',
                 glyphName: 'A',
@@ -3753,11 +3828,12 @@ describe('Transactions', () => {
         });
 
         expect(layer1Items).toHaveLength(1);
-        expect(layer1bItems).toHaveLength(0);
+        expect(layer1bItems).toHaveLength(1);
+        expect(layer1bItems[0].id).toBe(layer1Items[0].id);
         expect(layer1Items[0].undoScope).toBe('glyph');
         expect(layer1Items[0].originatingLayerId).toBe('layer-1');
 
-        expect(bridge.undo('A', 'layer-1')).not.toBeNull();
+        expect(bridge.undo('A', 'layer-1b')).not.toBeNull();
         expect(
             getYPath(bridge.fontMap, [
                 'glyphs',
