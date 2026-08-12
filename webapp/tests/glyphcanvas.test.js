@@ -10495,9 +10495,7 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             await new Promise((resolve) => setTimeout(resolve, 0));
 
             expect(linkedLayersSpy).toHaveBeenCalled();
-            expect(bridge.beginTransaction).toHaveBeenCalledWith(
-                'Convert line to curve'
-            );
+            expect(bridge.beginTransaction).toHaveBeenCalledWith('Convert');
             expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
             expect(bridge.syncLayersFromJson).not.toHaveBeenCalled();
             expect(

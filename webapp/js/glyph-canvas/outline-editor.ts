@@ -17940,7 +17940,7 @@ export class OutlineEditor {
                 ? 'Edit path'
                 : 'Draw path'
             : pendingEdit.didConvertLine
-              ? 'Convert line to curve'
+              ? 'Convert'
               : null;
 
         if (!label) {

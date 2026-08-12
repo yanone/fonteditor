@@ -2889,7 +2889,7 @@ describe('Transactions', () => {
                 { glyphName: 'A', layerId: extraThinLayer.id },
                 { glyphName: 'A', layerId: regularLayer.id }
             ],
-            'Convert line to curve'
+            'Convert'
         );
 
         const paths = bridge.getChangeLog().map((entry) => entry.path);
