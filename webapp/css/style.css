@@ -4865,7 +4865,7 @@ kbd + kbd {
 }
 
 #assistant-prompt:focus {
-    border-color: var(--view-assistant);
+    border-color: var(--border-focus-outline);
 }
 
 .assistant-input-controls {

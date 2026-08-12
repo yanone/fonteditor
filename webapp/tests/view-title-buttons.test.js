@@ -29,6 +29,9 @@ describe('view title buttons', () => {
                     <div id="view-console" class="view">
                         <div class="view-title-bar"><div class="view-title-left"><span class="view-title-heading">Console</span></div></div>
                     </div>
+                    <div id="view-assistant" class="view">
+                        <div class="view-title-bar"><div class="view-title-left"><span class="view-title-heading">Assistant</span></div></div>
+                    </div>
                 </div>
             </div>
         `;
@@ -67,5 +70,22 @@ describe('view title buttons', () => {
         ).toBe(true);
         expect(editorCollapseButton.style.display).toBe('none');
         expect(overviewCollapseButton.style.display).toBe('none');
+    });
+
+    test('adds close and maximize buttons to the assistant title bar', () => {
+        const { initViewTitleButtons } = require('../js/view-title-buttons');
+        initViewTitleButtons();
+
+        expect(
+            document.querySelector('#view-assistant .view-title-collapse-btn')
+        ).not.toBeNull();
+        expect(
+            document.querySelector('#view-assistant .view-title-maximize-btn')
+        ).not.toBeNull();
+        expect(
+            document
+                .querySelector('#view-assistant .view-title-window-actions')
+                ?.nextElementSibling?.classList.contains('view-title-heading')
+        ).toBe(true);
     });
 });

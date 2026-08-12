@@ -227,3 +227,80 @@ describe('keyboard navigation focusView DOM transfer', () => {
         expect(window.getViewVisitOrder().bottom.at(-1)).toBe('view-history');
     });
 });
+
+describe('keyboard navigation Cmd+Escape close button', () => {
+    const dispatchCmdEscape = () => {
+        const event = new KeyboardEvent('keydown', {
+            key: 'Escape',
+            metaKey: true,
+            ctrlKey: true,
+            bubbles: true,
+            cancelable: true
+        });
+        document.dispatchEvent(event);
+        return event;
+    };
+
+    beforeAll(() => {
+        window.VIEW_SETTINGS = {
+            shortcuts: {},
+            animation: { enabled: false, duration: 0 },
+            resize: {}
+        };
+        require('../js/keyboard-navigation');
+    });
+
+    beforeEach(() => {
+        jest.useFakeTimers();
+        document.body.innerHTML = `
+            <div class="container">
+                <div class="top-row">
+                    <div id="view-editor" class="view">
+                        <div class="view-title-bar">
+                            <button class="view-title-collapse-btn" style="display: flex">close</button>
+                        </div>
+                    </div>
+                    <div id="view-overview" class="view">
+                        <div class="view-title-bar">
+                            <button class="view-title-collapse-btn" style="display: none">close</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+
+    afterEach(() => {
+        jest.runOnlyPendingTimers();
+        jest.useRealTimers();
+        document.body.innerHTML = '';
+    });
+
+    it('clicks the focused view close button when it is shown', () => {
+        const closeBtn = document.querySelector(
+            '#view-editor .view-title-collapse-btn'
+        );
+        const clickSpy = jest.fn();
+        closeBtn.addEventListener('click', clickSpy);
+
+        window.focusView('view-editor', true);
+        jest.advanceTimersByTime(250);
+
+        expect(dispatchCmdEscape().defaultPrevented).toBe(true);
+        expect(clickSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not click a hidden close button', () => {
+        const closeBtn = document.querySelector(
+            '#view-overview .view-title-collapse-btn'
+        );
+        const clickSpy = jest.fn();
+        closeBtn.addEventListener('click', clickSpy);
+
+        window.focusView('view-overview', true);
+        jest.advanceTimersByTime(250);
+
+        expect(dispatchCmdEscape().defaultPrevented).toBe(false);
+        expect(clickSpy).not.toHaveBeenCalled();
+    });
+});

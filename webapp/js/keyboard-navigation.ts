@@ -1817,6 +1817,28 @@
             return;
         }
 
+        // Cmd/Ctrl+Escape clicks the focused view's close button when it is shown.
+        if (cmdKey && key === 'escape' && !shiftKey && !event.altKey) {
+            const focusedViewId =
+                currentFocusedView ||
+                (document.querySelector('.view.focused') as HTMLElement | null)
+                    ?.id ||
+                null;
+            const focusedView = focusedViewId
+                ? document.getElementById(focusedViewId)
+                : null;
+            const closeBtn = focusedView?.querySelector(
+                '.view-title-collapse-btn'
+            ) as HTMLElement | null;
+            if (closeBtn && closeBtn.style.display !== 'none') {
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation();
+                closeBtn.click();
+            }
+            return;
+        }
+
         const settings = getViewSettings();
         if (!settings) return;
 
