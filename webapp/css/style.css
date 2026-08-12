@@ -1347,8 +1347,7 @@ kbd + kbd {
     --view-title-color: var(--border-focus-outline);
     background-color: var(--background-primary);
     border: 2px solid var(--border-primary);
-    overflow: clip;
-    overflow-clip-margin: 1px;
+    overflow: hidden;
     min-width: 100px;
     min-height: 24px; /* Title bar height - allows secondary views to collapse */
     flex: 1 1 0;
@@ -1356,27 +1355,20 @@ kbd + kbd {
     color: var(--text-primary);
     transition:
         background-color 0.2s ease,
-        color 0.2s ease;
+        color 0.2s ease,
+        border-color 0.2s ease;
     display: flex;
     flex-direction: column;
     border-radius: 6px;
 }
 
-/* Active view indicator — overlay so it sits above content without layout shift.
-   Inner edge stays on the padding box; the extra 1px grows into the view chrome.
-   Radius is padding-box radius (4px) plus that outward 1px. */
-.view.focused::after {
-    content: '';
-    position: absolute;
-    inset: -1px;
-    border: 2px solid var(--view-title-color);
-    border-radius: 5px;
-    pointer-events: none;
-    z-index: 20;
+/* Active view indicator — the view’s 2px chrome, in the title color. */
+.view.focused {
+    border-color: var(--view-title-color);
 }
 
 /* Keyboard view activation focuses the view shell (tabindex=-1). Suppress the
-   browser focus ring — .view.focused::after is the only focus indicator. */
+   browser focus ring — the colored view border is the only focus indicator. */
 .view:focus,
 .view:focus-visible {
     outline: none;
