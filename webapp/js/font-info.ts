@@ -36,6 +36,10 @@ import {
 import { designspaceToUserspace } from './locations';
 import { AxisMapEditor } from './axis-map-editor';
 import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
+import {
+    ADDITIONAL_METRICS_PANEL_KEYS,
+    isAdditionalMetricsPanelKey
+} from './glyph-canvas/vertical-metrics';
 // Import FEA mode for Ace Editor (registers the mode automatically)
 import './mode-fea';
 const console = new Logger('FontInfo');
@@ -4340,35 +4344,78 @@ class FontInfoManager {
         const metricsFields = document.createElement('div');
         metricsFields.className = 'fontinfo-name-group-fields';
 
-        Object.entries(selectedMaster.metrics ?? {})
-            .sort(([left], [right]) => left.localeCompare(right))
-            .forEach(([metricKey, currentValue]) => {
-                metricsFields.appendChild(
-                    this.createSimpleFieldEditor({
-                        label: metricKey,
-                        value: String(currentValue),
-                        inputType: 'number',
-                        dataField: `masters.${this.selectedMasterIndex}.metrics.${metricKey}`,
-                        helperText: 'Master-specific numeric metric value.',
-                        onCommit: (rawValue) => {
-                            const parsedValue = parseNumericInput(rawValue);
-                            if (
-                                parsedValue === null ||
-                                parsedValue === undefined
-                            ) {
-                                return String(currentValue);
-                            }
+        const additionalMetricsSection = document.createElement('section');
+        additionalMetricsSection.className = 'fontinfo-name-group';
+        const additionalMetricsTitle = document.createElement('h3');
+        additionalMetricsTitle.className = 'sidebar-section-title';
+        additionalMetricsTitle.textContent = 'Additional metrics';
+        additionalMetricsSection.appendChild(additionalMetricsTitle);
+        const additionalMetricsFields = document.createElement('div');
+        additionalMetricsFields.className = 'fontinfo-name-group-fields';
 
-                            this.commitMasterMetricValue(
-                                this.selectedMasterIndex,
-                                metricKey,
-                                parsedValue
-                            );
-                            return String(parsedValue);
+        const masterMetrics = selectedMaster.metrics ?? {};
+        const metricEntries = Object.entries(masterMetrics);
+        const coreMetricEntries = metricEntries
+            .filter(([metricKey]) => !isAdditionalMetricsPanelKey(metricKey))
+            .sort(([left], [right]) => left.localeCompare(right));
+        const additionalMetricEntries = [
+            ...ADDITIONAL_METRICS_PANEL_KEYS.filter(
+                (metricKey) => masterMetrics[metricKey] !== undefined
+            ).map(
+                (metricKey) =>
+                    [metricKey, masterMetrics[metricKey]] as [string, number]
+            ),
+            ...metricEntries
+                .filter(
+                    ([metricKey]) =>
+                        isAdditionalMetricsPanelKey(metricKey) &&
+                        !(
+                            ADDITIONAL_METRICS_PANEL_KEYS as readonly string[]
+                        ).includes(metricKey)
+                )
+                .sort(([left], [right]) => left.localeCompare(right))
+        ];
+
+        const appendMetricField = (
+            container: HTMLElement,
+            metricKey: string,
+            currentValue: number
+        ) => {
+            container.appendChild(
+                this.createSimpleFieldEditor({
+                    label: metricKey,
+                    value: String(currentValue),
+                    inputType: 'number',
+                    dataField: `masters.${this.selectedMasterIndex}.metrics.${metricKey}`,
+                    helperText: 'Master-specific numeric metric value.',
+                    onCommit: (rawValue) => {
+                        const parsedValue = parseNumericInput(rawValue);
+                        if (parsedValue === null || parsedValue === undefined) {
+                            return String(currentValue);
                         }
-                    })
-                );
-            });
+
+                        this.commitMasterMetricValue(
+                            this.selectedMasterIndex,
+                            metricKey,
+                            parsedValue
+                        );
+                        return String(parsedValue);
+                    }
+                })
+            );
+        };
+
+        for (const [metricKey, currentValue] of coreMetricEntries) {
+            appendMetricField(metricsFields, metricKey, currentValue as number);
+        }
+
+        for (const [metricKey, currentValue] of additionalMetricEntries) {
+            appendMetricField(
+                additionalMetricsFields,
+                metricKey,
+                currentValue as number
+            );
+        }
 
         if (metricsFields.childElementCount === 0) {
             const helper = document.createElement('div');
@@ -4379,6 +4426,16 @@ class FontInfoManager {
             metricsSection.appendChild(metricsFields);
         }
         detail.appendChild(metricsSection);
+
+        if (additionalMetricsFields.childElementCount === 0) {
+            const helper = document.createElement('div');
+            helper.className = 'localized-string-helper';
+            helper.textContent = 'No additional metrics are defined.';
+            additionalMetricsSection.appendChild(helper);
+        } else {
+            additionalMetricsSection.appendChild(additionalMetricsFields);
+        }
+        detail.appendChild(additionalMetricsSection);
 
         layout.appendChild(sidebar);
         layout.appendChild(detail);

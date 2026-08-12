@@ -13,7 +13,15 @@ const console = new Logger('Renderer');
 import type { ViewportManager } from './viewport';
 import type { TextRunEditor } from './textrun';
 import { GlyphCanvas } from '../glyph-canvas';
-import { getVisibleVerticalMetricValues } from './vertical-metrics';
+import {
+    formatAdditionalMetricFamiliesLabel,
+    getAdditionalDrawableMetricLineEntries,
+    getCoreVerticalMetricValues,
+    getVisibleVerticalMetricValues,
+    type AdditionalMetricFamily,
+    type AdditionalMetricLineEntry
+} from './vertical-metrics';
+import { isShowAllMetricsEnabled } from '../show-all-metrics-pref';
 import type { Babelfont } from '../babelfont';
 
 const DUPLICATE_NODE_WARNING_COLOR = '#ff3b30';
@@ -972,13 +980,39 @@ export class GlyphCanvasRenderer {
 
         const uniqueMetricValues =
             getVisibleVerticalMetricValues(verticalMetrics);
+        const coreMetricValues = getCoreVerticalMetricValues(verticalMetrics);
+        const additionalEntries = isShowAllMetricsEnabled()
+            ? getAdditionalDrawableMetricLineEntries(verticalMetrics).filter(
+                  (entry) =>
+                      !coreMetricValues.some(
+                          (coreValue) => Math.abs(coreValue - entry.y) < 0.25
+                      )
+              )
+            : [];
+        const additionalMetricValues = [
+            ...new Set(
+                additionalEntries.map((entry) => {
+                    // Preserve unique Ys with the same tolerance used elsewhere.
+                    return entry.y;
+                })
+            )
+        ].filter(
+            (metricValue, index, values) =>
+                values.findIndex(
+                    (candidate) => Math.abs(candidate - metricValue) < 0.25
+                ) === index
+        );
 
-        if (uniqueMetricValues.length === 0) {
+        if (uniqueMetricValues.length === 0 && coreMetricValues.length === 0) {
             return;
         }
 
-        const topY = Math.max(...uniqueMetricValues);
-        const bottomY = Math.min(...uniqueMetricValues);
+        const extentValues =
+            uniqueMetricValues.length > 0
+                ? uniqueMetricValues
+                : coreMetricValues;
+        const topY = Math.max(...extentValues);
+        const bottomY = Math.min(...extentValues);
 
         const isDarkTheme =
             document.documentElement.getAttribute('data-theme') !== 'light';
@@ -994,17 +1028,39 @@ export class GlyphCanvasRenderer {
         const baselineColor = parsedBaseColor
             ? `rgba(${parsedBaseColor.r}, ${parsedBaseColor.g}, ${parsedBaseColor.b}, 0.22)`
             : baseMetricColor;
+        const additionalUnderlayColor = parsedBaseColor
+            ? `rgba(${parsedBaseColor.r}, ${parsedBaseColor.g}, ${parsedBaseColor.b}, 0.08)`
+            : underlayColor;
+        const additionalLabelColor = parsedBaseColor
+            ? `rgba(${parsedBaseColor.r}, ${parsedBaseColor.g}, ${parsedBaseColor.b}, 0.14)`
+            : additionalUnderlayColor;
 
         this.ctx.save();
         this.ctx.lineWidth = 1 / this.viewportManager.scale;
 
-        for (const metricValue of uniqueMetricValues) {
+        for (const metricValue of coreMetricValues) {
             const isBaseline = Math.abs(metricValue) < 1e-8;
             this.ctx.strokeStyle = isBaseline ? baselineColor : underlayColor;
             this.ctx.beginPath();
             this.ctx.moveTo(lineExtents.minX, metricValue);
             this.ctx.lineTo(lineExtents.maxX, metricValue);
             this.ctx.stroke();
+        }
+
+        if (additionalMetricValues.length > 0) {
+            this.ctx.strokeStyle = additionalUnderlayColor;
+            for (const metricValue of additionalMetricValues) {
+                this.ctx.beginPath();
+                this.ctx.moveTo(lineExtents.minX, metricValue);
+                this.ctx.lineTo(lineExtents.maxX, metricValue);
+                this.ctx.stroke();
+            }
+
+            this.drawAdditionalMetricLabels(
+                additionalEntries,
+                lineExtents.minX,
+                additionalLabelColor
+            );
         }
 
         const selectedGlyphIndex = this.textRunEditor.selectedGlyphIndex;
@@ -1050,6 +1106,122 @@ export class GlyphCanvasRenderer {
             this.ctx.moveTo(activeGlyphEndX, bottomY);
             this.ctx.lineTo(activeGlyphEndX, topY);
             this.ctx.stroke();
+        }
+
+        this.ctx.restore();
+    }
+
+    /**
+     * Label additional metric lines with short family names (hhea / typo / win).
+     * Nearby labels merge ("hhea+typo") until zoom gives each its own space.
+     * Labels sit left of the line start, or pin to the left viewport edge when
+     * that start is off-screen.
+     */
+    private drawAdditionalMetricLabels(
+        entries: AdditionalMetricLineEntry[],
+        lineStartX: number,
+        labelColor: string
+    ): void {
+        if (entries.length === 0) {
+            return;
+        }
+
+        const invScale = 1 / this.viewportManager.scale;
+        const fontSize = 11 * invScale;
+        const labelGapFont = fontSize * 1.15;
+        const edgeMarginPx = 8;
+        const lineGapFont = 6 * invScale;
+
+        // Collapse exact/near-coincident Ys, collecting families per line.
+        type LineGroup = {
+            y: number;
+            families: Set<AdditionalMetricFamily>;
+        };
+        const lineGroups: LineGroup[] = [];
+        const sortedEntries = [...entries].sort(
+            (left, right) => right.y - left.y
+        );
+        for (const entry of sortedEntries) {
+            const existing = lineGroups.find(
+                (group) => Math.abs(group.y - entry.y) < 0.25
+            );
+            if (existing) {
+                existing.families.add(entry.family);
+                existing.y =
+                    (existing.y * (existing.families.size - 1) + entry.y) /
+                    existing.families.size;
+            } else {
+                lineGroups.push({
+                    y: entry.y,
+                    families: new Set([entry.family])
+                });
+            }
+        }
+
+        // Merge labels that would vertically collide at the current zoom.
+        type LabelCluster = {
+            y: number;
+            families: Set<AdditionalMetricFamily>;
+            count: number;
+        };
+        const clusters: LabelCluster[] = [];
+        for (const group of lineGroups) {
+            const colliding = clusters.find(
+                (cluster) => Math.abs(cluster.y - group.y) < labelGapFont
+            );
+            if (colliding) {
+                for (const family of group.families) {
+                    colliding.families.add(family);
+                }
+                colliding.y =
+                    (colliding.y * colliding.count + group.y) /
+                    (colliding.count + 1);
+                colliding.count += 1;
+            } else {
+                clusters.push({
+                    y: group.y,
+                    families: new Set(group.families),
+                    count: 1
+                });
+            }
+        }
+
+        const lineStartScreen = this.viewportManager.fontToScreenCoordinates(
+            lineStartX,
+            0
+        );
+        const lineStartVisible = lineStartScreen.x >= edgeMarginPx;
+        const viewportLeftFontX = this.viewportManager.getFontSpaceCoordinates(
+            edgeMarginPx,
+            0
+        ).x;
+
+        this.ctx.save();
+        this.ctx.font = `${fontSize}px 'Inter UI', sans-serif`;
+        this.ctx.fillStyle = labelColor;
+        this.ctx.textBaseline = 'middle';
+
+        for (const cluster of clusters) {
+            const text = formatAdditionalMetricFamiliesLabel(cluster.families);
+            if (!text) {
+                continue;
+            }
+
+            this.ctx.save();
+            if (lineStartVisible) {
+                // Outside the metrics band, immediately left of the line start.
+                this.ctx.translate(lineStartX, cluster.y);
+                this.ctx.scale(1, -1);
+                this.ctx.textAlign = 'right';
+                this.ctx.fillText(text, -lineGapFont, 0);
+            } else {
+                // Line starts off-screen left: pin to the left viewport edge.
+                this.ctx.translate(viewportLeftFontX, cluster.y);
+                this.ctx.scale(1, -1);
+                this.ctx.textAlign = 'left';
+                this.ctx.fillText(text, 0, 0);
+            }
+            this.ctx.restore();
         }
 
         this.ctx.restore();

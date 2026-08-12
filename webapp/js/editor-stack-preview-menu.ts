@@ -10,6 +10,10 @@ import {
     isOverviewFollowStackScrollEnabled,
     toggleOverviewFollowStackScrollEnabled
 } from './glyph-overview-follow-stack-pref';
+import {
+    isShowAllMetricsEnabled,
+    toggleShowAllMetricsEnabled
+} from './show-all-metrics-pref';
 import { Logger } from './logger';
 
 const console = new Logger('EditorStackPreviewMenu');
@@ -44,6 +48,8 @@ function createStackPreviewMenuHtml(): string {
     const pairedLayerCheckmark = pairedLayerVisible ? 'check' : '';
     const followStackScroll = isOverviewFollowStackScrollEnabled();
     const followStackCheckmark = followStackScroll ? 'check' : '';
+    const showAllMetrics = isShowAllMetricsEnabled();
+    const showAllMetricsCheckmark = showAllMetrics ? 'check' : '';
 
     return `
         <div class="plugin-menu" tabindex="0" role="menu" aria-label="Stack preview menu">
@@ -61,6 +67,10 @@ function createStackPreviewMenuHtml(): string {
                 <span class="plugin-menu-check material-symbols-outlined${pairedLayerVisible ? '' : ' empty'}">${pairedLayerCheckmark}</span>
                 <span>Show Foreground/Background</span>
                 <span class="plugin-menu-shortcut">⌘⌥B</span>
+            </div>
+            <div class="plugin-menu-item" data-action="toggle-show-all-metrics" role="menuitemcheckbox" aria-checked="${showAllMetrics}" tabindex="-1">
+                <span class="plugin-menu-check material-symbols-outlined${showAllMetrics ? '' : ' empty'}">${showAllMetricsCheckmark}</span>
+                <span>Show All Metrics</span>
             </div>
             <div class="plugin-menu-item" data-action="toggle-follow-stack-scroll" role="menuitemcheckbox" aria-checked="${followStackScroll}" tabindex="-1">
                 <span class="plugin-menu-check material-symbols-outlined${followStackScroll ? '' : ' empty'}">${followStackCheckmark}</span>
@@ -148,6 +158,10 @@ function initEditorStackPreviewMenu(): void {
                 } else if (action === 'toggle-follow-stack-scroll') {
                     toggleOverviewFollowStackScrollEnabled();
                     refreshStackPreviewMenuContent();
+                } else if (action === 'toggle-show-all-metrics') {
+                    toggleShowAllMetricsEnabled();
+                    window.glyphCanvas?.render();
+                    refreshStackPreviewMenuContent();
                 }
             });
         },
@@ -200,6 +214,11 @@ function initEditorStackPreviewMenu(): void {
 
     window.addEventListener('overviewFollowStackScrollChanged', () => {
         refreshStackPreviewMenuContent();
+    });
+
+    window.addEventListener('showAllMetricsChanged', () => {
+        refreshStackPreviewMenuContent();
+        window.glyphCanvas?.render();
     });
 
     console.log('Stack preview menu initialized');

@@ -37,8 +37,9 @@ import { sidebarErrorDisplay } from '../sidebar-error-display';
 import {
     getHighestVisibleVerticalMetricValue,
     getLowestVisibleVerticalMetricValue,
-    getVisibleVerticalMetricValues
+    getSnappableVerticalMetricValues
 } from './vertical-metrics';
+import { isShowAllMetricsEnabled } from '../show-all-metrics-pref';
 import {
     applyPasteFragment,
     applyReplaceSelectedPaths,
@@ -12305,8 +12306,9 @@ export class OutlineEditor {
                       )
                   )
                 : [0];
-        const metricsYValues = getVisibleVerticalMetricValues(
-            this.renderVerticalMetrics
+        const metricsYValues = getSnappableVerticalMetricValues(
+            this.renderVerticalMetrics,
+            isShowAllMetricsEnabled()
         );
 
         return {
