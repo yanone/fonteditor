@@ -9124,6 +9124,9 @@ export class OutlineEditor {
         if (!skipRender) {
             this.glyphCanvas.render();
         }
+
+        // Same refresh path as structural deletes and undo/redo.
+        this.syncEditToolAvailability();
     }
 
     private getExactLayerDataForSelection(
@@ -20510,6 +20513,9 @@ export class OutlineEditor {
             }
 
             await this.interpolateCurrentGlyph(true); // force=true to bypass guard
+
+            // Same refresh path as structural deletes and undo/redo.
+            this.syncEditToolAvailability();
 
             // Pan is handled by the glyph-selected handler in glyph-canvas.ts
             // which already calls panToGlyph when triggered by keyboard navigation.
