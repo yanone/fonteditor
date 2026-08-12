@@ -3058,38 +3058,18 @@ class GlyphCanvas {
                     }
                 }
 
-                // Zoom to fit the entire text in the canvas only on initial load
+                // Signal that shaping is done so URL/state restore can apply
+                // `?text=` before the initial zoom-to-fit.
                 if (!this.initialFontLoaded) {
-                    const rect = this.canvas!.getBoundingClientRect();
-                    const readyDetail = {
-                        openSessionId: latestOpenSessionId,
-                        source: 'initial-zoom-complete'
-                    };
-                    const initialZoom = this.viewportManager!.zoomToFitText(
-                        this.textRunEditor!.shapedGlyphs,
-                        rect,
-                        this.render.bind(this),
-                        null,
-                        () => {
-                            timelineMark('canvas.initialZoomComplete');
-                            window.dispatchEvent(
-                                new CustomEvent('canvasInitialReady', {
-                                    detail: readyDetail
-                                })
-                            );
-                        }
+                    timelineMark('canvas.initialZoomComplete');
+                    window.dispatchEvent(
+                        new CustomEvent('canvasInitialReady', {
+                            detail: {
+                                openSessionId: latestOpenSessionId,
+                                source: 'initial-shape-complete'
+                            }
+                        })
                     );
-                    if (initialZoom === undefined) {
-                        timelineMark('canvas.initialZoomComplete');
-                        window.dispatchEvent(
-                            new CustomEvent('canvasInitialReady', {
-                                detail: {
-                                    ...readyDetail,
-                                    source: 'initial-zoom-skipped-empty-text'
-                                }
-                            })
-                        );
-                    }
                     this.initialFontLoaded = true;
                 }
             });
@@ -10688,14 +10668,70 @@ class GlyphCanvas {
         return secondVisualEdge - delta;
     }
 
-    resetZoomAndPosition(): void {
-        // Zoom to fit text, matching the initial view when font loads
-        const rect = this.canvas!.getBoundingClientRect();
-        this.viewportManager!.zoomToFitText(
-            this.textRunEditor!.shapedGlyphs,
+    /**
+     * Frame the current text run (or the caret when the buffer is empty).
+     * Used after startup URL restore and for Cmd+0 in text mode.
+     */
+    fitViewportToCurrentText(onComplete?: () => void): number | undefined {
+        if (!this.canvas || !this.viewportManager || !this.textRunEditor) {
+            onComplete?.();
+            return;
+        }
+
+        const rect = this.canvas.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+            onComplete?.();
+            return;
+        }
+
+        const band = this.getTextModeVerticalMetricsBand();
+        const verticalBounds = { minY: band.lowest, maxY: band.highest };
+        const glyphs = this.textRunEditor.shapedGlyphs;
+        if (glyphs && glyphs.length > 0) {
+            return this.viewportManager.zoomToFitText(
+                glyphs,
+                rect,
+                this.render.bind(this),
+                null,
+                onComplete,
+                verticalBounds
+            );
+        }
+
+        return this.viewportManager.zoomToFitCursor(
+            this.textRunEditor.cursorX || 0,
             rect,
-            this.render.bind(this)
+            this.render.bind(this),
+            verticalBounds,
+            null,
+            onComplete
         );
+    }
+
+    /**
+     * After URL/state restore has applied the real text buffer, zoom to fit
+     * that rendered run. Empty text centers the caret instead.
+     */
+    applyInitialViewportFit(): Promise<void> {
+        return new Promise((resolve) => {
+            let settled = false;
+            const finish = () => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                resolve();
+            };
+            this.textRunEditor?.updateCursorVisualPosition();
+            const zoom = this.fitViewportToCurrentText(finish);
+            if (zoom === undefined) {
+                finish();
+            }
+        });
+    }
+
+    resetZoomAndPosition(): void {
+        this.fitViewportToCurrentText();
     }
 
     toGlyphLocal(x: number, y: number): { glyphX: number; glyphY: number } {

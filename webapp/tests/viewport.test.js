@@ -42,3 +42,46 @@ describe('ViewportManager keyboard glyph framing', () => {
         expect(viewport.animatePan).toHaveBeenLastCalledWith(50, 1100, render);
     });
 });
+
+describe('ViewportManager zoom to fit', () => {
+    test('zoomToFitText uses supplied vertical metrics instead of the UPM-1000 box', () => {
+        const viewport = new ViewportManager(1, 0, 0);
+        const render = jest.fn();
+        viewport.animateZoomAndPan = jest.fn();
+
+        viewport.zoomToFitText(
+            [{ ax: 1000, dx: 0, dy: 0 }],
+            { width: 1000, height: 800 },
+            render,
+            50,
+            undefined,
+            { minY: -400, maxY: 1600 }
+        );
+
+        expect(viewport.animateZoomAndPan).toHaveBeenCalledTimes(1);
+        const [scale, panX, panY] = viewport.animateZoomAndPan.mock.calls[0];
+        expect(scale).toBeCloseTo(0.35);
+        expect(panX).toBeCloseTo(325);
+        expect(panY).toBeCloseTo(610);
+    });
+
+    test('zoomToFitCursor centers a zero-width caret using vertical metrics', () => {
+        const viewport = new ViewportManager(1, 0, 0);
+        const render = jest.fn();
+        viewport.animateZoomAndPan = jest.fn();
+
+        viewport.zoomToFitCursor(
+            0,
+            { width: 1000, height: 800 },
+            render,
+            { minY: -200, maxY: 800 },
+            50
+        );
+
+        expect(viewport.animateZoomAndPan).toHaveBeenCalledTimes(1);
+        const [scale, panX, panY] = viewport.animateZoomAndPan.mock.calls[0];
+        expect(scale).toBeCloseTo(0.7);
+        expect(panX).toBeCloseTo(500);
+        expect(panY).toBeCloseTo(610);
+    });
+});

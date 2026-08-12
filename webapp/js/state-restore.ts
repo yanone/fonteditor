@@ -50,6 +50,10 @@ export async function ensureStartupStateReady(
             await waitForNextAnimationFrame();
             await waitForNextAnimationFrame();
 
+            if (typeof glyphCanvas.applyInitialViewportFit === 'function') {
+                await glyphCanvas.applyInitialViewportFit();
+            }
+
             startupStateReady = true;
         } finally {
             enableSync();

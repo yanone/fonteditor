@@ -7,6 +7,9 @@ describe('ensureStartupStateReady', () => {
     });
 
     test('initializes state sync once and applies startup location before resolving', async () => {
+        global.requestAnimationFrame = (callback) => setTimeout(callback, 0);
+        global.cancelAnimationFrame = (id) => clearTimeout(id);
+
         const initStateSync = jest.fn();
         const enableSync = jest.fn();
 
@@ -23,6 +26,7 @@ describe('ensureStartupStateReady', () => {
         const updateAxisSliders = jest.fn();
         const autoSelectMatchingMaster = jest.fn().mockResolvedValue();
         const alignTextModeEscapeStateWithCurrentMaster = jest.fn();
+        const applyInitialViewportFit = jest.fn().mockResolvedValue();
         const render = jest.fn();
         const glyphCanvas = {
             axesManager: {
@@ -34,7 +38,8 @@ describe('ensureStartupStateReady', () => {
             outlineEditor: { active: false },
             renderer: { render },
             autoSelectMatchingMaster,
-            alignTextModeEscapeStateWithCurrentMaster
+            alignTextModeEscapeStateWithCurrentMaster,
+            applyInitialViewportFit
         };
 
         window.stateManager = {
@@ -63,12 +68,15 @@ describe('ensureStartupStateReady', () => {
             1
         );
         expect(render).toHaveBeenCalledTimes(1);
+        expect(applyInitialViewportFit).toHaveBeenCalledTimes(1);
         expect(variationListener).toHaveBeenCalledTimes(1);
 
         window.removeEventListener(
             'variationLocationChanged',
             variationListener
         );
+        delete global.requestAnimationFrame;
+        delete global.cancelAnimationFrame;
     });
 
     test('restores edit mode from URL without premature overview highlight sync', async () => {

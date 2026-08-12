@@ -5326,7 +5326,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
         expect(canvas.updatePropertiesUI).not.toHaveBeenCalled();
     });
 
-    test('setFont dispatches canvasInitialReady immediately when initial text shapes no glyphs', async () => {
+    test('setFont dispatches canvasInitialReady after shaping without zooming', async () => {
         const readyEvents = [];
         const onCanvasInitialReady = (event) => readyEvents.push(event.detail);
         window.addEventListener('canvasInitialReady', onCanvasInitialReady);
@@ -5335,23 +5335,21 @@ describe('GlyphCanvas property panel metrics edits', () => {
         canvas.textRunEditor.setFont = jest.fn().mockResolvedValue({});
         canvas.textRunEditor.rebuildEditingFontNameToGid = jest.fn();
         canvas.textRunEditor.shapeText = jest.fn(() => {
-            canvas.textRunEditor.shapedGlyphs = [];
+            canvas.textRunEditor.shapedGlyphs = [{ ax: 500, dx: 0, dy: 0 }];
         });
         canvas.axesManager.updateAxesUI = jest.fn().mockResolvedValue();
         canvas.updatePropertiesUI = jest.fn().mockResolvedValue();
         canvas.selectMaster = jest.fn().mockResolvedValue();
-        canvas.viewportManager.zoomToFitText = jest.fn(() => undefined);
+        canvas.viewportManager.zoomToFitText = jest.fn(() => 0.4);
 
         try {
             await canvas.setFont(new Uint8Array([1, 2, 3]).buffer);
 
-            expect(canvas.viewportManager.zoomToFitText).toHaveBeenCalledTimes(
-                1
-            );
+            expect(canvas.viewportManager.zoomToFitText).not.toHaveBeenCalled();
             expect(readyEvents).toHaveLength(1);
             expect(readyEvents[0]).toEqual(
                 expect.objectContaining({
-                    source: 'initial-zoom-skipped-empty-text'
+                    source: 'initial-shape-complete'
                 })
             );
         } finally {
@@ -5394,7 +5392,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
             expect(readyEvents[0]).toEqual(
                 expect.objectContaining({
                     openSessionId: 'open-session-new-font',
-                    source: 'initial-zoom-skipped-empty-text'
+                    source: 'initial-shape-complete'
                 })
             );
         } finally {
@@ -5403,6 +5401,76 @@ describe('GlyphCanvas property panel metrics edits', () => {
                 onCanvasInitialReady
             );
         }
+    });
+
+    test('applyInitialViewportFit zooms to shaped text using metric bounds', async () => {
+        canvas.textRunEditor.shapedGlyphs = [{ ax: 800, dx: 0, dy: 0 }];
+        canvas.textRunEditor.updateCursorVisualPosition = jest.fn();
+        canvas.getTextModeVerticalMetricsBand = jest.fn(() => ({
+            lowest: -200,
+            highest: 800
+        }));
+        canvas.canvas.getBoundingClientRect = jest.fn(() => ({
+            width: 1000,
+            height: 800,
+            top: 0,
+            left: 0,
+            bottom: 800,
+            right: 1000
+        }));
+        canvas.viewportManager.zoomToFitText = jest.fn(
+            (_glyphs, _rect, _render, _margin, onComplete) => {
+                onComplete?.();
+                return 0.5;
+            }
+        );
+        canvas.viewportManager.zoomToFitCursor = jest.fn();
+
+        await canvas.applyInitialViewportFit();
+
+        expect(canvas.viewportManager.zoomToFitText).toHaveBeenCalledTimes(1);
+        expect(canvas.viewportManager.zoomToFitCursor).not.toHaveBeenCalled();
+        expect(canvas.viewportManager.zoomToFitText.mock.calls[0][5]).toEqual({
+            minY: -200,
+            maxY: 800
+        });
+    });
+
+    test('applyInitialViewportFit centers the caret when no glyphs are shaped', async () => {
+        canvas.textRunEditor.shapedGlyphs = [];
+        canvas.textRunEditor.cursorX = 0;
+        canvas.textRunEditor.updateCursorVisualPosition = jest.fn();
+        canvas.getTextModeVerticalMetricsBand = jest.fn(() => ({
+            lowest: -400,
+            highest: 1600
+        }));
+        canvas.canvas.getBoundingClientRect = jest.fn(() => ({
+            width: 1000,
+            height: 800,
+            top: 0,
+            left: 0,
+            bottom: 800,
+            right: 1000
+        }));
+        canvas.viewportManager.zoomToFitText = jest.fn();
+        canvas.viewportManager.zoomToFitCursor = jest.fn(
+            (_x, _rect, _render, _bounds, _margin, onComplete) => {
+                onComplete?.();
+                return 0.4;
+            }
+        );
+
+        await canvas.applyInitialViewportFit();
+
+        expect(canvas.viewportManager.zoomToFitText).not.toHaveBeenCalled();
+        expect(canvas.viewportManager.zoomToFitCursor).toHaveBeenCalledTimes(1);
+        expect(canvas.viewportManager.zoomToFitCursor.mock.calls[0][0]).toBe(0);
+        expect(canvas.viewportManager.zoomToFitCursor.mock.calls[0][3]).toEqual(
+            {
+                minY: -400,
+                maxY: 1600
+            }
+        );
     });
 });
 
