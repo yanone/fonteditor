@@ -711,18 +711,36 @@ export class GlyphCanvasRenderer {
                             maxY: explicitOutline.bounds.yMax
                         }
                       : null;
+                const isVisuallyEmpty =
+                    this.glyphCanvas.isShapedGlyphVisuallyEmpty(glyphIndex);
+                const metricsBand = isVisuallyEmpty
+                    ? this.glyphCanvas.getTextModeVerticalMetricsBand()
+                    : null;
 
                 // Store bounds for hit testing and tooltip positioning
                 this.glyphCanvas.glyphBounds.push({
                     x: x,
                     y: y,
                     width: xAdvance,
-                    height: 1000, // Font units height approximation for hit testing
-                    // Visual bounds from actual glyph path
+                    height: isVisuallyEmpty
+                        ? (metricsBand?.highest ?? 1000) -
+                          (metricsBand?.lowest ?? 0)
+                        : 1000, // Font units height approximation for hit testing
+                    // Visual bounds from actual glyph path; empty glyphs use the
+                    // metrics band so labels/hit targets don't depend on ink.
                     x1: pathBounds ? pathBounds.minX : 0,
-                    y1: pathBounds ? pathBounds.minY : 0,
+                    y1: pathBounds
+                        ? pathBounds.minY
+                        : isVisuallyEmpty
+                          ? (metricsBand?.lowest ?? 0)
+                          : 0,
                     x2: pathBounds ? pathBounds.maxX : xAdvance,
-                    y2: pathBounds ? pathBounds.maxY : 1000
+                    y2: pathBounds
+                        ? pathBounds.maxY
+                        : isVisuallyEmpty
+                          ? (metricsBand?.highest ?? 1000)
+                          : 1000,
+                    isEmpty: isVisuallyEmpty
                 });
 
                 // Set color based on hover, selection state, and edit mode
@@ -814,7 +832,7 @@ export class GlyphCanvasRenderer {
                             x,
                             y
                         );
-                    } else if (glyphData) {
+                    } else if (glyphData && !isVisuallyEmpty) {
                         this.ctx.save();
                         this.ctx.translate(x, y);
 
@@ -1455,16 +1473,21 @@ export class GlyphCanvasRenderer {
                 ];
             const glyphWidth = shapedGlyph.ax || 0;
             const glyphYOffset = shapedGlyph.dy || 0; // Y offset from HarfBuzz shaping
+            const isEmptyGlyph = !!glyphBounds?.isEmpty;
 
-            // Use visual bounding box for positioning
-            const visualMinX = glyphBounds?.x1 || 0;
-            const visualMaxX = glyphBounds?.x2 || glyphWidth;
-            const visualMinY = glyphBounds?.y1 || 0;
+            // Use visual bounding box for positioning. Empty glyphs have no ink,
+            // so center on the advance width and place the label under baseline.
+            const visualMinX = isEmptyGlyph ? 0 : glyphBounds?.x1 || 0;
+            const visualMaxX = isEmptyGlyph
+                ? glyphWidth
+                : glyphBounds?.x2 || glyphWidth;
+            const visualMinY = isEmptyGlyph ? 0 : glyphBounds?.y1 || 0;
 
             // Position tooltip centered under the glyph's visual bounding box
             // In font coordinates: Y increases upward, so negative Y is below baseline
-            const tooltipX = glyphBounds.x + (visualMinX + visualMaxX) / 2;
-            const tooltipY = glyphYOffset + visualMinY - 100; // 100 units below bottom of visual bounding box
+            const tooltipX =
+                (glyphBounds?.x ?? 0) + (visualMinX + visualMaxX) / 2;
+            const tooltipY = glyphYOffset + visualMinY - 100; // 100 units below bottom of visual bounding box / baseline
 
             const invScale = 1 / this.viewportManager.scale;
             this.drawHoverLabel(glyphName, tooltipX, tooltipY, invScale);
@@ -4234,16 +4257,33 @@ export class GlyphCanvasRenderer {
                 const pathBounds = glyphData
                     ? calculatePathBounds(glyphData)
                     : null;
+                const isVisuallyEmpty =
+                    this.glyphCanvas.isShapedGlyphVisuallyEmpty(glyphIndex);
+                const metricsBand = isVisuallyEmpty
+                    ? this.glyphCanvas.getTextModeVerticalMetricsBand()
+                    : null;
 
                 this.glyphCanvas.glyphBounds.push({
                     x: x,
                     y: y,
                     width: xAdvance,
-                    height: 1000,
+                    height: isVisuallyEmpty
+                        ? (metricsBand?.highest ?? 1000) -
+                          (metricsBand?.lowest ?? 0)
+                        : 1000,
                     x1: pathBounds ? pathBounds.minX : 0,
-                    y1: pathBounds ? pathBounds.minY : 0,
+                    y1: pathBounds
+                        ? pathBounds.minY
+                        : isVisuallyEmpty
+                          ? (metricsBand?.lowest ?? 0)
+                          : 0,
                     x2: pathBounds ? pathBounds.maxX : xAdvance,
-                    y2: pathBounds ? pathBounds.maxY : 1000
+                    y2: pathBounds
+                        ? pathBounds.maxY
+                        : isVisuallyEmpty
+                          ? (metricsBand?.highest ?? 1000)
+                          : 1000,
+                    isEmpty: isVisuallyEmpty
                 });
 
                 const isSelected =

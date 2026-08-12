@@ -170,7 +170,7 @@ Holding Cmd or Alt still works as before and temporarily highlights the matching
 
 #### Text Mode Selection
 
-In text mode, a click places the caret (including when the pointer is over a glyph). Click-drag selects a character range like a standard text editor; Shift-click extends the selection from the existing anchor (or caret). Clicks and drag starts far left or right of the run snap to the nearest end. Caret placement and selection also hit within a generous vertical margin above and below the word; the I-beam cursor appears only inside that band (full canvas width), and the normal arrow pointer appears outside it. Clicking outside that band clears any text selection. Double-clicking a glyph still enters edit mode. Space-drag pans; it does not start a text selection.
+In text mode, a click places the caret (including when the pointer is over a glyph). Click-drag selects a character range like a standard text editor; Shift-click extends the selection from the existing anchor (or caret). Clicks and drag starts far left or right of the run snap to the nearest end. Caret placement and selection also hit within a generous vertical margin above and below the word; the I-beam cursor appears only inside that band (full canvas width), and the normal arrow pointer appears outside it. Clicking outside that band clears any text selection. Double-clicking a glyph enters edit mode. Empty glyphs (no drawable outlines or components) still offer that double-click path: their hit target is the full advance width between the highest and lowest visible vertical metrics, with the glyph name label shown under the baseline on hover (not derived from outline bounds). Space-drag pans; it does not start a text selection.
 
 #### Drawing New Outlines
 

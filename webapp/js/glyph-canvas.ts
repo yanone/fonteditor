@@ -1,6 +1,10 @@
 // Glyph Canvas Editor
 // Handles canvas-based glyph editing with pan/zoom and text rendering
 
+import {
+    getHighestVisibleVerticalMetricValue,
+    getLowestVisibleVerticalMetricValue
+} from './glyph-canvas/vertical-metrics';
 import { AxesManager } from './glyph-canvas/variations';
 import { FeaturesManager } from './glyph-canvas/features';
 import { TextRunEditor } from './glyph-canvas/textrun';
@@ -2549,10 +2553,15 @@ class GlyphCanvas {
             return;
         }
 
-        // In text mode, show the I-beam only inside the text interaction band
-        // (full canvas width × generous vertical margin around the run).
-        // Outside that band use the normal arrow pointer.
-        if (this.isSelectingText || this.isPointerInTextInteractionBand()) {
+        // In text mode, show pointer when hovering a glyph (including empty
+        // glyphs with a metrics hit target) so double-click-to-edit is clear.
+        // Otherwise show the I-beam only inside the text interaction band.
+        if (this.outlineEditor.hoveredGlyphIndex !== -1) {
+            this.canvas!.style.cursor = 'pointer';
+        } else if (
+            this.isSelectingText ||
+            this.isPointerInTextInteractionBand()
+        ) {
             this.canvas!.style.cursor = 'text';
         } else {
             this.canvas!.style.cursor = 'default';
@@ -2622,7 +2631,13 @@ class GlyphCanvas {
 
         let foundIndex = -1;
 
-        // Check each glyph using path hit testing
+        const fontSpace = this.viewportManager!.getFontSpaceCoordinates(
+            this.mouseX,
+            this.mouseY
+        );
+        const metricsBand = this.getTextModeVerticalMetricsBand();
+
+        // Pass 1: drawable outline / explicit-outline path hits (ink wins).
         let xPosition = 0;
         for (let i = 0; i < this.textRunEditor!.shapedGlyphs.length; i++) {
             const glyph = this.textRunEditor!.shapedGlyphs[i];
@@ -2634,64 +2649,175 @@ class GlyphCanvas {
             const x = xPosition + xOffset;
             const y = yOffset;
 
-            // Check if point is within this glyph's path
-            try {
-                const glyphData =
-                    this.textRunEditor!.hbFont.glyphToPath(glyphId);
-                if (glyphData) {
-                    const path = new Path2D(glyphData);
+            if (!this.isShapedGlyphVisuallyEmpty(i)) {
+                try {
+                    const glyphData =
+                        this.textRunEditor!.hbFont.glyphToPath(glyphId);
+                    if (glyphData) {
+                        const path = new Path2D(glyphData);
 
-                    // Create a temporary context for hit testing with proper transform
-                    this.ctx!.save();
+                        this.ctx!.save();
+                        const transform =
+                            this.viewportManager!.getTransformMatrix();
+                        this.ctx!.setTransform(
+                            transform.a,
+                            transform.b,
+                            transform.c,
+                            transform.d,
+                            transform.e,
+                            transform.f
+                        );
+                        this.ctx!.translate(x, y);
 
-                    // Apply the same transform as rendering
-                    const transform =
-                        this.viewportManager!.getTransformMatrix();
-                    this.ctx!.setTransform(
-                        transform.a,
-                        transform.b,
-                        transform.c,
-                        transform.d,
-                        transform.e,
-                        transform.f
-                    );
-                    this.ctx!.translate(x, y);
+                        this.ctx!.lineWidth =
+                            APP_SETTINGS.OUTLINE_EDITOR.HIT_TOLERANCE /
+                            this.viewportManager!.scale;
+                        if (
+                            this.ctx!.isPointInPath(
+                                path,
+                                this.mouseX,
+                                this.mouseY
+                            ) ||
+                            this.ctx!.isPointInStroke(
+                                path,
+                                this.mouseX,
+                                this.mouseY
+                            )
+                        ) {
+                            foundIndex = i;
+                            this.ctx!.restore();
+                            break;
+                        }
 
-                    // Test if mouse point is in path or stroke (in canvas coordinates)
-                    // Use stroke for better hit detection tolerance
-                    // lineWidth is in transformed space, so divide by scale to get screen pixels
-                    this.ctx!.lineWidth =
-                        APP_SETTINGS.OUTLINE_EDITOR.HIT_TOLERANCE /
-                        this.viewportManager!.scale;
-                    if (
-                        this.ctx!.isPointInPath(
-                            path,
-                            this.mouseX,
-                            this.mouseY
-                        ) ||
-                        this.ctx!.isPointInStroke(
-                            path,
-                            this.mouseX,
-                            this.mouseY
-                        )
-                    ) {
-                        foundIndex = i;
                         this.ctx!.restore();
-                        break;
                     }
-
-                    this.ctx!.restore();
+                } catch (error) {
+                    // Skip this glyph if path extraction fails
                 }
-            } catch (error) {
-                // Skip this glyph if path extraction fails
             }
 
             xPosition += xAdvance;
         }
 
+        // Pass 2: empty glyphs (no outlines/components to draw) use the full
+        // advance width × metrics band so they can still be double-clicked.
+        if (foundIndex < 0) {
+            xPosition = 0;
+            for (let i = 0; i < this.textRunEditor!.shapedGlyphs.length; i++) {
+                const glyph = this.textRunEditor!.shapedGlyphs[i];
+                const xOffset = glyph.dx || 0;
+                const yOffset = glyph.dy || 0;
+                const xAdvance = glyph.ax || 0;
+                const x = xPosition + xOffset;
+
+                if (this.isShapedGlyphVisuallyEmpty(i) && xAdvance > 0) {
+                    const yMin = metricsBand.lowest + yOffset;
+                    const yMax = metricsBand.highest + yOffset;
+                    if (
+                        fontSpace.x >= x &&
+                        fontSpace.x <= x + xAdvance &&
+                        fontSpace.y >= yMin &&
+                        fontSpace.y <= yMax
+                    ) {
+                        foundIndex = i;
+                        break;
+                    }
+                }
+
+                xPosition += xAdvance;
+            }
+        }
+
         if (foundIndex !== this.outlineEditor.hoveredGlyphIndex) {
             this.outlineEditor.hoveredGlyphIndex = foundIndex;
             this.render();
+        }
+    }
+
+    /**
+     * Highest/lowest visible vertical metrics for text-mode empty-glyph hits.
+     * Falls back to the drawn caret extent when masters have no metrics.
+     */
+    getTextModeVerticalMetricsBand(): { lowest: number; highest: number } {
+        const fontModel = fontManager.currentFont?.fontModel;
+        const selectedMaster = this.getSelectedTextModeKerningMaster();
+        const master =
+            selectedMaster ||
+            fontModel?.masters?.find(
+                (candidate: Master) => candidate?.metrics
+            ) ||
+            fontModel?.masters?.[0] ||
+            null;
+
+        const rawMetrics = master?.metrics;
+        let verticalMetrics: Record<string, number> | null = null;
+        if (rawMetrics && typeof rawMetrics === 'object') {
+            verticalMetrics = Object.fromEntries(
+                Object.entries(rawMetrics).filter(([, value]) =>
+                    Number.isFinite(value)
+                )
+            ) as Record<string, number>;
+            if (Number.isFinite(verticalMetrics.WinDescent)) {
+                verticalMetrics.WinDescent = -Math.abs(
+                    verticalMetrics.WinDescent
+                );
+            }
+            if (Object.keys(verticalMetrics).length === 0) {
+                verticalMetrics = null;
+            }
+        }
+
+        const lowest =
+            getLowestVisibleVerticalMetricValue(verticalMetrics) ?? -300;
+        const highest =
+            getHighestVisibleVerticalMetricValue(verticalMetrics) ?? 1000;
+        return {
+            lowest: Math.min(lowest, highest),
+            highest: Math.max(lowest, highest)
+        };
+    }
+
+    /**
+     * True when a shaped glyph has no drawable outline (and no explicit
+     * outline cache) — empty slots like space that still need a metrics hit
+     * target for double-click-to-edit.
+     */
+    isShapedGlyphVisuallyEmpty(glyphIndex: number): boolean {
+        const shaped = this.textRunEditor?.shapedGlyphs?.[glyphIndex];
+        if (!shaped || !this.textRunEditor) {
+            return true;
+        }
+
+        const explicitName = shaped.explicitGlyphName;
+        if (explicitName) {
+            const explicitOutline =
+                this.textRunEditor.getCachedExplicitGlyphOutline(explicitName);
+            if (explicitOutline?.shapes && explicitOutline.shapes.length > 0) {
+                return false;
+            }
+            // Explicit token with no cached outline yet — treat as empty so the
+            // metrics slot remains interactive.
+            if (!this.textRunEditor.hbFont || shaped.g === 0) {
+                return true;
+            }
+        }
+
+        if (!this.textRunEditor.hbFont) {
+            return true;
+        }
+
+        try {
+            const glyphData = this.textRunEditor.hbFont.glyphToPath(shaped.g);
+            if (!glyphData || !glyphData.trim()) {
+                return true;
+            }
+            const bounds = Layer.calculateSvgPathBounds(glyphData);
+            if (!bounds) {
+                return true;
+            }
+            return bounds.maxX <= bounds.minX && bounds.maxY <= bounds.minY;
+        } catch {
+            return true;
         }
     }
 
