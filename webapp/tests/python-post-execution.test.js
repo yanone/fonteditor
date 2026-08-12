@@ -115,7 +115,8 @@ describe('Python post-execution synthetic commit alignment', () => {
                     op: 'set',
                     path: ['glyphs', 'a', 'layers', 'default', 'width'],
                     oldValue: 500,
-                    newValue: 610
+                    newValue: 610,
+                    editSource: 'python'
                 })
             ])
         );
@@ -401,6 +402,14 @@ describe('Python post-execution synthetic commit alignment', () => {
         }
 
         expect(bridge.applySyntheticChangeSet).toHaveBeenCalledTimes(1);
+        expect(bridge.applySyntheticChangeSet).toHaveBeenCalledWith(
+            'Python script',
+            expect.arrayContaining([
+                expect.objectContaining({
+                    editSource: 'assistant'
+                })
+            ])
+        );
         expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
     });
 

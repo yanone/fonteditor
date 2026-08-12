@@ -139,6 +139,50 @@ describe('getUndoRedoContext', () => {
         });
     });
 
+    test('uses automation surface when Scripts, Konsole, or Assistant is focused', () => {
+        const scriptsView = document.createElement('div');
+        scriptsView.id = 'view-scripts';
+        document.body.appendChild(scriptsView);
+
+        const consoleView = document.createElement('div');
+        consoleView.id = 'view-console';
+        document.body.appendChild(consoleView);
+
+        const assistantView = document.createElement('div');
+        assistantView.id = 'view-assistant';
+        document.body.appendChild(assistantView);
+
+        overviewView.classList.add('focused');
+        setOutlineEditorActive();
+        expect(getUndoRedoContext().surface).toBe('overview');
+        overviewView.classList.remove('focused');
+
+        scriptsView.classList.add('focused');
+        expect(getUndoRedoContext()).toEqual({
+            rootGlyphName: 'a',
+            undoGlyphName: undefined,
+            undoLayerId: null,
+            historyTargetKey: null,
+            surface: 'automation'
+        });
+
+        scriptsView.classList.remove('focused');
+        consoleView.classList.add('focused');
+        expect(getUndoRedoContext().surface).toBe('automation');
+
+        consoleView.classList.remove('focused');
+        assistantView.classList.add('focused');
+        expect(getUndoRedoContext().surface).toBe('automation');
+
+        // Leaving automation for History restores the sticky main surface.
+        assistantView.classList.remove('focused');
+        expect(getUndoRedoContext().surface).toBe('overview');
+
+        scriptsView.remove();
+        consoleView.remove();
+        assistantView.remove();
+    });
+
     test('does not invent canvas context before any main view is focused', () => {
         setOutlineEditorActive();
 

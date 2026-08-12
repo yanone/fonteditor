@@ -28,6 +28,7 @@ type SyntheticChangeOperation = {
     path: (string | number)[];
     oldValue: unknown;
     newValue: unknown;
+    editSource?: string | null;
     workerReplayTargets?: WorkerReplayTarget[];
 };
 
@@ -192,9 +193,15 @@ export function commitPythonExecutionSyntheticChanges(
             // Live Python setters remain suppressed, but the canonical diff is
             // the one intentional bridge operation that must be recorded.
             releaseRecordingSuppression();
+            const editSource = isAssistantPythonExecutionActive()
+                ? 'assistant'
+                : 'python';
             bridge.applySyntheticChangeSet(
                 historyContext?.label ?? 'Python script',
-                directOperations
+                directOperations.map((operation) => ({
+                    ...operation,
+                    editSource
+                }))
             );
             didApplyOperations = true;
         }

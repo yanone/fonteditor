@@ -2560,6 +2560,36 @@ class FontInfoManager {
                 this.commitFeatureCodeChanges();
             }
         });
+        // Font history owns Cmd+Z / Cmd+Shift+Z; Ace text undo is Cmd+Alt+Z.
+        this.featuresEditor.commands.addCommand({
+            name: 'undo',
+            bindKey: { win: 'Ctrl-Alt-Z', mac: 'Command-Alt-Z' },
+            exec: 'undo',
+            readOnly: true
+        });
+        this.featuresEditor.commands.addCommand({
+            name: 'redo',
+            bindKey: {
+                win: 'Ctrl-Alt-Shift-Z|Ctrl-Shift-Y',
+                mac: 'Command-Alt-Shift-Z|Command-Shift-Y'
+            },
+            exec: 'redo',
+            readOnly: true
+        });
+        this.featuresEditor.commands.addCommand({
+            name: 'fontHistoryUndoPassthrough',
+            bindKey: { win: 'Ctrl-Z', mac: 'Command-Z' },
+            exec: () => false,
+            readOnly: true,
+            passEvent: true
+        });
+        this.featuresEditor.commands.addCommand({
+            name: 'fontHistoryRedoPassthrough',
+            bindKey: { win: 'Ctrl-Shift-Z', mac: 'Command-Shift-Z' },
+            exec: () => false,
+            readOnly: true,
+            passEvent: true
+        });
         this.featuresEditor.renderer.on('afterRender', () => {
             this.refreshFeatureErrorLineWidgetLayout();
         });

@@ -36,6 +36,8 @@ When working with Python, these shortcuts streamline common operations:
 
 - `Cmd/Ctrl + Alt + R` runs the current script or executes the primary action in the active context
 - `Cmd/Ctrl + K` clears the Konsole output for a fresh start
+- `Cmd/Ctrl + Z` / `Cmd/Ctrl + Shift + Z` undo and redo font history for Python / Assistant edits while Scripts, Konsole, or Assistant is focused
+- `Cmd/Ctrl + Alt + Z` / `Cmd/Ctrl + Alt + Shift + Z` undo and redo text inside the Script Editor (and Features) Ace buffer
 
 ## Editor Measurement
 

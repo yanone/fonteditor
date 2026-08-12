@@ -22,7 +22,10 @@ This is fundamentally different from AI tools that automatically execute changes
 
 Before applying AI-generated changes, several verification steps help ensure quality outcomes. Confirm that the task scope matches your intention, read through the generated code or action summary carefully, and understand whether the operation will affect a single glyph or many. Saving your font before applying broad changes provides an easy recovery path. When you're still learning, reviewing proposals before execution generally produces better results than automatic application.
 
-Remember that Counterpunch's undo system will allow you to cleanly revert all changes if the results aren't what you expected.
+Remember that Counterpunch's undo system will allow you to cleanly revert all
+changes if the results aren't what you expected. While the Assistant view is
+focused, `Cmd/Ctrl + Z` undoes Assistant-produced font edits on the automation
+history surface without requiring you to switch back to the Editor or Overview.
 
 ## Safe Prompting Tips
 

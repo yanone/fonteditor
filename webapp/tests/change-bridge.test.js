@@ -1930,6 +1930,80 @@ describe('change-log', () => {
         expect(unfiltered.nextUndoHistoryItemId).toBe('history-b');
     });
 
+    test('automation surface reaches Python and Assistant history items across scopes', () => {
+        resetLogCounter();
+        const { isAutomationSourcedHistoryItem } = require('../js/change-log');
+        const pythonLayer = createLogEntry({
+            timestamp: 1,
+            windowId: 'w',
+            windowRoleLabel: 'Main',
+            historyItemId: 'history-python',
+            historyAction: 'change',
+            transactionLabel: 'Python script',
+            transactionId: 1,
+            op: 'set',
+            undoScope: 'layer',
+            editSource: 'python',
+            path: 'glyphs.A:layers.layer-1:width',
+            oldValue: 600,
+            newValue: 610
+        });
+        const assistantFont = createLogEntry({
+            timestamp: 2,
+            windowId: 'w',
+            windowRoleLabel: 'Main',
+            historyItemId: 'history-assistant',
+            historyAction: 'change',
+            transactionLabel: 'Widen glyphs',
+            transactionId: 2,
+            promptGroupId: 'prompt-1',
+            op: 'set',
+            undoScope: 'font',
+            editSource: 'assistant',
+            path: 'upm',
+            oldValue: 1000,
+            newValue: 1024
+        });
+        const manualLayer = createLogEntry({
+            timestamp: 3,
+            windowId: 'w',
+            windowRoleLabel: 'Main',
+            historyItemId: 'history-manual',
+            historyAction: 'change',
+            transactionLabel: 'Drag node',
+            transactionId: 3,
+            op: 'set',
+            undoScope: 'layer',
+            editSource: 'mouse-drag-outline',
+            path: 'glyphs.B:layers.layer-1:width',
+            oldValue: 600,
+            newValue: 620
+        });
+
+        const automation = getUndoReachabilityForContext(
+            [pythonLayer, assistantFont, manualLayer],
+            { surface: 'automation' }
+        );
+        expect([...automation.reachableHistoryItemIds].sort()).toEqual([
+            'history-assistant',
+            'history-python'
+        ]);
+        expect(automation.nextUndoHistoryItemId).toBe('history-assistant');
+
+        expect(
+            isAutomationSourcedHistoryItem({
+                transactionLabel: 'Python script',
+                entries: [pythonLayer]
+            })
+        ).toBe(true);
+        expect(
+            isAutomationSourcedHistoryItem({
+                transactionLabel: 'Drag node',
+                entries: [manualLayer]
+            })
+        ).toBe(false);
+    });
+
     test('path-derived history metadata resolves dotted glyph and layer names', () => {
         resetLogCounter();
         const previousFontModel = window.currentFontModel;

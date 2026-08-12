@@ -1152,6 +1152,9 @@ export class PatchSyncEngine {
                     path: operation.path,
                     oldValue: cloneHistoryValue(operation.oldValue),
                     newValue: cloneHistoryValue(operation.newValue),
+                    editSource: operation.editSource ?? null,
+                    compileChangeSource: operation.compileChangeSource ?? null,
+                    compileEditType: operation.compileEditType ?? null,
                     visualAnchorSide: operation.visualAnchorSide ?? null,
                     workerReplayTargets: normalizeWorkerReplayTargets(
                         operation.workerReplayTargets

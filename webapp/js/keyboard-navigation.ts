@@ -1506,6 +1506,47 @@
         return !!element?.classList?.contains('fontinfo-axis-map-input');
     }
 
+    function isAceEditorElement(element: HTMLElement | null): boolean {
+        return !!element?.closest?.('.ace_editor');
+    }
+
+    function getFocusedAceEditor(): {
+        undo: () => void;
+        redo: () => void;
+    } | null {
+        const activeElement = document.activeElement as HTMLElement | null;
+        const aceRoot = activeElement?.closest?.(
+            '.ace_editor'
+        ) as HTMLElement | null;
+        if (!aceRoot || !window.ace) {
+            return null;
+        }
+        try {
+            const editor = window.ace.edit(aceRoot);
+            if (!editor || typeof editor.undo !== 'function') {
+                return null;
+            }
+            return editor;
+        } catch {
+            return null;
+        }
+    }
+
+    function isAutomationUndoViewFocused(): boolean {
+        return (
+            document
+                .querySelector('#view-scripts')
+                ?.classList.contains('focused') ||
+            document
+                .querySelector('#view-console')
+                ?.classList.contains('focused') ||
+            document
+                .querySelector('#view-assistant')
+                ?.classList.contains('focused') ||
+            false
+        );
+    }
+
     /**
      * Handle keyboard shortcuts
      */
@@ -1534,6 +1575,8 @@
         // Prevent browser back navigation shortcuts to avoid accidentally closing the app
         const activeElement = document.activeElement as HTMLElement | null;
         const isInTextInput = isTextInputElement(activeElement);
+        const isInAce = isAceEditorElement(activeElement);
+        const automationViewFocused = isAutomationUndoViewFocused();
 
         // Backspace - browser back (when not in text input)
         if (key === 'backspace' && !isInTextInput) {
@@ -1685,9 +1728,34 @@
             return;
         }
 
-        // Cmd+Z — Undo, Cmd+Shift+Z — Redo
+        // Cmd+Alt+Z — Ace text undo/redo (script editor + features editor).
+        // Font history uses plain Cmd+Z / Cmd+Shift+Z even while Ace is focused.
+        if (cmdKey && event.altKey && key === 'z') {
+            const aceEditor = getFocusedAceEditor();
+            if (aceEditor) {
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation();
+                if (shiftKey) {
+                    aceEditor.redo();
+                } else {
+                    aceEditor.undo();
+                }
+                return;
+            }
+        }
+
+        // Cmd+Z — Undo, Cmd+Shift+Z — Redo (font history)
         if (cmdKey && key === 'z' && !event.altKey) {
-            if (isInTextInput && !isAxisMapInputElement(activeElement)) {
+            // Ordinary text fields keep native undo. Ace editors and the
+            // Scripts / Konsole / Assistant views route to font history instead;
+            // Ace text undo is Cmd+Alt+Z.
+            if (
+                isInTextInput &&
+                !isAxisMapInputElement(activeElement) &&
+                !isInAce &&
+                !automationViewFocused
+            ) {
                 return;
             }
 

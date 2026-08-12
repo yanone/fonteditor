@@ -34,6 +34,15 @@ function isEditorViewFocused(): boolean {
     return isViewFocused('#view-editor');
 }
 
+/** Scripts, Konsole, and Assistant own the automation undo surface. */
+export function isAutomationUndoViewFocused(): boolean {
+    return (
+        isViewFocused('#view-scripts') ||
+        isViewFocused('#view-console') ||
+        isViewFocused('#view-assistant')
+    );
+}
+
 function isFontInfoFeaturesTabVisible(): boolean {
     const featuresTab = document.getElementById('fontinfo-features-content');
     if (!featuresTab) {
@@ -97,10 +106,25 @@ function buildFeatureContext(
     };
 }
 
+function buildAutomationContext(
+    rootGlyphName: string | undefined
+): UndoRedoContext {
+    return {
+        rootGlyphName,
+        undoGlyphName: undefined,
+        undoLayerId: null,
+        historyTargetKey: null,
+        surface: 'automation'
+    };
+}
+
 /**
- * Undo / History reachability follows the focused *main* editing surface
- * (glyph editor, overview, Font Info). Auxiliary panels such as History do
- * not switch the surface — they keep the last main-view context.
+ * Undo / History reachability follows the focused editing surface.
+ *
+ * Main surfaces: glyph editor, overview, Font Info.
+ * Automation surface: Scripts, Konsole, Assistant (Python / AI font edits).
+ * Auxiliary panels such as History do not switch the surface — they keep the
+ * last main-view context (not the automation surface).
  */
 export function getUndoRedoContext(): UndoRedoContext {
     const oe = window.glyphCanvas?.outlineEditor;
@@ -115,6 +139,7 @@ export function getUndoRedoContext(): UndoRedoContext {
     const fontInfoFocused = isFontInfoViewFocused();
     const overviewFocused = isOverviewViewFocused();
     const editorFocused = isEditorViewFocused();
+    const automationFocused = isAutomationUndoViewFocused();
     const featuresTabVisible = isFontInfoFeaturesTabVisible();
     const mainViewFocused = fontInfoFocused || overviewFocused || editorFocused;
 
@@ -161,7 +186,14 @@ export function getUndoRedoContext(): UndoRedoContext {
         return rememberMainUndoContext(buildFontContext(rootGlyphName));
     }
 
-    // History / console / scripts / assistant: keep last main editing surface.
+    // Scripts / Konsole / Assistant: undo Python- and Assistant-sourced edits
+    // regardless of derived font/glyph/layer scope. Do not sticky this as the
+    // main-view context — History keeps the last Editor/Overview/Font Info.
+    if (automationFocused) {
+        return buildAutomationContext(rootGlyphName);
+    }
+
+    // History and other auxiliary panels: keep last main editing surface.
     if (!mainViewFocused && lastMainUndoContext) {
         return lastMainUndoContext;
     }

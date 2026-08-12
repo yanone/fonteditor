@@ -13,7 +13,8 @@ const console = new Logger('HistoryView');
 
 const SHOW_UNREACHABLE_PREF_KEY = 'history.showUnreachable';
 
-type HistoryScope = 'layer' | 'glyph' | 'font' | 'feature' | 'overview';
+type HistoryScope =
+    'layer' | 'glyph' | 'font' | 'feature' | 'overview' | 'automation';
 
 type FeatureHistoryContext = {
     type: 'feature' | 'class' | 'prefix';
@@ -698,7 +699,7 @@ class HistoryViewController {
     }
 
     private getUndoContext(): HistoryUndoContext {
-        // Mirror the main-view undo surface (sticky across History focus).
+        // Mirror the focused undo surface (sticky main view across History).
         const context = getUndoRedoContext();
         switch (context.surface) {
             case 'feature':
@@ -718,6 +719,13 @@ class HistoryViewController {
             case 'font':
                 return {
                     scope: 'font',
+                    glyphName: null,
+                    layerId: null,
+                    historyTargetKey: null
+                };
+            case 'automation':
+                return {
+                    scope: 'automation',
                     glyphName: null,
                     layerId: null,
                     historyTargetKey: null

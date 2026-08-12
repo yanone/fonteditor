@@ -47,7 +47,40 @@ export type HistoryAction = 'change' | 'undo' | 'redo';
 export type UndoScope = 'font' | 'glyph' | 'layer';
 
 /** Focused editing surface that owns a Cmd+Z stack */
-export type HistoryUndoSurface = 'canvas' | 'overview' | 'font' | 'feature';
+export type HistoryUndoSurface =
+    'canvas' | 'overview' | 'font' | 'feature' | 'automation';
+
+/** Edit sources stamped on Python / Assistant font mutations */
+export const AUTOMATION_EDIT_SOURCES = new Set(['python', 'assistant']);
+
+/**
+ * True when a history item was produced by Scripts, Konsole, or Assistant
+ * Python execution (including assistant prompt-grouped packets).
+ */
+export function isAutomationSourcedHistoryItem(item: {
+    transactionLabel: string | null;
+    entries: Array<{
+        editSource?: string | null;
+        compileChangeSource?: string | null;
+        promptGroupId?: string | null;
+        transactionLabel?: string | null;
+    }>;
+}): boolean {
+    if (item.transactionLabel === 'Python script') {
+        return true;
+    }
+
+    return item.entries.some((entry) => {
+        if (entry.promptGroupId) {
+            return true;
+        }
+        if (entry.transactionLabel === 'Python script') {
+            return true;
+        }
+        const source = entry.editSource ?? entry.compileChangeSource ?? null;
+        return !!source && AUTOMATION_EDIT_SOURCES.has(source);
+    });
+}
 
 export function deriveOriginatingLayerFromPaths(paths: string[]): {
     glyphName: string | null;
@@ -1096,6 +1129,8 @@ function historyItemMatchesSurface(
             }
             return item.historyTargetKeySet.has(historyTargetKey);
         }
+        case 'automation':
+            return isAutomationSourcedHistoryItem(item);
         default:
             return false;
     }

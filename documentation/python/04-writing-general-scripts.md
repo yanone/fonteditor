@@ -31,7 +31,10 @@ open. Use the Python API reference (tool python_api_docs) when you need an exact
 Keep a script self-contained and focused on one operation. Start with a small,
 read-only report when you are exploring data. Before a script changes font data,
 save the font and make the intended change clear in its header and comments.
-Font manipulation by a Python script can be undone with the undo command.
+Font manipulation by a Python script can be undone with the undo command
+(`Cmd/Ctrl + Z`) while the Scripts, Konsole, or Assistant view is focused —
+those views use the automation history surface so scripted edits stay reachable
+regardless of which glyph or font field they touched.
 
 Use `print()` for results, counts, skipped items, and next steps. This makes a
 script useful when you return to it later and makes errors easier to diagnose.

@@ -466,6 +466,41 @@ const console = new Logger('ScriptEditor');
             passEvent: true
         });
 
+        // Font history owns Cmd+Z / Cmd+Shift+Z; Ace text undo is Cmd+Alt+Z.
+        editor.commands.addCommand({
+            name: 'undo',
+            bindKey: { win: 'Ctrl-Alt-Z', mac: 'Command-Alt-Z' },
+            exec: 'undo',
+            readOnly: true
+        });
+        editor.commands.addCommand({
+            name: 'redo',
+            bindKey: {
+                win: 'Ctrl-Alt-Shift-Z|Ctrl-Shift-Y',
+                mac: 'Command-Alt-Shift-Z|Command-Shift-Y'
+            },
+            exec: 'redo',
+            readOnly: true
+        });
+        editor.commands.addCommand({
+            name: 'fontHistoryUndoPassthrough',
+            bindKey: { win: 'Ctrl-Z', mac: 'Command-Z' },
+            exec: function () {
+                return false;
+            },
+            readOnly: true,
+            passEvent: true
+        });
+        editor.commands.addCommand({
+            name: 'fontHistoryRedoPassthrough',
+            bindKey: { win: 'Ctrl-Shift-Z', mac: 'Command-Shift-Z' },
+            exec: function () {
+                return false;
+            },
+            readOnly: true,
+            passEvent: true
+        });
+
         // Remove default Cmd+K binding to prevent conflicts with global shortcut
         editor.commands.removeCommand('gotoline');
 
