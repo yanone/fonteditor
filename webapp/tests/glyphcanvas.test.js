@@ -13400,6 +13400,112 @@ describe('GlyphCanvas cursor management', () => {
     });
 });
 
+describe('GlyphCanvas panToCursor', () => {
+    let canvas;
+
+    function mockCanvasRect(width = 1000, height = 800) {
+        canvas.canvas.getBoundingClientRect = () => ({
+            width,
+            height,
+            top: 0,
+            left: 0,
+            right: width,
+            bottom: height,
+            x: 0,
+            y: 0,
+            toJSON() {}
+        });
+    }
+
+    function setRun(glyphs, cursorX) {
+        let x = 0;
+        canvas.textRunEditor.shapedGlyphs = glyphs.map((width, index) => ({
+            ax: width,
+            dx: 0,
+            dy: 0,
+            ay: 0,
+            cl: index,
+            g: index + 1
+        }));
+        canvas.textRunEditor.clusterMap = glyphs.map((width, index) => {
+            const cluster = {
+                glyphIndex: index,
+                glyphCount: 1,
+                start: index,
+                end: index + 1,
+                x,
+                width,
+                isRTL: false
+            };
+            x += width;
+            return cluster;
+        });
+        canvas.textRunEditor.cursorX = cursorX;
+    }
+
+    beforeEach(() => {
+        document.body.innerHTML = '<div id="test-container"></div>';
+        canvas = new GlyphCanvas('test-container');
+        canvas.outlineEditor.active = false;
+        canvas.viewportManager.scale = 1;
+        canvas.viewportManager.panX = 0;
+        canvas.viewportManager.panY = 0;
+        canvas.viewportManager.animatePan = jest.fn();
+        mockCanvasRect();
+    });
+
+    afterEach(() => {
+        canvas.destroy();
+    });
+
+    test('typing pans the caret to the right margin when it leaves the viewport', () => {
+        setRun([100, 100], 2000);
+
+        canvas.panToCursor(false);
+
+        expect(canvas.viewportManager.animatePan).toHaveBeenCalledWith(
+            1000 - 30 - 2000,
+            0,
+            expect.any(Function)
+        );
+    });
+
+    test('backspace pans the last two glyphs into view when the caret is near the left edge', () => {
+        setRun([80, 90], 170);
+        canvas.viewportManager.panX = -150;
+
+        canvas.panToCursor(true);
+
+        expect(canvas.viewportManager.animatePan).toHaveBeenCalledWith(
+            0,
+            0,
+            expect.any(Function)
+        );
+    });
+
+    test('backspace caps the keep-in-view distance at one fifth of the viewport', () => {
+        setRun([400, 400], 800);
+        canvas.viewportManager.panX = -790;
+
+        canvas.panToCursor(true);
+
+        expect(canvas.viewportManager.animatePan).toHaveBeenCalledWith(
+            200 - 800,
+            0,
+            expect.any(Function)
+        );
+    });
+
+    test('backspace does not pan when the caret already has enough preceding-glyph room', () => {
+        setRun([80, 90], 170);
+        canvas.viewportManager.panX = 200;
+
+        canvas.panToCursor(true);
+
+        expect(canvas.viewportManager.animatePan).not.toHaveBeenCalled();
+    });
+});
+
 describe('GlyphCanvas property panel', () => {
     let canvas;
     let currentFontSpy;

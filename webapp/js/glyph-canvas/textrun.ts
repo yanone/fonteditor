@@ -1162,7 +1162,7 @@ export class TextRunEditor {
             this.cursorPosition = range.start;
             this.clearSelection();
 
-            this.reshapeAndRender();
+            this.reshapeAndRender('backspace');
         } else if (this.cursorPosition > 0) {
             const token = this.findExplicitGlyphTokenForBackspace(
                 this.cursorPosition
@@ -1176,7 +1176,7 @@ export class TextRunEditor {
                     this.textBuffer.slice(0, token.start) +
                     this.textBuffer.slice(token.end);
                 this.cursorPosition = token.start;
-                this.reshapeAndRender();
+                this.reshapeAndRender('backspace');
                 return;
             }
 
@@ -1188,7 +1188,7 @@ export class TextRunEditor {
                     this.textBuffer.slice(0, escapedSlash.start) +
                     this.textBuffer.slice(escapedSlash.end);
                 this.cursorPosition = escapedSlash.start;
-                this.reshapeAndRender();
+                this.reshapeAndRender('backspace');
                 return;
             }
 
@@ -1205,7 +1205,7 @@ export class TextRunEditor {
                 this.textBuffer.slice(this.cursorPosition);
             this.cursorPosition--;
 
-            this.reshapeAndRender();
+            this.reshapeAndRender('backspace');
         }
     }
 
@@ -1279,7 +1279,7 @@ export class TextRunEditor {
         }
     }
 
-    reshapeAndRender() {
+    reshapeAndRender(cursorMoveReason?: 'backspace') {
         console.log('New cursor position:', this.cursorPosition);
         console.log('New text:', this.textBuffer);
 
@@ -1297,7 +1297,7 @@ export class TextRunEditor {
             this.cursorX = 0;
         }
 
-        this.call('cursormoved');
+        this.call('cursormoved', cursorMoveReason);
     }
 
     findClusterAt(logicalPos: number) {

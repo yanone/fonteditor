@@ -402,6 +402,9 @@ function compareLocationMaps(
  */
 const TEXT_INTERACTION_Y_MAX = 1400;
 const TEXT_INTERACTION_Y_MIN = -700;
+const CURSOR_VIEW_MARGIN = 30;
+const BACKSPACE_PRECEDING_GLYPH_COUNT = 2;
+const BACKSPACE_SAFE_VIEWPORT_FRACTION = 1 / 5;
 
 class GlyphCanvas {
     static COLLAPSED_EDITOR_VIEWPORT_FREEZE_WIDTH = 96;
@@ -2041,9 +2044,9 @@ class GlyphCanvas {
     }
 
     setupTextEditorEventHandlers(): void {
-        this.textRunEditor!.on('cursormoved', () => {
+        this.textRunEditor!.on('cursormoved', (reason?: string) => {
             this.updatePropertyPanel();
-            this.panToCursor();
+            this.panToCursor(reason === 'backspace');
             this.render();
         });
         this.textRunEditor!.on('textchanged', () => {
@@ -10482,23 +10485,57 @@ class GlyphCanvas {
         this.textRunEditor?.finishMouseSelection();
     }
 
-    isCursorVisible(): boolean {
-        // Check if cursor is within the visible viewport
+    isCursorVisible(
+        leftMargin: number = CURSOR_VIEW_MARGIN,
+        rightMargin: number = CURSOR_VIEW_MARGIN
+    ): boolean {
         const rect = this.canvas!.getBoundingClientRect();
-
-        // Transform cursor position from font space to screen space
         const screenX =
             this.textRunEditor!.cursorX * this.viewportManager!.scale +
             this.viewportManager!.panX;
 
-        // Define margin from edges (in screen pixels)
-        const margin = 30;
-
-        // Check if cursor is within visible bounds with margin
-        return screenX >= margin && screenX <= rect.width - margin;
+        return screenX >= leftMargin && screenX <= rect.width - rightMargin;
     }
 
-    panToCursor(): void {
+    /**
+     * Combined advance of up to `count` shaped glyphs immediately on one
+     * visual side of the caret.
+     */
+    getGlyphAdvancesAdjacentToCursor(
+        side: 'left' | 'right',
+        count: number
+    ): number {
+        const editor = this.textRunEditor;
+        if (!editor?.clusterMap?.length || !editor.shapedGlyphs?.length) {
+            return 0;
+        }
+
+        const spans: { x: number; width: number }[] = [];
+        for (const cluster of editor.clusterMap as TextRunClusterInfo[]) {
+            let glyphX = cluster.x;
+            for (let i = 0; i < cluster.glyphCount; i++) {
+                const glyph = editor.shapedGlyphs[cluster.glyphIndex + i];
+                const width = glyph?.ax || 0;
+                spans.push({ x: glyphX, width });
+                glyphX += width;
+            }
+        }
+
+        const cursorX = editor.cursorX;
+        const epsilon = 0.5;
+        const adjacent =
+            side === 'left'
+                ? spans.filter(
+                      (span) => span.x + span.width <= cursorX + epsilon
+                  )
+                : spans.filter((span) => span.x >= cursorX - epsilon);
+        adjacent.sort((a, b) => a.x - b.x);
+        const picked =
+            side === 'left' ? adjacent.slice(-count) : adjacent.slice(0, count);
+        return picked.reduce((sum, span) => sum + span.width, 0);
+    }
+
+    panToCursor(fromBackspace: boolean = false): void {
         // Pan viewport to show cursor with smooth animation
         // Never pan to cursor in edit mode — the cursor position tracks the
         // selected glyph's text-run position and has no relation to what the
@@ -10508,33 +10545,50 @@ class GlyphCanvas {
             return;
         }
 
-        if (this.isCursorVisible()) {
-            return; // Cursor is already visible
+        const rect = this.canvas!.getBoundingClientRect();
+        const scale = this.viewportManager!.scale;
+        let leftMargin = CURSOR_VIEW_MARGIN;
+        let rightMargin = CURSOR_VIEW_MARGIN;
+
+        if (fromBackspace) {
+            const maxSafe = rect.width * BACKSPACE_SAFE_VIEWPORT_FRACTION;
+            leftMargin = Math.max(
+                CURSOR_VIEW_MARGIN,
+                Math.min(
+                    this.getGlyphAdvancesAdjacentToCursor(
+                        'left',
+                        BACKSPACE_PRECEDING_GLYPH_COUNT
+                    ) * scale,
+                    maxSafe
+                )
+            );
+            rightMargin = Math.max(
+                CURSOR_VIEW_MARGIN,
+                Math.min(
+                    this.getGlyphAdvancesAdjacentToCursor(
+                        'right',
+                        BACKSPACE_PRECEDING_GLYPH_COUNT
+                    ) * scale,
+                    maxSafe
+                )
+            );
         }
 
-        const rect = this.canvas!.getBoundingClientRect();
-        const margin = 30; // Same margin as visibility check
+        if (this.isCursorVisible(leftMargin, rightMargin)) {
+            return;
+        }
 
-        // Calculate target panX to center cursor with margin
         const screenX =
-            this.textRunEditor!.cursorX * this.viewportManager!.scale +
-            this.viewportManager!.panX;
+            this.textRunEditor!.cursorX * scale + this.viewportManager!.panX;
 
         let targetPanX;
-        if (screenX < margin) {
-            // Cursor is off left edge - position it at left margin
-            targetPanX =
-                margin -
-                this.textRunEditor!.cursorX * this.viewportManager!.scale;
+        if (screenX < leftMargin) {
+            targetPanX = leftMargin - this.textRunEditor!.cursorX * scale;
         } else {
-            // Cursor is off right edge - position it at right margin
             targetPanX =
-                rect.width -
-                margin -
-                this.textRunEditor!.cursorX * this.viewportManager!.scale;
+                rect.width - rightMargin - this.textRunEditor!.cursorX * scale;
         }
 
-        // Start animation
         this.viewportManager!.animatePan(
             targetPanX,
             this.viewportManager!.panY,
