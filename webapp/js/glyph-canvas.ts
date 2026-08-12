@@ -1373,7 +1373,7 @@ class GlyphCanvas {
                 return;
             }
 
-            if (e.key === 'Escape') {
+            if (e.key === 'Escape' && !e.metaKey && !e.ctrlKey) {
                 // Check if stack preview is active first
                 if (
                     this.stackPreviewAnimator.isActive &&

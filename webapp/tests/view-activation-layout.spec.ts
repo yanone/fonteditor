@@ -537,6 +537,40 @@ test('collapsed fontinfo and overview reopen to activation minimum by shortcut a
     );
 });
 
+test('activating collapsed fontinfo or overview keeps the other open', async ({
+    page
+}) => {
+    await clearStoredViewLayout(page);
+
+    await page.goto('/?test=true');
+    await waitForCanvasReady(page);
+
+    await page.evaluate(() => {
+        window.collapseActiveView?.('view-fontinfo');
+    });
+    await page.waitForTimeout(500);
+
+    await activateView(page, 'O', 'view-overview');
+    await page.click('#view-fontinfo .view-title-name');
+    await page.waitForTimeout(500);
+
+    let topRowState = await getTopRowState(page);
+    expect(topRowState.collapsed['view-fontinfo']).toBe(false);
+    expect(topRowState.collapsed['view-overview']).toBe(false);
+
+    await page.evaluate(() => {
+        window.collapseActiveView?.('view-overview');
+    });
+    await page.waitForTimeout(500);
+
+    await activateView(page, 'I', 'view-fontinfo');
+    await activateView(page, 'O', 'view-overview');
+
+    topRowState = await getTopRowState(page);
+    expect(topRowState.collapsed['view-fontinfo']).toBe(false);
+    expect(topRowState.collapsed['view-overview']).toBe(false);
+});
+
 test('top-row sidebars interpolate width and padding per view width', async ({
     page
 }) => {

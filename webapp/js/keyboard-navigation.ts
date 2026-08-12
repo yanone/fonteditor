@@ -237,6 +237,10 @@
             0
         );
         const availableWidth = topRow.offsetWidth - pinnedCollapsedWidth;
+        if (availableWidth <= 0) {
+            return false;
+        }
+
         const sharedWidth = availableWidth / (expandedPeerViews.length + 1);
 
         widthsByViewId[viewId] = sharedWidth;
@@ -249,6 +253,21 @@
 
         applyRowViewWidths(rowViews, widthsByViewId);
         return true;
+    }
+
+    function getProtectedDonorWidth(
+        donor: HTMLElement,
+        rowKey: ViewRowKey
+    ): number {
+        const collapsedMin = getViewMinimumWidth(donor);
+        const isExpanded = donor.offsetWidth > collapsedMin + 5;
+        if (
+            isExpanded &&
+            (donor.id === 'view-fontinfo' || donor.id === 'view-overview')
+        ) {
+            return Math.max(collapsedMin, getActivationMinimumWidth(rowKey));
+        }
+        return collapsedMin;
     }
 
     function ensureActivationMinimumWidth(viewId: string): boolean {
@@ -264,38 +283,11 @@
             return false;
         }
 
-        const donorViewId = getPreviousVisitedViewId(viewId);
-        if (!donorViewId) {
-            return false;
-        }
-
-        const donorView = document.getElementById(
-            donorViewId
-        ) as HTMLElement | null;
-        if (!donorView) {
-            return false;
-        }
-
         const rowViews = getRowViews(rowKey);
-        if (!rowViews.some((rowView) => rowView.id === donorViewId)) {
-            return false;
-        }
-
         const activeWidth = activeView.offsetWidth;
         const targetWidth = getActivationMinimumWidth(rowKey);
-        if (activeWidth >= targetWidth) {
-            return false;
-        }
-
-        const donorWidth = donorView.offsetWidth;
-        const donorMinimumWidth = getViewMinimumWidth(donorView);
-        const transferableWidth = Math.max(0, donorWidth - donorMinimumWidth);
-        const widthDelta = Math.min(
-            targetWidth - activeWidth,
-            transferableWidth
-        );
-
-        if (widthDelta <= 0) {
+        let neededWidth = targetWidth - activeWidth;
+        if (neededWidth <= 0) {
             return false;
         }
 
@@ -307,8 +299,44 @@
             {}
         );
 
-        widthsByViewId[viewId] = activeWidth + widthDelta;
-        widthsByViewId[donorViewId] = donorWidth - widthDelta;
+        const previousDonorId = getPreviousVisitedViewId(viewId);
+        const donorIds = [
+            previousDonorId,
+            'view-editor',
+            ...rowViews.map((rowView) => rowView.id)
+        ].filter((donorId, index, ids): donorId is string => {
+            return (
+                !!donorId &&
+                donorId !== viewId &&
+                ids.indexOf(donorId) === index &&
+                rowViews.some((rowView) => rowView.id === donorId)
+            );
+        });
+
+        for (const donorId of donorIds) {
+            if (neededWidth <= 0) {
+                break;
+            }
+
+            const donorView = document.getElementById(donorId) as HTMLElement;
+            const spareWidth = Math.max(
+                0,
+                widthsByViewId[donorId] -
+                    getProtectedDonorWidth(donorView, rowKey)
+            );
+            const takenWidth = Math.min(neededWidth, spareWidth);
+            if (takenWidth <= 0) {
+                continue;
+            }
+
+            widthsByViewId[viewId] += takenWidth;
+            widthsByViewId[donorId] -= takenWidth;
+            neededWidth -= takenWidth;
+        }
+
+        if (widthsByViewId[viewId] <= activeWidth) {
+            return false;
+        }
 
         applyRowViewWidths(rowViews, widthsByViewId);
         return true;
@@ -1557,6 +1585,33 @@
         const key =
             typeof event.key === 'string' ? event.key.toLowerCase() : '';
 
+        // Cmd/Ctrl+Escape clicks the focused view's close button when shown.
+        if (cmdKey && event.code === 'Escape' && !shiftKey && !event.altKey) {
+            const focusedViewId =
+                currentFocusedView ||
+                (document.querySelector('.view.focused') as HTMLElement | null)
+                    ?.id ||
+                null;
+            const focusedView = focusedViewId
+                ? document.getElementById(focusedViewId)
+                : null;
+            const closeBtn = focusedView?.querySelector(
+                '.view-title-collapse-btn'
+            ) as HTMLElement | null;
+            const closeBtnShown =
+                !!closeBtn &&
+                closeBtn.style.display !== 'none' &&
+                window.getComputedStyle(closeBtn).display !== 'none';
+
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+            if (closeBtnShown) {
+                closeBtn.click();
+            }
+            return;
+        }
+
         if (!key) {
             return;
         }
@@ -1814,28 +1869,6 @@
                 historyTargetKey,
                 surface
             );
-            return;
-        }
-
-        // Cmd/Ctrl+Escape clicks the focused view's close button when it is shown.
-        if (cmdKey && key === 'escape' && !shiftKey && !event.altKey) {
-            const focusedViewId =
-                currentFocusedView ||
-                (document.querySelector('.view.focused') as HTMLElement | null)
-                    ?.id ||
-                null;
-            const focusedView = focusedViewId
-                ? document.getElementById(focusedViewId)
-                : null;
-            const closeBtn = focusedView?.querySelector(
-                '.view-title-collapse-btn'
-            ) as HTMLElement | null;
-            if (closeBtn && closeBtn.style.display !== 'none') {
-                event.preventDefault();
-                event.stopPropagation();
-                event.stopImmediatePropagation();
-                closeBtn.click();
-            }
             return;
         }
 

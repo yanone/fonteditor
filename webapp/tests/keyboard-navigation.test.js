@@ -166,8 +166,88 @@ describe('keyboard navigation focusView DOM transfer', () => {
             Number.parseFloat(
                 document.getElementById('view-overview').style.flex
             )
-        ).toBe(184);
+        ).toBe(240);
+        expect(
+            Number.parseFloat(document.getElementById('view-editor').style.flex)
+        ).toBe(544);
         expect(window.getViewVisitOrder().top.at(-1)).toBe('view-fontinfo');
+    });
+
+    it('keeps an expanded fontinfo or overview open when the other is activated', () => {
+        window.VIEW_SETTINGS = {
+            shortcuts: {},
+            animation: { enabled: false, duration: 0 },
+            resize: {},
+            activation: {
+                minimumWidths: { topRow: 240, bottomRow: 160 },
+                editor: { heightThreshold: 0, heightTarget: 1 },
+                secondary: { heightThreshold: 0, heightTarget: 1 }
+            }
+        };
+        document.body.innerHTML = `
+            <div class="container">
+                <div class="top-row">
+                    <div id="view-fontinfo" class="view"></div>
+                    <div id="view-overview" class="view"></div>
+                    <div id="view-editor" class="view"></div>
+                </div>
+                <div class="bottom-row"></div>
+            </div>
+        `;
+
+        const widths = {
+            'view-fontinfo': 24,
+            'view-overview': 400,
+            'view-editor': 600
+        };
+        const topRow = document.querySelector('.top-row');
+        Object.defineProperty(topRow, 'offsetWidth', {
+            configurable: true,
+            value: 1024
+        });
+        Object.defineProperty(topRow, 'offsetHeight', {
+            configurable: true,
+            value: 600
+        });
+        Object.defineProperty(
+            document.querySelector('.container'),
+            'offsetHeight',
+            {
+                configurable: true,
+                value: 800
+            }
+        );
+        for (const [viewId, width] of Object.entries(widths)) {
+            const view = document.getElementById(viewId);
+            Object.defineProperty(view, 'offsetWidth', {
+                configurable: true,
+                get: () => Number.parseFloat(view.style.flex) || width
+            });
+        }
+        window.resizableViews = {
+            updateCollapsedStates: jest.fn(),
+            saveLayout: jest.fn()
+        };
+        window.setViewVisitOrder({
+            top: ['view-fontinfo', 'view-overview', 'view-editor'],
+            bottom: []
+        });
+
+        window.focusView('view-fontinfo', true);
+
+        expect(
+            Number.parseFloat(
+                document.getElementById('view-fontinfo').style.flex
+            )
+        ).toBe(240);
+        expect(
+            Number.parseFloat(
+                document.getElementById('view-overview').style.flex
+            )
+        ).toBe(400);
+        expect(
+            Number.parseFloat(document.getElementById('view-editor').style.flex)
+        ).toBe(384);
     });
 
     it('expands a collapsed bottom-row view from the previously visited donor', () => {
@@ -232,6 +312,7 @@ describe('keyboard navigation Cmd+Escape close button', () => {
     const dispatchCmdEscape = () => {
         const event = new KeyboardEvent('keydown', {
             key: 'Escape',
+            code: 'Escape',
             metaKey: true,
             ctrlKey: true,
             bubbles: true,
@@ -300,7 +381,7 @@ describe('keyboard navigation Cmd+Escape close button', () => {
         window.focusView('view-overview', true);
         jest.advanceTimersByTime(250);
 
-        expect(dispatchCmdEscape().defaultPrevented).toBe(false);
+        expect(dispatchCmdEscape().defaultPrevented).toBe(true);
         expect(clickSpy).not.toHaveBeenCalled();
     });
 });

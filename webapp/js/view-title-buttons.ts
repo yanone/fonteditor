@@ -245,7 +245,7 @@ function addButtonsToView(viewConfig: ViewInfo): void {
     // Append buttons to left-side window actions
     const collapseBtn = document.createElement('button');
     collapseBtn.className = 'view-title-action-btn view-title-collapse-btn';
-    collapseBtn.title = 'Collapse view';
+    collapseBtn.title = 'Collapse view (⌘⎋)';
     collapseBtn.innerHTML = `<span class="material-symbols-outlined">close</span>`;
     collapseBtn.addEventListener('click', (e) => {
         e.preventDefault();

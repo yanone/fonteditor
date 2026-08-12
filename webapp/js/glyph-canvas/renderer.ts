@@ -4522,6 +4522,10 @@ export class GlyphCanvasRenderer {
 
         const range = this.textRunEditor.getSelectionRange();
         const invScale = 1 / this.viewportManager.scale;
+        const selectionFill = 'rgba(100, 150, 255, 0.3)';
+        const editorView = document.querySelector('#view-editor');
+        const isEditorViewFocused =
+            !!editorView && editorView.classList.contains('focused');
 
         console.log('[Renderer]', '=== Drawing Selection ===');
         console.log('[Renderer]', 'Selection range:', range);
@@ -4532,7 +4536,9 @@ export class GlyphCanvasRenderer {
         );
 
         // Draw selection highlight for each cluster in range
-        this.ctx.fillStyle = 'rgba(100, 150, 255, 0.3)';
+        this.ctx.fillStyle = isEditorViewFocused
+            ? selectionFill
+            : desaturateColor(selectionFill);
 
         for (const cluster of this.textRunEditor.clusterMap) {
             // Check if this cluster overlaps with selection
