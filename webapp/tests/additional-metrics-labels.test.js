@@ -42,5 +42,52 @@ describe('additional vertical metric labels', () => {
             formatAdditionalMetricFamiliesLabel(['win', 'typo', 'hhea'])
         ).toBe('hhea+typo+win');
         expect(formatAdditionalMetricFamiliesLabel(['typo'])).toBe('typo');
+        expect(
+            formatAdditionalMetricFamiliesLabel([
+                'typolinegap',
+                'hhea',
+                'hhealinegap'
+            ])
+        ).toBe('hhea+hhealinegap+typolinegap');
+    });
+
+    test('draws non-zero Typo/Hhea line gaps under their descenders', () => {
+        const entries = getAdditionalDrawableMetricLineEntries({
+            TypoDescender: -200,
+            TypoLineGap: 50,
+            HheaDescender: -220,
+            HheaLineGap: 80,
+            WinDescent: 200
+        });
+
+        expect(entries).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    family: 'typolinegap',
+                    y: -250,
+                    key: 'TypoLineGap'
+                }),
+                expect.objectContaining({
+                    family: 'hhealinegap',
+                    y: -300,
+                    key: 'HheaLineGap'
+                })
+            ])
+        );
+    });
+
+    test('skips zero or missing line gaps', () => {
+        const entries = getAdditionalDrawableMetricLineEntries({
+            TypoDescender: -200,
+            TypoLineGap: 0,
+            HheaDescender: -220
+        });
+
+        expect(entries.some((entry) => entry.key === 'TypoLineGap')).toBe(
+            false
+        );
+        expect(entries.some((entry) => entry.key === 'HheaLineGap')).toBe(
+            false
+        );
     });
 });

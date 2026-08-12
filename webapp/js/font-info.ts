@@ -38,7 +38,8 @@ import { AxisMapEditor } from './axis-map-editor';
 import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
 import {
     ADDITIONAL_METRICS_PANEL_KEYS,
-    isAdditionalMetricsPanelKey
+    isAdditionalMetricsPanelKey,
+    isHiddenMasterMetricsPanelKey
 } from './glyph-canvas/vertical-metrics';
 // Import FEA mode for Ace Editor (registers the mode automatically)
 import './mode-fea';
@@ -4354,13 +4355,17 @@ class FontInfoManager {
         additionalMetricsFields.className = 'fontinfo-name-group-fields';
 
         const masterMetrics = selectedMaster.metrics ?? {};
-        const metricEntries = Object.entries(masterMetrics);
+        const metricEntries = Object.entries(masterMetrics).filter(
+            ([metricKey]) => !isHiddenMasterMetricsPanelKey(metricKey)
+        );
         const coreMetricEntries = metricEntries
             .filter(([metricKey]) => !isAdditionalMetricsPanelKey(metricKey))
             .sort(([left], [right]) => left.localeCompare(right));
         const additionalMetricEntries = [
             ...ADDITIONAL_METRICS_PANEL_KEYS.filter(
-                (metricKey) => masterMetrics[metricKey] !== undefined
+                (metricKey) =>
+                    masterMetrics[metricKey] !== undefined &&
+                    !isHiddenMasterMetricsPanelKey(metricKey)
             ).map(
                 (metricKey) =>
                     [metricKey, masterMetrics[metricKey]] as [string, number]

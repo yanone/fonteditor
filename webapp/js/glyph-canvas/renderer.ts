@@ -1112,7 +1112,8 @@ export class GlyphCanvasRenderer {
     }
 
     /**
-     * Label additional metric lines with short family names (hhea / typo / win).
+     * Label additional metric lines with short family names
+     * (hhea / hhealinegap / typo / typolinegap / win).
      * Nearby labels merge ("hhea+typo") until zoom gives each its own space.
      * Labels sit left of the line start, or pin to the left viewport edge when
      * that start is off-screen.
