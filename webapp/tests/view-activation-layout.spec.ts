@@ -426,13 +426,15 @@ test('editor collapse and reopen restores the previous canvas viewport', async (
     );
 });
 
-test('collapsed editor reopens to peer width by shortcut and title click', async ({
+test('collapsed editor reopens to activation minimum by shortcut and title click', async ({
     page
 }) => {
     await clearStoredViewLayout(page);
 
     await page.goto('/?test=true');
     await waitForCanvasReady(page);
+
+    const minimumWidths = await getActivationMinimumWidths(page);
 
     await page.evaluate(() => {
         window.collapseActiveView?.('view-editor');
@@ -444,13 +446,12 @@ test('collapsed editor reopens to peer width by shortcut and title click', async
     let topRowState = await getTopRowState(page);
 
     expect(topRowState.collapsed['view-editor']).toBe(false);
-    expect(topRowState.widths['view-editor']).toBeGreaterThan(100);
-    expect(
-        Math.abs(
-            topRowState.widths['view-editor'] -
-                topRowState.widths['view-overview']
-        )
-    ).toBeLessThanOrEqual(4);
+    expect(topRowState.widths['view-editor']).toBeGreaterThanOrEqual(
+        minimumWidths.topRow - 4
+    );
+    expect(topRowState.widths['view-editor']).toBeLessThan(
+        minimumWidths.topRow + 80
+    );
 
     await page.evaluate(() => {
         window.collapseActiveView?.('view-editor');
@@ -463,13 +464,74 @@ test('collapsed editor reopens to peer width by shortcut and title click', async
     topRowState = await getTopRowState(page);
 
     expect(topRowState.collapsed['view-editor']).toBe(false);
-    expect(topRowState.widths['view-editor']).toBeGreaterThan(100);
-    expect(
-        Math.abs(
-            topRowState.widths['view-editor'] -
-                topRowState.widths['view-overview']
-        )
-    ).toBeLessThanOrEqual(4);
+    expect(topRowState.widths['view-editor']).toBeGreaterThanOrEqual(
+        minimumWidths.topRow - 4
+    );
+    expect(topRowState.widths['view-editor']).toBeLessThan(
+        minimumWidths.topRow + 80
+    );
+});
+
+test('top-row views cycle small, larger, then max', async ({ page }) => {
+    await clearStoredViewLayout(page);
+
+    await page.goto('/?test=true');
+    await waitForCanvasReady(page);
+
+    const minimumWidths = await getActivationMinimumWidths(page);
+    const views = [
+        { key: 'I', viewId: 'view-fontinfo' },
+        { key: 'O', viewId: 'view-overview' },
+        { key: 'E', viewId: 'view-editor' }
+    ] as const;
+
+    for (const { key, viewId } of views) {
+        await page.evaluate((id) => {
+            window.collapseActiveView?.(id);
+        }, viewId);
+        await page.waitForTimeout(500);
+
+        await activateView(page, key, viewId);
+        let topRowState = await getTopRowState(page);
+        expect(topRowState.collapsed[viewId]).toBe(false);
+        expect(topRowState.widths[viewId]).toBeGreaterThanOrEqual(
+            minimumWidths.topRow - 4
+        );
+        expect(topRowState.widths[viewId]).toBeLessThan(
+            minimumWidths.topRow + 80
+        );
+
+        await activateView(page, key, viewId);
+        topRowState = await getTopRowState(page);
+        expect(topRowState.widths[viewId]).toBeGreaterThanOrEqual(
+            topRowState.topRowWidth * 0.45
+        );
+
+        await activateView(page, key, viewId);
+        topRowState = await getTopRowState(page);
+        const otherViewIds = views
+            .map((view) => view.viewId)
+            .filter((id) => id !== viewId);
+        if (viewId === 'view-fontinfo') {
+            expect(topRowState.widths[viewId]).toBeGreaterThanOrEqual(
+                topRowState.topRowWidth * 0.45
+            );
+            expect(topRowState.widths[viewId]).toBeLessThanOrEqual(
+                topRowState.topRowWidth * 0.55 + 4
+            );
+            for (const otherViewId of otherViewIds) {
+                expect(topRowState.collapsed[otherViewId]).toBe(false);
+                expect(topRowState.widths[otherViewId]).toBeGreaterThan(30);
+            }
+        } else {
+            for (const otherViewId of otherViewIds) {
+                expect(topRowState.widths[otherViewId]).toBeLessThanOrEqual(30);
+            }
+            expect(topRowState.widths[viewId]).toBeGreaterThan(
+                topRowState.topRowWidth * 0.85
+            );
+        }
+    }
 });
 
 test('collapsed fontinfo and overview reopen to activation minimum by shortcut and title click', async ({

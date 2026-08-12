@@ -190,81 +190,13 @@
         return editorView?.id || expandedViews[0]?.id || null;
     }
 
-    function expandCollapsedTopRowEditorToPeerWidth(viewId: string): boolean {
-        if (viewId !== 'view-editor') {
-            return false;
-        }
-
-        const editorView = document.getElementById(
-            viewId
-        ) as HTMLElement | null;
-        const topRow = editorView?.closest('.top-row') as HTMLElement | null;
-        if (!editorView || !topRow) {
-            return false;
-        }
-
-        const editorMinWidth = getViewMinimumWidth(editorView);
-        if (editorView.offsetWidth > editorMinWidth + 5) {
-            return false;
-        }
-
-        const rowViews = getRowViews('top');
-        const widthsByViewId = rowViews.reduce<Record<string, number>>(
-            (widths, rowView) => {
-                widths[rowView.id] = rowView.offsetWidth;
-                return widths;
-            },
-            {}
-        );
-
-        const pinnedCollapsedViews = rowViews.filter(
-            (rowView) =>
-                rowView.id !== viewId &&
-                rowView.offsetWidth <= getViewMinimumWidth(rowView) + 5
-        );
-        const expandedPeerViews = rowViews.filter(
-            (rowView) =>
-                rowView.id !== viewId &&
-                rowView.offsetWidth > getViewMinimumWidth(rowView) + 5
-        );
-
-        if (expandedPeerViews.length === 0) {
-            return false;
-        }
-
-        const pinnedCollapsedWidth = pinnedCollapsedViews.reduce(
-            (sum, rowView) => sum + getViewMinimumWidth(rowView),
-            0
-        );
-        const availableWidth = topRow.offsetWidth - pinnedCollapsedWidth;
-        if (availableWidth <= 0) {
-            return false;
-        }
-
-        const sharedWidth = availableWidth / (expandedPeerViews.length + 1);
-
-        widthsByViewId[viewId] = sharedWidth;
-        expandedPeerViews.forEach((rowView) => {
-            widthsByViewId[rowView.id] = sharedWidth;
-        });
-        pinnedCollapsedViews.forEach((rowView) => {
-            widthsByViewId[rowView.id] = getViewMinimumWidth(rowView);
-        });
-
-        applyRowViewWidths(rowViews, widthsByViewId);
-        return true;
-    }
-
     function getProtectedDonorWidth(
         donor: HTMLElement,
         rowKey: ViewRowKey
     ): number {
         const collapsedMin = getViewMinimumWidth(donor);
         const isExpanded = donor.offsetWidth > collapsedMin + 5;
-        if (
-            isExpanded &&
-            (donor.id === 'view-fontinfo' || donor.id === 'view-overview')
-        ) {
+        if (isExpanded && rowKey === 'top') {
             return Math.max(collapsedMin, getActivationMinimumWidth(rowKey));
         }
         return collapsedMin;
@@ -383,16 +315,11 @@
 
         let expanded = false;
 
-        if (isTopRow && viewId === 'view-editor') {
-            expanded =
-                expandCollapsedTopRowEditorToPeerWidth(viewId) || expanded;
-        }
-
-        if ((isTopRow || isBottomRow) && !expanded) {
+        if (isTopRow || isBottomRow) {
             expanded = ensureActivationMinimumWidth(viewId) || expanded;
         }
 
-        if (viewId === 'view-editor') {
+        if (isTopRow) {
             const config = settings.activation.editor;
             const topRow = view.closest('.top-row') as HTMLElement;
             const currentHeight = topRow.offsetHeight;
@@ -462,8 +389,8 @@
 
     /**
      * Resize a view based on secondary shortcut behavior
-     * - 'maximize': Resize to maximize values (for editor)
-     * - 'expandToTarget': Expand to activation target if smaller (for secondary views)
+     * - Top row: small (activation min) → larger (~50%) → max
+     * - Bottom row 'expandToTarget': expand to resize target if smaller
      */
     function resizeView(viewId: string) {
         const settings = getViewSettings();
@@ -505,106 +432,62 @@
         // Title bar size constant (matches resizer.js)
         const TITLE_BAR_SIZE = 24;
 
-        if (secondaryBehavior === 'maximize') {
-            // Maximize behavior (for editor)
-            // For top row: Calculate dynamic resize config accounting for multiple collapsed views
-            const topRow = view.closest('.top-row')!;
-            const topRowViews = topRow
-                ? Array.from(topRow.querySelectorAll('.view'))
-                : [];
+        if (isTopRow) {
+            const largerWidthRatio =
+                settings.activation.fontinfo.widthTargetSecondary;
+            const largerHeightRatio = settings.activation.editor.heightTarget;
+            const currentWidth = view.offsetWidth;
+            const widthTolerance = containerWidth * 0.05;
+            const isAtOrPastLarger =
+                currentWidth >=
+                containerWidth * largerWidthRatio - widthTolerance;
+
+            const topRow = view.closest('.top-row') as HTMLElement;
+            const topRowViews = Array.from(topRow.querySelectorAll('.view'));
             const otherTopRowViews = topRowViews.filter((v) => v !== view);
-            const totalOtherTitleBarWidth =
-                TITLE_BAR_SIZE * otherTopRowViews.length;
+            const fullMaxWidthRatio =
+                (containerWidth - TITLE_BAR_SIZE * otherTopRowViews.length) /
+                containerWidth;
+            const fontInfoMaxWidth = settings.activation.fontinfo.maxWidth;
+            const maxWidthRatio =
+                viewId === 'view-fontinfo' &&
+                typeof fontInfoMaxWidth === 'number'
+                    ? Math.min(fullMaxWidthRatio, fontInfoMaxWidth)
+                    : fullMaxWidthRatio;
+            const maxHeightRatio =
+                (availableHeight - TITLE_BAR_SIZE) / availableHeight;
+            const isMaximized =
+                currentWidth / containerWidth >= maxWidthRatio - 0.05 &&
+                topRow.offsetHeight / availableHeight >= maxHeightRatio - 0.05;
+            const collapseOtherViews = viewId !== 'view-fontinfo';
 
-            const resizeConfig = {
-                // Width: full container minus title bar width for each other view in top row
-                width:
-                    (containerWidth - totalOtherTitleBarWidth) / containerWidth,
-                // Height: full available height minus title bar height for bottom row
-                height: (availableHeight - TITLE_BAR_SIZE) / availableHeight
-            };
-
-            console.log(
-                '[KeyboardNav]',
-                'Maximize behavior for:',
-                viewId,
-                resizeConfig,
-                'otherTopRowViews:',
-                otherTopRowViews.length
-            );
-
-            if (isTopRow) {
+            if (!isAtOrPastLarger) {
                 resizeTopRowView(
                     viewId,
                     view,
-                    resizeConfig,
+                    {
+                        width: largerWidthRatio,
+                        height: largerHeightRatio
+                    },
                     containerWidth,
                     containerHeight,
-                    true // forceResize
+                    false
                 );
-            } else if (isBottomRow) {
-                resizeBottomRowView(
+            } else if (!isMaximized) {
+                resizeTopRowView(
                     viewId,
                     view,
-                    resizeConfig,
+                    {
+                        width: maxWidthRatio,
+                        height: maxHeightRatio
+                    },
                     containerWidth,
                     containerHeight,
-                    true // forceResize
+                    collapseOtherViews
                 );
             }
         } else if (secondaryBehavior === 'expandToTarget') {
-            // Expand to activation target if smaller (for secondary views)
-            if (viewId === 'view-fontinfo' || viewId === 'view-overview') {
-                // Font info or Overview - expand width to secondary target if smaller (50%)
-                const config = settings.activation.fontinfo;
-                const topRow = view.closest('.top-row') as HTMLElement;
-                const topRowViews = Array.from(
-                    topRow.querySelectorAll('.view')
-                ) as HTMLElement[];
-                const viewIndex = topRowViews.indexOf(view);
-                const currentWidth = view.offsetWidth;
-                const targetWidth =
-                    containerWidth * config.widthTargetSecondary;
-
-                if (currentWidth < targetWidth) {
-                    const otherViews = topRowViews.filter(
-                        (v, i) => i !== viewIndex
-                    );
-
-                    // Separate collapsed and non-collapsed views
-                    const collapsedViews = otherViews.filter(
-                        (v) => v.offsetWidth <= 24 + 5
-                    ); // 5px tolerance
-                    const nonCollapsedViews = otherViews.filter(
-                        (v) => v.offsetWidth > 24 + 5
-                    );
-
-                    // Reserve width for collapsed views
-                    const collapsedWidth = collapsedViews.length * 24;
-                    const availableForDistribution =
-                        containerWidth - targetWidth - collapsedWidth;
-                    const minWidthPerNonCollapsed = 100;
-
-                    if (
-                        availableForDistribution >=
-                        minWidthPerNonCollapsed * nonCollapsedViews.length
-                    ) {
-                        const nonCollapsedViewWidth =
-                            nonCollapsedViews.length > 0
-                                ? availableForDistribution /
-                                  nonCollapsedViews.length
-                                : 0;
-
-                        view.style.flex = `${targetWidth}`;
-                        collapsedViews.forEach((v) => {
-                            v.style.flex = `0 0 24px`; // Keep collapsed at exactly 24px
-                        });
-                        nonCollapsedViews.forEach((v) => {
-                            v.style.flex = `${nonCollapsedViewWidth}`;
-                        });
-                    }
-                }
-            } else if (isBottomRow) {
+            if (isBottomRow) {
                 // Bottom row secondary views - expand height and width to resize target
                 const resizeConfig = settings.resize[viewId];
                 const bottomRow = view.closest('.bottom-row') as HTMLElement;

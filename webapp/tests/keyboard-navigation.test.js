@@ -250,6 +250,112 @@ describe('keyboard navigation focusView DOM transfer', () => {
         ).toBe(384);
     });
 
+    const setupTopRowStageLayout = () => {
+        window.VIEW_SETTINGS = {
+            shortcuts: {
+                'view-fontinfo': { secondaryBehavior: 'topRowStages' },
+                'view-editor': { secondaryBehavior: 'topRowStages' }
+            },
+            animation: { enabled: false, duration: 0 },
+            resize: {},
+            activation: {
+                minimumWidths: { topRow: 240, bottomRow: 160 },
+                fontinfo: { widthTargetSecondary: 0.5, maxWidth: 0.5 },
+                editor: { heightThreshold: 0, heightTarget: 0.5 },
+                secondary: { heightThreshold: 0, heightTarget: 1 }
+            }
+        };
+        document.body.innerHTML = `
+            <div class="container">
+                <div class="top-row">
+                    <div id="view-fontinfo" class="view"></div>
+                    <div id="view-overview" class="view"></div>
+                    <div id="view-editor" class="view"></div>
+                </div>
+                <div class="bottom-row"></div>
+            </div>
+        `;
+
+        const container = document.querySelector('.container');
+        const topRow = document.querySelector('.top-row');
+        Object.defineProperty(container, 'offsetWidth', {
+            configurable: true,
+            value: 1000
+        });
+        Object.defineProperty(container, 'offsetHeight', {
+            configurable: true,
+            value: 800
+        });
+        Object.defineProperty(topRow, 'offsetHeight', {
+            configurable: true,
+            value: 400
+        });
+
+        const widths = {
+            'view-fontinfo': 240,
+            'view-overview': 400,
+            'view-editor': 360
+        };
+        for (const [viewId, width] of Object.entries(widths)) {
+            const view = document.getElementById(viewId);
+            Object.defineProperty(view, 'offsetWidth', {
+                configurable: true,
+                get: () => Number.parseFloat(view.style.flex) || width
+            });
+        }
+        window.resizableViews = {
+            updateCollapsedStates: jest.fn(),
+            saveLayout: jest.fn()
+        };
+    };
+
+    it('cycles a top-row view through small, larger, then max', () => {
+        setupTopRowStageLayout();
+
+        window.resizeView('view-editor');
+        expect(
+            Number.parseFloat(document.getElementById('view-editor').style.flex)
+        ).toBe(500);
+
+        window.resizeView('view-editor');
+        expect(
+            Number.parseFloat(document.getElementById('view-editor').style.flex)
+        ).toBe(952);
+        expect(document.getElementById('view-fontinfo').style.flex).toBe(
+            '0 0 24px'
+        );
+        expect(document.getElementById('view-overview').style.flex).toBe(
+            '0 0 24px'
+        );
+    });
+
+    it('caps fontinfo max width at half the window', () => {
+        setupTopRowStageLayout();
+
+        window.resizeView('view-fontinfo');
+        expect(
+            Number.parseFloat(
+                document.getElementById('view-fontinfo').style.flex
+            )
+        ).toBe(500);
+
+        window.resizeView('view-fontinfo');
+        expect(
+            Number.parseFloat(
+                document.getElementById('view-fontinfo').style.flex
+            )
+        ).toBe(500);
+        expect(document.getElementById('view-overview').style.flex).not.toBe(
+            '0 0 24px'
+        );
+        expect(document.getElementById('view-editor').style.flex).not.toBe(
+            '0 0 24px'
+        );
+        expect(document.querySelector('.bottom-row').style.flex).toBe(
+            '0 0 24px'
+        );
+    });
+
     it('expands a collapsed bottom-row view from the previously visited donor', () => {
         window.VIEW_SETTINGS = {
             shortcuts: {},

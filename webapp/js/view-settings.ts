@@ -9,21 +9,21 @@ const VIEW_SETTINGS = {
             key: 'e',
             modifiers: { cmd: true, shift: true },
             displayModifiers: ['⌘', '⇧'],
-            secondaryBehavior: 'maximize' // Pressing shortcut again maximizes
+            secondaryBehavior: 'topRowStages' // small → larger → max
         },
         'view-fontinfo': {
             // Font Info view
             key: 'i',
             modifiers: { cmd: true, shift: true },
             displayModifiers: ['⌘', '⇧'],
-            secondaryBehavior: 'expandToTarget' // Expand to target if smaller
+            secondaryBehavior: 'topRowStages'
         },
         'view-overview': {
             // Overview view
             key: 'o',
             modifiers: { cmd: true, shift: true },
             displayModifiers: ['⌘', '⇧'],
-            secondaryBehavior: 'expandToTarget'
+            secondaryBehavior: 'topRowStages'
         },
         'view-scripts': {
             // Scripts view
@@ -75,7 +75,8 @@ const VIEW_SETTINGS = {
             widthThreshold: 0.25, // If width < 25% of top row
             widthTargetSingleOpen: 0.35, // Expand to 35% when only one of fontinfo/overview is open
             widthTargetBothOpen: 0.25, // Expand to 25% when both fontinfo and overview are open
-            widthTargetSecondary: 0.5 // Expand to 50% on secondary resize
+            widthTargetSecondary: 0.5, // Larger stage: 50% of container width
+            maxWidth: 0.5 // Opening/maximize never exceeds half the window
         },
         // Editor view (primary)
         editor: {

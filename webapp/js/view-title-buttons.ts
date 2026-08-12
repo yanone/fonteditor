@@ -70,67 +70,42 @@ function isViewMaximized(viewId: string): boolean {
     const isBottomRow = view.closest('.bottom-row') !== null;
     const TITLE_BAR_SIZE = 24;
 
-    // For views with 'maximize' behavior (editor)
-    if (shortcutConfig.secondaryBehavior === 'maximize') {
-        if (isTopRow) {
-            const topRow = view.closest('.top-row');
-            const topRowViews = topRow
-                ? Array.from(topRow.querySelectorAll('.view'))
-                : [];
-            const otherTopRowViews = topRowViews.filter((v) => v !== view);
-            const totalOtherTitleBarWidth =
-                TITLE_BAR_SIZE * otherTopRowViews.length;
+    if (isTopRow) {
+        const topRow = view.closest('.top-row') as HTMLElement;
+        const topRowViews = Array.from(topRow.querySelectorAll('.view'));
+        const otherTopRowViews = topRowViews.filter((v) => v !== view);
+        const fullMaxWidth =
+            (containerWidth - TITLE_BAR_SIZE * otherTopRowViews.length) /
+            containerWidth;
+        const fontInfoMaxWidth = settings.activation?.fontinfo?.maxWidth;
+        const maxWidth =
+            viewId === 'view-fontinfo' && typeof fontInfoMaxWidth === 'number'
+                ? Math.min(fullMaxWidth, fontInfoMaxWidth)
+                : fullMaxWidth;
+        const maxHeight = (availableHeight - TITLE_BAR_SIZE) / availableHeight;
+        const currentWidthRatio = view.offsetWidth / containerWidth;
+        const currentHeightRatio = topRow.offsetHeight / availableHeight;
 
-            const maxWidth =
-                (containerWidth - totalOtherTitleBarWidth) / containerWidth;
-            const maxHeight =
-                (availableHeight - TITLE_BAR_SIZE) / availableHeight;
-
-            const currentWidthRatio = view.offsetWidth / containerWidth;
-            const currentHeightRatio =
-                (topRow as HTMLElement).offsetHeight / availableHeight;
-
-            // Consider maximized if within 5% of max dimensions
-            return (
-                currentWidthRatio >= maxWidth - 0.05 &&
-                currentHeightRatio >= maxHeight - 0.05
-            );
-        } else if (isBottomRow) {
-            const bottomRow = view.closest('.bottom-row') as HTMLElement;
-            const maxHeight =
-                (availableHeight - TITLE_BAR_SIZE) / availableHeight;
-            const currentHeightRatio = bottomRow.offsetHeight / availableHeight;
-
-            return currentHeightRatio >= maxHeight - 0.05;
-        }
+        return (
+            currentWidthRatio >= maxWidth - 0.05 &&
+            currentHeightRatio >= maxHeight - 0.05
+        );
     }
-    // For views with 'expandToTarget' behavior
-    else if (shortcutConfig.secondaryBehavior === 'expandToTarget') {
-        if (viewId === 'view-fontinfo' || viewId === 'view-overview') {
-            // Check if at or near secondary target width (50%)
-            const config = settings.activation.fontinfo;
-            const targetWidth = containerWidth * config.widthTargetSecondary;
-            const currentWidth = view.offsetWidth;
 
-            // Consider maximized if within 5% of target
-            return currentWidth >= targetWidth - containerWidth * 0.05;
-        } else if (isBottomRow) {
-            // Check if at or near resize target dimensions
-            const resizeConfig = settings.resize[viewId];
-            if (!resizeConfig) return false;
+    if (shortcutConfig.secondaryBehavior === 'expandToTarget' && isBottomRow) {
+        const resizeConfig = settings.resize[viewId];
+        if (!resizeConfig) return false;
 
-            const bottomRow = view.closest('.bottom-row') as HTMLElement;
-            const targetHeight = availableHeight * resizeConfig.height;
-            const targetWidth = containerWidth * resizeConfig.width;
-            const currentHeight = bottomRow.offsetHeight;
-            const currentWidth = view.offsetWidth;
+        const bottomRow = view.closest('.bottom-row') as HTMLElement;
+        const targetHeight = availableHeight * resizeConfig.height;
+        const targetWidth = containerWidth * resizeConfig.width;
+        const currentHeight = bottomRow.offsetHeight;
+        const currentWidth = view.offsetWidth;
 
-            // Consider maximized if within 5% of target dimensions
-            return (
-                currentHeight >= targetHeight - availableHeight * 0.05 &&
-                currentWidth >= targetWidth - containerWidth * 0.05
-            );
-        }
+        return (
+            currentHeight >= targetHeight - availableHeight * 0.05 &&
+            currentWidth >= targetWidth - containerWidth * 0.05
+        );
     }
 
     return false;
