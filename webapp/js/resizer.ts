@@ -1,3 +1,5 @@
+import { getClosestExpandedTopRowViewId } from './view-focus';
+
 console.log('[Resizer]', 'resizer.js loaded');
 
 type RowVisitOrder = {
@@ -55,34 +57,7 @@ class ResizableViews {
     }
 
     getTopRowReplacementFocusViewId(collapsedView: HTMLElement): string | null {
-        const topRow = collapsedView.closest('.top-row');
-        if (!topRow) {
-            return null;
-        }
-
-        const threshold = 5;
-        const siblings = Array.from(topRow.querySelectorAll('.view')).filter(
-            (view): view is HTMLElement => view instanceof HTMLElement
-        );
-        const expandedSiblings = siblings.filter((view) => {
-            if (view.id === collapsedView.id) {
-                return false;
-            }
-
-            return (
-                view.getBoundingClientRect().width >
-                this.getMinWidth(view) + threshold
-            );
-        });
-
-        if (expandedSiblings.length === 0) {
-            return null;
-        }
-
-        const editorSibling = expandedSiblings.find(
-            (view) => view.id === 'view-editor'
-        );
-        return editorSibling?.id || expandedSiblings[0].id;
+        return getClosestExpandedTopRowViewId(collapsedView.id);
     }
 
     /**
@@ -890,9 +865,9 @@ class ResizableViews {
 
         // Final update of collapsed states
         this.updateCollapsedStates();
-
-        // Save layout after resize
         this.saveLayout();
+
+        window.restoreFocusedViewDomFocus?.();
     }
 }
 

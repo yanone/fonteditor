@@ -536,15 +536,6 @@ function closeFontFileDialog(): void {
     fileDialogSaveWarningRefreshToken += 1;
     setFileDialogSaveWarning(null);
     updateFileDialogFooter();
-
-    const editorView = document.getElementById('view-editor');
-    if (
-        editorView &&
-        editorView.classList.contains('focused') &&
-        window.glyphCanvas?.canvas
-    ) {
-        setTimeout(() => window.glyphCanvas?.canvas?.focus(), 0);
-    }
 }
 
 async function showFontFileDialog(
@@ -1908,19 +1899,7 @@ async function openFont(
         const pluginId = sourcePlugin.getId();
         const fileUri = createFileUri(pluginId, path);
         syncEditorFileState(fileUri, 'file_opened');
-
-        // Restore focus to canvas if editor view is active
-        const editorView = document.getElementById('view-editor');
-        if (
-            editorView &&
-            editorView.classList.contains('focused') &&
-            window.glyphCanvas &&
-            window.glyphCanvas.canvas
-        ) {
-            setTimeout(() => window.glyphCanvas.canvas!.focus(), 0);
-
-            window.stateManager?.syncUrlNow?.();
-        }
+        window.stateManager?.syncUrlNow?.();
 
         if (options.closeDialogOnSuccess) {
             closeFontFileDialog();

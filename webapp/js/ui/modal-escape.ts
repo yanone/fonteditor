@@ -66,6 +66,7 @@ function installEscapeListener(): void {
                 // Pop before close so a re-entrant bind from close/open is clean.
                 modalEscapeStack.pop();
                 top.close();
+                scheduleFocusedViewRestore();
                 return;
             }
         },
@@ -106,8 +107,18 @@ export function bindModalEscape(
             if (index >= 0) {
                 modalEscapeStack.splice(index, 1);
             }
+            scheduleFocusedViewRestore();
         }
     };
+}
+
+function scheduleFocusedViewRestore(): void {
+    queueMicrotask(() => {
+        if (hasBoundModalEscape()) {
+            return;
+        }
+        window.restoreFocusedViewDomFocus?.();
+    });
 }
 
 /** Whether any modal is currently bound for Escape dismissal. */

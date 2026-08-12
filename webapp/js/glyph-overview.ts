@@ -4304,6 +4304,7 @@ class GlyphOverview {
                 event.stopPropagation();
                 this.updatePropertyPanel();
                 input.blur();
+                window.restoreFocusedViewDomFocus?.();
                 return;
             }
             if (event.key === 'Enter') {
@@ -4311,6 +4312,7 @@ class GlyphOverview {
                 input.dataset.skipNextPropertyCommit = 'true';
                 commit();
                 input.blur();
+                window.restoreFocusedViewDomFocus?.();
             }
         });
     }

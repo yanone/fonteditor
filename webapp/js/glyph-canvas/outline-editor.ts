@@ -10868,10 +10868,6 @@ export class OutlineEditor {
     }
 
     restoreFocus() {
-        // Only restore focus when in editor mode
-        if (!this.active) return;
-        // Use setTimeout to allow the click event to complete first
-        // (e.g., slider interaction, button click)
         setTimeout(() => {
             this.canvas!.focus();
         }, 0);

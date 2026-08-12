@@ -1,3 +1,5 @@
+import { getClosestExpandedTopRowViewId } from './view-focus';
+
 // Keyboard Navigation System
 (function () {
     let currentFocusedView: string | null = null;
@@ -169,25 +171,7 @@
     }
 
     function getTopRowReplacementFocusViewId(viewId: string): string | null {
-        const view = document.getElementById(viewId) as HTMLElement | null;
-        const topRow = view?.closest('.top-row');
-        if (!topRow) {
-            return null;
-        }
-
-        const topViews = Array.from(
-            topRow.querySelectorAll('.view')
-        ) as HTMLElement[];
-        const expandedViews = topViews.filter(
-            (rowView) =>
-                rowView.id !== viewId &&
-                rowView.offsetWidth > getViewMinimumWidth(rowView) + 5
-        );
-
-        const editorView = expandedViews.find(
-            (rowView) => rowView.id === 'view-editor'
-        );
-        return editorView?.id || expandedViews[0]?.id || null;
+        return getClosestExpandedTopRowViewId(viewId);
     }
 
     function getProtectedDonorWidth(
@@ -546,29 +530,24 @@
         }
 
         // Disable transitions and update collapsed states after animation completes
-        if (settings.animation && settings.animation.enabled) {
-            setTimeout(() => {
-                disableTransitions();
-                updateCollapsedStates();
-                // Save layout after resize completes
-                if (window.resizableViews) {
-                    window.resizableViews.saveLayout();
-                }
-                // Notify view title buttons to update
-                window.dispatchEvent(
-                    new CustomEvent('viewResized', { detail: { viewId } })
-                );
-            }, settings.animation.duration);
-        } else {
+        const finishResize = () => {
+            disableTransitions();
             updateCollapsedStates();
-            // Save immediately if no animation
             if (window.resizableViews) {
                 window.resizableViews.saveLayout();
             }
-            // Notify view title buttons to update
             window.dispatchEvent(
                 new CustomEvent('viewResized', { detail: { viewId } })
             );
+            if (viewId === 'view-editor') {
+                transferViewDomFocus('view-editor', true, false);
+            }
+        };
+
+        if (settings.animation && settings.animation.enabled) {
+            setTimeout(finishResize, settings.animation.duration);
+        } else {
+            finishResize();
         }
     }
 
@@ -727,8 +706,12 @@
                 if (window.resizableViews) {
                     window.resizableViews.saveLayout();
                 }
-                // Focus editor only if we collapsed the currently active view
-                if (viewId === currentFocusedView && viewId !== 'view-editor') {
+                // Focus editor only if we collapsed a currently active bottom-row view
+                if (
+                    viewId === currentFocusedView &&
+                    isBottomRow &&
+                    viewId !== 'view-editor'
+                ) {
                     focusView('view-editor');
                 }
                 // Notify view title buttons to update
@@ -741,8 +724,12 @@
             if (window.resizableViews) {
                 window.resizableViews.saveLayout();
             }
-            // Focus editor only if we collapsed the currently active view
-            if (viewId === currentFocusedView && viewId !== 'view-editor') {
+            // Focus editor only if we collapsed a currently active bottom-row view
+            if (
+                viewId === currentFocusedView &&
+                isBottomRow &&
+                viewId !== 'view-editor'
+            ) {
                 focusView('view-editor');
             }
             // Notify view title buttons to update
@@ -1199,12 +1186,24 @@
         }
     }
 
+    function restoreFocusedViewDomFocus() {
+        if (!currentFocusedView) {
+            return;
+        }
+        transferViewDomFocus(currentFocusedView, false, false);
+    }
+
     /**
      * Focus a view by ID
      * @param {string} viewId - The ID of the view to focus
      * @param {boolean} viaKeyboard - Whether the focus was triggered by keyboard shortcut
+     * @param {{ skipExpand?: boolean }} [options] - skipExpand avoids activation sizing
      */
-    function focusView(viewId: string, viaKeyboard = false) {
+    function focusView(
+        viewId: string,
+        viaKeyboard = false,
+        options?: { skipExpand?: boolean }
+    ) {
         // Capture console scroll position IMMEDIATELY if activating console
         // (before anything else that might trigger scroll)
         let consoleScrollBefore = 0;
@@ -1271,7 +1270,9 @@
             localStorage.setItem('last_active_view', viewId);
 
             // Expand view if below threshold (auto-expand on activation)
-            const wasExpanded = expandViewOnActivation(viewId);
+            const wasExpanded = options?.skipExpand
+                ? false
+                : expandViewOnActivation(viewId);
             recordViewVisit(viewId);
 
             // Move real DOM focus with the logical focused view so keystrokes
@@ -1836,6 +1837,8 @@
             // views so title-bar clicks expand them to the activation minimum.
             if (!view.classList.contains('focused') || isCollapsed) {
                 focusView(view.id);
+            } else {
+                restoreFocusedViewDomFocus();
             }
         }
     }
@@ -1887,6 +1890,7 @@
     // Expose focusView and getCurrentFocusedView globally for other scripts
     window.focusView = focusView;
     window.getCurrentFocusedView = () => currentFocusedView;
+    window.restoreFocusedViewDomFocus = restoreFocusedViewDomFocus;
     window.resizeView = resizeView;
     window.collapseActiveView = collapseActiveView;
     window.getViewVisitOrder = getViewVisitOrder;

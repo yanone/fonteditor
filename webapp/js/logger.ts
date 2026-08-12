@@ -36,6 +36,7 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     Design: false,
     Features: false,
     FileBrowser: false,
+    ViewFocus: false,
     FileSystemAdapter: false,
     FilesystemPlugins: false,
     FontCompilation: false,

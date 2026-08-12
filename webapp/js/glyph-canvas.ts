@@ -11256,16 +11256,6 @@ function setupEditorShortcutsModal() {
         escapeBinding?.release();
         escapeBinding = null;
         modal.style.display = 'none';
-        // Restore focus to canvas if editor view was active
-        const editorView = document.getElementById('view-editor');
-        if (
-            editorView &&
-            editorView.classList.contains('focused') &&
-            window.glyphCanvas &&
-            window.glyphCanvas.canvas
-        ) {
-            setTimeout(() => window.glyphCanvas.canvas!.focus(), 0);
-        }
     };
 
     // Open modal

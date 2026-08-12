@@ -152,6 +152,9 @@ function handleMaximizeClick(viewId: string): void {
 
     // Trigger the same behavior as pressing the view's keyboard shortcut a second time
     // This calls resizeView from keyboard-navigation.js
+    if (window.focusView) {
+        window.focusView(viewId, false, { skipExpand: true });
+    }
     if (window.resizeView) {
         window.resizeView(viewId);
     }

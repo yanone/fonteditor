@@ -476,7 +476,12 @@ declare global {
         findGlyphDialog: FindGlyphDialog;
 
         // From keyboard-navigation.js
-        focusView: (viewId: string) => void;
+        focusView: (
+            viewId: string,
+            viaKeyboard?: boolean,
+            options?: { skipExpand?: boolean }
+        ) => void;
+        restoreFocusedViewDomFocus: () => void;
         getViewVisitOrder: () => { top: string[]; bottom: string[] };
         setViewVisitOrder: (visitOrder: {
             top?: string[];

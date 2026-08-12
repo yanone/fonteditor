@@ -311,13 +311,22 @@ describe('keyboard navigation focusView DOM transfer', () => {
 
     it('cycles a top-row view through small, larger, then max', () => {
         setupTopRowStageLayout();
+        const canvas = document.createElement('canvas');
+        canvas.focus = jest.fn();
+        window.glyphCanvas = { canvas };
+        document.getElementById('view-editor').classList.add('focused');
 
         window.resizeView('view-editor');
+        jest.advanceTimersByTime(100);
+        expect(canvas.focus).toHaveBeenCalled();
+        canvas.focus.mockClear();
         expect(
             Number.parseFloat(document.getElementById('view-editor').style.flex)
         ).toBe(500);
 
         window.resizeView('view-editor');
+        jest.advanceTimersByTime(100);
+        expect(canvas.focus).toHaveBeenCalled();
         expect(
             Number.parseFloat(document.getElementById('view-editor').style.flex)
         ).toBe(952);
@@ -354,6 +363,55 @@ describe('keyboard navigation focusView DOM transfer', () => {
         expect(document.querySelector('.bottom-row').style.flex).toBe(
             '0 0 24px'
         );
+    });
+
+    it('moves top-row focus to the closest expanded view on collapse', () => {
+        setupTopRowStageLayout();
+        const boxes = {
+            'view-fontinfo': { left: 0, width: 400 },
+            'view-overview': { left: 400, width: 400 },
+            'view-editor': { left: 800, width: 400 }
+        };
+        for (const [viewId, box] of Object.entries(boxes)) {
+            const view = document.getElementById(viewId);
+            Object.defineProperty(view, 'offsetWidth', {
+                configurable: true,
+                get: () =>
+                    Number.parseFloat(view.style.flexBasis) ||
+                    Number.parseFloat(view.style.flex) ||
+                    box.width
+            });
+            Object.defineProperty(view, 'getBoundingClientRect', {
+                configurable: true,
+                value: () => ({
+                    left: box.left,
+                    width: view.offsetWidth,
+                    right: box.left + view.offsetWidth,
+                    top: 0,
+                    bottom: 100,
+                    height: 100,
+                    x: box.left,
+                    y: 0,
+                    toJSON: () => ({})
+                })
+            });
+        }
+        document.getElementById('view-overview').classList.add('focused');
+        window.focusView('view-overview', true);
+        jest.advanceTimersByTime(250);
+
+        window.collapseActiveView('view-overview');
+
+        expect(
+            document
+                .getElementById('view-fontinfo')
+                .classList.contains('focused')
+        ).toBe(true);
+        expect(
+            document
+                .getElementById('view-overview')
+                .classList.contains('focused')
+        ).toBe(false);
     });
 
     it('expands a collapsed bottom-row view from the previously visited donor', () => {

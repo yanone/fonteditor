@@ -129,13 +129,9 @@ class EditorPluginsUI {
         this.dropdown.style.display = 'block';
         this.isOpen = true;
         this.escapeBinding?.release();
-        this.escapeBinding = bindModalEscape(
-            () => {
-                this.closeDropdown();
-                this.restoreFocusToCanvas();
-            },
-            { isOpen: () => this.isOpen }
-        );
+        this.escapeBinding = bindModalEscape(() => this.closeDropdown(), {
+            isOpen: () => this.isOpen
+        });
     }
 
     closeDropdown() {
@@ -149,18 +145,7 @@ class EditorPluginsUI {
     }
 
     restoreFocusToCanvas() {
-        const editorView = document.getElementById('view-editor');
-        if (
-            editorView &&
-            editorView.classList.contains('focused') &&
-            window.glyphCanvas &&
-            window.glyphCanvas.canvas
-        ) {
-            const canvas = window.glyphCanvas.canvas;
-            if (canvas) {
-                setTimeout(() => canvas.focus(), 0);
-            }
-        }
+        window.restoreFocusedViewDomFocus?.();
     }
 
     updatePluginList() {
