@@ -1500,6 +1500,14 @@ kbd + kbd {
     height: 100%;
 }
 
+.editor-glyph-chip.inactive {
+    cursor: pointer;
+}
+
+.editor-glyph-chip.active {
+    cursor: default;
+}
+
 .view-title-window-actions {
     display: flex;
     align-items: center;
