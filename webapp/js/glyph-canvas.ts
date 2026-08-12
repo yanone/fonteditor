@@ -391,6 +391,14 @@ function compareLocationMaps(
     return 0;
 }
 
+/**
+ * Font-space Y band for text caret placement, drag selection, and the I-beam
+ * cursor. Extends generously past the drawn caret (1000 … -300) so clicks and
+ * drags still hit above/below the word.
+ */
+const TEXT_INTERACTION_Y_MAX = 1400;
+const TEXT_INTERACTION_Y_MIN = -700;
+
 class GlyphCanvas {
     static COLLAPSED_EDITOR_VIEWPORT_FREEZE_WIDTH = 96;
 
@@ -541,6 +549,7 @@ class GlyphCanvas {
     // Internal state properties not in constructor
     measurementKeyPressed: boolean = false;
     isDraggingCanvas: boolean = false;
+    isSelectingText: boolean = false;
     lastMouseX: number = 0;
     lastMouseY: number = 0;
     mouseCanvasX: number = 0;
@@ -2266,26 +2275,28 @@ class GlyphCanvas {
             return;
         }
 
-        // Check if clicking on text to position cursor (only in text edit mode, not on double-click or glyph)
-        // Skip if hovering over a glyph since that might be a double-click to enter edit mode
+        // Check if clicking on text to place caret / start selection (text mode only).
+        // Works over glyphs too — double-click still enters edit mode above.
+        // Skip modifier chords other than Shift (used to extend an existing selection).
         if (
             !this.outlineEditor.active &&
-            !e.shiftKey &&
             !e.ctrlKey &&
             !e.metaKey &&
-            this.outlineEditor.hoveredGlyphIndex < 0
+            !e.altKey &&
+            e.detail < 2
         ) {
             const clickedPos = this.getClickedCursorPosition(e);
             if (clickedPos !== null) {
-                this.textRunEditor!.clearSelection();
-                this.textRunEditor!.cursorPosition = clickedPos;
-                this.textRunEditor!.updateCursorVisualPosition();
-                // Fire cursormoved event for URL sync
-                this.textRunEditor!.call('cursormoved');
+                this.startTextSelectionDrag(clickedPos, e.shiftKey);
                 this.render();
-                // Keep text cursor
                 this.canvas!.style.cursor = 'text';
-                return; // Don't start dragging if clicking on text
+                return; // Don't start canvas panning while selecting text
+            }
+
+            // Click outside the text hit band clears any active selection.
+            if (this.textRunEditor?.hasSelection()) {
+                this.textRunEditor.clearSelection();
+                this.render();
             }
         }
 
@@ -2308,6 +2319,11 @@ class GlyphCanvas {
     }
 
     onMouseMove(e: MouseEvent): void {
+        if (this.isSelectingText) {
+            this.updateTextSelectionDrag(e);
+            return;
+        }
+
         this.outlineEditor.onMouseMove(e);
 
         if (this.outlineEditor.draggingSomething) {
@@ -2352,6 +2368,8 @@ class GlyphCanvas {
     }
 
     async onMouseUp(e: MouseEvent): Promise<void> {
+        this.endTextSelectionDrag();
+
         const deferRenderToSidebearingPreview =
             this.outlineEditor.isLiveSidebearingInteractionActive();
         const finalization = this.outlineEditor.onMouseUp(e).catch((error) => {
@@ -2377,6 +2395,32 @@ class GlyphCanvas {
     }
 
     onMouseLeave(e: MouseEvent): void {
+        // Keep an in-progress text selection alive outside the canvas; document
+        // mouseup (via the drag listeners) finalizes it.
+        if (this.isSelectingText) {
+            const hadHover =
+                this.outlineEditor.hoveredGlyphIndex >= 0 ||
+                this.outlineEditor.hoveredGuideHandle !== null ||
+                this.outlineEditor.hoveredComponentIndex !== null ||
+                this.outlineEditor.hoveredAnchorIndex !== null ||
+                this.outlineEditor.hoveredPointIndex !== null ||
+                this.outlineEditor.hoveredAddPointPreview !== null ||
+                this.outlineEditor.hoveredCommandCurvePreview !== null;
+
+            this.outlineEditor.hoveredGlyphIndex = -1;
+            this.outlineEditor.hoveredGuideHandle = null;
+            this.outlineEditor.hoveredComponentIndex = null;
+            this.outlineEditor.hoveredAnchorIndex = null;
+            this.outlineEditor.hoveredPointIndex = null;
+            this.outlineEditor.hoveredAddPointPreview = null;
+            this.outlineEditor.hoveredCommandCurvePreview = null;
+
+            if (hadHover) {
+                this.render();
+            }
+            return;
+        }
+
         // Call onMouseUp first to handle any ongoing drag operations
         void this.onMouseUp(e);
 
@@ -2434,6 +2478,7 @@ class GlyphCanvas {
     }
 
     onMouseMoveHover(e: MouseEvent): void {
+        if (this.isSelectingText) return;
         if (this.outlineEditor.draggingSomething) return; // Don't detect hover while dragging
 
         // Focus events are unreliable on Cmd+Tab; re-sync from hasFocus() here.
@@ -2504,11 +2549,13 @@ class GlyphCanvas {
             return;
         }
 
-        // In text mode, show pointer when hovering over a glyph, otherwise text cursor
-        if (this.outlineEditor.hoveredGlyphIndex !== -1) {
-            this.canvas!.style.cursor = 'pointer';
-        } else {
+        // In text mode, show the I-beam only inside the text interaction band
+        // (full canvas width × generous vertical margin around the run).
+        // Outside that band use the normal arrow pointer.
+        if (this.isSelectingText || this.isPointerInTextInteractionBand()) {
             this.canvas!.style.cursor = 'text';
+        } else {
+            this.canvas!.style.cursor = 'default';
         }
     }
 
@@ -10224,22 +10271,109 @@ class GlyphCanvas {
         this.textRunEditor!.handleKeyDown(e);
     }
 
-    getClickedCursorPosition(e: MouseEvent): number | null {
+    getClickedCursorPosition(
+        e: MouseEvent,
+        options: {
+            ignoreVerticalBounds?: boolean;
+        } = {}
+    ): number | null {
         // Convert click position to cursor position
         const rect = this.canvas!.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
 
         // Transform to glyph space
-        let { x: glyphX, y: glyphY } =
+        const { x: glyphX, y: glyphY } =
             this.viewportManager!.getFontSpaceCoordinates(mouseX, mouseY);
 
-        // Check if clicking within cursor height range (same as cursor drawing)
-        // Cursor goes from 1000 (top) to -300 (bottom)
-        if (glyphY > 1000 || glyphY < -300) {
-            return null; // Clicked outside cursor height - allow panning
+        // Vertical band gates caret placement / selection start. Drag updates
+        // may ignore it so the selection can keep growing when the pointer
+        // leaves the line. Horizontal position is unbounded: far left/right
+        // snaps to the run ends.
+        if (
+            !options.ignoreVerticalBounds &&
+            !this.isFontYInTextInteractionBand(glyphY)
+        ) {
+            return null;
         }
         return this.textRunEditor!.getGlyphIndexAtClick(glyphX, glyphY);
+    }
+
+    private isFontYInTextInteractionBand(glyphY: number): boolean {
+        return (
+            glyphY <= TEXT_INTERACTION_Y_MAX && glyphY >= TEXT_INTERACTION_Y_MIN
+        );
+    }
+
+    /**
+     * True when the pointer (or given canvas-local coords) sits in the text
+     * interaction band used for caret / selection / I-beam cursor.
+     */
+    private isPointerInTextInteractionBand(
+        canvasX: number = this.mouseX,
+        canvasY: number = this.mouseY
+    ): boolean {
+        if (!this.viewportManager) {
+            return false;
+        }
+        const { y: glyphY } = this.viewportManager.getFontSpaceCoordinates(
+            canvasX,
+            canvasY
+        );
+        return this.isFontYInTextInteractionBand(glyphY);
+    }
+
+    private boundTextSelectionMouseMove = (e: MouseEvent): void => {
+        this.updateTextSelectionDrag(e);
+    };
+
+    private boundTextSelectionMouseUp = (_e: MouseEvent): void => {
+        this.endTextSelectionDrag();
+        this.updateCursorStyle();
+        this.render();
+    };
+
+    private startTextSelectionDrag(
+        position: number,
+        extendExisting: boolean
+    ): void {
+        this.isSelectingText = true;
+        this.textRunEditor!.beginMouseSelection(position, extendExisting);
+        document.addEventListener(
+            'mousemove',
+            this.boundTextSelectionMouseMove
+        );
+        document.addEventListener('mouseup', this.boundTextSelectionMouseUp);
+    }
+
+    private updateTextSelectionDrag(e: MouseEvent): void {
+        if (!this.isSelectingText || !this.textRunEditor) {
+            return;
+        }
+
+        const position = this.getClickedCursorPosition(e, {
+            ignoreVerticalBounds: true
+        });
+        if (position === null) {
+            return;
+        }
+
+        this.textRunEditor.extendMouseSelection(position);
+        this.canvas!.style.cursor = 'text';
+        this.render();
+    }
+
+    private endTextSelectionDrag(): void {
+        if (!this.isSelectingText) {
+            return;
+        }
+        this.isSelectingText = false;
+        document.removeEventListener(
+            'mousemove',
+            this.boundTextSelectionMouseMove
+        );
+        document.removeEventListener('mouseup', this.boundTextSelectionMouseUp);
+        this.textRunEditor?.finishMouseSelection();
     }
 
     isCursorVisible(): boolean {

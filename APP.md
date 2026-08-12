@@ -168,6 +168,10 @@ The Editing View title bar exposes sticky tools left of the View menu so mouse-o
 
 Holding Cmd or Alt still works as before and temporarily highlights the matching toolbar tool (Cmd → Insert while an add-point preview is shown, otherwise Pen; Alt → Convert). Releasing the modifier restores the sticky-tool highlight. Sticky Pen only draws; sticky Insert only inserts; sticky Convert only converts. Cmd continues to combine draw and insert by hover context.
 
+#### Text Mode Selection
+
+In text mode, a click places the caret (including when the pointer is over a glyph). Click-drag selects a character range like a standard text editor; Shift-click extends the selection from the existing anchor (or caret). Clicks and drag starts far left or right of the run snap to the nearest end. Caret placement and selection also hit within a generous vertical margin above and below the word; the I-beam cursor appears only inside that band (full canvas width), and the normal arrow pointer appears outside it. Clicking outside that band clears any text selection. Double-clicking a glyph still enters edit mode. Space-drag pans; it does not start a text selection.
+
 #### Drawing New Outlines
 
 Pressing the `cmd` key and hovering the mouse over clear glyph space (not over existing outlines) will draw new paths point by point. The Pen title-bar tool (P) is the sticky equivalent without holding Cmd. Once a new path drawing is in progress (hovering line visible from last selected node to mouse pointer with `cmd` key pressed or Pen active), prioritize extending the new path over adding nodes to existing paths when hovering over existing paths segments (but not open end points, see below). While `cmd` is pressed for drawing (or Pen is active), prioritize drawing new points over hitting neighbouring glyphs as well, so drawing may continue outside the active glyph’s width. In that state, neighbouring glyphs must not be treated as hovered visually either. When closing a newly drawn path on its first point, preserve every explicitly drawn corner; only merge the endpoints into one node when the open path's start and end already sit on the same coordinates.

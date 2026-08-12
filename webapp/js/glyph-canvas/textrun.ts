@@ -490,12 +490,13 @@ export class TextRunEditor {
         return glyphIndex;
     }
 
-    getGlyphIndexAtClick(glyphX: number, glyphY: number) {
+    getGlyphIndexAtClick(glyphX: number, _glyphY?: number) {
         if (!this.clusterMap || this.clusterMap.length === 0) {
             return 0;
         }
 
-        // Find closest cursor position accounting for RTL
+        // Find closest cursor position accounting for RTL. Clicks far left/right
+        // of the run snap to the nearest end — same as a normal text editor.
         let closestPos = 0;
         let closestDist = Infinity;
 
@@ -585,13 +586,6 @@ export class TextRunEditor {
         // Ensure we don't return a position beyond the text length
         if (closestPos > this.textBuffer.length) {
             closestPos = this.textBuffer.length;
-        }
-
-        // If the closest position is too far away from the click, return null (allow panning)
-        // This prevents clicking in empty space where text used to be
-        const maxDistance = 500; // Maximum distance in font units to consider a valid click
-        if (closestDist > maxDistance) {
-            return null;
         }
 
         return closestPos;
@@ -860,6 +854,53 @@ export class TextRunEditor {
             `"${this.textBuffer.slice(0, this.textBuffer.length)}"`,
             `[${this.selectionStart}-${this.selectionEnd}]`
         );
+        this.updateCursorVisualPosition();
+        this.call('cursormoved');
+    }
+
+    /**
+     * Begin a mouse-driven text selection at `position`.
+     * When `extendExisting` is true (Shift-click), keep the current selection
+     * anchor (or the caret if there is none) and move only the active end.
+     */
+    beginMouseSelection(position: number, extendExisting = false) {
+        const clamped = Math.max(0, Math.min(position, this.textBuffer.length));
+        if (extendExisting) {
+            if (this.selectionStart === null) {
+                this.selectionStart = this.cursorPosition;
+            }
+        } else {
+            this.selectionStart = clamped;
+        }
+        this.selectionEnd = clamped;
+        this.cursorPosition = clamped;
+        this.updateCursorVisualPosition();
+        this.call('cursormoved');
+    }
+
+    /** Extend the active end of a mouse-driven selection to `position`. */
+    extendMouseSelection(position: number) {
+        const clamped = Math.max(0, Math.min(position, this.textBuffer.length));
+        if (this.selectionStart === null) {
+            this.selectionStart = this.cursorPosition;
+        }
+        if (this.selectionEnd === clamped && this.cursorPosition === clamped) {
+            return;
+        }
+        this.selectionEnd = clamped;
+        this.cursorPosition = clamped;
+        this.updateCursorVisualPosition();
+        this.call('cursormoved');
+    }
+
+    /**
+     * Finish a mouse-driven selection. Collapsed ranges become a caret only
+     * (no highlight), matching standard text editors.
+     */
+    finishMouseSelection() {
+        if (!this.hasSelection()) {
+            this.clearSelection();
+        }
         this.updateCursorVisualPosition();
         this.call('cursormoved');
     }
