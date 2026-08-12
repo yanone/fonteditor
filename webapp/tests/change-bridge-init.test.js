@@ -5402,7 +5402,7 @@ describe('committed undo/redo compile requests', () => {
         ['local undo', 'undo'],
         ['local redo', 'redo']
     ])(
-        'uses the restored model width for %s',
+        'skips live advance refresh for full-reshape %s outline packets',
         async (_label, historyAction) => {
             const originalFontManager = window.fontManager;
             const originalGlyphCanvas = window.glyphCanvas;
@@ -5479,14 +5479,9 @@ describe('committed undo/redo compile requests', () => {
                 window.glyphCanvas = originalGlyphCanvas;
             }
 
-            expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
-                { a: 500, adieresis: 640 },
-                { render: false }
-            );
-            expect(computePrecedingAdvanceDelta).toHaveBeenCalledWith({
-                a: 500,
-                adieresis: 640
-            });
+            expect(refreshGlyphAdvancesLive).not.toHaveBeenCalled();
+            expect(refreshGlyphAdvanceDeltasLive).not.toHaveBeenCalled();
+            expect(computePrecedingAdvanceDelta).not.toHaveBeenCalled();
             expect(requestCompile).toHaveBeenCalledTimes(1);
         }
     );

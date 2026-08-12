@@ -1603,106 +1603,6 @@ function refreshLiveTextRunAdvances(
     }
 }
 
-function collectCommittedAdvanceWidths(
-    entries: ChangeLogEntry[],
-    visibleLayerId?: string | null,
-    visibleGlyphName?: string | null
-): Record<string, number> {
-    if (!visibleLayerId || !visibleGlyphName) {
-        return {};
-    }
-
-    const fontModel = window.fontManager?.currentFont?.fontModel;
-    if (!fontModel || typeof fontModel.findGlyph !== 'function') {
-        return {};
-    }
-
-    const visibleLayer = fontModel
-        .findGlyph(visibleGlyphName)
-        ?.findLayerById(visibleLayerId);
-    const targets = new Map<string, WorkerReplayTarget>();
-    const addTarget = (glyphName?: string | null, layerId?: string | null) => {
-        if (!glyphName || !layerId) {
-            return;
-        }
-        targets.set(`${glyphName}@@${layerId}`, { glyphName, layerId });
-    };
-
-    for (const outerEntry of entries) {
-        const semanticEntries = outerEntry.semanticChangeLogEntries?.length
-            ? outerEntry.semanticChangeLogEntries
-            : [outerEntry];
-        for (const entry of semanticEntries) {
-            const pathSegments = getPathSegments(entry.path ?? '');
-            addTarget(
-                deriveGlyphName(pathSegments),
-                deriveLayerId(pathSegments)
-            );
-            for (const target of entry.workerReplayTargets ?? []) {
-                addTarget(target.glyphName, target.layerId);
-            }
-        }
-    }
-
-    const glyphAdvances: Record<string, number> = {};
-    for (const target of targets.values()) {
-        const layer =
-            target.glyphName === visibleGlyphName
-                ? visibleLayer
-                : (visibleLayer?.getMatchingLayerOnGlyph?.(target.glyphName) ??
-                  fontModel
-                      .findGlyph(target.glyphName)
-                      ?.findLayerById(visibleLayerId));
-        if (layer && Number.isFinite(layer.width)) {
-            glyphAdvances[target.glyphName] = layer.width;
-        }
-    }
-
-    return glyphAdvances;
-}
-
-function refreshCommittedTextRunAdvances(
-    glyphAdvances: Record<string, number>,
-    options?: {
-        compensatePanX?: boolean;
-    }
-): void {
-    const gc = window.glyphCanvas;
-    const textRunEditor = gc?.textRunEditor;
-    if (!textRunEditor || Object.keys(glyphAdvances).length === 0) {
-        return;
-    }
-
-    const changedAdvances = Object.fromEntries(
-        Object.entries(glyphAdvances).filter(([glyphName, advance]) => {
-            const previousAdvance =
-                textRunEditor.intrinsicGlyphAdvances?.get(glyphName);
-            return (
-                typeof previousAdvance === 'number' &&
-                Number.isFinite(previousAdvance) &&
-                Math.abs(advance - previousAdvance) > 0.01
-            );
-        })
-    );
-    if (Object.keys(changedAdvances).length === 0) {
-        return;
-    }
-
-    const precedingDelta = options?.compensatePanX
-        ? (textRunEditor.computePrecedingAdvanceDelta?.(changedAdvances) ?? 0)
-        : 0;
-    textRunEditor.refreshGlyphAdvancesLive?.(changedAdvances, {
-        render: false
-    });
-
-    if (options?.compensatePanX && Math.abs(precedingDelta) > 0.01) {
-        const vm = gc?.viewportManager;
-        if (vm) {
-            vm.panX -= precedingDelta * vm.scale;
-        }
-    }
-}
-
 function getActiveEditedGlyphName(): string | null {
     const gc = window.glyphCanvas;
     const stackGlyphName = gc?.outlineEditor?.active
@@ -2164,6 +2064,18 @@ function hasLocalLiveAdvancePreview(entries: ChangeLogEntry[]): boolean {
     });
 }
 
+/**
+ * Committed live advance patches are only safe when the following editing
+ * compile will stay outline-only (no reshape with kerning). Full / null,
+ * anchor, and kerning commits reshape authoritatively — patching layer.width
+ * into a shaped run first strips pair kerning until that reshape lands.
+ */
+function shouldApplyCommittedLiveAdvanceRefresh(
+    editType: CommittedCompileEditType
+): boolean {
+    return editType === 'outline';
+}
+
 function hasSidebearingVisualAnchor(entries: ChangeLogEntry[]): boolean {
     return entries.some((entry) =>
         (entry.semanticChangeLogEntries?.length
@@ -2329,16 +2241,15 @@ function applyLocalUndoRedoVisualSync(
             context?.layerId
         );
 
+    // Live advances are only for outline-only commits that will not reshape
+    // with kerning. Full (editType null) undo/redo waits for the authoritative
+    // reshape; comparing layer.width to kern-contaminated intrinsics here was
+    // the post-undo no-kerning flash.
     const deferAdvanceRefreshUntilCommittedCanvas =
         !appliedSidebearingSync &&
+        localCompileContext?.editType === 'outline' &&
         Object.keys(collectLiveAdvanceDeltas(entries, layerId, editedGlyphName))
             .length > 0;
-    if (!appliedSidebearingSync && !deferAdvanceRefreshUntilCommittedCanvas) {
-        refreshCommittedTextRunAdvances(
-            collectCommittedAdvanceWidths(entries, layerId, editedGlyphName),
-            { compensatePanX: true }
-        );
-    }
 
     const skipLayerDataFetch =
         syncImmediateUndoOutlineLayerFromModel(
@@ -2702,11 +2613,19 @@ export async function handleCommittedChangeRefresh(
         await awaitCommittedWorkerCacheSettled(awaitWorkerSync);
 
         const replayTargets = collectReplayTargetsFromEntries(entries);
-        const liveAdvanceDeltas = collectLiveAdvanceDeltas(
+        const { editType, changeSource } = inferCommittedEditTypeFromEntries(
             entries,
-            window.glyphCanvas?.outlineEditor?.selectedLayerId,
-            getActiveEditedGlyphName()
+            'remote'
         );
+        const liveAdvanceDeltas = shouldApplyCommittedLiveAdvanceRefresh(
+            editType
+        )
+            ? collectLiveAdvanceDeltas(
+                  entries,
+                  window.glyphCanvas?.outlineEditor?.selectedLayerId,
+                  getActiveEditedGlyphName()
+              )
+            : {};
         await refreshCanvasFromCommittedModelSync(undefined, undefined, {
             skipDeferredCanvasRepaint: appliedSidebearingSync,
             ...(!appliedSidebearingSync &&
@@ -2718,10 +2637,6 @@ export async function handleCommittedChangeRefresh(
                 : {})
         });
 
-        const { editType, changeSource } = inferCommittedEditTypeFromEntries(
-            entries,
-            'remote'
-        );
         if (
             !(await awaitCommittedEditingCompileReady(
                 isUndoRedoPacket,
@@ -2753,11 +2668,17 @@ export async function handleCommittedChangeRefresh(
         const selectedLayerId =
             window.glyphCanvas?.outlineEditor?.selectedLayerId;
         const selectedGlyphName = getActiveEditedGlyphName();
-        const liveAdvanceDeltas = collectLiveAdvanceDeltas(
-            entries,
-            selectedLayerId,
-            selectedGlyphName
-        );
+        const { editType, changeSource } =
+            localCompileContext ?? resolveLocalCommittedCompileContext(entries);
+        const liveAdvanceDeltas =
+            shouldApplyCommittedLiveAdvanceRefresh(editType) &&
+            !isSidebearingCommit
+                ? collectLiveAdvanceDeltas(
+                      entries,
+                      selectedLayerId,
+                      selectedGlyphName
+                  )
+                : {};
         const selectedLayer =
             selectedGlyphName && selectedLayerId
                 ? window.fontManager?.currentFont?.fontModel
@@ -2785,9 +2706,9 @@ export async function handleCommittedChangeRefresh(
             // A sidebearing packet's raw layer-width entries are not shaped
             // advances. Its committed font result reshapes authoritatively;
             // applying these deltas first can transiently move text to an
-            // impossible layout.
-            ...(!isSidebearingCommit &&
-            !hasLiveAdvancePreview &&
+            // impossible layout. The same rule applies to full (editType null)
+            // outline/structural commits: wait for the kerning-preserving reshape.
+            ...(!hasLiveAdvancePreview &&
             (!isUndoRedoPacket ||
                 localUndoRedoVisualSync.deferAdvanceRefreshUntilCommittedCanvas) &&
             Object.keys(liveAdvanceDeltas).length > 0
@@ -2798,8 +2719,6 @@ export async function handleCommittedChangeRefresh(
                 : {})
         });
 
-        const { editType, changeSource } =
-            localCompileContext ?? resolveLocalCommittedCompileContext(entries);
         if (
             !(await awaitCommittedEditingCompileReady(
                 isUndoRedoPacket,

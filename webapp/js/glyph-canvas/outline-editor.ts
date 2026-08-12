@@ -6636,53 +6636,18 @@ export class OutlineEditor {
     }
 
     private refreshKeyedMetricsAfterStructuralEdit(
-        affectedGlyphNames: Set<string>,
+        _affectedGlyphNames: Set<string>,
         anchorScreen: {
             x: number;
             y: number;
         } | null
     ): void {
+        // Structural commits stamp editType null and queue a full editing
+        // compile that reshapes with kerning. Patching layer.width into the
+        // already-shaped run here would strip pair kerning until that reshape
+        // lands (intrinsic cache often holds kern-contaminated ax). Keep the
+        // bbox-center anchor; leave advances to the authoritative reshape.
         this.syncCurrentExactLayerDataFromModel();
-
-        const currentLayerId = this.getCurrentLayerId();
-        const currentLayerModel = this.getCurrentLayerModel();
-        const masterId =
-            typeof currentLayerModel?.master === 'object' &&
-            currentLayerModel.master
-                ? currentLayerModel.master.master || null
-                : null;
-
-        if (currentLayerId) {
-            const glyphAdvances = this.collectLiveAdvanceWidths(
-                affectedGlyphNames,
-                currentLayerId,
-                masterId
-            );
-            const intrinsicGlyphAdvances =
-                this.glyphCanvas.textRunEditor?.intrinsicGlyphAdvances;
-            const previousGlyphAdvances: Record<string, number> = {};
-            for (const glyphName of Object.keys(glyphAdvances)) {
-                const intrinsicAdvance = intrinsicGlyphAdvances?.get(glyphName);
-                if (
-                    typeof intrinsicAdvance === 'number' &&
-                    Number.isFinite(intrinsicAdvance)
-                ) {
-                    previousGlyphAdvances[glyphName] = intrinsicAdvance;
-                }
-            }
-            const glyphAdvanceDeltas = this.computeLiveAdvanceDeltas(
-                previousGlyphAdvances,
-                glyphAdvances
-            );
-            if (Object.keys(glyphAdvanceDeltas).length > 0) {
-                refreshLiveGlyphAdvancesWithSelectedGlyphAnchor(
-                    this.glyphCanvas,
-                    glyphAdvanceDeltas,
-                    { render: false }
-                );
-            }
-        }
-
         this.applyBoundingBoxCenterScreenAnchor(anchorScreen);
     }
 

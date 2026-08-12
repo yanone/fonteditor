@@ -6714,12 +6714,11 @@ describe('GlyphCanvas sidebearing handle movement', () => {
                 })
             );
             expect(canvas.viewportManager.panX).toBe(100);
+            // Structural commits queue a full reshape; do not live-patch
+            // advances here (that stripped pair kerning until reshape).
             expect(
                 canvas.textRunEditor.refreshGlyphAdvanceDeltasLive
-            ).toHaveBeenCalledWith(
-                expect.objectContaining({ A: -240, B: -10 }),
-                { render: false }
-            );
+            ).not.toHaveBeenCalled();
             expect(window.changeBridge.beginTransaction).toHaveBeenCalledTimes(
                 1
             );
