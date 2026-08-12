@@ -3026,8 +3026,19 @@ export class OutlineEditor {
     private _pointDragDeltaX: number = 0;
     private _componentDragDeltaX: number = 0;
     private _sidebearingAffectedGlyphNames: Set<string> = new Set();
-    /** Last live-refreshed advances for delta-only pan on sidebearing commit. */
+    /** Last live-refreshed model widths (not shaped ax) for width→width deltas. */
     private _lastLiveSidebearingAdvances: Record<string, number> = {};
+    /**
+     * Model widths at live-sidebearing session start. Cumulative width deltas
+     * for blob-swap reapply are measured from these, never from shaped ax.
+     */
+    private _liveSidebearingSessionStartWidths: Record<string, number> = {};
+    /**
+     * Per-index shaped `ax` snapshot at session start (kerning included).
+     * Reapply restores `startAx[i] + (currentWidth - startWidth)` so outline-only
+     * preview blob swaps never strip pair kerning.
+     */
+    private _liveSidebearingSessionStartShapedAx: number[] | null = null;
     /**
      * Latest visible-scope preview targets from the tick-time closure.
      * The live funnel stages these without re-running recomposition.
@@ -5560,6 +5571,11 @@ export class OutlineEditor {
             currentLayerId,
             masterId
         );
+        this.ensureLiveSidebearingSessionBaselines(
+            Object.keys(this._lastLiveSidebearingAdvances).length > 0
+                ? this._lastLiveSidebearingAdvances
+                : finalAdvances
+        );
         const deltaAdvances =
             this.computeAdvanceDeltasFromLastLive(finalAdvances);
         if (Object.keys(deltaAdvances).length > 0) {
@@ -6287,6 +6303,8 @@ export class OutlineEditor {
         }
         this.liveDragEditFunnel.clearQueued();
         this._lastLiveSidebearingAdvances = {};
+        this._liveSidebearingSessionStartWidths = {};
+        this._liveSidebearingSessionStartShapedAx = null;
         this.activeSidebearingDragLayout = null;
         if (!options?.preservePendingBboxAnchor) {
             this._pendingSidebearingBboxCenterAnchorScreen = null;
@@ -6343,31 +6361,124 @@ export class OutlineEditor {
     }
 
     reapplyLastLiveSidebearingAdvances(): boolean {
-        const advances = this._lastLiveSidebearingAdvances;
-        if (!advances || Object.keys(advances).length === 0) {
+        const currentWidths = this._lastLiveSidebearingAdvances;
+        const startAx = this._liveSidebearingSessionStartShapedAx;
+        const startWidths = this._liveSidebearingSessionStartWidths;
+        if (
+            !currentWidths ||
+            !startAx ||
+            Object.keys(currentWidths).length === 0
+        ) {
             return false;
         }
-        const intrinsicGlyphAdvances =
-            this.glyphCanvas.textRunEditor?.intrinsicGlyphAdvances;
-        const previousAdvances: Record<string, number> = {};
-        for (const glyphName of Object.keys(advances)) {
-            const intrinsicAdvance = intrinsicGlyphAdvances?.get(glyphName);
+
+        const textRunEditor = this.glyphCanvas.textRunEditor;
+        const shapedGlyphs = textRunEditor?.shapedGlyphs;
+        if (!textRunEditor || !shapedGlyphs?.length) {
+            return false;
+        }
+
+        // Outline-only preview swaps must not reshape. Drag ticks already
+        // applied width→width deltas onto the kerned run; restore from the
+        // session shaped snapshot plus cumulative model-width deltas so we
+        // never retarget ax toward absolute layer.width via kern-contaminated
+        // intrinsicGlyphAdvances (that was the mid-drag kerning flash).
+        let metricsChanged = false;
+        const limit = Math.min(shapedGlyphs.length, startAx.length);
+        for (let glyphIndex = 0; glyphIndex < limit; glyphIndex++) {
+            const glyph = shapedGlyphs[glyphIndex];
+            const glyphName =
+                glyph.explicitGlyphName ||
+                textRunEditor.glyphNameBuffer?.[glyphIndex];
+            if (!glyphName) {
+                continue;
+            }
+            const startWidth = startWidths[glyphName];
+            const currentWidth = currentWidths[glyphName];
             if (
-                typeof intrinsicAdvance === 'number' &&
-                Number.isFinite(intrinsicAdvance)
+                typeof startWidth !== 'number' ||
+                !Number.isFinite(startWidth) ||
+                typeof currentWidth !== 'number' ||
+                !Number.isFinite(currentWidth)
             ) {
-                previousAdvances[glyphName] = intrinsicAdvance;
+                continue;
+            }
+            const nextAx = startAx[glyphIndex] + (currentWidth - startWidth);
+            if (!Number.isFinite(nextAx)) {
+                continue;
+            }
+            if (Math.abs((glyph.ax || 0) - nextAx) <= 0.01) {
+                continue;
+            }
+            glyph.ax = nextAx;
+            metricsChanged = true;
+        }
+
+        if (!metricsChanged) {
+            return false;
+        }
+
+        // Keep the delta baseline aligned with the restored shaped ax so the
+        // next width→width tick continues to preserve kerning.
+        if (textRunEditor.intrinsicGlyphAdvances) {
+            textRunEditor.intrinsicGlyphAdvances.clear();
+            for (
+                let glyphIndex = 0;
+                glyphIndex < shapedGlyphs.length;
+                glyphIndex++
+            ) {
+                const glyph = shapedGlyphs[glyphIndex];
+                const glyphName =
+                    glyph.explicitGlyphName ||
+                    textRunEditor.glyphNameBuffer?.[glyphIndex];
+                if (
+                    !glyphName ||
+                    textRunEditor.intrinsicGlyphAdvances.has(glyphName)
+                ) {
+                    continue;
+                }
+                if (typeof glyph.ax === 'number' && Number.isFinite(glyph.ax)) {
+                    textRunEditor.intrinsicGlyphAdvances.set(
+                        glyphName,
+                        glyph.ax
+                    );
+                }
             }
         }
-        const advanceDeltas = this.computeLiveAdvanceDeltas(
-            previousAdvances,
-            advances
-        );
-        return (
-            this.glyphCanvas.textRunEditor?.refreshGlyphAdvanceDeltasLive(
-                advanceDeltas,
-                { render: false }
-            ) ?? false
+
+        textRunEditor.buildClusterMap();
+        textRunEditor.updateCursorVisualPosition();
+        return true;
+    }
+
+    /**
+     * Capture shaped ax + model widths once per live sidebearing session so
+     * blob-swap reapply can reconstruct kerning-preserving advances.
+     */
+    private ensureLiveSidebearingSessionBaselines(
+        preUpdateWidths: Record<string, number>
+    ): void {
+        for (const [glyphName, width] of Object.entries(preUpdateWidths)) {
+            if (
+                typeof width === 'number' &&
+                Number.isFinite(width) &&
+                this._liveSidebearingSessionStartWidths[glyphName] === undefined
+            ) {
+                this._liveSidebearingSessionStartWidths[glyphName] = width;
+            }
+        }
+
+        if (this._liveSidebearingSessionStartShapedAx !== null) {
+            return;
+        }
+
+        const shapedGlyphs = this.glyphCanvas.textRunEditor?.shapedGlyphs;
+        if (!shapedGlyphs?.length) {
+            return;
+        }
+
+        this._liveSidebearingSessionStartShapedAx = shapedGlyphs.map((glyph) =>
+            typeof glyph.ax === 'number' ? glyph.ax : 0
         );
     }
 
@@ -18525,6 +18636,9 @@ export class OutlineEditor {
                 widthGlyphNames,
                 currentLayerId,
                 masterId
+            );
+            this.ensureLiveSidebearingSessionBaselines(
+                previousGlyphAdvances || glyphAdvances
             );
             this._lastLiveSidebearingAdvances = { ...glyphAdvances };
             this._lastLiveSidebearingPreviewTargets = closure.allTargets;

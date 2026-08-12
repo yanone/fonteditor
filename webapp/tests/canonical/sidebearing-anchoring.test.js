@@ -233,6 +233,53 @@ describe('Sidebearing center anchoring matrix', () => {
         }
     });
 
+    test('live sidebearing blob-swap reapply preserves kerning in shaped ax', () => {
+        canvas.textRunEditor.glyphNameBuffer = ['T', 'A', 'T', 'A'];
+        canvas.textRunEditor.shapedGlyphs = [
+            { ax: 513, dx: 0, dy: 0, g: 1 },
+            { ax: 597, dx: 0, dy: 0, g: 2 }, // kerned T-A
+            { ax: 513, dx: 0, dy: 0, g: 1 },
+            { ax: 667, dx: 0, dy: 0, g: 2 } // unkerned trailing A
+        ];
+        canvas.textRunEditor.intrinsicGlyphAdvances = new Map([
+            ['T', 513],
+            ['A', 597]
+        ]);
+        canvas.textRunEditor.buildClusterMap = jest.fn();
+        canvas.textRunEditor.updateCursorVisualPosition = jest.fn();
+
+        // Session baselines: model widths before the LSB edit.
+        canvas.outlineEditor._liveSidebearingSessionStartShapedAx = [
+            513, 597, 513, 667
+        ];
+        canvas.outlineEditor._liveSidebearingSessionStartWidths = {
+            T: 513,
+            A: 667
+        };
+        // After LSB drag, A width grew by 40.
+        canvas.outlineEditor._lastLiveSidebearingAdvances = {
+            T: 513,
+            A: 707
+        };
+
+        // Corrupt ax as the old intrinsic→width reapply would have done.
+        canvas.textRunEditor.shapedGlyphs[1].ax = 707;
+        canvas.textRunEditor.shapedGlyphs[3].ax = 707;
+        canvas.textRunEditor.intrinsicGlyphAdvances.set('A', 667);
+
+        expect(canvas.outlineEditor.reapplyLastLiveSidebearingAdvances()).toBe(
+            true
+        );
+
+        expect(canvas.textRunEditor.shapedGlyphs.map((g) => g.ax)).toEqual([
+            513,
+            637, // 597 + 40
+            513,
+            707 // 667 + 40
+        ]);
+        expect(canvas.textRunEditor.intrinsicGlyphAdvances.get('A')).toBe(637);
+    });
+
     test.each([
         {
             label: 'property panel LSB numeric edit anchors the layer center',
