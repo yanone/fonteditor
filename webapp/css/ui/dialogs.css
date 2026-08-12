@@ -142,23 +142,6 @@
     border-radius: 4px;
 }
 
-.info-popup-content::-webkit-scrollbar {
-    width: 8px;
-}
-
-.info-popup-content::-webkit-scrollbar-track {
-    background: var(--scrollbar-track);
-}
-
-.info-popup-content::-webkit-scrollbar-thumb {
-    background: var(--scrollbar-thumb);
-    border-radius: 4px;
-}
-
-.info-popup-content::-webkit-scrollbar-thumb:hover {
-    background: var(--scrollbar-thumb-hover);
-}
-
 /* ── Confirm dialog layout ─────────────────────────────────────────────────── */
 
 .confirm-dialog {

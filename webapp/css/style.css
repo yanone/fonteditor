@@ -627,6 +627,7 @@
 
 /* Additional CSS variable overrides not in tokens */
 :root {
+    color-scheme: dark;
     /* Font family fallbacks (tokens only has primary font) */
     --font-families-mono: 'IBM Plex Mono', 'Courier New', Courier, monospace;
     --font-families-sans:
@@ -638,6 +639,7 @@
 }
 
 :root[data-theme='light'] {
+    color-scheme: light;
     --background-loading: #cecece;
     --kerning-accent-first: #00bfff;
     --kerning-accent-second: #ffab57;
@@ -647,6 +649,30 @@
     margin: 0;
     padding: 0;
     box-sizing: border-box;
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+}
+
+::-webkit-scrollbar-corner {
+    background: var(--scrollbar-track);
 }
 
 html,
@@ -1570,6 +1596,7 @@ kbd + kbd {
     margin-bottom: 0px;
     overflow: auto;
     flex: 1;
+    scrollbar-width: none;
 }
 
 .view-files .view-content {
@@ -3532,24 +3559,6 @@ kbd + kbd {
     }
 }
 
-/* Custom scrollbar */
-.view::-webkit-scrollbar {
-    width: 8px;
-}
-
-.view::-webkit-scrollbar-track {
-    background: var(--scrollbar-track);
-}
-
-.view::-webkit-scrollbar-thumb {
-    background: var(--scrollbar-thumb);
-    border-radius: 4px;
-}
-
-.view::-webkit-scrollbar-thumb:hover {
-    background: var(--scrollbar-thumb-hover);
-}
-
 /* File Browser Styles */
 #refresh-files-btn {
     background: var(--accent-cyan);
@@ -4810,7 +4819,7 @@ kbd + kbd {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    scrollbar-width: thin;
+    scrollbar-width: none;
 }
 
 #assistant-messages::-webkit-scrollbar {
@@ -5948,24 +5957,6 @@ kbd + kbd {
     font-weight: 700;
 }
 
-/* Settings panel scrollbar */
-.settings-panel-content::-webkit-scrollbar {
-    width: 8px;
-}
-
-.settings-panel-content::-webkit-scrollbar-track {
-    background: var(--scrollbar-track);
-}
-
-.settings-panel-content::-webkit-scrollbar-thumb {
-    background: var(--scrollbar-thumb);
-    border-radius: 4px;
-}
-
-.settings-panel-content::-webkit-scrollbar-thumb:hover {
-    background: var(--scrollbar-thumb-hover);
-}
-
 .diff-explanation {
     margin-top: 24px;
     padding: 16px;
@@ -6148,30 +6139,6 @@ kbd + kbd {
 /* Dark borders */
 #diff-container * {
     border-color: rgba(255, 255, 255, 0.1) !important;
-}
-
-/* Dark scrollbars */
-#diff-container ::-webkit-scrollbar {
-    width: 12px;
-    height: 12px;
-    background-color: var(--scrollbar-track);
-}
-
-#diff-container ::-webkit-scrollbar-track {
-    background-color: var(--scrollbar-track);
-}
-
-#diff-container ::-webkit-scrollbar-thumb {
-    background-color: var(--scrollbar-thumb);
-    border-radius: 0;
-}
-
-#diff-container ::-webkit-scrollbar-thumb:hover {
-    background-color: var(--scrollbar-thumb-hover);
-}
-
-#diff-container ::-webkit-scrollbar-corner {
-    background-color: var(--scrollbar-track);
 }
 
 #diff-container .d2h-file-header {
@@ -7560,6 +7527,14 @@ kbd + kbd {
 #fontinfo-masters-content,
 #fontinfo-instances-content {
     margin: 0;
+}
+
+#fontinfo-general-content,
+#fontinfo-names-content,
+#fontinfo-masters-content,
+#fontinfo-instances-content,
+#fontinfo-custom-ot-values-content {
+    scrollbar-width: none;
 }
 
 #fontinfo-general-content::-webkit-scrollbar,
