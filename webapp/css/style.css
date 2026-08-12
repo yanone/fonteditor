@@ -1344,9 +1344,11 @@ kbd + kbd {
 }
 
 .view {
+    --view-title-color: var(--border-focus-outline);
     background-color: var(--background-primary);
     border: 2px solid var(--border-primary);
-    overflow: hidden;
+    overflow: clip;
+    overflow-clip-margin: 1px;
     min-width: 100px;
     min-height: 24px; /* Title bar height - allows secondary views to collapse */
     flex: 1 1 0;
@@ -1361,13 +1363,14 @@ kbd + kbd {
 }
 
 /* Active view indicator — overlay so it sits above content without layout shift.
-   Radius is view radius (6px) minus view border (2px) so corners match the inner edge. */
+   Inner edge stays on the padding box; the extra 1px grows into the view chrome.
+   Radius is padding-box radius (4px) plus that outward 1px. */
 .view.focused::after {
     content: '';
     position: absolute;
-    inset: 0;
-    border: 1px solid var(--border-focus-outline);
-    border-radius: 4px;
+    inset: -1px;
+    border: 2px solid var(--view-title-color);
+    border-radius: 5px;
     pointer-events: none;
     z-index: 20;
 }
@@ -2059,14 +2062,17 @@ kbd + kbd {
 /* View specific title colors - remove left border, color title instead */
 .view-fontinfo {
     flex: 1;
+    --view-title-color: var(--view-fontinfo);
 }
 
 .view-overview {
     flex: 1;
+    --view-title-color: var(--view-overview);
 }
 
 .view-editor {
     flex: 2;
+    --view-title-color: var(--view-editor);
 }
 
 .view-fontinfo .view-title-name {
@@ -2081,20 +2087,40 @@ kbd + kbd {
     color: var(--view-editor);
 }
 
+.view-files {
+    --view-title-color: var(--view-files);
+}
+
 .view-files .view-title-name {
     color: var(--view-files);
+}
+
+.view-console {
+    --view-title-color: var(--view-console);
 }
 
 .view-console .view-title-name {
     color: var(--view-console);
 }
 
+.view-scripts {
+    --view-title-color: var(--view-scripts);
+}
+
 .view-scripts .view-title-name {
     color: var(--view-scripts);
 }
 
+.view-assistant {
+    --view-title-color: var(--view-assistant);
+}
+
 .view-assistant .view-title-name {
     color: var(--view-assistant);
+}
+
+.view-history {
+    --view-title-color: var(--accent-cyan);
 }
 
 .view-history .view-title-name {
