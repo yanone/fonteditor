@@ -1,7 +1,8 @@
 const {
     formatAdditionalMetricFamiliesLabel,
     getAdditionalDrawableMetricLineEntries,
-    getAdditionalDrawableVerticalMetricValues
+    getAdditionalDrawableVerticalMetricValues,
+    getMetricOvershootBands
 } = require('../js/glyph-canvas/vertical-metrics');
 
 describe('additional vertical metric labels', () => {
@@ -89,5 +90,69 @@ describe('additional vertical metric labels', () => {
         expect(entries.some((entry) => entry.key === 'HheaLineGap')).toBe(
             false
         );
+    });
+
+    test('builds signed overshoot bands from companion keys', () => {
+        const bands = getMetricOvershootBands({
+            'Ascender': 800,
+            'Ascender overshoot': 12,
+            'Descender': -200,
+            'Descender overshoot': -16,
+            'baseline': 0,
+            'baseline overshoot': -10,
+            'italicAngle': -12,
+            'italicAngle overshoot': 5,
+            'xHeight overshoot': 0,
+            'TypoDescender': -200,
+            'TypoDescender overshoot': -8
+        });
+
+        expect(bands).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    baseKey: 'Ascender',
+                    y: 800,
+                    overshoot: 12
+                }),
+                expect.objectContaining({
+                    baseKey: 'Descender',
+                    y: -200,
+                    overshoot: -16
+                }),
+                expect.objectContaining({
+                    baseKey: 'baseline',
+                    y: 0,
+                    overshoot: -10
+                }),
+                expect.objectContaining({
+                    baseKey: 'TypoDescender',
+                    y: -200,
+                    overshoot: -8
+                })
+            ])
+        );
+        expect(bands.some((band) => band.baseKey === 'italicAngle')).toBe(
+            false
+        );
+        expect(bands.some((band) => band.baseKey === 'xHeight')).toBe(false);
+    });
+
+    test('omits additional-metric overshoots unless requested', () => {
+        const bands = getMetricOvershootBands(
+            {
+                'Ascender': 800,
+                'Ascender overshoot': 12,
+                'TypoDescender': -200,
+                'TypoDescender overshoot': -8
+            },
+            false
+        );
+
+        expect(bands).toEqual([
+            expect.objectContaining({
+                baseKey: 'Ascender',
+                overshoot: 12
+            })
+        ]);
     });
 });

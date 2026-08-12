@@ -17,6 +17,7 @@ import {
     formatAdditionalMetricFamiliesLabel,
     getAdditionalDrawableMetricLineEntries,
     getCoreVerticalMetricValues,
+    getMetricOvershootBands,
     getVisibleVerticalMetricValues,
     type AdditionalMetricFamily,
     type AdditionalMetricLineEntry
@@ -1034,9 +1035,29 @@ export class GlyphCanvasRenderer {
         const additionalLabelColor = parsedBaseColor
             ? `rgba(${parsedBaseColor.r}, ${parsedBaseColor.g}, ${parsedBaseColor.b}, 0.14)`
             : additionalUnderlayColor;
+        const overshootFillColor = parsedBaseColor
+            ? `rgba(${parsedBaseColor.r}, ${parsedBaseColor.g}, ${parsedBaseColor.b}, 0.05)`
+            : underlayColor;
 
         this.ctx.save();
         this.ctx.lineWidth = 1 / this.viewportManager.scale;
+
+        const overshootBands = getMetricOvershootBands(
+            verticalMetrics,
+            isShowAllMetricsEnabled()
+        );
+        if (overshootBands.length > 0) {
+            this.ctx.fillStyle = overshootFillColor;
+            const bandWidth = lineExtents.maxX - lineExtents.minX;
+            for (const band of overshootBands) {
+                const yMin = Math.min(band.y, band.y + band.overshoot);
+                const height = Math.abs(band.overshoot);
+                if (height < 1e-8) {
+                    continue;
+                }
+                this.ctx.fillRect(lineExtents.minX, yMin, bandWidth, height);
+            }
+        }
 
         for (const metricValue of coreMetricValues) {
             const isBaseline = Math.abs(metricValue) < 1e-8;

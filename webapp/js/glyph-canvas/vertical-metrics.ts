@@ -299,3 +299,151 @@ export function isHiddenMasterMetricsPanelKey(metricKey: string): boolean {
     const normalized = metricKey.trim().toLowerCase();
     return normalized === 'baseline' || normalized === 'italicangle overshoot';
 }
+
+const OVERSHOOT_KEY_SUFFIX = ' overshoot';
+
+export interface MetricOvershootBand {
+    baseKey: string;
+    key: string;
+    overshoot: number;
+    y: number;
+}
+
+function normalizeMetricKey(metricKey: string): string {
+    return metricKey.trim().toLowerCase();
+}
+
+function isItalicAngleMetricKey(metricKey: string): boolean {
+    return normalizeMetricKey(metricKey) === 'italicangle';
+}
+
+function isBaselineMetricKey(metricKey: string): boolean {
+    return normalizeMetricKey(metricKey) === 'baseline';
+}
+
+function metricKeySetHas(keySet: Set<string>, metricKey: string): boolean {
+    if (keySet.has(metricKey)) {
+        return true;
+    }
+    const normalized = normalizeMetricKey(metricKey);
+    for (const existingKey of keySet) {
+        if (normalizeMetricKey(existingKey) === normalized) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function lookupMetricValue(
+    verticalMetrics: Record<string, number>,
+    metricKey: string
+): number | undefined {
+    const exact = verticalMetrics[metricKey];
+    if (Number.isFinite(exact)) {
+        return exact;
+    }
+    const normalized = normalizeMetricKey(metricKey);
+    for (const [candidateKey, candidateValue] of Object.entries(
+        verticalMetrics
+    )) {
+        if (
+            normalizeMetricKey(candidateKey) === normalized &&
+            Number.isFinite(candidateValue)
+        ) {
+            return candidateValue;
+        }
+    }
+    return undefined;
+}
+
+function isAdditionalOvershootBaseKey(metricKey: string): boolean {
+    return (
+        metricKeySetHas(ADDITIONAL_DRAWABLE_VERTICAL_METRIC_KEYS, metricKey) ||
+        normalizeMetricKey(metricKey) === 'typolinegap' ||
+        normalizeMetricKey(metricKey) === 'hhealinegap'
+    );
+}
+
+function resolveOvershootBaseY(
+    verticalMetrics: Record<string, number>,
+    baseKey: string
+): number | null {
+    if (isItalicAngleMetricKey(baseKey)) {
+        return null;
+    }
+    if (isBaselineMetricKey(baseKey)) {
+        return 0;
+    }
+
+    const normalized = normalizeMetricKey(baseKey);
+    if (normalized === 'typolinegap' || normalized === 'hhealinegap') {
+        const spec = LINE_GAP_DRAW_SPECS.find(
+            (entry) => normalizeMetricKey(entry.gapKey) === normalized
+        );
+        if (!spec) {
+            return null;
+        }
+        const gap = lookupMetricValue(verticalMetrics, spec.gapKey);
+        const descender = lookupMetricValue(verticalMetrics, spec.descenderKey);
+        if (!Number.isFinite(gap) || !Number.isFinite(descender)) {
+            return null;
+        }
+        return (
+            resolveDrawableMetricY(spec.descenderKey, descender as number) -
+            (gap as number)
+        );
+    }
+
+    const rawValue = lookupMetricValue(verticalMetrics, baseKey);
+    if (!Number.isFinite(rawValue)) {
+        return null;
+    }
+    return resolveDrawableMetricY(baseKey, rawValue as number);
+}
+
+/**
+ * Alignment-zone bands from `* overshoot` companions. Fill from the metric
+ * line at `y` to `y + overshoot` (Glyphs signed overshoot). Skip italic angle
+ * and zero overshoots. Additional OS/2 / hhea / typo overshoots are omitted
+ * unless `includeAdditional` is true.
+ */
+export function getMetricOvershootBands(
+    verticalMetrics: Record<string, number> | null | undefined,
+    includeAdditional = true
+): MetricOvershootBand[] {
+    if (!verticalMetrics) {
+        return [];
+    }
+
+    const bands: MetricOvershootBand[] = [];
+    for (const [metricKey, overshoot] of Object.entries(verticalMetrics)) {
+        if (!normalizeMetricKey(metricKey).endsWith(OVERSHOOT_KEY_SUFFIX)) {
+            continue;
+        }
+        if (!Number.isFinite(overshoot) || overshoot === 0) {
+            continue;
+        }
+
+        const trimmedKey = metricKey.trim();
+        const baseKey = trimmedKey.slice(0, -OVERSHOOT_KEY_SUFFIX.length);
+        if (isItalicAngleMetricKey(baseKey)) {
+            continue;
+        }
+        if (!includeAdditional && isAdditionalOvershootBaseKey(baseKey)) {
+            continue;
+        }
+
+        const y = resolveOvershootBaseY(verticalMetrics, baseKey);
+        if (y === null) {
+            continue;
+        }
+
+        bands.push({
+            baseKey,
+            key: metricKey,
+            overshoot,
+            y
+        });
+    }
+    return bands;
+}
