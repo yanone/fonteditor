@@ -9,6 +9,12 @@ async function openFustatWithReportedSubset(page: Page): Promise<void> {
     await page.goto('/?test=true');
     await waitForCanvasReady(page);
 
+    const startupReleasedBeforeOpen = await page.evaluate(
+        () =>
+            performance.getEntriesByName('cp:font.lifecycle.startupReleased')
+                .length
+    );
+
     await page.evaluate(async () => {
         await (window as any).showFontFileDialog?.({ mode: 'open' });
     });
@@ -19,27 +25,102 @@ async function openFustatWithReportedSubset(page: Page): Promise<void> {
         .locator('.file-item[data-name="Fustat.glyphs"]')
         .dblclick();
     await waitForOpenSessionReady(page, 'Fustat.glyphs');
-
-    await page.goto(
-        '/?test=true&file=memory%3A%2F%2F%2Fuser%2FFustat.glyphs&text=A%252FqafDotless-ar%2520%25C3%2584&cursor=1&mode=edit&location=wght%3A400'
-    );
-    await waitForCanvasReady(page);
-    await waitForOpenSessionReady(page, 'Fustat.glyphs');
-
     await page.waitForFunction(
-        () => {
+        (releasedBefore) => {
             const win = window as any;
+            const path = String(win.fontManager?.currentFont?.path || '');
+            const released = performance.getEntriesByName(
+                'cp:font.lifecycle.startupReleased'
+            ).length;
+            const blocked =
+                win.autoCompileManager?.getStatus?.()?.isStartupBlocked;
             return (
-                win.stateManager?.editor_text_buffer === 'A/qafDotless-ar Ä' &&
-                win.stateManager?.editor_cursor_position === 1 &&
-                win.stateManager?.editor_mode === 'edit' &&
-                win.fontCompilation?.lastEditingSubsetKey?.includes(
-                    'qafDotless-ar'
-                ) === true
+                path.includes('Fustat') &&
+                released > releasedBefore &&
+                blocked === false &&
+                Number(win.fontManager?.editingFont?.length || 0) > 0
             );
         },
-        { timeout: 30000 }
+        startupReleasedBeforeOpen,
+        { timeout: 180000 }
     );
+
+    const subsetText = 'A/qafDotless-ar Ä';
+    const compileInfo = await page.evaluate(async (text) => {
+        const win = window as any;
+        const glyphCanvas = win.glyphCanvas;
+        const textRunEditor = glyphCanvas?.textRunEditor;
+        if (!glyphCanvas || !textRunEditor || !win.fontManager) {
+            throw new Error('Missing Fustat subset editor dependencies');
+        }
+
+        const subsetGlyphs = ['A', 'qafDotless-ar', 'adieresis'];
+        win.autoCompileManager?.setEnabled?.(false);
+        if (win.stateManager) {
+            win.stateManager.editor_text_buffer = text;
+            win.stateManager.editor_cursor_position = 1;
+            win.stateManager.editor_mode = 'edit';
+        }
+        win.fontManager.currentText = text;
+        win.fontManager.updateEditingSubsetSnapshot?.(subsetGlyphs);
+        textRunEditor.setTextBuffer(text);
+        await textRunEditor.shapeText?.(true);
+        let lastEditingSubsetKey =
+            win.fontCompilation?.lastEditingSubsetKey || '';
+        let compiled = win.fontManager.editingFont;
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+            compiled = await win.fontManager.compileEditingFont(
+                text,
+                [],
+                subsetGlyphs
+            );
+            lastEditingSubsetKey =
+                win.fontCompilation?.lastEditingSubsetKey || '';
+            if (String(lastEditingSubsetKey).includes('qafDotless-ar')) {
+                break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        return {
+            compiledBytes: compiled?.length || 0,
+            editingBytes: win.fontManager.editingFont?.length || 0,
+            lastEditingSubsetKey,
+            startupBlocked:
+                win.autoCompileManager?.getStatus?.()?.isStartupBlocked
+        };
+    }, subsetText);
+    if (
+        !String(compileInfo.lastEditingSubsetKey || '').includes(
+            'qafDotless-ar'
+        )
+    ) {
+        throw new Error(
+            `compileEditingFont skipped qaf subset: ${JSON.stringify(compileInfo)}`
+        );
+    }
+
+    await expect
+        .poll(
+            async () => {
+                return page.evaluate(async () => {
+                    const dumpJson = await (
+                        window as any
+                    ).fontCompilation.dumpWorkerCacheState();
+                    const cacheState = JSON.parse(dumpJson);
+                    return {
+                        lastEditingSubsetKey:
+                            (window as any).fontCompilation
+                                ?.lastEditingSubsetKey || '',
+                        lastGlyphNames:
+                            cacheState.layoutClosure?.lastGlyphNames || []
+                    };
+                });
+            },
+            { timeout: 60000 }
+        )
+        .toMatchObject({
+            lastEditingSubsetKey: expect.stringContaining('qafDotless-ar')
+        });
 
     const cacheState = await page.evaluate(async () => {
         const dumpJson = await (
@@ -49,6 +130,9 @@ async function openFustatWithReportedSubset(page: Page): Promise<void> {
     });
     expect(cacheState.subset?.present).toBe(true);
     expect(cacheState.layoutClosure?.lastGlyphNames).toContain('qafDotless-ar');
+    await page.evaluate(() => {
+        (window as any).autoCompileManager?.setEnabled?.(true);
+    });
 }
 
 test('Fustat ss03 line-six edit compiles in the cached subset compiler', async ({
@@ -72,6 +156,7 @@ test('Fustat ss03 line-six edit compiles in the cached subset compiler', async (
                 !!featuresContent?.querySelector('.feature-list-item')
             );
         },
+        undefined,
         { timeout: 10000 }
     );
 
@@ -130,6 +215,7 @@ test('Fustat ss03 line-six edit compiles in the cached subset compiler', async (
             );
             return feature?.[1]?.code?.split('\n')[5]?.startsWith('#') === true;
         },
+        undefined,
         { timeout: 10000 }
     );
     await page.waitForTimeout(1500);

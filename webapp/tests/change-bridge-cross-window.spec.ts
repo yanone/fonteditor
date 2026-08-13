@@ -22,6 +22,7 @@ async function waitForBridgeReady(page: Page): Promise<void> {
                 !!(window as any).changeBridge &&
                 !!(window as any).currentFontModel &&
                 !!(window as any).fontManager?.currentFont,
+            undefined,
             { timeout: 20000 }
         );
     } catch (error) {
@@ -48,9 +49,15 @@ async function setupEditTextMode(
     textBuffer: string = 'ä'
 ): Promise<void> {
     // Step 1: Set text buffer and wait for its glyph run.
+    await page.waitForFunction(
+        () => Number((window as any).fontManager?.editingFont?.length || 0) > 0,
+        undefined,
+        { timeout: 180000 }
+    );
     await page.evaluate((nextTextBuffer) => {
         const gc = (window as any).glyphCanvas;
         gc.textRunEditor.setTextBuffer(nextTextBuffer);
+        gc.textRunEditor.shapeText?.(true);
     }, textBuffer);
 
     // Wait for shaping to complete
@@ -82,7 +89,7 @@ async function setupEditTextMode(
 }
 
 async function waitForWindowSyncReady(page: Page): Promise<void> {
-    await page.waitForFunction(() => !!(window as any).windowSync, {
+    await page.waitForFunction(() => !!(window as any).windowSync, undefined, {
         timeout: 15000
     });
 }
@@ -1314,11 +1321,12 @@ test.describe('Cross-window ChangeBridge sync', () => {
         // Wait for the linked window's WindowSync to detect the main window as a peer
         await linkedPage.waitForFunction(
             () => (window as any).windowSync?.peers?.size > 0,
+            undefined,
             { timeout: 15000 }
         );
-        // Also ensure the main window's WindowSync knows about the linked window
         await mainPage.waitForFunction(
             () => (window as any).windowSync?.peers?.size > 0,
+            undefined,
             { timeout: 15000 }
         );
         await linkedPage.waitForTimeout(500);

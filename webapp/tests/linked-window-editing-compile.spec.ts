@@ -290,12 +290,12 @@ function makeAAdieresisTestFont(): string {
 
 async function loadTestFont(page: Page): Promise<void> {
     const fontJson = makeTestFont();
-    await loadFontJson(page, fontJson, '/test/LinkedCompileTest.babelfont');
+    await loadFontJson(page, fontJson, '/user/LinkedCompileTest.babelfont');
 }
 
 async function loadAAdieresisTestFont(page: Page): Promise<void> {
     const fontJson = makeAAdieresisTestFont();
-    await loadFontJson(page, fontJson, '/test/LinkedCompileFuzzTest.babelfont');
+    await loadFontJson(page, fontJson, '/user/LinkedCompileFuzzTest.babelfont');
     await page.waitForFunction(
         (dependentGlyphs) => {
             const font = (window as any).currentFontModel;
@@ -321,8 +321,20 @@ async function loadFontJson(
     path: string
 ): Promise<void> {
     await page.evaluate(
-        ({ json, fontPath }) => {
+        async ({ json, fontPath }) => {
             const plugin = (window as any).pluginRegistry.get('memory');
+            const adapter = plugin?.getAdapter?.();
+            const directory = fontPath.substring(0, fontPath.lastIndexOf('/'));
+            if (adapter?.createFolder && directory) {
+                try {
+                    await adapter.createFolder(directory);
+                } catch {
+                    // Directory may already exist in OPFS.
+                }
+            }
+            if (typeof adapter?.writeFile === 'function') {
+                await adapter.writeFile(fontPath, json);
+            }
             window.dispatchEvent(
                 new CustomEvent('fontLoaded', {
                     detail: {
@@ -334,6 +346,19 @@ async function loadFontJson(
             );
         },
         { json: fontJson, fontPath: path }
+    );
+    await page.waitForFunction(
+        (fontPath) => {
+            const currentFont = (window as any).fontManager?.currentFont;
+            const editorFile = (window as any).stateManager?.editor_file || '';
+            return (
+                !!currentFont &&
+                (currentFont.path === fontPath ||
+                    editorFile.includes(fontPath.replace(/^\/+/, '')))
+            );
+        },
+        path,
+        { timeout: 30000 }
     );
 }
 
@@ -349,9 +374,51 @@ async function waitForBridgeReady(page: Page): Promise<void> {
 }
 
 async function waitForWindowSyncReady(page: Page): Promise<void> {
-    await page.waitForFunction(() => !!(window as any).windowSync, {
+    await page.waitForFunction(() => !!(window as any).windowSync, undefined, {
         timeout: 15000
     });
+}
+
+async function waitForLinkedPeers(pages: Page[]): Promise<void> {
+    await Promise.all(
+        pages.map((page) =>
+            page.waitForFunction(
+                () => (window as any).windowSync?.peers?.size > 0,
+                undefined,
+                { timeout: 30000 }
+            )
+        )
+    );
+}
+
+async function waitForLinkedWindowReady(
+    linkedPage: Page,
+    options?: { dependentGlyphs?: string[] }
+): Promise<void> {
+    await waitForCanvasReady(linkedPage);
+    await waitForFontLoaded(linkedPage);
+    await waitForFullStateSync(linkedPage);
+    await waitForBridgeReady(linkedPage);
+    await waitForWindowSyncReady(linkedPage);
+    if (options?.dependentGlyphs?.length) {
+        await linkedPage.waitForFunction(
+            (dependentGlyphs) => {
+                const font = (window as any).currentFontModel;
+                return dependentGlyphs.every((glyphName: string) => {
+                    const layer = font?.findGlyph?.(glyphName)?.layers?.[0];
+                    return (
+                        layer?.isAutomaticAlignedLayer?.() === true &&
+                        layer.components?.every(
+                            (component: any) =>
+                                component?.automaticAlignment === true
+                        )
+                    );
+                });
+            },
+            options.dependentGlyphs,
+            { timeout: 20000 }
+        );
+    }
 }
 
 async function waitForFullStateSync(page: Page): Promise<void> {
@@ -1564,20 +1631,8 @@ test.describe('Linked window editing compile regression', () => {
         ]);
 
         await waitForCanvasReady(linkedPage);
-        await loadTestFont(linkedPage);
-        await waitForFontLoaded(linkedPage);
-        await waitForFullStateSync(linkedPage);
-        await waitForBridgeReady(linkedPage);
-        await waitForWindowSyncReady(linkedPage);
-
-        await linkedPage.waitForFunction(
-            () => (window as any).windowSync?.peers?.size > 0,
-            { timeout: 15000 }
-        );
-        await mainPage.waitForFunction(
-            () => (window as any).windowSync?.peers?.size > 0,
-            { timeout: 15000 }
-        );
+        await waitForLinkedWindowReady(linkedPage);
+        await waitForLinkedPeers([mainPage, linkedPage]);
 
         await installEditingFontCompileTracker(mainPage);
         await installEditingFontCompileTracker(linkedPage);
@@ -1702,22 +1757,10 @@ test.describe('Linked window editing compile regression', () => {
         ]);
 
         await waitForCanvasReady(linkedPage);
-        await loadAAdieresisTestFont(linkedPage);
-        await waitForFontLoaded(linkedPage);
-        await waitForFullStateSync(linkedPage);
-        await waitForBridgeReady(linkedPage);
-        await waitForWindowSyncReady(linkedPage);
-
-        await Promise.all([
-            linkedPage.waitForFunction(
-                () => (window as any).windowSync?.peers?.size > 0,
-                { timeout: 15000 }
-            ),
-            mainPage.waitForFunction(
-                () => (window as any).windowSync?.peers?.size > 0,
-                { timeout: 15000 }
-            )
-        ]);
+        await waitForLinkedWindowReady(linkedPage, {
+            dependentGlyphs: A_DEPENDENT_GLYPHS
+        });
+        await waitForLinkedPeers([mainPage, linkedPage]);
 
         await installEditingFontCompileTracker(mainPage);
         await installEditingFontCompileTracker(linkedPage);
@@ -1862,22 +1905,10 @@ test.describe('Linked window editing compile regression', () => {
         ]);
 
         await waitForCanvasReady(linkedPage);
-        await loadAAdieresisTestFont(linkedPage);
-        await waitForFontLoaded(linkedPage);
-        await waitForFullStateSync(linkedPage);
-        await waitForBridgeReady(linkedPage);
-        await waitForWindowSyncReady(linkedPage);
-
-        await Promise.all([
-            linkedPage.waitForFunction(
-                () => (window as any).windowSync?.peers?.size > 0,
-                { timeout: 15000 }
-            ),
-            mainPage.waitForFunction(
-                () => (window as any).windowSync?.peers?.size > 0,
-                { timeout: 15000 }
-            )
-        ]);
+        await waitForLinkedWindowReady(linkedPage, {
+            dependentGlyphs: A_DEPENDENT_GLYPHS
+        });
+        await waitForLinkedPeers([mainPage, linkedPage]);
 
         await installEditingFontCompileTracker(mainPage);
         await installEditingFontCompileTracker(linkedPage);
@@ -2089,22 +2120,10 @@ test.describe('Linked window editing compile regression', () => {
         failOnEditingCompileReadinessError(linkedPage, 'receiver');
 
         await waitForCanvasReady(linkedPage);
-        await loadAAdieresisTestFont(linkedPage);
-        await waitForFontLoaded(linkedPage);
-        await waitForFullStateSync(linkedPage);
-        await waitForBridgeReady(linkedPage);
-        await waitForWindowSyncReady(linkedPage);
-
-        await Promise.all([
-            linkedPage.waitForFunction(
-                () => (window as any).windowSync?.peers?.size > 0,
-                { timeout: 15000 }
-            ),
-            mainPage.waitForFunction(
-                () => (window as any).windowSync?.peers?.size > 0,
-                { timeout: 15000 }
-            )
-        ]);
+        await waitForLinkedWindowReady(linkedPage, {
+            dependentGlyphs: A_DEPENDENT_GLYPHS
+        });
+        await waitForLinkedPeers([mainPage, linkedPage]);
 
         await installEditingFontCompileTracker(mainPage);
         await installEditingFontCompileTracker(linkedPage);

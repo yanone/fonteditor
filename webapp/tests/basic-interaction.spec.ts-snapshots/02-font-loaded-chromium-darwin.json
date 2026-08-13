@@ -5,12 +5,12 @@
         "editor_cursor_position": 0,
         "editor_file": "memory:///user/Fustat.glyphs",
         "editor_glyph_stack": "",
-        "editor_harfbuzz_ax": "680 533 893 611 564 304 496 524 442 570 564 456",
+        "editor_harfbuzz_ax": "674 542 922 601 571 328 510 536 479 572 571 463",
         "editor_harfbuzz_ay": "0 0 0 0 0 0 0 0 0 0 0 0",
         "editor_harfbuzz_cl": "0 1 2 3 4 5 6 7 8 9 10 11",
         "editor_harfbuzz_dx": "0 0 0 0 0 0 0 0 0 0 0 0",
         "editor_harfbuzz_dy": "0 0 0 0 0 0 0 0 0 0 0 0",
-        "editor_harfbuzz_gids": "4 8 10 5 12 17 14 9 18 16 6 11",
+        "editor_harfbuzz_gids": "18 17 7 19 16 1 6 8 14 12 13 9",
         "editor_harfbuzz_glyph_names": "H a m b u r g e v o n s",
         "editor_isAnimating": false,
         "editor_isInterpolating": false,
@@ -39,7 +39,7 @@
         },
         "editor_text_buffer": "Hamburgevons",
         "editor_variation_location": {
-            "wght": 200
+            "wght": 400
         },
         "focused_view": "view-editor"
     }

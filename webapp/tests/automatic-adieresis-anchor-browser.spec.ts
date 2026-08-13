@@ -1869,54 +1869,18 @@ async function openFustatAutomaticAdieresisEditScenario(
 
     await waitForOpenSessionReady(page, 'Fustat.glyphs');
     await focusView(page, 'Meta+Shift+E', 'view-editor');
-
-    await page.evaluate(async () => {
-        const win = window as any;
-        const glyphCanvas = win.glyphCanvas;
-        const textRunEditor = glyphCanvas?.textRunEditor;
-        const outlineEditor = glyphCanvas?.outlineEditor;
-        const fontManager = win.fontManager;
-        const stateManager = win.stateManager;
-        if (!glyphCanvas || !textRunEditor || !outlineEditor || !fontManager) {
-            throw new Error('Missing Fustat editor dependencies');
-        }
-
-        const text = 'a/adieresis';
-        if (stateManager) {
-            stateManager.editor_text_buffer = text;
-            stateManager.editor_cursor_position = 1;
-            stateManager.editor_mode = 'edit';
-        }
-        fontManager.currentText = text;
-        fontManager.updateEditingSubsetSnapshot?.([
-            'a',
-            'adieresis',
-            'dieresiscomb'
-        ]);
-        textRunEditor.setTextBuffer(text);
-        await textRunEditor.shapeText?.(true);
-        const adieresisIndex = textRunEditor.glyphNameBuffer?.findIndex(
-            (glyphName: string) => glyphName === 'adieresis'
-        );
-        if (typeof adieresisIndex !== 'number' || adieresisIndex < 0) {
-            throw new Error(
-                `Failed to shape Fustat adieresis: ${JSON.stringify(
-                    textRunEditor.glyphNameBuffer
-                )}`
+    await page.waitForFunction(
+        () => {
+            const win = window as any;
+            const path = String(win.fontManager?.currentFont?.path || '');
+            return (
+                path.includes('Fustat') &&
+                Number(win.fontManager?.editingFont?.length || 0) > 0
             );
-        }
-        await textRunEditor.selectGlyphByIndex(adieresisIndex, true);
-        outlineEditor.active = true;
-        outlineEditor.currentGlyphName = 'adieresis';
-        await glyphCanvas.enterGlyphEditModeAtCursor?.();
-        const layer = glyphCanvas.getSortedLayers?.()[0] || null;
-        if (!layer) {
-            throw new Error('Missing Fustat adieresis layer');
-        }
-        await outlineEditor.selectLayer(layer);
-        await glyphCanvas.doUIUpdateAsync?.();
-        glyphCanvas.render?.();
-    });
+        },
+        undefined,
+        { timeout: 180000 }
+    );
 
     await page.evaluate(async () => {
         const win = window as any;
@@ -1952,7 +1916,58 @@ async function openFustatAutomaticAdieresisEditScenario(
                 )
             );
         },
+        undefined,
         { timeout: 15000 }
+    );
+
+    await page.evaluate(async () => {
+        const win = window as any;
+        const glyphCanvas = win.glyphCanvas;
+        const textRunEditor = glyphCanvas?.textRunEditor;
+        if (!glyphCanvas || !textRunEditor || !win.fontManager) {
+            throw new Error('Missing Fustat anchor editor dependencies');
+        }
+
+        glyphCanvas.exitGlyphEditMode?.();
+        const text = '/a /adieresis';
+        if (win.stateManager) {
+            win.stateManager.editor_text_buffer = text;
+            win.stateManager.editor_cursor_position = 0;
+            win.stateManager.editor_mode = 'text';
+        }
+        win.fontManager.currentText = text;
+        win.fontManager.updateEditingSubsetSnapshot?.([
+            'a',
+            'adieresis',
+            'dieresiscomb'
+        ]);
+        textRunEditor.setTextBuffer(text);
+        await textRunEditor.shapeText?.(true);
+        await win.fontManager.compileEditingFont?.(
+            text,
+            [],
+            ['a', 'adieresis', 'dieresiscomb']
+        );
+        await textRunEditor.shapeText?.(true);
+        const names = textRunEditor.glyphNameBuffer || [];
+        if (!names.includes('a') || !names.includes('adieresis')) {
+            throw new Error(
+                `Failed to shape Fustat /a /adieresis: ${JSON.stringify({
+                    names,
+                    explicit: textRunEditor.explicitGlyphTokens
+                })}`
+            );
+        }
+    });
+    await page.waitForFunction(
+        () => {
+            const names =
+                (window as any).glyphCanvas?.textRunEditor?.glyphNameBuffer ||
+                [];
+            return names.includes('a');
+        },
+        undefined,
+        { timeout: 20000 }
     );
 
     await page.evaluate(async () => {
@@ -1964,18 +1979,17 @@ async function openFustatAutomaticAdieresisEditScenario(
             throw new Error('Missing Fustat anchor editor dependencies');
         }
 
-        await textRunEditor.shapeText?.(true);
-        const aIndex = textRunEditor.glyphNameBuffer?.findIndex(
+        const resolvedAIndex = textRunEditor.glyphNameBuffer?.findIndex(
             (glyphName: string) => glyphName === 'a'
         );
-        if (typeof aIndex !== 'number' || aIndex < 0) {
+        if (typeof resolvedAIndex !== 'number' || resolvedAIndex < 0) {
             throw new Error(
                 `Failed to shape Fustat a: ${JSON.stringify(
                     textRunEditor.glyphNameBuffer
                 )}`
             );
         }
-        await textRunEditor.selectGlyphByIndex(aIndex, true);
+        await textRunEditor.selectGlyphByIndex(resolvedAIndex, true);
         outlineEditor.active = true;
         outlineEditor.currentGlyphName = 'a';
         await glyphCanvas.enterGlyphEditModeAtCursor?.();
@@ -1986,6 +2000,23 @@ async function openFustatAutomaticAdieresisEditScenario(
         await outlineEditor.selectLayer(layer);
         await glyphCanvas.doUIUpdateAsync?.();
         glyphCanvas.render?.();
+    });
+
+    await page.waitForFunction(
+        () => !!(window as any).fontManager?.editingFont?.length,
+        undefined,
+        { timeout: 60000 }
+    );
+    await page.evaluate(() => {
+        const win = window as any;
+        const textRunEditor = win.glyphCanvas?.textRunEditor;
+        const editingFont = win.fontManager?.editingFont;
+        if (!textRunEditor || !editingFont) {
+            throw new Error('Missing Fustat editing font after subset compile');
+        }
+        if (!textRunEditor.fontBlob) {
+            textRunEditor.swapFontBlob(editingFont);
+        }
     });
 }
 

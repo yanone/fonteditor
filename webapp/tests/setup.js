@@ -1,5 +1,15 @@
 const hasWindow = typeof window !== 'undefined';
 
+if (typeof CanvasRenderingContext2D !== 'undefined') {
+    const proto = CanvasRenderingContext2D.prototype;
+    if (typeof proto.roundRect !== 'function') {
+        proto.roundRect = function roundRect(x, y, width, height) {
+            this.rect(x, y, width, height);
+            return this;
+        };
+    }
+}
+
 // Mock BroadcastChannel (not available in jsdom)
 if (typeof globalThis.BroadcastChannel === 'undefined') {
     const channels = new Map(); // channelName → Set<BroadcastChannel>

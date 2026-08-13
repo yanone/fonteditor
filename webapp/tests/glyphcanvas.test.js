@@ -12173,7 +12173,7 @@ describe('GlyphCanvas anchor movement', () => {
                 ],
                 'mouse-drag-anchor',
                 'mouse-drag-anchor',
-                'anchor'
+                null
             );
         } finally {
             window.patchSyncEngine = originalPatchSyncEngine;
@@ -12481,7 +12481,7 @@ describe('GlyphCanvas anchor movement', () => {
                 [{ glyphName: 'adieresis', layerId: 'layer-1' }],
                 'mouse-drag-outline',
                 'mouse-drag-outline',
-                'outline'
+                null
             );
         } finally {
             window.patchSyncEngine = originalPatchSyncEngine;
@@ -12741,7 +12741,7 @@ describe('GlyphCanvas anchor movement', () => {
                 ],
                 'mouse-drag-outline',
                 'mouse-drag-outline',
-                'outline'
+                null
             );
         } finally {
             window.patchSyncEngine = originalPatchSyncEngine;

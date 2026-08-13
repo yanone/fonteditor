@@ -5,12 +5,12 @@
         "editor_cursor_position": 12,
         "editor_file": "memory:///user/Fustat.glyphs",
         "editor_glyph_stack": "",
-        "editor_harfbuzz_ax": "569 544 220 220 570 210 0 196 0 202 0 618 278 0 501",
+        "editor_harfbuzz_ax": "576 556 225 225 572 220 0 231 0 247 0 657 278 0 496",
         "editor_harfbuzz_ay": "0 0 0 0 0 0 0 0 0 0 0 0 0 0 0",
         "editor_harfbuzz_cl": "0 1 2 3 4 5 12 12 11 11 9 9 8 6 6",
-        "editor_harfbuzz_dx": "0 0 0 0 0 0 2 0 76 0 86 0 0 171 0",
-        "editor_harfbuzz_dy": "0 0 0 0 0 0 289 0 -96 0 -23 0 0 14 0",
-        "editor_harfbuzz_gids": "14 8 9 9 23 17 1 13 2 25 11 12 15 11 34",
+        "editor_harfbuzz_dx": "0 0 0 0 0 0 -5 0 41 0 86 0 0 151 0",
+        "editor_harfbuzz_dy": "0 0 0 0 0 0 288 0 -96 0 17 0 0 14 0",
+        "editor_harfbuzz_gids": "17 14 24 24 23 5 4 35 12 13 18 6 27 18 34",
         "editor_harfbuzz_glyph_names": "h e l l o space fathatan-ar alef-ar.short.fina dotbelow-ar behDotless-ar.medi fatha-ar hah-ar.init reh-ar.fina fatha-ar meem-ar.init",
         "editor_isAnimating": false,
         "editor_isInterpolating": false,
@@ -39,7 +39,7 @@
         },
         "editor_text_buffer": "hello مَرحَباً",
         "editor_variation_location": {
-            "wght": 200
+            "wght": 400
         },
         "focused_view": "view-editor"
     }

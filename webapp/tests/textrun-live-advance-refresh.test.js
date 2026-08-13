@@ -1213,10 +1213,10 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
 
         await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-        expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
-            { a: 500, n: 480 },
-            { render: false }
-        );
+        // Structural point-drag undo has no layer-width changelog deltas.
+        // Live advance patches would strip kerning until the committed
+        // reshape lands, so this path waits for the editing compile.
+        expect(refreshGlyphAdvancesLive).not.toHaveBeenCalled();
         expect(refreshGlyphAdvanceDeltasLive).not.toHaveBeenCalled();
         expect(
             originalWindow.fontManager.refreshWorkerCacheForReplayTargets

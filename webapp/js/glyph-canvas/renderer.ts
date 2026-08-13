@@ -1421,14 +1421,14 @@ export class GlyphCanvasRenderer {
         const radius = 4 * invScale;
         this.ctx.fillStyle = colors.HOVER_LABEL_BG;
         this.ctx.beginPath();
-        this.ctx.roundRect(bgX, bgY, bgWidth, bgHeight, radius);
+        this.pathRoundedRect(bgX, bgY, bgWidth, bgHeight, radius);
         this.ctx.fill();
 
         // Draw border
         this.ctx.strokeStyle = colors.HOVER_LABEL_BORDER;
         this.ctx.lineWidth = 1 * invScale;
         this.ctx.beginPath();
-        this.ctx.roundRect(bgX, bgY, bgWidth, bgHeight, radius);
+        this.pathRoundedRect(bgX, bgY, bgWidth, bgHeight, radius);
         this.ctx.stroke();
 
         // Draw text with explicit baseline for consistent rendering
@@ -1438,6 +1438,20 @@ export class GlyphCanvasRenderer {
         this.ctx.fillText(text, bgX + padding, bgY + padding - 3 * invScale);
 
         this.ctx.restore();
+    }
+
+    private pathRoundedRect(
+        x: number,
+        y: number,
+        width: number,
+        height: number,
+        radius: number
+    ): void {
+        if (typeof this.ctx.roundRect === 'function') {
+            this.ctx.roundRect(x, y, width, height, radius);
+            return;
+        }
+        this.ctx.rect(x, y, width, height);
     }
 
     private sameGuideHandle(
