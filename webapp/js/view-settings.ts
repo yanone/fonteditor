@@ -34,7 +34,7 @@ const VIEW_SETTINGS = {
         },
         'view-console': {
             // Console view
-            key: 'p',
+            key: 'k',
             modifiers: { cmd: true, shift: true },
             displayModifiers: ['⌘', '⇧'],
             secondaryBehavior: 'expandToTarget'

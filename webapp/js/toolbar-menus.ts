@@ -300,7 +300,6 @@ function getFontMenuItems(): ToolbarMenuItem[] {
         {
             label: 'Kerning Editor…',
             icon: 'space_bar',
-            shortcut: '⌘⇧K',
             disabled: !hasFontOpen,
             action: async () => {
                 window.kerningEditorDialog?.open();
@@ -603,18 +602,6 @@ function installGlobalShortcuts(): void {
                 event.stopPropagation();
                 event.stopImmediatePropagation();
                 void window.addGlyphsDialog?.open();
-                return;
-            }
-
-            if (
-                event.shiftKey &&
-                key === 'k' &&
-                window.fontManager?.currentFont
-            ) {
-                event.preventDefault();
-                event.stopPropagation();
-                event.stopImmediatePropagation();
-                window.kerningEditorDialog?.open();
                 return;
             }
 
