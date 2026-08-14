@@ -6,18 +6,48 @@ import { focusView, waitForCanvasReady } from './helpers/snapshot-helper';
 const capture = !!process.env.CAPTURE_DOCS_SCREENSHOTS;
 const docsRoot = resolve(__dirname, '../../documentation');
 
-async function writeShot(
+test.use({ deviceScaleFactor: 2 });
+
+function darkRelativePath(relativePath: string): string {
+    return relativePath.replace(/(\.[a-z0-9]+)$/i, '-dark$1');
+}
+
+async function setAppTheme(page: Page, theme: 'light' | 'dark'): Promise<void> {
+    await page.evaluate((nextTheme) => {
+        window.themeSwitcher.setTheme(nextTheme);
+    }, theme);
+    await page.waitForFunction((nextTheme) => {
+        const isLight =
+            document.documentElement.getAttribute('data-theme') === 'light';
+        return nextTheme === 'light' ? isLight : !isLight;
+    }, theme);
+    await page.waitForTimeout(300);
+}
+
+async function screenshotTo(
     page: Page,
     relativePath: string,
     locator?: Locator
 ): Promise<void> {
     const outputPath = resolve(docsRoot, relativePath);
     await mkdir(dirname(outputPath), { recursive: true });
+    const options = { path: outputPath, scale: 'device' as const };
     if (locator) {
-        await locator.screenshot({ path: outputPath });
+        await locator.screenshot(options);
         return;
     }
-    await page.screenshot({ path: outputPath });
+    await page.screenshot(options);
+}
+
+async function writeShot(
+    page: Page,
+    relativePath: string,
+    locator?: Locator
+): Promise<void> {
+    await setAppTheme(page, 'light');
+    await screenshotTo(page, relativePath, locator);
+    await setAppTheme(page, 'dark');
+    await screenshotTo(page, darkRelativePath(relativePath), locator);
 }
 
 test('capture handbook screenshots', async ({ page }) => {
@@ -92,11 +122,11 @@ test('capture handbook screenshots', async ({ page }) => {
         page.locator('.bottom-row')
     );
 
-    const fontDisplay = page.locator('.font-display-container');
-    await mkdir(resolve(docsRoot, 'files/images'), { recursive: true });
-    await fontDisplay.screenshot({
-        path: resolve(docsRoot, 'files/images/save.png')
-    });
+    await writeShot(
+        page,
+        'files/images/save.png',
+        page.locator('.font-display-container')
+    );
 
     await page.keyboard.press('Meta+O');
     const fileDialog = page.locator('#font-file-dialog');

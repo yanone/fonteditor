@@ -45,6 +45,30 @@ function usesCommandModifier(): boolean {
     return navigator.platform.toUpperCase().includes('MAC');
 }
 
+function isLightAppTheme(): boolean {
+    return document.documentElement.getAttribute('data-theme') === 'light';
+}
+
+function canonicalHandbookImageSrc(src: string): string {
+    return src.replace(/-dark(\.[a-z0-9]+)$/i, '$1');
+}
+
+function darkHandbookImageSrc(src: string): string {
+    const canonical = canonicalHandbookImageSrc(src);
+    return canonical.replace(/(\.[a-z0-9]+)$/i, '-dark$1');
+}
+
+function themedHandbookImageSrc(src: string): string {
+    const canonical = canonicalHandbookImageSrc(src);
+    if (/^(https?:|data:)/i.test(canonical)) {
+        return canonical;
+    }
+    if (!/\.(png|jpe?g|webp|gif)$/i.test(canonical)) {
+        return canonical;
+    }
+    return isLightAppTheme() ? canonical : darkHandbookImageSrc(canonical);
+}
+
 function localizeModifierNotation(markdown: string): string {
     const command = usesCommandModifier() ? 'Cmd' : 'Ctrl';
     const option = usesCommandModifier() ? 'Option' : 'Alt';
@@ -117,14 +141,29 @@ export class DocsViewer {
             (event) => this.onKeyDown(event),
             false
         );
+        void this.restorePersistedOpen();
     }
 
     isOpen(): boolean {
         return this.shell.classList.contains('docs-open');
     }
 
+    restorePersistedOpen(): void {
+        if (!this.readSavedOpen()) {
+            return;
+        }
+        if (!this.isOpen()) {
+            this.setColumnOpen(true, { animate: false, persist: false });
+        }
+        void this.loadPersistedPage();
+    }
+
     refreshCodeHighlight(): void {
         this.highlightCodeBlocks();
+    }
+
+    refreshThemedImages(): void {
+        this.applyThemedImages();
     }
 
     async open(id?: string, heading?: string): Promise<void> {
@@ -187,8 +226,13 @@ export class DocsViewer {
         };
     }
 
-    private setColumnOpen(open: boolean): void {
+    private setColumnOpen(
+        open: boolean,
+        options?: { animate?: boolean; persist?: boolean }
+    ): void {
+        const persist = options?.persist !== false;
         const { enabled, duration, easing } = this.animationConfig();
+        const animate = options?.animate !== false && enabled;
         const divider = document.getElementById('docs-divider');
         const container = this.shell.querySelector(
             '.container'
@@ -202,7 +246,7 @@ export class DocsViewer {
             this.animationTimer = null;
         }
 
-        if (enabled) {
+        if (animate) {
             const transition = [
                 `flex ${duration}ms ${easing}`,
                 `margin ${duration}ms ${easing}`,
@@ -234,20 +278,91 @@ export class DocsViewer {
             }
         };
 
-        if (enabled) {
+        if (animate) {
             this.animationTimer = window.setTimeout(finish, duration);
         } else {
             finish();
         }
+
+        if (persist) {
+            this.persistLayout();
+        }
+    }
+
+    private persistLayout(): void {
+        if (window.resizableViews) {
+            window.resizableViews.saveLayout();
+            return;
+        }
+        try {
+            const previousRaw = localStorage.getItem('viewLayout');
+            const previous = previousRaw
+                ? (JSON.parse(previousRaw) as Record<string, unknown>)
+                : {};
+            const next = {
+                ...previous,
+                docsOpen: this.isOpen()
+            } as Record<string, unknown>;
+            if (this.isOpen()) {
+                const widthPx = Math.max(
+                    MIN_WIDTH,
+                    Math.round(this.view.offsetWidth) || this.storedWidth()
+                );
+                next.docsWidth = `0 0 ${widthPx}px`;
+                localStorage.setItem(WIDTH_STORAGE_KEY, String(widthPx));
+            }
+            localStorage.setItem('viewLayout', JSON.stringify(next));
+        } catch (error) {
+            console.warn('Failed to persist docs layout', error);
+        }
+    }
+
+    private readSavedOpen(): boolean {
+        try {
+            const saved = localStorage.getItem('viewLayout');
+            if (!saved) {
+                return false;
+            }
+            const layout = JSON.parse(saved) as { docsOpen?: boolean };
+            return layout?.docsOpen === true;
+        } catch {
+            return false;
+        }
+    }
+
+    private async loadPersistedPage(): Promise<void> {
+        await this.ensureManifest();
+        const targetId =
+            this.readLastPageId() ||
+            this.manifest?.defaultId ||
+            this.pages.keys().next().value;
+        if (!targetId) {
+            return;
+        }
+        await this.showPage(targetId);
+        this.scrollCurrentTocIntoView();
     }
 
     private storedWidth(): number {
         const raw = localStorage.getItem(WIDTH_STORAGE_KEY);
-        const parsed = raw ? Number.parseInt(raw, 10) : DEFAULT_WIDTH;
-        if (!Number.isFinite(parsed)) {
-            return DEFAULT_WIDTH;
+        const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
+        if (Number.isFinite(parsed) && parsed > 0) {
+            return Math.max(MIN_WIDTH, parsed);
         }
-        return Math.max(MIN_WIDTH, parsed);
+        try {
+            const saved = localStorage.getItem('viewLayout');
+            const layout = saved
+                ? (JSON.parse(saved) as { docsWidth?: string })
+                : null;
+            const match = layout?.docsWidth?.match(/(\d+(?:\.\d+)?)px\s*$/);
+            const fromFlex = match ? Number.parseFloat(match[1]) : Number.NaN;
+            if (Number.isFinite(fromFlex) && fromFlex > 0) {
+                return Math.max(MIN_WIDTH, Math.round(fromFlex));
+            }
+        } catch {
+            // Fall through to the default width.
+        }
+        return DEFAULT_WIDTH;
     }
 
     private readLastPageId(): string | null {
@@ -512,10 +627,38 @@ export class DocsViewer {
 
     private rewriteMedia(relativePath: string): void {
         this.articleEl.querySelectorAll('img').forEach((img) => {
+            const resolved = img.getAttribute('src');
+            if (resolved) {
+                img.dataset.docsSrc = canonicalHandbookImageSrc(resolved);
+            }
             img.addEventListener('error', () => {
+                const canonical = img.dataset.docsSrc;
+                const current = img.getAttribute('src');
+                if (canonical && current && current !== canonical) {
+                    img.setAttribute('src', canonical);
+                    return;
+                }
                 img.classList.add('docs-image-missing');
             });
             void relativePath;
+        });
+        this.applyThemedImages();
+    }
+
+    private applyThemedImages(): void {
+        this.articleEl.querySelectorAll('img').forEach((img) => {
+            const canonical =
+                img.dataset.docsSrc ||
+                canonicalHandbookImageSrc(img.getAttribute('src') || '');
+            if (!canonical) {
+                return;
+            }
+            img.dataset.docsSrc = canonical;
+            const next = themedHandbookImageSrc(canonical);
+            if (img.getAttribute('src') !== next) {
+                img.classList.remove('docs-image-missing');
+                img.setAttribute('src', next);
+            }
         });
     }
 
@@ -627,7 +770,7 @@ export function initDocsViewer(): void {
         const viewer = new DocsViewer();
         window.docsViewer = viewer;
         window.openDocs = (id?: string, heading?: string) => {
-            void viewer.open(id, heading);
+            return viewer.open(id, heading);
         };
         window.closeDocs = () => viewer.close();
     } catch (error) {

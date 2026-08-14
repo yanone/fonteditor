@@ -639,7 +639,7 @@ declare global {
 
         // From docs-viewer.ts
         docsViewer: import('./docs-viewer').DocsViewer | undefined;
-        openDocs: (id?: string, heading?: string) => void;
+        openDocs: (id?: string, heading?: string) => Promise<void>;
         closeDocs: () => void;
 
         // From view-settings.js

@@ -12,7 +12,48 @@ type SavedViewLayout = {
     vertical?: { top?: string[]; bottom?: string[] };
     visitOrder?: Partial<RowVisitOrder>;
     docsWidth?: string;
+    docsOpen?: boolean;
 };
+
+function readSavedViewLayout(): SavedViewLayout | null {
+    try {
+        const saved = localStorage.getItem('viewLayout');
+        if (!saved) {
+            return null;
+        }
+        const parsed = JSON.parse(saved) as SavedViewLayout;
+        return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch {
+        return null;
+    }
+}
+
+function parseFlexPixelWidth(flex: string | undefined): number | null {
+    if (typeof flex !== 'string') {
+        return null;
+    }
+    const match = flex.match(/(\d+(?:\.\d+)?)px\s*$/);
+    const parsed = match ? Number.parseFloat(match[1]) : Number.NaN;
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        return null;
+    }
+    return Math.round(parsed);
+}
+
+function parseStoredDocsWidth(layout: SavedViewLayout | null): number {
+    const fromKey = Number.parseInt(
+        localStorage.getItem('docsViewWidth') || '',
+        10
+    );
+    if (Number.isFinite(fromKey) && fromKey > 0) {
+        return Math.max(ResizableViews.DOCS_MIN_WIDTH, fromKey);
+    }
+    const fromFlex = parseFlexPixelWidth(layout?.docsWidth);
+    if (fromFlex !== null) {
+        return Math.max(ResizableViews.DOCS_MIN_WIDTH, fromFlex);
+    }
+    return 340;
+}
 
 class ResizableViews {
     // Minimum sizes for different view types
@@ -403,7 +444,17 @@ class ResizableViews {
                 window.setViewVisitOrder(layout.visitOrder);
             }
 
-            if (
+            if (layout.docsOpen) {
+                const docsView = document.getElementById('view-docs');
+                const shell = document.getElementById('app-shell');
+                if (docsView && shell) {
+                    const widthPx = parseStoredDocsWidth(layout);
+                    docsView.style.flex = `0 0 ${widthPx}px`;
+                    shell.classList.add('docs-open');
+                    docsView.setAttribute('aria-hidden', 'false');
+                }
+                window.docsViewer?.restorePersistedOpen?.();
+            } else if (
                 layout.docsWidth &&
                 document
                     .getElementById('app-shell')
@@ -476,22 +527,29 @@ class ResizableViews {
                 },
                 visitOrder: window.getViewVisitOrder
                     ? window.getViewVisitOrder()
-                    : undefined,
-                docsWidth:
-                    document.getElementById('view-docs')?.style.flex ||
-                    undefined
+                    : undefined
             };
+            const previous = readSavedViewLayout();
             const docsView = document.getElementById('view-docs');
-            if (
-                docsView &&
+            const docsOpen = Boolean(
                 document
                     .getElementById('app-shell')
                     ?.classList.contains('docs-open')
-            ) {
-                localStorage.setItem(
-                    'docsViewWidth',
-                    String(Math.round(docsView.offsetWidth))
+            );
+            layout.docsOpen = docsOpen;
+            if (docsOpen && docsView) {
+                const fromOffset = Math.round(docsView.offsetWidth);
+                const fromFlex = parseFlexPixelWidth(docsView.style.flex);
+                const widthPx = Math.max(
+                    ResizableViews.DOCS_MIN_WIDTH,
+                    fromOffset >= ResizableViews.DOCS_MIN_WIDTH
+                        ? fromOffset
+                        : (fromFlex ?? parseStoredDocsWidth(previous))
                 );
+                layout.docsWidth = `0 0 ${widthPx}px`;
+                localStorage.setItem('docsViewWidth', String(widthPx));
+            } else {
+                layout.docsWidth = previous?.docsWidth;
             }
             const topLayout = layout.vertical?.top;
             const bottomLayout = layout.vertical?.bottom;

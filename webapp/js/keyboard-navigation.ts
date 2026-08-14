@@ -275,6 +275,10 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
      * Returns true if expansion was performed
      */
     function expandViewOnActivation(viewId: string) {
+        if (viewId === 'view-docs') {
+            return false;
+        }
+
         const settings = getViewSettings();
         if (!settings || !settings.activation) return false;
 

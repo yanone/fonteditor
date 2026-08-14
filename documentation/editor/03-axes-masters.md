@@ -6,6 +6,8 @@ An **axis** is a design dimension such as weight or width. A **master** is a sto
 
 ![Axis controls for the current design location](images/axes.png)
 
-Define axes and masters in Font Info (**Axes** and **Masters** tabs). In the Editor, the axis sliders move the current design location. Edit a glyph at one master, then at another, and move the sliders to check the path between them. Compatible point structures matter. Smooth in-betweens are the target. A jump or kink on the slider usually means the masters do not match.
+Define axes and masters in Font Info panel (**Axes** and **Masters** tabs). In the Editor, the axis sliders move the current design location. Edit a glyph at one master, then at another, and move the sliders to check the path between them. Compatible point structures matter. Smooth in-betweens are the target. A jump or kink on the slider usually means the masters do not match.
+
+A glyph that shows with **gray nodes and handles** is an interpolation which you can’t edit. To edit, you need to return to a precise master location (activate a layer from the layers list) first.
 
 Stored layers and intermediate locations are in [Layer operations](05-layer-operations.md). Terms are in the [Glossary](../reference/glossary.md).

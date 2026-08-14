@@ -6,20 +6,19 @@ Sidebearing formulas let you link spacing instead of typing the same numbers int
 
 With nothing selected on the canvas, the editor property panel shows left and right sidebearings. Each field takes a number or a metrics key. The resolved value sits next to the input, so you can keep `=n+10` in the field and still see the spacing that is applied.
 
-An empty field clears the metrics key for that side. On a fully auto-aligned component layer with no key, the field stays empty and the placeholder is `=+0 or ==+0`.
+An empty field clears the metrics key for that side. On a fully auto-aligned component layer with no key, the field stays empty.
 
 ## Notation
 
-These are the forms the metrics-key parser accepts. Spaces are not part of the syntax. Glyph names are matched as the longest prefix that exists in the font, so `n.ss01` wins over `n`.
+These are the forms the metrics-key parser accepts. Spaces are not part of the syntax.
 
 ### Plain numbers
 
-A signed or unsigned number, including a decimal, stores that sidebearing and **clears** any metrics key:
+A number stores that sidebearing and **clears** any metrics key:
 
 - `40`
 - `-15`
 - `+20`
-- `40.5`
 
 ### Glyph-wide keys (`=`) versus layer-local keys (`==`)
 
@@ -34,37 +33,36 @@ A leading `==` stores the same kind of key **only on the current layer**. After 
 `=` followed by an **unsigned** number is a constant formula. The sidebearing stays that value when the outline later changes:
 
 - `=40`
-- `=40.5`
 
-There is no signed constant form. `=-20` is not a constant; it is an automatic offset (below).
+Unsigned constants are rejected on fully auto-aligned component layers. For a signed pin such as `-20` on a normal layer, use `=-20` (below).
 
-### Automatic offsets (`=+10`, `=-15`)
+### Signed formulas (`=+10`, `=-15`)
 
-`=` or `==` followed immediately by a **signed** number is an automatic-offset key:
+`=` or `==` followed immediately by a **signed** number (has + or - sign) is one syntax with two meanings:
 
-- `=+10`, `=-15`, `=+10.5`
+- `=+10`, `=-15`
 - `==+10`, `==-15` (layer-local)
 
-On a **fully auto-aligned component layer**, the value is auto-aligned spacing plus that delta. Those layers accept **only** this signed form (`=+…` / `=-…` / `==+…` / `==-…`). References, unsigned constants, and plain numbers are rejected there.
+On a **normal layer**, `=+40` pins the sidebearing to that number and keeps the formula after later outline edits. `=-20` means the sidebearing is always `-20`. A plain `-20` (no `=`) also sets `-20`, but **clears** the formula.
 
-On a **normal layer**, the same syntax resolves to that signed amount and keeps it as a formula after later outline edits.
+On a **fully auto-aligned component layer**, the same syntax is an **offset**: auto-aligned spacing plus that delta. Those layers accept **only** this signed form (`=+…` / `=-…` / `==+…` / `==-…`). References, unsigned constants, and plain numbers are rejected there.
 
-### References
+### Glyph References
 
 A reference reads another glyph’s corresponding sidebearing (or a measured slice of it), then optionally mirrors, samples at a height, and applies one arithmetic suffix.
 
-The leading `=` is optional for references, so Glyphs-style `n` is accepted as well as `=n`.
+The leading `=` is optional for references, so `n` is accepted as well as `=n`.
 
 | Form | Meaning |
 | --- | --- |
 | `=n` or `n` | Same side of glyph `n` |
-| `=H+20`, `=o-10` | Referenced sidebearing plus or minus a number |
+| `=H+20`, `=o-10` | Referenced sidebearing plus or minus a value |
 | `=H*2`, `=n/2` | Multiply or divide the referenced sidebearing |
-| `=|n`, `=|H-10` | Opposite side of the referenced glyph, then optional arithmetic |
-| `=|` | Opposite side of **this** layer (nothing after the pipe) |
+| `=\|n`, `=\|H-10` | Opposite side of the referenced glyph, then optional arithmetic |
+| `=\|` | Opposite side of **this** layer (nothing after the pipe symbol) |
 | `=c@200` | Measure this outline and `c` at y = 200, then apply the difference (not a copy of `c`’s stored sidebearing) |
 | `=o@300+15`, `=c@-50` | Height sample, then optional `+` `-` `*` `/` number. Height may be signed. |
-| `=|c@200+15` | Mirror, height, and arithmetic together |
+| `=\|c@200+15` | Mirror, height, and arithmetic together |
 
 The arithmetic suffix is exactly one operator and a number: `+`, `-`, `*`, or `/`, then a signed or unsigned value (decimals allowed). `/0` does not resolve.
 

@@ -67,8 +67,12 @@ test('Cmd+Escape closes docs only when the docs panel is focused', async ({
     await expect(page.locator('#app-shell')).toHaveClass(/docs-open/);
     await expect(page.locator('#view-docs')).toHaveClass(/focused/);
 
-    await page.locator('#view-editor .view-title-bar').click();
-    await expect(page.locator('#view-editor')).toHaveClass(/focused/);
+    await expect(async () => {
+        await page.locator('#view-editor .view-title-bar').click();
+        await expect(page.locator('#view-editor')).toHaveClass(/focused/, {
+            timeout: 500
+        });
+    }).toPass();
 
     await page.keyboard.press('Meta+Escape');
     await expect(page.locator('#app-shell')).toHaveClass(/docs-open/);
@@ -120,6 +124,29 @@ test('Script editor docs heading does not steal the Ace editor id', async ({
     await expect(page.locator('#docs-article h1 .ace_gutter')).toHaveCount(0);
 });
 
+test('Docs screenshots follow the app theme', async ({ page }) => {
+    await page.goto('/?test=true');
+    await waitForCanvasReady(page);
+
+    await page.evaluate(async () => {
+        window.themeSwitcher.setTheme('light');
+        await window.openDocs('getting-started/workspace-tour');
+    });
+
+    const img = page.locator('#docs-article img').first();
+    await expect(img).toHaveAttribute('src', /\/workspace\.png$/);
+
+    await page.evaluate(() => {
+        window.themeSwitcher.setTheme('dark');
+    });
+    await expect(img).toHaveAttribute('src', /\/workspace-dark\.png$/);
+
+    await page.evaluate(() => {
+        window.themeSwitcher.setTheme('light');
+    });
+    await expect(img).toHaveAttribute('src', /\/workspace\.png$/);
+});
+
 test('Docs show OS-specific modifiers, not Cmd/Ctrl or Alt/Option', async ({
     page
 }) => {
@@ -153,4 +180,67 @@ test('Docs show OS-specific modifiers, not Cmd/Ctrl or Alt/Option', async ({
         await expect(article).not.toContainText('Option+Click');
         await expect(article).not.toContainText('Cmd+Option+R');
     }
+});
+
+test('Docs panel open state and width persist like other views', async ({
+    page
+}) => {
+    await page.goto('/?test=true');
+    await waitForCanvasReady(page);
+
+    await page.evaluate(async () => {
+        await window.openDocs('getting-started/workspace-tour');
+        const docsView = document.getElementById('view-docs');
+        if (docsView) {
+            docsView.style.flex = '0 0 420px';
+        }
+        window.resizableViews.saveLayout();
+    });
+
+    const saved = await page.evaluate(() => {
+        const layout = JSON.parse(localStorage.getItem('viewLayout') || '{}');
+        return {
+            docsOpen: layout.docsOpen,
+            docsWidth: layout.docsWidth,
+            docsViewWidth: localStorage.getItem('docsViewWidth')
+        };
+    });
+    expect(saved.docsOpen).toBe(true);
+    expect(saved.docsWidth).toBe('0 0 420px');
+    expect(saved.docsViewWidth).toBe('420');
+
+    await page.goto('/?test=true');
+    await waitForCanvasReady(page);
+
+    await expect(page.locator('#app-shell')).toHaveClass(/docs-open/);
+    await expect(page.locator('#view-docs')).toBeVisible();
+    const restoredFlex = await page.evaluate(
+        () => document.getElementById('view-docs')?.style.flex
+    );
+    expect(restoredFlex).toBe('0 0 420px');
+
+    await page.locator('#docs-close-btn').click();
+    await expect(page.locator('#app-shell')).not.toHaveClass(/docs-open/);
+
+    const closed = await page.evaluate(() => {
+        const layout = JSON.parse(localStorage.getItem('viewLayout') || '{}');
+        return {
+            docsOpen: layout.docsOpen,
+            docsWidth: layout.docsWidth
+        };
+    });
+    expect(closed.docsOpen).toBe(false);
+    expect(closed.docsWidth).toBe('0 0 420px');
+
+    await page.goto('/?test=true');
+    await waitForCanvasReady(page);
+
+    await expect(page.locator('#app-shell')).not.toHaveClass(/docs-open/);
+    await page.evaluate(async () => {
+        await window.openDocs();
+    });
+    const reopenedFlex = await page.evaluate(
+        () => document.getElementById('view-docs')?.style.flex
+    );
+    expect(reopenedFlex).toBe('0 0 420px');
 });

@@ -28,7 +28,12 @@
     overflow: hidden;
     border-width: 0;
     pointer-events: none;
-    --view-title-color: var(--accent-blue);
+    --docs-link-color: color-mix(
+        in srgb,
+        color-mix(in srgb, var(--accent-cyan) 72%, var(--accent-blue)) 74%,
+        white
+    );
+    --view-title-color: var(--docs-link-color);
 }
 
 .app-shell.docs-open > .view-docs {
@@ -38,7 +43,7 @@
 }
 
 .view-docs .view-title-name {
-    color: var(--accent-blue);
+    color: var(--docs-link-color);
 }
 
 .app-shell > #docs-divider {
@@ -126,7 +131,7 @@
 
 .docs-toc-link.is-current {
     background: var(--background-hover);
-    color: var(--accent-blue);
+    color: var(--docs-link-color);
 }
 
 .docs-article {
@@ -176,15 +181,24 @@
 }
 
 .docs-article a {
-    color: color-mix(in srgb, var(--accent-cyan) 72%, var(--accent-blue));
+    color: var(--docs-link-color);
     text-decoration: none;
     border-bottom: 1px solid
-        color-mix(in srgb, var(--accent-cyan) 35%, transparent);
+        color-mix(in srgb, var(--docs-link-color) 42%, transparent);
 }
 
 .docs-article a:hover {
     color: var(--accent-cyan);
     border-bottom-color: var(--accent-cyan);
+}
+
+:root[data-theme='light'] .app-shell > .view-docs {
+    --docs-link-color: var(--accent-blue);
+    --view-title-color: var(--accent-blue);
+}
+
+:root[data-theme='light'] .docs-toc-link.is-current {
+    color: var(--accent-blue);
 }
 
 :root[data-theme='light'] .docs-article a {

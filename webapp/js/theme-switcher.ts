@@ -261,6 +261,7 @@ import { hasBoundModalEscape } from './ui/modal-escape';
 
             // Update Ace editor theme if it exists
             this.updateAceTheme(theme);
+            window.docsViewer?.refreshThemedImages();
 
             // Update glyph canvas if it exists
             if (window.glyphCanvas) {

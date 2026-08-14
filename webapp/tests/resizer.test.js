@@ -167,7 +167,8 @@ describe('ResizableViews startup layout restore', () => {
             visitOrder: {
                 top: ['view-fontinfo', 'view-overview', 'view-editor'],
                 bottom: ['view-history']
-            }
+            },
+            docsOpen: false
         });
     });
 });
