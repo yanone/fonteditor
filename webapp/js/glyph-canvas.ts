@@ -59,7 +59,9 @@ import { SavedVariationState } from './saved-variation-state';
 import { ArrowAdjustableTextInput } from './arrow-adjustable-text-input';
 import { LayerDataNormalizer } from './layer-data-normalizer';
 import {
+    buildOrderedKerningPairs,
     getKerningPairValue,
+    getOrderedKerningPairKey,
     setKerningPairValueOnMaster,
     type KerningContainer
 } from './kerning-utils';
@@ -297,7 +299,7 @@ function getTextModeKerningPairKey(
     firstKey: string,
     secondKey: string
 ): string {
-    return `${firstKey}\u0000${secondKey}`;
+    return getOrderedKerningPairKey(firstKey, secondKey);
 }
 
 function getTextModeKerningAdjacencyKey(
@@ -317,35 +319,7 @@ function buildOrderedTextModeKerningPairs(
     firstKeys: string[],
     secondKeys: string[]
 ): TextModeKerningPair[] {
-    const glyphFirstKeys = firstKeys.filter((key) => !key.startsWith('@'));
-    const groupFirstKeys = firstKeys.filter((key) => key.startsWith('@'));
-    const glyphSecondKeys = secondKeys.filter((key) => !key.startsWith('@'));
-    const groupSecondKeys = secondKeys.filter((key) => key.startsWith('@'));
-    const orderedPairs: TextModeKerningPair[] = [];
-    const seenPairKeys = new Set<string>();
-
-    const appendPairs = (
-        currentFirstKeys: string[],
-        currentSecondKeys: string[]
-    ) => {
-        for (const firstKey of currentFirstKeys) {
-            for (const secondKey of currentSecondKeys) {
-                const pairKey = getTextModeKerningPairKey(firstKey, secondKey);
-                if (seenPairKeys.has(pairKey)) {
-                    continue;
-                }
-                seenPairKeys.add(pairKey);
-                orderedPairs.push({ firstKey, secondKey, pairKey });
-            }
-        }
-    };
-
-    appendPairs(glyphFirstKeys, glyphSecondKeys);
-    appendPairs(glyphFirstKeys, groupSecondKeys);
-    appendPairs(groupFirstKeys, glyphSecondKeys);
-    appendPairs(groupFirstKeys, groupSecondKeys);
-
-    return orderedPairs;
+    return buildOrderedKerningPairs(firstKeys, secondKeys);
 }
 
 function compareLocationMaps(

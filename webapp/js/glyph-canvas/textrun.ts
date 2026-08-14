@@ -19,6 +19,11 @@ import {
     get_glyph_name,
     get_glyph_order
 } from '../../wasm-dist/babelfont_fontc_web';
+import { collectKerningGroupMemberships } from './kerning-group-widget';
+import {
+    resolvePreferredKerningPairValue,
+    type KerningContainer
+} from '../kerning-utils';
 
 import bidiFactory from 'bidi-js';
 
@@ -2050,7 +2055,14 @@ export class TextRunEditor {
                 this.shapeExplicitGlyphTokensWithoutBinaryFont();
             }
 
+            // Seed intrinsic widths from unkerned advances, then fold model
+            // kerning into explicit-token adjacencies (HarfBuzz never sees
+            // those pairs). Rebuild clusters after so positions match.
             this.rebuildIntrinsicGlyphAdvanceCache();
+            if (this.applyModelKerningForExplicitTokenAdjacencies()) {
+                this.buildClusterMap();
+                this.updateCursorVisualPosition();
+            }
             recordLiveTextDiagnostic('text.reshape.completed', this, {
                 skipRender,
                 variationLocation: variationLocation || null
@@ -2081,6 +2093,111 @@ export class TextRunEditor {
             this.intrinsicGlyphAdvances.clear();
             this.call('render');
         }
+    }
+
+    /**
+     * Fold object-model kerning into shaped advances for pairs that include at
+     * least one explicit `/glyphname` token. Pure text–text pairs keep HarfBuzz
+     * GPOS kerning only (no double application).
+     *
+     * LTR and RTL both adjust the visually-left glyph's `ax` by the preferred
+     * model value (same precedence as text-mode overlays). For RTL that is the
+     * Second operand; for LTR the First — matching live-preview glyph choice
+     * and HB's advance-stream effect after reshape + pan anchor.
+     *
+     * Must run after `rebuildIntrinsicGlyphAdvanceCache` so kerning is not
+     * baked into sidebearing intrinsic baselines.
+     *
+     * @returns true when any advance changed (caller should rebuild clusters)
+     */
+    applyModelKerningForExplicitTokenAdjacencies(): boolean {
+        if (!this.shapedGlyphs.length) {
+            return false;
+        }
+
+        const fontModel = window.currentFontModel;
+        if (!fontModel?.masters?.length) {
+            return false;
+        }
+
+        const master =
+            (this.selectedMasterId &&
+                fontModel.masters.find(
+                    (candidate: { id?: string }) =>
+                        candidate.id === this.selectedMasterId
+                )) ||
+            null;
+        if (!master) {
+            return false;
+        }
+
+        let changed = false;
+
+        for (let i = 0; i < this.shapedGlyphs.length - 1; i++) {
+            const leftGlyph = this.shapedGlyphs[i];
+            const rightGlyph = this.shapedGlyphs[i + 1];
+            const leftExplicit = !!leftGlyph.explicitGlyphName;
+            const rightExplicit = !!rightGlyph.explicitGlyphName;
+            if (!leftExplicit && !rightExplicit) {
+                continue;
+            }
+
+            const leftCluster = leftGlyph.cl || 0;
+            const rightCluster = rightGlyph.cl || 0;
+            const leftIsRTL = this.isPositionRTL(leftCluster);
+            const rightIsRTL = this.isPositionRTL(rightCluster);
+            if (leftIsRTL !== rightIsRTL) {
+                continue;
+            }
+
+            const leftName =
+                leftGlyph.explicitGlyphName || this.glyphNameBuffer[i] || null;
+            const rightName =
+                rightGlyph.explicitGlyphName ||
+                this.glyphNameBuffer[i + 1] ||
+                null;
+            if (!leftName || !rightName) {
+                continue;
+            }
+
+            // Kerning first/second are logical pair operands. In LTR visual
+            // order that is left→right; in RTL visual order left is Second
+            // and right is First.
+            const isRTL = leftIsRTL;
+            const firstGlyphName = isRTL ? rightName : leftName;
+            const secondGlyphName = isRTL ? leftName : rightName;
+
+            const firstKeys = [
+                firstGlyphName,
+                ...collectKerningGroupMemberships(
+                    fontModel.first_kern_groups,
+                    firstGlyphName
+                ).map((name) => `@${name}`)
+            ];
+            const secondKeys = [
+                secondGlyphName,
+                ...collectKerningGroupMemberships(
+                    fontModel.second_kern_groups,
+                    secondGlyphName
+                ).map((name) => `@${name}`)
+            ];
+
+            const kerning = (isRTL ? master.kerning_rtl : master.kerning) as
+                KerningContainer | undefined;
+            const value = resolvePreferredKerningPairValue(
+                kerning,
+                firstKeys,
+                secondKeys
+            );
+            if (value === null || value === 0) {
+                continue;
+            }
+
+            leftGlyph.ax = (leftGlyph.ax || 0) + value;
+            changed = true;
+        }
+
+        return changed;
     }
 
     /**

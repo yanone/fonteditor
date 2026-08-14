@@ -95,6 +95,90 @@ export function getKerningPairValue(
     return typeof value === 'number' ? value : null;
 }
 
+export type OrderedKerningPair = {
+    firstKey: string;
+    secondKey: string;
+    pairKey: string;
+};
+
+export function getOrderedKerningPairKey(
+    firstKey: string,
+    secondKey: string
+): string {
+    return `${firstKey}\u0000${secondKey}`;
+}
+
+/**
+ * Glyph-vs-class precedence for resolving which kerning rule applies:
+ * glyph–glyph, glyph–group, group–glyph, then group–group.
+ */
+export function buildOrderedKerningPairs(
+    firstKeys: string[],
+    secondKeys: string[]
+): OrderedKerningPair[] {
+    const glyphFirstKeys = firstKeys.filter((key) => !key.startsWith('@'));
+    const groupFirstKeys = firstKeys.filter((key) => key.startsWith('@'));
+    const glyphSecondKeys = secondKeys.filter((key) => !key.startsWith('@'));
+    const groupSecondKeys = secondKeys.filter((key) => key.startsWith('@'));
+    const orderedPairs: OrderedKerningPair[] = [];
+    const seenPairKeys = new Set<string>();
+
+    const appendPairs = (
+        currentFirstKeys: string[],
+        currentSecondKeys: string[]
+    ) => {
+        for (const firstKey of currentFirstKeys) {
+            for (const secondKey of currentSecondKeys) {
+                const pairKey = getOrderedKerningPairKey(firstKey, secondKey);
+                if (seenPairKeys.has(pairKey)) {
+                    continue;
+                }
+                seenPairKeys.add(pairKey);
+                orderedPairs.push({ firstKey, secondKey, pairKey });
+            }
+        }
+    };
+
+    appendPairs(glyphFirstKeys, glyphSecondKeys);
+    appendPairs(glyphFirstKeys, groupSecondKeys);
+    appendPairs(groupFirstKeys, glyphSecondKeys);
+    appendPairs(groupFirstKeys, groupSecondKeys);
+
+    return orderedPairs;
+}
+
+/**
+ * Pick the winning kerning value for a glyph pair using the same preference
+ * as text-mode overlays: first non-zero defined pair in precedence order,
+ * else first defined pair (including explicit 0).
+ */
+export function resolvePreferredKerningPairValue(
+    kerning: KerningContainer | undefined,
+    firstKeys: string[],
+    secondKeys: string[]
+): number | null {
+    if (!kerning) {
+        return null;
+    }
+
+    const preferredPairs = buildOrderedKerningPairs(firstKeys, secondKeys);
+    for (const { firstKey, secondKey } of preferredPairs) {
+        const value = getKerningPairValue(kerning, firstKey, secondKey);
+        if (value !== null && value !== 0) {
+            return value;
+        }
+    }
+
+    for (const { firstKey, secondKey } of preferredPairs) {
+        const value = getKerningPairValue(kerning, firstKey, secondKey);
+        if (value !== null) {
+            return value;
+        }
+    }
+
+    return null;
+}
+
 export function setKerningPairValueOnMaster(
     master: Master,
     firstKey: string,
