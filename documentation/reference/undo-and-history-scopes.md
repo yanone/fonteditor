@@ -1,18 +1,22 @@
 # Undo and history
 
-Undo follows the **focused undo surface**, not merely whatever glyph name appears in a history item. History is the collaboration log. Rows the current `Cmd/Ctrl+Z` stack cannot reach are hidden by default, or faded when you reveal them.
+Undo follows the **focused undo surface**, not merely whatever glyph name appears in a history item. History is the collaboration log. Rows the current `Cmd/Ctrl+Z` stack cannot reach are hidden by default, or faded when you reveal them. **History bright rows and `Cmd/Ctrl+Z` use the same surface filter** — there is no font-stack fallback when that filter is empty.
 
 ## Undo surfaces
 
 | Surface | Focused view | `Cmd/Ctrl+Z` undoes |
 | --- | --- | --- |
-| **Canvas** | Glyph editor with a layer selected | Edits whose **originating layer** is the current glyph/layer (including cascades that started there) |
+| **Canvas** (Editing View) | Glyph editor in edit mode **or** text mode | Layer-origin edits for the current glyph/layer (and other written layers of that glyph), plus Editing View–owned font edits such as text-mode kerning, kern-group membership, and canvas master-guide promotions |
 | **Overview** | Glyph overview | Glyph-structural edits (paste, duplicate, delete, reorder, codepoints, rename, …) |
-| **Font Info** | Font Info (non-Features) | Pure font-wide edits (masters, names, UPM, master guides, …) |
+| **Font Info** | Font Info (non-Features) | Pure font-wide edits made there (names, UPM, axes, master topology, …) — not Editing View–owned kerning |
 | **Features** | Font Info Features with an item selected | That feature / class / prefix only |
 | **Automation** | Scripts, Konsole, or Assistant | Font mutations produced by Python or the Assistant |
 
 Undo surfaces do not share one interleaved stack. A later font-info edit does not block undoing an earlier canvas edit. Automation is the exception while those views are focused: `Cmd/Ctrl+Z` walks only Python- and assistant-sourced items, not ordinary GUI edits from other undo surfaces.
+
+## Editing View–owned font edits
+
+Some writes live under font-root paths (`masters.*.kerning`, kern groups, promoting a guide to the master) but were made from the Editing View. Those commits stamp an **undo surface affinity** of `canvas` so they stay on the Editing View stack for both History and `Cmd/Ctrl+Z`. Font Info does not claim them.
 
 ## Originating layer
 
@@ -20,6 +24,7 @@ Canvas undo keys off where the forward edit **started**, not every layer touched
 
 - Edit layer A → cascade updates dependents → undoable on **A**, not on a dependent layer.
 - Paste a glyph in Overview → open it on the canvas → creation stays **overview-only**, even if the history item names that glyph.
+- In text mode (no selected layer), layer-origin edits for the caret glyph remain reachable, and affinity-stamped kerning edits are reachable too.
 
 ## History visibility
 
@@ -42,7 +47,7 @@ While Scripts, Konsole, or Assistant is focused, the same font-history shortcuts
 
 - **Title** — transaction summary
 - **Action chip** — `edit` (grayscale), `undo` / `redo` (colored)
-- **Origin** — follows the item’s **undo surface**: `Layer · {glyph} / {master}`, `Overview`, `Font`, or `Feature · …`
+- **Origin** — follows the item’s **undo surface**: `Layer · {glyph} / {master}`, `Editing View`, `Overview`, `Font`, or `Feature · …`
 - **`account_tree`** — transaction recomposed dependent layers
 - Time / duration / size — development builds only
 

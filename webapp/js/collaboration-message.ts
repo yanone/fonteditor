@@ -13,6 +13,7 @@ import {
     type HistoryAction,
     type HistoryTargetType,
     type UndoScope,
+    type UndoSurfaceAffinity,
     type GlyphRename,
     type WorkerReplayTarget
 } from './change-log';
@@ -81,6 +82,7 @@ export type CollaborationMessageMetadata = {
     historyTargetKey?: string | null;
     historyTargetLabel?: string | null;
     undoScope: UndoScope;
+    undoSurfaceAffinity?: UndoSurfaceAffinity | null;
     originatingGlyphName?: string | null;
     originatingLayerId?: string | null;
 };
@@ -298,6 +300,7 @@ export function createCollaborationMessageEnvelopeFromChangeLogEntries(
             historyTargetKey: entries[0].historyTargetKey,
             historyTargetLabel: entries[0].historyTargetLabel,
             undoScope: entries[0].undoScope,
+            undoSurfaceAffinity: entries[0].undoSurfaceAffinity ?? null,
             ...(() => {
                 const origin = resolveCollaborationOriginatingLayer(
                     entries[0].undoScope,
@@ -412,6 +415,7 @@ export function createChangeLogEntriesFromCollaborationMessageEnvelope(
             historyTargetType: envelope.metadata.historyTargetType ?? null,
             historyTargetKey: envelope.metadata.historyTargetKey ?? null,
             historyTargetLabel: envelope.metadata.historyTargetLabel ?? null,
+            undoSurfaceAffinity: envelope.metadata.undoSurfaceAffinity ?? null,
             originatingGlyphName:
                 envelope.metadata.originatingGlyphName ?? null,
             originatingLayerId: envelope.metadata.originatingLayerId ?? null

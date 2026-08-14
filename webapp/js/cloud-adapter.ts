@@ -474,6 +474,7 @@ function importCollaborationMessageHistory(
             historyAction: message.metadata.historyAction,
             targetHistoryItemId: message.metadata.targetHistoryItemId ?? null,
             undoScope: message.metadata.undoScope,
+            undoSurfaceAffinity: message.metadata.undoSurfaceAffinity ?? null,
             historyTargetKey: message.metadata.historyTargetKey ?? null,
             historyTargetLabel: message.metadata.historyTargetLabel ?? null,
             originatingGlyphName: message.metadata.originatingGlyphName ?? null,

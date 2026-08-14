@@ -50,6 +50,12 @@ export type UndoScope = 'font' | 'glyph' | 'layer';
 export type HistoryUndoSurface =
     'canvas' | 'overview' | 'font' | 'feature' | 'automation';
 
+/**
+ * Surfaces that may own font-scoped edits made outside Font Info
+ * (e.g. text-mode kerning on the Editing View).
+ */
+export type UndoSurfaceAffinity = 'canvas' | 'overview';
+
 /** Edit sources stamped on Python / Assistant font mutations */
 export const AUTOMATION_EDIT_SOURCES = new Set(['python', 'assistant']);
 
@@ -80,6 +86,80 @@ export function isAutomationSourcedHistoryItem(item: {
         const source = entry.editSource ?? entry.compileChangeSource ?? null;
         return !!source && AUTOMATION_EDIT_SOURCES.has(source);
     });
+}
+
+function isAutomationEditSource(
+    editSource?: string | null,
+    compileChangeSource?: string | null
+): boolean {
+    const source = editSource ?? compileChangeSource ?? null;
+    return !!source && AUTOMATION_EDIT_SOURCES.has(source);
+}
+
+/**
+ * Font-root paths that the Editing View commonly writes (kerning / kern groups).
+ * Used as a headless fallback when no focused undo surface is available.
+ */
+export function isEditorOwnedFontPath(path: string): boolean {
+    if (!path) {
+        return false;
+    }
+    if (path === 'first_kern_groups' || path.startsWith('first_kern_groups.')) {
+        return true;
+    }
+    if (
+        path === 'second_kern_groups' ||
+        path.startsWith('second_kern_groups.')
+    ) {
+        return true;
+    }
+    return /^masters\.[^.]+\.kerning(_rtl)?(\.|$)/.test(path);
+}
+
+/**
+ * Which non-Font undo surface should own this font-scoped (or mixed) edit.
+ * Automation and feature targets stay on their dedicated surfaces.
+ */
+export function resolveUndoSurfaceAffinity(options: {
+    explicit?: UndoSurfaceAffinity | null;
+    contextSurface?: HistoryUndoSurface | null;
+    editSource?: string | null;
+    compileChangeSource?: string | null;
+    historyTargetKey?: string | null;
+    transactionLabel?: string | null;
+    paths?: string[];
+}): UndoSurfaceAffinity | null {
+    if (options.historyTargetKey) {
+        return null;
+    }
+    if (
+        options.transactionLabel === 'Python script' ||
+        isAutomationEditSource(options.editSource, options.compileChangeSource)
+    ) {
+        return null;
+    }
+    if (options.explicit === 'canvas' || options.explicit === 'overview') {
+        return options.explicit;
+    }
+    if (
+        options.contextSurface === 'canvas' ||
+        options.contextSurface === 'overview'
+    ) {
+        return options.contextSurface;
+    }
+    // Font / feature / automation context: keep affinity unset so those
+    // surfaces own the item via their normal matchers.
+    if (options.contextSurface) {
+        return null;
+    }
+    const paths = options.paths ?? [];
+    if (
+        paths.length > 0 &&
+        paths.every((path) => isEditorOwnedFontPath(path))
+    ) {
+        return 'canvas';
+    }
+    return null;
 }
 
 export function deriveOriginatingLayerFromPaths(paths: string[]): {
@@ -150,6 +230,7 @@ function collectTouchedLayerIdsForGlyph(
  */
 export function formatHistoryOriginLabel(options: {
     undoScope: UndoScope;
+    undoSurfaceAffinity?: UndoSurfaceAffinity | null;
     historyTargetKey?: string | null;
     historyTargetLabel?: string | null;
     originatingGlyphName?: string | null;
@@ -162,6 +243,18 @@ export function formatHistoryOriginLabel(options: {
 }): string {
     if (options.historyTargetKey || options.historyTargetLabel) {
         return `Feature · ${options.historyTargetLabel || options.historyTargetKey}`;
+    }
+
+    if (options.undoSurfaceAffinity === 'canvas') {
+        const layerOriginLabel = formatLayerHistoryOriginLabel(options);
+        if (layerOriginLabel) {
+            return layerOriginLabel;
+        }
+        return 'Editing View';
+    }
+
+    if (options.undoSurfaceAffinity === 'overview') {
+        return 'Overview';
     }
 
     if (options.undoScope === 'font') {
@@ -320,6 +413,11 @@ export interface ChangeLogEntry {
     op: ChangeOp;
     /** Effective undo scope for this entry */
     undoScope: UndoScope;
+    /**
+     * Non-Font undo surface that owns this edit when scope alone is wrong
+     * (e.g. text-mode kerning → Editing View / canvas).
+     */
+    undoSurfaceAffinity: UndoSurfaceAffinity | null;
     /** Full dot-delimited path: "glyphs.A.layers.uuid-1.shapes.0.nodes.2.x" */
     path: string;
     /** Value before the change (undefined for "add" ops) */
@@ -370,6 +468,7 @@ export function createLogEntry(
         | 'historyAction'
         | 'targetHistoryItemId'
         | 'undoScope'
+        | 'undoSurfaceAffinity'
         | 'historyTargetType'
         | 'historyTargetKey'
         | 'historyTargetLabel'
@@ -389,6 +488,7 @@ export function createLogEntry(
         historyAction?: HistoryAction;
         targetHistoryItemId?: string | null;
         undoScope?: UndoScope;
+        undoSurfaceAffinity?: UndoSurfaceAffinity | null;
         glyphName?: string | null;
         layerId?: string | null;
         objectType?: ChangeObjectType;
@@ -425,6 +525,7 @@ export function createLogEntry(
         historyAction: fields.historyAction ?? 'change',
         targetHistoryItemId: fields.targetHistoryItemId ?? null,
         undoScope: fields.undoScope ?? deriveUndoScope(glyphName, layerId),
+        undoSurfaceAffinity: fields.undoSurfaceAffinity ?? null,
         timestamp: fields.timestamp,
         transactionDurationMs: fields.transactionDurationMs ?? null,
         windowId: fields.windowId,
@@ -461,6 +562,7 @@ export type ChangeLogEntryLike = Omit<
     'windowRoleLabel' | 'historyItemId' | 'historyAction' | 'undoScope'
 > & {
     undoScope?: UndoScope | null;
+    undoSurfaceAffinity?: UndoSurfaceAffinity | null;
     windowRoleLabel?: string | null;
     historyItemId?: string | null;
     historyAction?: HistoryAction | null;
@@ -494,6 +596,8 @@ export interface HistoryStackItem {
     transactionLabel: string | null;
     historySummary: string | null;
     undoScope: UndoScope;
+    /** Non-Font surface that owns this item when present. */
+    undoSurfaceAffinity: UndoSurfaceAffinity | null;
     touchedPaths: string[];
     isActive: boolean;
     lastAction: HistoryAction;
@@ -827,6 +931,7 @@ function processHistoryEntry(entry: ChangeLogEntry, state: HistoryState): void {
                 transactionLabel: entry.transactionLabel,
                 historySummary: entry.historySummary ?? null,
                 undoScope: entry.undoScope,
+                undoSurfaceAffinity: entry.undoSurfaceAffinity ?? null,
                 touchedPaths: [],
                 glyphNameSet: new Set<string>(),
                 layerIdSet: new Set<string>(),
@@ -863,6 +968,13 @@ function processHistoryEntry(entry: ChangeLogEntry, state: HistoryState): void {
         item.historySummary = entry.historySummary ?? item.historySummary;
         item.isActive = true;
         item.lastAction = 'change';
+        if (
+            !item.undoSurfaceAffinity &&
+            (entry.undoSurfaceAffinity === 'canvas' ||
+                entry.undoSurfaceAffinity === 'overview')
+        ) {
+            item.undoSurfaceAffinity = entry.undoSurfaceAffinity;
+        }
         if (entryGlyphName && !item.glyphNameSet.has(entryGlyphName)) {
             item.glyphNameSet.add(entryGlyphName);
         }
@@ -1118,6 +1230,8 @@ function inferHistoryUndoSurface(options: {
 /**
  * Canvas Cmd+Z includes every layer of the originating glyph that this item
  * actually wrote. Dependent glyphs in the same packet stay off that stack.
+ * Font-scoped Editing View edits (kerning, master guides, …) join via
+ * `undoSurfaceAffinity === 'canvas'`.
  */
 function historyItemTouchesCanvasLayer(
     item: MutableHistoryStackItem,
@@ -1132,6 +1246,28 @@ function historyItemTouchesCanvasLayer(
     }
     const touchKey = getLayerTouchKey(glyphName, layerId);
     return !!touchKey && item.touchedLayerKeySet.has(touchKey);
+}
+
+function historyItemMatchesCanvasSurface(
+    item: MutableHistoryStackItem,
+    glyphName: string | null,
+    layerId: string | null
+): boolean {
+    if (item.undoSurfaceAffinity === 'canvas') {
+        return true;
+    }
+    if (glyphName && layerId) {
+        return historyItemTouchesCanvasLayer(item, glyphName, layerId);
+    }
+    // Text mode (no layer): still reach layer-origin edits for the caret glyph.
+    if (
+        glyphName &&
+        item.originatingGlyphName === glyphName &&
+        item.originatingLayerId
+    ) {
+        return true;
+    }
+    return false;
 }
 
 function historyItemMatchesSurface(
@@ -1149,12 +1285,15 @@ function historyItemMatchesSurface(
 
     switch (surface) {
         case 'canvas': {
-            if (!glyphName || !layerId) {
-                return false;
-            }
-            return historyItemTouchesCanvasLayer(item, glyphName, layerId);
+            return historyItemMatchesCanvasSurface(item, glyphName, layerId);
         }
         case 'overview': {
+            if (item.undoSurfaceAffinity === 'overview') {
+                return true;
+            }
+            if (item.undoSurfaceAffinity === 'canvas') {
+                return false;
+            }
             if (item.originatingLayerId) {
                 return false;
             }
@@ -1164,6 +1303,12 @@ function historyItemMatchesSurface(
             return item.glyphNameSet.size > 0 || item.undoScope === 'glyph';
         }
         case 'font': {
+            if (
+                item.undoSurfaceAffinity === 'canvas' ||
+                item.undoSurfaceAffinity === 'overview'
+            ) {
+                return false;
+            }
             if (item.historyTargetKeySet.size > 0) {
                 return false;
             }
@@ -1433,6 +1578,11 @@ export function normalizeChangeLogEntry(
         historyItemId: normalizeHistoryItemId(entry.historyItemId, entry.id),
         historyAction: normalizeHistoryAction(entry.historyAction),
         undoScope: entry.undoScope ?? deriveUndoScope(glyphName, layerId),
+        undoSurfaceAffinity:
+            entry.undoSurfaceAffinity === 'canvas' ||
+            entry.undoSurfaceAffinity === 'overview'
+                ? entry.undoSurfaceAffinity
+                : null,
         targetHistoryItemId: entry.targetHistoryItemId ?? null,
         historyTargetType: entry.historyTargetType ?? null,
         historyTargetKey: entry.historyTargetKey ?? null,

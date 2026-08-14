@@ -111,6 +111,7 @@ describe('history view', () => {
             targetHistoryItemId: null,
             historyTargetKey: null,
             historyTargetLabel: null,
+            undoSurfaceAffinity: null,
             updateBase64Preview: 'AAAA',
             derivedForwardChanges: [],
             ...overrides

@@ -565,6 +565,7 @@ class HistoryViewController {
     private buildOriginLabel(item: HistoryDisplayItem): string {
         return formatHistoryOriginLabel({
             undoScope: item.undoScope,
+            undoSurfaceAffinity: item.undoSurfaceAffinity,
             historyTargetKey: item.historyTargetKey,
             historyTargetLabel: item.historyTargetLabel,
             originatingGlyphName: item.originatingGlyphName,
@@ -808,6 +809,10 @@ class HistoryViewController {
             this.buildMetadataRow('Window', item.windowRoleLabel),
             this.buildMetadataRow('History action', item.historyAction),
             this.buildMetadataRow('Undo scope', item.undoScope),
+            this.buildMetadataRow(
+                'Undo surface affinity',
+                item.undoSurfaceAffinity
+            ),
             this.buildMetadataRow(
                 'Originating layer',
                 item.originatingGlyphName && item.originatingLayerId

@@ -178,12 +178,17 @@ export function getUndoRedoContext(): UndoRedoContext {
     }
 
     if (editorFocused) {
-        // Editor focused but no layer selection yet — treat as overview-neutral
-        // glyph stack presence without inventing a canvas origin.
-        if (fallbackUndoGlyphName) {
-            return rememberMainUndoContext(buildOverviewContext(rootGlyphName));
-        }
-        return rememberMainUndoContext(buildFontContext(rootGlyphName));
+        // Text mode (or editor without a selected layer): Editing View /
+        // canvas surface. Kerning and other editor-owned font edits join
+        // via undoSurfaceAffinity; layer-origin edits for the caret glyph
+        // remain reachable without inventing a fake layer id.
+        return rememberMainUndoContext(
+            buildCanvasContext(
+                rootGlyphName,
+                fallbackUndoGlyphName,
+                fallbackUndoLayerId
+            )
+        );
     }
 
     // Scripts / Konsole / Assistant: undo Python- and Assistant-sourced edits

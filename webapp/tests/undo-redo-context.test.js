@@ -72,6 +72,27 @@ describe('getUndoRedoContext', () => {
         });
     });
 
+    test('uses canvas surface for Editing View text mode', () => {
+        editorView.classList.add('focused');
+        window.glyphCanvas = {
+            outlineEditor: {
+                active: false,
+                selectedLayerId: null,
+                parseGlyphStack: jest.fn(() => []),
+                currentGlyphName: 'a'
+            },
+            getCurrentGlyphName: jest.fn(() => 'a')
+        };
+
+        expect(getUndoRedoContext()).toEqual({
+            rootGlyphName: 'a',
+            undoGlyphName: 'a',
+            undoLayerId: null,
+            historyTargetKey: null,
+            surface: 'canvas'
+        });
+    });
+
     test('uses font scope when Font Info view is focused on a non-feature tab', () => {
         fontInfoView.classList.add('focused');
         setOutlineEditorActive();

@@ -31,6 +31,7 @@ import {
     type HistoryStackItem,
     type HistoryUndoSurface,
     type UndoScope,
+    type UndoSurfaceAffinity,
     type WorkerReplayTarget,
     type GlyphRename,
     createLogEntry,
@@ -50,6 +51,7 @@ import {
     normalizeChangeLogEntry,
     resolveCollaborationOriginatingLayer,
     resolveHistoryTargetItem,
+    resolveUndoSurfaceAffinity,
     resetLogCounter
 } from './change-log';
 import { Logger } from './logger';
@@ -63,6 +65,7 @@ import {
 import { windowRole } from './window-role';
 import { withSuppressedModelRecording } from './babelfont-model';
 import { diffFontDataToPatchPairs } from './font-data-diff';
+import { getUndoRedoContext } from './undo-redo-context';
 
 const console = new Logger('PatchSyncEngine');
 
@@ -119,6 +122,7 @@ export type CollaborationLogItem = {
     historyAction: 'change' | 'undo' | 'redo';
     targetHistoryItemId: string | null;
     undoScope: UndoScope;
+    undoSurfaceAffinity: UndoSurfaceAffinity | null;
     historyTargetKey: string | null;
     historyTargetLabel: string | null;
     originatingGlyphName: string | null;
@@ -2724,6 +2728,11 @@ export class PatchSyncEngine {
             historyTargetKey,
             surface
         );
+        // Explicit undo surfaces must not fall through to the font stack when
+        // the surface filter finds nothing (History bright ≡ Cmd+Z).
+        if (surface && !targetItem) {
+            return null;
+        }
         const target = this._resolveUndoTarget(
             glyphName,
             layerId,
@@ -2893,6 +2902,9 @@ export class PatchSyncEngine {
             historyTargetKey,
             surface
         );
+        if (surface && !targetItem) {
+            return null;
+        }
         const target = this._resolveUndoTarget(
             glyphName,
             layerId,
@@ -3056,6 +3068,9 @@ export class PatchSyncEngine {
             historyTargetKey,
             surface
         );
+        if (surface && !targetItem) {
+            return false;
+        }
         const target = this._resolveUndoTarget(
             glyphName,
             layerId,
@@ -3100,6 +3115,9 @@ export class PatchSyncEngine {
             historyTargetKey,
             surface
         );
+        if (surface && !targetItem) {
+            return false;
+        }
         const target = this._resolveUndoTarget(
             glyphName,
             layerId,
@@ -3884,6 +3902,11 @@ export class PatchSyncEngine {
 
         const nextHistoryItemId = this._createHistoryItemId();
         const timestamp = Date.now();
+        const undoSurfaceAffinity = this._resolveCommitUndoSurfaceAffinity({
+            label,
+            historyTarget,
+            operations: normalizedOperations
+        });
         const changeLogEntries: ChangeLogEntry[] = normalizedOperations.map(
             (operation) => {
                 const operationHistoryTarget =
@@ -3900,6 +3923,7 @@ export class PatchSyncEngine {
                     transactionId: null,
                     op: operation.op,
                     undoScope: scopeInfo.scope,
+                    undoSurfaceAffinity,
                     path: joinPathWithGlyphSeparator(operation.path),
                     oldValue: operation.oldValue,
                     newValue: operation.newValue,
@@ -4473,6 +4497,34 @@ export class PatchSyncEngine {
         return 'glyph';
     }
 
+    private _resolveCommitUndoSurfaceAffinity(options: {
+        label?: string | null;
+        historyTarget?: TransactionHistoryTarget | null;
+        operations: Array<{
+            path: (string | number)[];
+            editSource?: string | null;
+            compileChangeSource?: string | null;
+        }>;
+    }): UndoSurfaceAffinity | null {
+        let contextSurface: HistoryUndoSurface | null = null;
+        try {
+            contextSurface = getUndoRedoContext().surface;
+        } catch {
+            contextSurface = null;
+        }
+        const primary = options.operations[0];
+        return resolveUndoSurfaceAffinity({
+            contextSurface,
+            editSource: primary?.editSource ?? null,
+            compileChangeSource: primary?.compileChangeSource ?? null,
+            historyTargetKey: options.historyTarget?.key ?? null,
+            transactionLabel: options.label ?? null,
+            paths: options.operations.map((operation) =>
+                joinPathWithGlyphSeparator(operation.path)
+            )
+        });
+    }
+
     private _queueOrCommitOperations(
         operations: TransactionBufferedOperation[],
         label?: string | null,
@@ -4630,6 +4682,17 @@ export class PatchSyncEngine {
             transactionId !== null && this._txStartTimeMs !== null
                 ? Math.max(0, performance.now() - this._txStartTimeMs)
                 : null;
+        const operationPaths = effectiveOperations.map((operation) =>
+            joinPathWithGlyphSeparator(operation.path)
+        );
+        const primaryHistoryTarget =
+            historyTarget ??
+            this._deriveHistoryTarget(effectiveOperations[0]?.path ?? []);
+        const undoSurfaceAffinity = this._resolveCommitUndoSurfaceAffinity({
+            label,
+            historyTarget: primaryHistoryTarget,
+            operations: effectiveOperations
+        });
         const changeLogEntries: ChangeLogEntry[] = [];
 
         for (const operation of effectiveOperations) {
@@ -4653,6 +4716,7 @@ export class PatchSyncEngine {
                     deriveGlyphName(operation.path),
                     deriveLayerId(operation.path)
                 ),
+                undoSurfaceAffinity,
                 path: joinPathWithGlyphSeparator(operation.path),
                 oldValue: operation.oldValue,
                 newValue: operation.newValue,
@@ -6866,6 +6930,7 @@ export class PatchSyncEngine {
             historyAction: message.metadata.historyAction,
             targetHistoryItemId: message.metadata.targetHistoryItemId ?? null,
             undoScope: message.metadata.undoScope,
+            undoSurfaceAffinity: message.metadata.undoSurfaceAffinity ?? null,
             historyTargetKey: message.metadata.historyTargetKey ?? null,
             historyTargetLabel: message.metadata.historyTargetLabel ?? null,
             originatingGlyphName: originating.glyphName,
