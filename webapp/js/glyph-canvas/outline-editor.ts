@@ -21,7 +21,7 @@ import {
     chooseDefaultStickyEditTool,
     ensureStickyEditToolAvailable,
     resolveHighlightedEditTool,
-    resolvePointerBadgeTool,
+    resolvePointerBadge,
     shortcutKeyToStickyEditTool,
     type EditToolAvailability,
     type EditToolUiSnapshot,
@@ -10628,11 +10628,13 @@ export class OutlineEditor {
                 select: false,
                 pen: false,
                 insert: false,
-                convert: false
+                convert: false,
+                cut: false
             };
         }
 
         const layerData = this.getCurrentLayerDataFromStack() || this.layerData;
+        let hasContours = false;
         let hasPathSegments = false;
         let hasLineSegments = false;
 
@@ -10643,7 +10645,11 @@ export class OutlineEditor {
                     continue;
                 }
                 const contour = getEditableContour(shape);
-                if (!contour?.nodes || contour.nodes.length < 2) {
+                if (!contour?.nodes?.length) {
+                    continue;
+                }
+                hasContours = true;
+                if (contour.nodes.length < 2) {
                     continue;
                 }
                 const descriptors = Layer.getPathSegmentDescriptors({
@@ -10666,7 +10672,8 @@ export class OutlineEditor {
             select: true,
             pen: true,
             insert: hasPathSegments,
-            convert: hasLineSegments
+            convert: hasLineSegments,
+            cut: hasContours
         };
     }
 
@@ -10692,7 +10699,13 @@ export class OutlineEditor {
             stickyTool,
             highlightedTool,
             availability,
-            pointerBadge: resolvePointerBadgeTool(highlightedTool)
+            pointerBadge: resolvePointerBadge({
+                highlightedTool,
+                cmdKeyPressed: this.cmdKeyPressed,
+                hoveringCuttableNode: this.isCuttablePoint(
+                    this.hoveredPointIndex
+                )
+            })
         };
     }
 
@@ -10736,7 +10749,8 @@ export class OutlineEditor {
         if (
             previousTool === 'pen' ||
             previousTool === 'insert' ||
-            previousTool === 'convert'
+            previousTool === 'convert' ||
+            previousTool === 'cut'
         ) {
             this.finalizePendingCommandPathEdit();
         }
@@ -10777,6 +10791,13 @@ export class OutlineEditor {
             return true;
         }
         return this.activeEditTool === 'convert';
+    }
+
+    isCutArmed(): boolean {
+        if (!this.active || this.isPreviewMode) {
+            return false;
+        }
+        return this.activeEditTool === 'cut';
     }
 
     async requestExitGlyphEditMode(): Promise<void> {
@@ -11196,6 +11217,10 @@ export class OutlineEditor {
             return;
         }
 
+        if (this.handleCutToolGesture(e)) {
+            return;
+        }
+
         if (this.handleCommandPathGesture(e)) {
             this.syncEditToolAvailability();
             return;
@@ -11227,10 +11252,11 @@ export class OutlineEditor {
             return;
         }
 
-        // Sticky insert/convert only perform their gestures; otherwise no-op.
+        // Sticky insert/convert/cut only perform their gestures; otherwise no-op.
         if (
             this.activeEditTool === 'insert' ||
-            this.activeEditTool === 'convert'
+            this.activeEditTool === 'convert' ||
+            this.activeEditTool === 'cut'
         ) {
             return;
         }
@@ -14859,6 +14885,10 @@ export class OutlineEditor {
             this.canvas!.style.cursor = 'crosshair';
             return null;
         }
+        if (this.isCutArmed()) {
+            this.canvas!.style.cursor = 'crosshair';
+            return null;
+        }
         if (this.shouldShowCommandCutCrosshair()) {
             this.canvas!.style.cursor = 'crosshair';
             return null;
@@ -15405,6 +15435,9 @@ export class OutlineEditor {
             this.hoveredPointIndex = bestPoint;
             this.hoveredAnchorIndex = bestAnchorIndex;
             this.glyphCanvas.render();
+            if (this.cmdKeyPressed || this.isCutArmed()) {
+                this.notifyEditToolsChanged();
+            }
         }
     }
 
@@ -15540,7 +15573,7 @@ export class OutlineEditor {
             return;
         }
 
-        if (!this.isInsertArmed()) {
+        if (!this.isInsertArmed() && !this.isCutArmed()) {
             this.clearHoveredAddPointPreview();
             return;
         }
@@ -15604,7 +15637,7 @@ export class OutlineEditor {
         if (previousPreview !== nextPreview) {
             this.hoveredAddPointPreview = bestPreview;
             this.glyphCanvas.render();
-            if (this.cmdKeyPressed) {
+            if (this.cmdKeyPressed || this.isCutArmed()) {
                 this.notifyEditToolsChanged();
             }
         }
@@ -15750,7 +15783,7 @@ export class OutlineEditor {
         this.notifyEditToolsChanged();
     }
 
-    private async commitHoveredAddPointPreview(): Promise<void> {
+    private async commitHoveredAddPointPreview(): Promise<Point | null> {
         const preview = this.hoveredAddPointPreview;
         const currentLayerData = this.getCurrentLayerDataFromStack();
         const currentLayerModel = this.getCurrentLayerModel();
@@ -15762,12 +15795,12 @@ export class OutlineEditor {
             !currentLayerModel ||
             !currentGlyphModel
         ) {
-            return;
+            return null;
         }
 
         const activePath = currentLayerModel.paths?.[preview.pathIndex];
         if (!activePath) {
-            return;
+            return null;
         }
 
         const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
@@ -15787,7 +15820,7 @@ export class OutlineEditor {
             console.warn(
                 'Cannot add a point because a linked layer has no matching segment.'
             );
-            return;
+            return null;
         }
         const structuralLayerTargets = [currentLayerModel, ...linkedLayers]
             .filter((layerModel) => !!layerModel.id)
@@ -15800,7 +15833,10 @@ export class OutlineEditor {
 
         const _addPtBridge =
             (window as any).patchSyncEngine ?? (window as any).changeBridge;
-        if (_addPtBridge) _addPtBridge.beginTransaction('Add point');
+        const startedAddPointTx = Boolean(
+            _addPtBridge && !_addPtBridge.inTransaction
+        );
+        if (startedAddPointTx) _addPtBridge.beginTransaction('Add point');
         try {
             withSuppressedModelRecording(() => {
                 insertedNodeIndex = activePath._addPoint(
@@ -15842,19 +15878,19 @@ export class OutlineEditor {
                 });
             }
         } finally {
-            if (_addPtBridge) _addPtBridge.endTransaction();
+            if (startedAddPointTx) _addPtBridge.endTransaction();
         }
 
         if (insertedNodeIndex === null) {
-            return;
+            return null;
         }
 
-        this.selectedPoints = [
-            {
-                contourIndex: preview.shapeIndex,
-                nodeIndex: insertedNodeIndex
-            }
-        ];
+        const insertedPoint: Point = {
+            contourIndex: preview.shapeIndex,
+            nodeIndex: insertedNodeIndex
+        };
+
+        this.selectedPoints = [insertedPoint];
         this.selectedAnchors = [];
         this.selectedComponents = [];
         this.selectedGuideHandle = null;
@@ -15876,6 +15912,61 @@ export class OutlineEditor {
                     }
                 })
             );
+        }
+
+        return insertedPoint;
+    }
+
+    private handleCutToolGesture(e: MouseEvent): boolean {
+        const isCutToolClick =
+            this.activeEditTool === 'cut' &&
+            !e.metaKey &&
+            !e.ctrlKey &&
+            !e.altKey &&
+            !e.shiftKey;
+        if (!isCutToolClick) {
+            return false;
+        }
+
+        if (this.isCuttablePoint(this.hoveredPointIndex)) {
+            const cut = this.cutPathAtNode(this.hoveredPointIndex!);
+            if (cut) {
+                this.syncEditToolAvailability();
+            }
+            return cut;
+        }
+
+        if (this.hoveredAddPointPreview) {
+            void this.commitCutAtHoveredAddPointPreview().then(() => {
+                this.syncEditToolAvailability();
+            });
+            return true;
+        }
+
+        return false;
+    }
+
+    private async commitCutAtHoveredAddPointPreview(): Promise<boolean> {
+        if (!this.hoveredAddPointPreview) {
+            return false;
+        }
+
+        const bridge =
+            (window as any).patchSyncEngine ?? (window as any).changeBridge;
+        const startedTx = Boolean(bridge && !bridge.inTransaction);
+        if (startedTx) {
+            bridge.beginTransaction('Cut path');
+        }
+        try {
+            const insertedPoint = await this.commitHoveredAddPointPreview();
+            if (!insertedPoint) {
+                return false;
+            }
+            return this.cutPathAtNode(insertedPoint);
+        } finally {
+            if (startedTx) {
+                bridge.endTransaction();
+            }
         }
     }
 
@@ -17141,7 +17232,11 @@ export class OutlineEditor {
     }
 
     private shouldShowCommandCutCrosshair(): boolean {
-        if (!this.active || !this.cmdKeyPressed || this.isPreviewMode) {
+        if (!this.active || this.isPreviewMode) {
+            return false;
+        }
+
+        if (!this.cmdKeyPressed && !this.isCutArmed()) {
             return false;
         }
 
@@ -17527,7 +17622,10 @@ export class OutlineEditor {
 
         const _openBridge =
             (window as any).patchSyncEngine ?? (window as any).changeBridge;
-        if (_openBridge) _openBridge.beginTransaction('Open path');
+        const startedOpenTx = Boolean(
+            _openBridge && !_openBridge.inTransaction
+        );
+        if (startedOpenTx) _openBridge.beginTransaction('Open path');
         try {
             withSuppressedModelRecording(() => {
                 changed = activePath._openClosedPathAtNode(point.nodeIndex);
@@ -17551,7 +17649,7 @@ export class OutlineEditor {
                 layerTargets: structuralLayerTargets
             });
         } finally {
-            if (_openBridge) _openBridge.endTransaction();
+            if (startedOpenTx) _openBridge.endTransaction();
         }
 
         if (!changed) {
@@ -17598,7 +17696,10 @@ export class OutlineEditor {
 
         const _splitBridge =
             (window as any).patchSyncEngine ?? (window as any).changeBridge;
-        if (_splitBridge) _splitBridge.beginTransaction('Split path');
+        const startedSplitTx = Boolean(
+            _splitBridge && !_splitBridge.inTransaction
+        );
+        if (startedSplitTx) _splitBridge.beginTransaction('Split path');
         try {
             withSuppressedModelRecording(() => {
                 splitResult = currentLayerModel.splitOpenPathAtNode(
@@ -17623,7 +17724,7 @@ export class OutlineEditor {
                 layerTargets: structuralLayerTargets
             });
         } finally {
-            if (_splitBridge) _splitBridge.endTransaction();
+            if (startedSplitTx) _splitBridge.endTransaction();
         }
 
         if (!splitResult) {

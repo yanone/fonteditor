@@ -13,7 +13,8 @@ const TOOL_BUTTON_IDS: Record<EditToolId, string> = {
     select: 'editor-tool-select',
     pen: 'editor-tool-pen',
     insert: 'editor-tool-insert',
-    convert: 'editor-tool-convert'
+    convert: 'editor-tool-convert',
+    cut: 'editor-tool-cut'
 };
 
 function getEmptySnapshot(): EditToolUiSnapshot {
@@ -26,7 +27,8 @@ function getEmptySnapshot(): EditToolUiSnapshot {
             select: false,
             pen: false,
             insert: false,
-            convert: false
+            convert: false,
+            cut: false
         },
         pointerBadge: null
     };

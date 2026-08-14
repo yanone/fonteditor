@@ -11,8 +11,9 @@ Start with the drawing tools in the Editor title bar. Click a tool, then click o
 - **Pen** (`P`) draws a new contour point by point, or continues from a selected open end. Each click places a point. Click the first point to close, or connect to another open end to join two contours. While Pen is active, drawing can continue beyond the current glyph width; nearby glyphs are ignored so they do not steal the gesture.
 - **Insert** (`I`) clicks a segment to add a node. It is enabled when the layer has path segments.
 - **Convert** (`C`) clicks a straight segment to turn it into a curve. It is enabled when the layer has straight segments.
+- **Cut** (toolbar only) clicks an on-curve node to open the contour there. Click a segment to insert a node at that point and cut in the same step. It is enabled when the layer has contours.
 
-Pen only draws. Insert only inserts. Convert only converts. Switch back to Select when you want to move points.
+Pen only draws. Insert only inserts. Convert only converts. Cut only cuts. Switch back to Select when you want to move points.
 
 ## Select, move, and measure
 
@@ -30,15 +31,15 @@ Open contour ends are always corners.
 
 Drawing and dragging snap to on-curve points in the glyph and neighbours, the dragged point’s original position, glyph edges, and vertical metric lines. Two nodes on the same spot get a red circle; inspect whether that overlap is intentional.
 
-A short practice: open `O`, `H`, or `n`; choose Pen; draw a short open contour; continue it and close it; switch to Insert and add a point; switch to Convert and turn a straight into a curve; double-click an on-curve point to toggle smooth.
+A short practice: open `O`, `H`, or `n`; choose Pen; draw a short open contour; continue it and close it; switch to Insert and add a point; switch to Convert and turn a straight into a curve; switch to Cut and open the contour at a node; double-click an on-curve point to toggle smooth.
 
 ## Modifier shortcuts
 
-When the tools feel familiar, you can keep Select active and hold modifiers instead of switching tools. These are the same actions as Pen, Insert, and Convert, without clicking the toolbar.
+When the tools feel familiar, you can keep Select active and hold modifiers instead of switching tools. These are the same actions as Pen, Insert, and Convert, without clicking the toolbar. Cut stays a toolbar tool.
 
-Hold `Cmd/Ctrl` in empty glyph space to draw, or on a selected open end to continue that contour. `Cmd/Ctrl+Click` on a segment inserts a point; on an on-curve point it cuts the contour open. `Alt/Option+Click` on a straight segment converts it to a curve. Drag one open end onto another to join or close.
+Hold `Cmd/Ctrl` in empty glyph space to draw, or on a selected open end to continue that contour. `Cmd/Ctrl+Click` on a segment inserts a point; on an on-curve point it cuts the contour open (the cut badge appears while that node is hovered). `Alt/Option+Click` on a straight segment converts it to a curve. Drag one open end onto another to join or close.
 
-While `Cmd/Ctrl` is held, the toolbar highlights Pen, or Insert when an add-point preview is showing. While `Alt/Option` is held, it highlights Convert. Releasing the modifier returns the highlight to the sticky tool. Sticky Pen, Insert, and Convert stay single-purpose; the `Cmd/Ctrl` hold is what combines draw and insert by hover.
+While `Cmd/Ctrl` is held, the toolbar highlights Pen, or Insert when an add-point preview is showing. While `Alt/Option` is held, it highlights Convert. Releasing the modifier returns the highlight to the sticky tool. Sticky Pen, Insert, Convert, and Cut stay single-purpose; the `Cmd/Ctrl` hold is what combines draw and insert by hover.
 
 Cutting a closed contour creates a new start and end at that point. Cutting an already open contour at another point splits it into two open contours.
 

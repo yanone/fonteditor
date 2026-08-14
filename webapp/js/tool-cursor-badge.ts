@@ -1,4 +1,7 @@
-import { EDIT_TOOL_ICONS } from './glyph-canvas/edit-tools';
+import {
+    EDIT_TOOL_ICONS,
+    type EditToolPointerBadge
+} from './glyph-canvas/edit-tools';
 import { Logger } from './logger';
 
 const console = new Logger('ToolCursorBadge');
@@ -12,7 +15,7 @@ let badgeIconElement: HTMLSpanElement | null = null;
 let pointerTrackingInitialized = false;
 let lastPointerX: number | null = null;
 let lastPointerY: number | null = null;
-let activeBadge: 'insert' | 'convert' | null = null;
+let activeBadge: EditToolPointerBadge | null = null;
 
 function getBadgePosition(): { x: number; y: number } {
     if (!canUseDom) {
@@ -77,7 +80,7 @@ function getOrCreateBadgeElement(): HTMLDivElement {
     return badge;
 }
 
-function showBadge(kind: 'insert' | 'convert'): void {
+function showBadge(kind: EditToolPointerBadge): void {
     if (!canUseDom) {
         return;
     }
@@ -109,7 +112,7 @@ function hideBadge(): void {
     }
 }
 
-export function setToolCursorBadge(kind: 'insert' | 'convert' | null): void {
+export function setToolCursorBadge(kind: EditToolPointerBadge | null): void {
     if (!canUseDom) {
         return;
     }

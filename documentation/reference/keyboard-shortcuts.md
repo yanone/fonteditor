@@ -62,6 +62,7 @@ Each view title bar shows the same shortcut.
 - `P` — draw path (pen)
 - `I` — insert a node on a segment
 - `C` — convert tool
+- Cut has no letter shortcut; choose it in the Editor title bar
 - After the tools feel familiar, hold `Cmd/Ctrl` in empty space to draw a contour, or on a selected open end to continue it (same as Pen / Insert without switching tools)
 - `Cmd/Ctrl+Click` on a segment inserts a point; on an on-curve point it cuts the path open
 - Drag one open end onto another to join or close

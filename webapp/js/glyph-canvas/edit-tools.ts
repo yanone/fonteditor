@@ -2,8 +2,9 @@
  * Edit-tool identifiers and pure helpers for the Editor title-bar tool strip.
  */
 
-export type StickyEditTool = 'select' | 'pen' | 'insert' | 'convert';
+export type StickyEditTool = 'select' | 'pen' | 'insert' | 'convert' | 'cut';
 export type EditToolId = 'text' | StickyEditTool;
+export type EditToolPointerBadge = 'insert' | 'convert' | 'cut';
 
 export type EditToolAvailability = {
     text: true;
@@ -11,6 +12,7 @@ export type EditToolAvailability = {
     pen: boolean;
     insert: boolean;
     convert: boolean;
+    cut: boolean;
 };
 
 export type EditToolUiSnapshot = {
@@ -18,7 +20,7 @@ export type EditToolUiSnapshot = {
     stickyTool: StickyEditTool;
     highlightedTool: EditToolId;
     availability: EditToolAvailability;
-    pointerBadge: 'insert' | 'convert' | null;
+    pointerBadge: EditToolPointerBadge | null;
 };
 
 export const EDIT_TOOL_ICONS: Record<
@@ -29,14 +31,16 @@ export const EDIT_TOOL_ICONS: Record<
     select: 'arrow_selector_tool',
     pen: 'draw',
     insert: 'add',
-    convert: 'gesture'
+    convert: 'gesture',
+    cut: 'content_cut'
 };
 
 export const STICKY_EDIT_TOOLS: StickyEditTool[] = [
     'select',
     'pen',
     'insert',
-    'convert'
+    'convert',
+    'cut'
 ];
 
 export function resolveHighlightedEditTool(options: {
@@ -63,11 +67,26 @@ export function resolveHighlightedEditTool(options: {
 
 export function resolvePointerBadgeTool(
     highlightedTool: EditToolId
-): 'insert' | 'convert' | null {
-    if (highlightedTool === 'insert' || highlightedTool === 'convert') {
+): EditToolPointerBadge | null {
+    if (
+        highlightedTool === 'insert' ||
+        highlightedTool === 'convert' ||
+        highlightedTool === 'cut'
+    ) {
         return highlightedTool;
     }
     return null;
+}
+
+export function resolvePointerBadge(options: {
+    highlightedTool: EditToolId;
+    cmdKeyPressed: boolean;
+    hoveringCuttableNode: boolean;
+}): EditToolPointerBadge | null {
+    if (options.cmdKeyPressed && options.hoveringCuttableNode) {
+        return 'cut';
+    }
+    return resolvePointerBadgeTool(options.highlightedTool);
 }
 
 export function chooseDefaultStickyEditTool(

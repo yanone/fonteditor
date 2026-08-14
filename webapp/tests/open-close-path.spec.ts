@@ -1361,3 +1361,108 @@ test.describe('Open/Close Path across linked masters', () => {
         expect(afterUndoToOriginCompat.compatible).toBe(true);
     });
 });
+
+test.describe('Cut title-bar tool', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/?test=true');
+        await waitForCanvasReady(page);
+        await page.mouse.move(-100, -100);
+        await focusView(page, 'Meta+Shift+E', 'view-editor');
+    });
+
+    test('cuts a node and insert-then-cuts a segment in one transaction', async ({
+        page
+    }) => {
+        await loadTestFont(page);
+        await waitForFontLoaded(page);
+        await waitForBridgeReady(page);
+        await waitForEditingFontCompiled(page);
+        await navigateToGlyphA(page);
+        await selectFirstMasterLayer(page);
+        await waitForOutlineState(page, { closed: true, nodeCount: 4 }, 15000);
+
+        const availability = await page.evaluate(() => {
+            const outlineEditor = (window as any).glyphCanvas.outlineEditor;
+            const cutButton = document.getElementById(
+                'editor-tool-cut'
+            ) as HTMLButtonElement | null;
+            return {
+                cutAvailable: outlineEditor.getEditToolAvailability().cut,
+                cutDisabled: !!cutButton?.disabled
+            };
+        });
+        expect(availability.cutAvailable).toBe(true);
+        expect(availability.cutDisabled).toBe(false);
+
+        const nodeCut = await page.evaluate(() => {
+            const outlineEditor = (window as any).glyphCanvas.outlineEditor;
+            const selected = outlineEditor.setActiveEditTool('cut');
+            const snapshot = outlineEditor.getEditToolUiSnapshot();
+            const opened = outlineEditor.cutPathAtNode({
+                contourIndex: 0,
+                nodeIndex: 2
+            });
+            const path = outlineEditor.getCurrentLayerModel().paths[0];
+            return {
+                selected,
+                highlightedTool: snapshot.highlightedTool,
+                pointerBadge: snapshot.pointerBadge,
+                opened,
+                closed: path.closed,
+                nodeCount: path.nodes.length
+            };
+        });
+        expect(nodeCut.selected).toBe(true);
+        expect(nodeCut.highlightedTool).toBe('cut');
+        expect(nodeCut.pointerBadge).toBe('cut');
+        expect(nodeCut.opened).toBe(true);
+        expect(nodeCut.closed).toBe(false);
+        expect(nodeCut.nodeCount).toBe(5);
+
+        await performUndo(page);
+        await waitForOutlineState(page, { closed: true, nodeCount: 4 }, 15000);
+
+        const segmentCut = await page.evaluate(async () => {
+            const outlineEditor = (window as any).glyphCanvas.outlineEditor;
+            const bridge = (window as any).patchSyncEngine;
+            outlineEditor.setActiveEditTool('cut');
+            outlineEditor.hoveredAddPointPreview = {
+                pathIndex: 0,
+                shapeIndex: 0,
+                segmentId: 0,
+                t: 0.5
+            };
+            const historyBefore = bridge.getChangeLog().length;
+            const cut = await outlineEditor.commitCutAtHoveredAddPointPreview();
+            const path = outlineEditor.getCurrentLayerModel().paths[0];
+            return {
+                cut,
+                closed: path.closed,
+                nodeCount: path.nodes.length,
+                historyDelta: bridge.getChangeLog().length - historyBefore
+            };
+        });
+        expect(segmentCut.cut).toBe(true);
+        expect(segmentCut.closed).toBe(false);
+        expect(segmentCut.nodeCount).toBeGreaterThan(4);
+        expect(segmentCut.historyDelta).toBeGreaterThan(0);
+
+        await performUndo(page);
+        await waitForOutlineState(page, { closed: true, nodeCount: 4 }, 15000);
+
+        const cmdHoverBadge = await page.evaluate(() => {
+            const outlineEditor = (window as any).glyphCanvas.outlineEditor;
+            outlineEditor.setActiveEditTool('select');
+            outlineEditor.hoveredPointIndex = {
+                contourIndex: 0,
+                nodeIndex: 0
+            };
+            outlineEditor.setCommandKeyPressed(true, false);
+            const snapshot = outlineEditor.getEditToolUiSnapshot();
+            outlineEditor.setCommandKeyPressed(false, false);
+            return snapshot;
+        });
+        expect(cmdHoverBadge.highlightedTool).toBe('pen');
+        expect(cmdHoverBadge.pointerBadge).toBe('cut');
+    });
+});
