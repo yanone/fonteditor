@@ -452,6 +452,8 @@ Key globals exposed on `window` (see `js/index.d.ts` for full list):
 
 Treat `APP.md` as the principal authority for application behavior in all implementation decisions.
 
+When writing user handbook pages in `documentation/`, always spell modifiers as `Cmd/Ctrl` and `Alt/Option`. The in-app Docs viewer reduces those tokens to the current OS (Cmd/Option on macOS, Ctrl/Alt elsewhere). Do not write platform-only modifier names in the source markdown.
+
 When introducing, removing, renaming, or changing emitted JavaScript events, regenerate `developer-docs/JS_EVENTS.md` using `node generate-js-event-docs.mjs` (from repo root) so the event reference stays current.
 
 When changing the glyph filter event registry, regenerate `developer-docs/GLYPH_FILTER_EVENTS.md` using `node generate-glyph-filter-event-docs.mjs` (from repo root) so the event reference stays current.

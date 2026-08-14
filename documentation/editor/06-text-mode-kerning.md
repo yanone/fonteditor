@@ -33,6 +33,6 @@ Arrow nudges and field arrows update the active pair immediately, then commit af
 - add Shift for 10
 - add `Cmd/Ctrl` with Shift for 100
 
-A practical loop: type a short proof, put the caret in the pair, check whether it is a glyph or group pair, switch chips if needed, nudge with Alt+Arrow, and add a group only when that side has none yet.
+A practical loop: type a short proof, put the caret in the pair, check whether it is a glyph or group pair, switch chips if needed, nudge with Alt/Option+Arrow, and add a group only when that side has none yet.
 
 Related: [Glyph editor](01-glyph-editor.md), [Sidebearing arithmetics](04-sidebearing-arithmetics.md), [Keyboard shortcuts](../reference/keyboard-shortcuts.md).

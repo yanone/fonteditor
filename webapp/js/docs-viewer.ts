@@ -46,8 +46,11 @@ function usesCommandModifier(): boolean {
 }
 
 function localizeModifierNotation(markdown: string): string {
-    const modifier = usesCommandModifier() ? 'Cmd' : 'Ctrl';
-    return markdown.replaceAll('Cmd/Ctrl', modifier);
+    const command = usesCommandModifier() ? 'Cmd' : 'Ctrl';
+    const option = usesCommandModifier() ? 'Option' : 'Alt';
+    return markdown
+        .replaceAll('Cmd/Ctrl', command)
+        .replaceAll('Alt/Option', option);
 }
 
 function flattenPages(

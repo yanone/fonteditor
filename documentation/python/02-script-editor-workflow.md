@@ -2,7 +2,7 @@
 
 The Scripts view is where one-off experiments become reusable procedures. Encode intent once and run it with consistency, instead of repeating the same manual action across many glyphs.
 
-Write a small read-only report first. Run it with `Cmd/Ctrl+Alt+R` and read the output. Check the Editor or Overview if the script should have changed outlines. Save the font before a script that modifies data. Keep one purpose per file, and keep versions if you are iterating on a destructive approach.
+Write a small read-only report first. Run it with `Cmd/Ctrl+Alt/Option+R` and read the output. Check the Editor or Overview if the script should have changed outlines. Save the font before a script that modifies data. Keep one purpose per file, and keep versions if you are iterating on a destructive approach.
 
 `print()` counts, skips, and errors so you can see what happened. File headers (title, description, `Keywords:`) appear in the Run Python Script dialog.
 

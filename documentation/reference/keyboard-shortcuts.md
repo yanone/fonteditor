@@ -1,6 +1,6 @@
 # Keyboard shortcuts
 
-Shortcuts cut friction when you move between drawing, overview, scripting, and the assistant. Learn a small core set first. Some commands only work when that view is focused. macOS uses Cmd. Windows and Linux use Ctrl.
+Shortcuts cut friction when you move between drawing, overview, scripting, and the assistant. Learn a small core set first. Some commands only work when that view is focused. macOS uses Cmd and Option. Windows and Linux use Ctrl and Alt.
 
 ## Views
 
@@ -29,10 +29,10 @@ Each view title bar shows the same shortcut.
 
 ## Scripts, Konsole, and Ace
 
-- `Cmd/Ctrl+Alt+R` — run the current script
+- `Cmd/Ctrl+Alt/Option+R` — run the current script
 - `Cmd/Ctrl+K` — clear Konsole
 - `Cmd/Ctrl+Z` / `Cmd/Ctrl+Shift+Z` — undo / redo font history for Python and assistant edits while Scripts, Konsole, or Assistant is focused
-- `Cmd/Ctrl+Alt+Z` / `Cmd/Ctrl+Alt+Shift+Z` — undo / redo text inside the Script Editor or Features Ace buffer
+- `Cmd/Ctrl+Alt/Option+Z` / `Cmd/Ctrl+Alt/Option+Shift+Z` — undo / redo text inside the Script Editor or Features Ace buffer
 
 ## Editor
 
@@ -53,7 +53,7 @@ Each view title bar shows the same shortcut.
 - `Cmd/Ctrl+A` — select all objects on the current layer
 - `Cmd/Ctrl+B` — copy the selection to the paired (background) layer
 - `Cmd/Ctrl+Shift+B` — toggle editing the background layer
-- `Cmd/Ctrl+Alt+B` — show or hide the paired layer
+- `Cmd/Ctrl+Alt/Option+B` — show or hide the paired layer
 - Arrow keys — nudge selected objects (`Shift` for 10×)
 - `Space` — preview outline fill (grab cursor; drag to pan)
 - `Tab` — measurement tool; click and drag for a custom line

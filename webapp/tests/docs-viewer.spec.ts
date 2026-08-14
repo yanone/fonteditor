@@ -120,7 +120,7 @@ test('Script editor docs heading does not steal the Ace editor id', async ({
     await expect(page.locator('#docs-article h1 .ace_gutter')).toHaveCount(0);
 });
 
-test('Docs show Cmd or Ctrl for the current OS, not Cmd/Ctrl', async ({
+test('Docs show OS-specific modifiers, not Cmd/Ctrl or Alt/Option', async ({
     page
 }) => {
     await page.goto('/?test=true');
@@ -133,6 +133,7 @@ test('Docs show Cmd or Ctrl for the current OS, not Cmd/Ctrl', async ({
     const article = page.locator('#docs-article');
     await expect(article).toHaveText(/Keyboard shortcuts/);
     await expect(article).not.toContainText('Cmd/Ctrl');
+    await expect(article).not.toContainText('Alt/Option');
 
     const usesCommand = await page.evaluate(() =>
         navigator.platform.toUpperCase().includes('MAC')
@@ -140,8 +141,16 @@ test('Docs show Cmd or Ctrl for the current OS, not Cmd/Ctrl', async ({
     if (usesCommand) {
         await expect(article).toContainText('Cmd+Shift+E');
         await expect(article).not.toContainText('Ctrl+Shift+E');
+        await expect(article).toContainText('Option+Click');
+        await expect(article).toContainText('Cmd+Option+R');
+        await expect(article).not.toContainText('Alt+Click');
+        await expect(article).not.toContainText('Ctrl+Alt+R');
     } else {
         await expect(article).toContainText('Ctrl+Shift+E');
         await expect(article).not.toContainText('Cmd+Shift+E');
+        await expect(article).toContainText('Alt+Click');
+        await expect(article).toContainText('Ctrl+Alt+R');
+        await expect(article).not.toContainText('Option+Click');
+        await expect(article).not.toContainText('Cmd+Option+R');
     }
 });

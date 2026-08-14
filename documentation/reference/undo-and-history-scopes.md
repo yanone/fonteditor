@@ -34,7 +34,7 @@ Canvas undo keys off where the forward edit **started**, not every layer touched
 In the Script Editor and Features Ace editors:
 
 - `Cmd/Ctrl+Z` / `Cmd/Ctrl+Shift+Z` undo and redo **font history** for the current undo surface
-- `Cmd/Ctrl+Alt+Z` / `Cmd/Ctrl+Alt+Shift+Z` undo and redo **text** inside the Ace buffer
+- `Cmd/Ctrl+Alt/Option+Z` / `Cmd/Ctrl+Alt/Option+Shift+Z` undo and redo **text** inside the Ace buffer
 
 While Scripts, Konsole, or Assistant is focused, the same font-history shortcuts apply even when the caret is in the prompt or terminal.
 
