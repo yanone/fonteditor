@@ -18,6 +18,7 @@ import { fromYType } from './change-bridge-ydoc';
 import { Font } from './babelfont-model';
 import { WindowSync } from './window-sync';
 import { fontCompilation, fullFontCompilation } from './font-compilation';
+import { timelineSpanEnd, timelineSpanStart } from './perf-timeline';
 import { Logger } from './logger';
 import { processCommittedEdit } from './compiled-edit-funnel';
 import {
@@ -3130,12 +3131,14 @@ function initializeBridge(detail: {
         }
     } else {
         // Primary window: populate Y.Doc from loaded font data.
+        const initJsonSpanId = timelineSpanStart('font.bridge.initFromJson');
         bridge.initFromJson(
             detail.babelfontData as Record<
                 string,
                 ReturnType<typeof JSON.parse>
             >
         );
+        timelineSpanEnd(initJsonSpanId);
     }
 
     // ── Wire Yjs updates → Rust compilation worker ───────────────────────

@@ -34,19 +34,22 @@ async function initPyodideConsole() {
     }
 
     try {
-        // Load Pyodide
         const loadPyodideSpanId = timelineSpanStart('python.loadPyodide');
-        pyodide = await loadPyodide({
-            stdin: () => {
-                let result = prompt();
-                echo(result ?? '');
-                return result;
-            }
-        });
+        pyodide = window.pyodide
+            ? window.pyodide
+            : await (window.__pyodideLoadPromise ||
+                  loadPyodide({
+                      stdin: () => {
+                          let result = prompt();
+                          echo(result ?? '');
+                          return result;
+                      }
+                  }));
         timelineSpanEnd(loadPyodideSpanId);
-        timelineMark('python.pyodideReady');
+        if (!performance.getEntriesByName('cp:python.pyodideReady').length) {
+            timelineMark('python.pyodideReady');
+        }
 
-        // Make pyodide globally available
         window.pyodide = pyodide;
         (globalThis as any).pyodide = pyodide;
 

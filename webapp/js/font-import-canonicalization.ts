@@ -123,10 +123,13 @@ function normalizeImportedLayerMasters(fontData: Babelfont.Font): void {
  * source data. Both initial open and hot reload must enter through this function.
  */
 export function canonicalizeImportedFontData(
-    sourceFontData: Babelfont.Font
+    sourceFontData: Babelfont.Font,
+    options?: { clone?: boolean }
 ): CanonicalImportedFont {
-    const fontData = JSON.parse(
-        JSON.stringify(sourceFontData)
+    const fontData = (
+        options?.clone === false
+            ? sourceFontData
+            : JSON.parse(JSON.stringify(sourceFontData))
     ) as Babelfont.Font;
     const fontRecord = fontData as unknown as JsonRecord;
     fontRecord.glyphs = Array.isArray(fontRecord.glyphs)
@@ -156,6 +159,7 @@ export function canonicalizeImportedFontJson(
     sourceBabelfontJson: string
 ): CanonicalImportedFont {
     return canonicalizeImportedFontData(
-        JSON.parse(sourceBabelfontJson) as Babelfont.Font
+        JSON.parse(sourceBabelfontJson) as Babelfont.Font,
+        { clone: false }
     );
 }

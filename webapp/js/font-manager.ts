@@ -1872,6 +1872,9 @@ class FontManager {
     ) {
         this.resetStateForNewFont();
 
+        const canonicalizeSpanId = timelineSpanStart(
+            'font.loadFont.canonicalize'
+        );
         let newFont = new OpenedFont(
             babelfontJson,
             path,
@@ -1879,10 +1882,10 @@ class FontManager {
             fileHandle,
             directoryHandle
         );
+        timelineSpanEnd(canonicalizeSpanId);
         let newid = `font-${Date.now()}`;
         this.openedFonts.set(newid, newFont);
         this.currentFontId = newid;
-        this.bootstrapWorkerYjsMirrorFromCurrentFont();
         window.currentFontModel = newFont.fontModel;
 
         this.editingFont = null;

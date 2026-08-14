@@ -316,17 +316,21 @@ async function initFontEditor() {
 // Initialize FontEditor when Pyodide is ready
 document.addEventListener('DOMContentLoaded', () => {
     timelineMark('python.waitForPyodide.started');
-    const checkPyodide = () => {
-        if (window.pyodide) {
-            timelineMark('python.waitForPyodide.available');
-            initFontEditor();
-        } else {
-            timelineMark('python.waitForPyodide.pollMiss');
-            setTimeout(checkPyodide, 500);
+    const waitThenInit = async () => {
+        if (!window.pyodide) {
+            if (window.__pyodideLoadPromise) {
+                await window.__pyodideLoadPromise;
+            } else {
+                while (!window.pyodide) {
+                    timelineMark('python.waitForPyodide.pollMiss');
+                    await new Promise((resolve) => setTimeout(resolve, 100));
+                }
+            }
         }
+        timelineMark('python.waitForPyodide.available');
+        await initFontEditor();
     };
-
-    checkPyodide();
+    void waitThenInit();
 });
 
 // Export for manual initialization if needed

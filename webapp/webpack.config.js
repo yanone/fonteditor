@@ -78,8 +78,10 @@ const BUILD_HASH_FULL = resolveGitCommit();
 const BUILD_HASH_SHORT =
     process.env.BUILD_HASH_SHORT || BUILD_HASH_FULL.substring(0, 12);
 
+const isProductionBuild = process.env.NODE_ENV === 'production';
+
 module.exports = {
-    mode: 'development',
+    mode: isProductionBuild ? 'production' : 'development',
     devtool: 'source-map',
     entry: {
         'bootstrap': './js/bootstrap.ts',

@@ -29,7 +29,7 @@
         "glyph-data": "python3 scripts/build-glyph-data.py",
         "ensure:local-https": "node scripts/ensure-local-https.cjs",
         "dev": "npm run ensure:local-https && npm run tokens && webpack serve",
-        "build": "npm run tokens && webpack",
+        "build": "npm run tokens && NODE_ENV=production webpack",
         "serve": "npm run ensure:local-https && npm run tokens && webpack serve --mode development",
         "serve:ci": "npx http-server build -p 9000"
     },

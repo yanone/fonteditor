@@ -1721,25 +1721,9 @@ async function openFont(
         }
 
         const pythonReadySpan = timelineSpanStart('font.open.waitForPython');
-        try {
-            await waitForPythonEnvironmentReady();
-        } finally {
+        const pythonReady = waitForPythonEnvironmentReady().finally(() => {
             timelineSpanEnd(pythonReadySpan);
-        }
-
-        if (await sourcePlugin.handleOpenPath(path)) {
-            const normalizedPath =
-                sourcePluginId === 'cloud' && path.startsWith('cloud://')
-                    ? path.slice('cloud://'.length)
-                    : path;
-            const fileUri = createFileUri(sourcePluginId, normalizedPath);
-            syncEditorFileState(fileUri, 'file_opened');
-            if (options.closeDialogOnSuccess) {
-                closeFontFileDialog();
-            }
-            timelineSpanEnd(openSpan);
-            return;
-        }
+        });
 
         const startTime = performance.now();
         console.log('[FileBrowser]', `Opening font: ${path}`);
@@ -1851,6 +1835,22 @@ async function openFont(
         } else {
             // For .babelfont files, use contents directly (already a string)
             babelfontJson = contents as string;
+        }
+
+        await pythonReady;
+
+        if (await sourcePlugin.handleOpenPath(path)) {
+            const normalizedPath =
+                sourcePluginId === 'cloud' && path.startsWith('cloud://')
+                    ? path.slice('cloud://'.length)
+                    : path;
+            const fileUri = createFileUri(sourcePluginId, normalizedPath);
+            syncEditorFileState(fileUri, 'file_opened');
+            if (options.closeDialogOnSuccess) {
+                closeFontFileDialog();
+            }
+            timelineSpanEnd(openSpan);
+            return;
         }
 
         const endTime = performance.now();
