@@ -1280,6 +1280,7 @@ export class TextRunEditor {
     }
 
     reshapeAndRender(cursorMoveReason?: 'backspace') {
+        this.call('willreshape');
         console.log('New cursor position:', this.cursorPosition);
         console.log('New text:', this.textBuffer);
 
@@ -2005,6 +2006,7 @@ export class TextRunEditor {
         skipRender: boolean = false,
         variationLocation?: UserspaceLocation
     ) {
+        this.call('willreshape');
         if (!this.textBuffer) {
             this.shapedGlyphs = [];
             this.bidiRuns = [];

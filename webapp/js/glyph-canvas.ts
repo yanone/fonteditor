@@ -10,6 +10,10 @@ import { FeaturesManager } from './glyph-canvas/features';
 import { TextRunEditor } from './glyph-canvas/textrun';
 import { ViewportManager } from './glyph-canvas/viewport';
 import { GlyphCanvasRenderer } from './glyph-canvas/renderer';
+import {
+    FeatureChangeAnimator,
+    snapshotShapedRun
+} from './glyph-canvas/feature-change-animator';
 import { MeasurementTool } from './glyph-canvas/measurement-tool';
 import { StackPreviewAnimator } from './glyph-canvas/stack-preview-animator';
 import { get_glyph_name } from '../wasm-dist/babelfont_fontc_web';
@@ -419,6 +423,7 @@ class GlyphCanvas {
     featuresManager: FeaturesManager | null = null;
     textRunEditor: TextRunEditor | null = null;
     renderer: GlyphCanvasRenderer | null = null;
+    featureChangeAnimator: FeatureChangeAnimator | null = null;
 
     initialScale: number = 0.2;
     viewportManager: ViewportManager | null = null;
@@ -896,6 +901,11 @@ class GlyphCanvas {
             this.featuresManager,
             this.axesManager
         );
+        this.featureChangeAnimator = new FeatureChangeAnimator(() => {
+            if (this.renderer) {
+                this.render();
+            }
+        });
 
         this.init();
     }
@@ -1560,6 +1570,13 @@ class GlyphCanvas {
                 '[GlyphCanvas]',
                 'Re-running Stage 2 with updated features (no font recompilation needed)'
             );
+            const textRun = this.textRunEditor!;
+            const fromSelectedIndex = textRun.selectedGlyphIndex;
+            const fromSnapshot = snapshotShapedRun(
+                textRun.shapedGlyphs,
+                textRun.glyphNameBuffer
+            );
+
             this.textRunEditor!.shapeStage2WithBiDiRuns();
 
             // Build cluster map and update cursor position
@@ -1567,20 +1584,33 @@ class GlyphCanvas {
             this.textRunEditor!.updateCursorVisualPosition();
 
             if (this.outlineEditor.active) {
-                const textRun = this.textRunEditor!;
                 if (textRun.selectedGlyphIndex >= textRun.shapedGlyphs.length) {
                     textRun.selectedGlyphIndex = Math.max(
                         0,
                         textRun.shapedGlyphs.length - 1
                     );
                 }
-                // Follow the shaped substitution (ss01, liga, …). Compiled
-                // *.VAR.* names still resolve to their source glyph; this must
-                // not keep the previous stack root when GSUB replaced it.
                 await this.syncEditModeGlyphAfterTextMutation();
+            }
+
+            this.featureChangeAnimator?.begin(
+                fromSnapshot,
+                snapshotShapedRun(
+                    textRun.shapedGlyphs,
+                    textRun.glyphNameBuffer
+                ),
+                {
+                    fromSelectedIndex,
+                    toSelectedIndex: textRun.selectedGlyphIndex,
+                    editMode:
+                        this.outlineEditor.active &&
+                        !this.outlineEditor.isPreviewMode
+                }
+            );
+
+            if (this.outlineEditor.active) {
                 this.render();
             } else {
-                // Text mode: apply auto-pan to keep cursor centered and render
                 this.applyTextModeAutoPanAdjustment();
                 this.textModeAutoPanAnchorScreen = null;
                 this.render();
@@ -2033,6 +2063,9 @@ class GlyphCanvas {
     }
 
     setupTextEditorEventHandlers(): void {
+        this.textRunEditor!.on('willreshape', () => {
+            this.featureChangeAnimator?.cancel();
+        });
         this.textRunEditor!.on('cursormoved', (reason?: string) => {
             this.updatePropertyPanel();
             this.panToCursor(reason === 'backspace');
@@ -2109,6 +2142,7 @@ class GlyphCanvas {
                 previousIndex: number,
                 fromKeyboard: boolean = false
             ) => {
+                this.featureChangeAnimator?.cancel();
                 const wasInEditMode = this.outlineEditor.active;
 
                 // Increment sequence counter to track this selection
@@ -2208,6 +2242,11 @@ class GlyphCanvas {
         // Start each pointer gesture from a clean pan state. Mouseup can be
         // missed when a previous pan leaves the canvas/window.
         this.isDraggingCanvas = false;
+
+        if (this.featureChangeAnimator?.isActive()) {
+            this.featureChangeAnimator.cancel();
+            this.render();
+        }
 
         // Focus the canvas when clicked
         this.canvas!.focus();
@@ -10211,6 +10250,7 @@ class GlyphCanvas {
     }
 
     destroy(): void {
+        this.featureChangeAnimator?.cancel();
         window.removeEventListener(
             'layerFingerprintChanged',
             this.handleLayerFingerprintChanged
