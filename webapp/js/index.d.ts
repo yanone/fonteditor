@@ -90,6 +90,8 @@ declare global {
         opentype: any; // OpenType.js
         pyodide: any; // Pyodide
         __pyodideLoadPromise?: Promise<any>;
+        __pyodideLoadStarted?: boolean;
+        __startPyodideLoad?: () => void;
         createHarfBuzz: any; // HarfBuzz.js
         hbjs: any; // HarfBuzz.js
         hbInit: () => Promise<void>; // HarfBuzz.js

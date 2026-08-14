@@ -110,37 +110,45 @@
             href="css/file-dialog.css"
             id="file-dialog-css"
         />
-        <link
-            rel="preload"
-            href="https://cdn.jsdelivr.net/pyodide/v0.29.0/full/pyodide.asm.wasm"
-            as="fetch"
-            crossorigin="anonymous"
-        />
-        <link
-            rel="preload"
-            href="https://cdn.jsdelivr.net/pyodide/v0.29.0/full/python_stdlib.zip"
-            as="fetch"
-            crossorigin="anonymous"
-        />
-        <link
-            rel="preload"
-            href="https://cdn.jsdelivr.net/pyodide/v0.29.0/full/pyodide.asm.js"
-            as="script"
-            crossorigin="anonymous"
-        />
         <script src="https://cdn.jsdelivr.net/pyodide/v0.29.0/full/pyodide.js"></script>
         <script>
-            performance.mark('cp:python.loadPyodide.requested');
-            window.__pyodideLoadPromise = loadPyodide()
-                .then(function (pyodide) {
-                    window.pyodide = pyodide;
-                    performance.mark('cp:python.pyodideReady');
-                    return pyodide;
-                })
-                .catch(function (error) {
-                    console.error('[Init] Early Pyodide load failed:', error);
-                    throw error;
-                });
+            window.__pyodideLoadPromise = new Promise(function (
+                resolve,
+                reject
+            ) {
+                function startPyodideLoad() {
+                    if (window.__pyodideLoadStarted) {
+                        return;
+                    }
+                    window.__pyodideLoadStarted = true;
+                    performance.mark('cp:python.loadPyodide.requested');
+                    loadPyodide()
+                        .then(function (pyodide) {
+                            window.pyodide = pyodide;
+                            performance.mark('cp:python.pyodideReady');
+                            resolve(pyodide);
+                        })
+                        .catch(function (error) {
+                            console.error('[Init] Pyodide load failed:', error);
+                            reject(error);
+                        });
+                }
+
+                function afterFirstPaint(callback) {
+                    requestAnimationFrame(function () {
+                        requestAnimationFrame(function () {
+                            setTimeout(callback, 0);
+                        });
+                    });
+                }
+
+                window.__startPyodideLoad = function () {
+                    afterFirstPaint(function () {
+                        performance.mark('cp:app.afterFirstPaint');
+                        startPyodideLoad();
+                    });
+                };
+            });
         </script>
         <script src="https://cdn.jsdelivr.net/npm/jquery"></script>
         <script src="https://cdn.jsdelivr.net/npm/jquery.terminal@2.42.0/js/jquery.terminal.min.js"></script>
@@ -464,6 +472,11 @@
             </div>
             <div id="loading-status" class="loading-status"></div>
         </div>
+        <script>
+            if (typeof window.__startPyodideLoad === 'function') {
+                window.__startPyodideLoad();
+            }
+        </script>
 
         <div class="app-shell" id="app-shell">
             <div

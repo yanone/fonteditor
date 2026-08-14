@@ -4,6 +4,7 @@ import {
     Font,
     withSuppressedModelRecording
 } from './babelfont-model';
+import { timelineSpanEnd, timelineSpanStart } from './perf-timeline';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -139,18 +140,36 @@ export function canonicalizeImportedFontData(
         ? fontRecord.masters
         : [];
     fontRecord.axes = Array.isArray(fontRecord.axes) ? fontRecord.axes : [];
+    const stableIdsSpan = timelineSpanStart(
+        'font.canonicalize.ensureStableIds'
+    );
     ensureStableIds(fontRecord);
+    timelineSpanEnd(stableIdsSpan);
+    const mastersSpan = timelineSpanStart(
+        'font.canonicalize.normalizeLayerMasters'
+    );
     normalizeImportedLayerMasters(fontData);
+    timelineSpanEnd(mastersSpan);
 
+    const fromDataSpan = timelineSpanStart('font.canonicalize.fromData');
     const fontModel = Font.fromData(fontData);
+    timelineSpanEnd(fromDataSpan);
+    const metricsSpan = timelineSpanStart(
+        'font.canonicalize.recomputeMetricsKeys'
+    );
     withSuppressedModelRecording(() => {
         fontModel.recomputeMetricsKeys();
     });
+    timelineSpanEnd(metricsSpan);
+
+    const jsonSpan = timelineSpanStart('font.canonicalize.toJSONString');
+    const babelfontJson = fontModel.toJSONString({ compileFacing: false });
+    timelineSpanEnd(jsonSpan);
 
     return {
         fontData,
         fontModel,
-        babelfontJson: fontModel.toJSONString({ compileFacing: false })
+        babelfontJson
     };
 }
 

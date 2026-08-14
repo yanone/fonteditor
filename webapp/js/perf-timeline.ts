@@ -200,6 +200,7 @@ const CODE_LOADING_MARK_PREFIXES = [
     'cp:app.html.',
     'cp:app.head',
     'cp:app.body',
+    'cp:app.afterFirstPaint',
     'cp:app.bootstrap.',
     'cp:app.domContentLoaded',
     'cp:python.'

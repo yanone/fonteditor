@@ -690,7 +690,20 @@ let resolveFileBrowserReady: (() => void) | null = null;
 const fileBrowserReadyPromise = new Promise<void>((resolve) => {
     resolveFileBrowserReady = resolve;
 });
+let memoryFilesystemReadyPromise: Promise<void> | null = null;
 const PYTHON_READY_POLL_INTERVAL_MS = 100;
+
+async function ensureMemoryFilesystemReady(): Promise<void> {
+    if (!memoryFilesystemReadyPromise) {
+        memoryFilesystemReadyPromise = (async () => {
+            const memoryPlugin = pluginRegistry.get('memory');
+            if (memoryPlugin) {
+                await memoryPlugin.getAdapter().createFolder('/user');
+            }
+        })();
+    }
+    await memoryFilesystemReadyPromise;
+}
 
 function markFileBrowserReady(): void {
     if (fileBrowserReady) {
@@ -1643,6 +1656,62 @@ function hideLoadingOverlayForUrlOpen(): void {
     }
 
     loadingOverlay.classList.add('hidden');
+}
+
+function hasPendingPwaLaunchFiles(): boolean {
+    const pending = (window as any).__pendingLaunchFileHandles;
+    return Array.isArray(pending) && pending.length > 0;
+}
+
+async function revealUrlOpenedFontInFileBrowser(
+    fontPath: string
+): Promise<void> {
+    await waitForFileBrowserReady();
+    await switchContext('memory');
+    const dirPath = fontPath.substring(0, fontPath.lastIndexOf('/')) || '/';
+    try {
+        await navigateToPath(dirPath);
+    } catch (navError) {
+        console.error(
+            '[FileBrowser]',
+            `Cannot navigate to directory: ${dirPath}`,
+            navError
+        );
+    }
+    updateHomeButtonVisibility();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const fileTree = document.getElementById('file-tree');
+    const currentFontItem = fileTree?.querySelector('.file-item.current-font');
+    if (currentFontItem) {
+        (currentFontItem as HTMLElement).scrollIntoView({
+            block: 'center',
+            behavior: 'auto'
+        });
+    }
+}
+
+async function openMemoryUrlFont(fontPath: string): Promise<void> {
+    timelineMark('app.startupMemoryUrlOpen.started');
+    await ensureMemoryFilesystemReady();
+    const memoryPlugin = pluginRegistry.get('memory');
+    if (!memoryPlugin || !memoryPlugin.isVisibleInUI()) {
+        throw new Error('Memory plugin is not available');
+    }
+
+    const urlOpenReadyPromise = waitForUrlOpenFontReady(fontPath);
+    await openFont(fontPath, undefined, {
+        sourcePluginOverride: memoryPlugin
+    });
+    await urlOpenReadyPromise;
+    timelineMark('app.startupMemoryUrlOpen.ready');
+    updateHomeButtonVisibility();
+    void revealUrlOpenedFontInFileBrowser(fontPath).catch((error) => {
+        console.error(
+            '[FileBrowser]',
+            'Failed to reveal URL-opened memory font in file browser:',
+            error
+        );
+    });
 }
 
 function waitForUrlOpenFontReady(fontPath: string): Promise<void> {
@@ -3697,10 +3766,7 @@ async function initFileBrowser() {
         }
 
         // Create /user folder in memory context if it doesn't exist
-        const memoryPlugin = pluginRegistry.get('memory');
-        if (memoryPlugin) {
-            await memoryPlugin.getAdapter().createFolder('/user');
-        }
+        await ensureMemoryFilesystemReady();
 
         initFileDialogModal();
 
@@ -3976,6 +4042,31 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         try {
+            if (
+                pluginId === 'memory' &&
+                fontPath &&
+                !hasPendingPwaLaunchFiles()
+            ) {
+                try {
+                    await openMemoryUrlFont(fontPath);
+                    if (window.fontManager?.currentFont) {
+                        return;
+                    }
+                } catch (error: any) {
+                    const errorMessage = error?.message || String(error);
+                    alert(`Error opening file from URL:\n\n${errorMessage}`);
+                    console.error(
+                        '[FileBrowser]',
+                        'Failed to open memory font from URL params:',
+                        error
+                    );
+                    await openDefaultEmptyFont(
+                        'URL font inaccessible; opening empty untitled font'
+                    );
+                    return;
+                }
+            }
+
             await waitForFileBrowserReady();
             await processPendingPwaLaunchFiles();
 
