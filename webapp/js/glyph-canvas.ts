@@ -7969,15 +7969,8 @@ class GlyphCanvas {
                 const caretFontX = Number.isFinite(this.textRunEditor.cursorX)
                     ? this.textRunEditor.cursorX
                     : context.secondCluster.x + context.secondCluster.width;
-                baselineDxByGlyphIndex = {};
-                for (const index of this.getGlyphIndicesVisuallyLeftOfCaret(
-                    caretFontX
-                )) {
-                    const leftGlyph = this.textRunEditor.shapedGlyphs[index];
-                    if (leftGlyph) {
-                        baselineDxByGlyphIndex[index] = leftGlyph.dx || 0;
-                    }
-                }
+                baselineDxByGlyphIndex =
+                    this.captureTextModeKerningPreviewRtlBaselines(caretFontX);
             }
             pending = {
                 masterId: context.master.id,
@@ -7993,23 +7986,8 @@ class GlyphCanvas {
             this.pendingTextModeKerningPreview = pending;
         }
 
-        const delta = (previewValue ?? 0) - pending!.baselineValue;
-        if (context.isRTL && pending!.baselineDxByGlyphIndex) {
-            // Left of caret moves; right of caret stays put.
-            const shift = -delta;
-            for (const [indexText, baselineDx] of Object.entries(
-                pending!.baselineDxByGlyphIndex
-            )) {
-                const leftGlyph =
-                    this.textRunEditor.shapedGlyphs[Number(indexText)];
-                if (leftGlyph) {
-                    leftGlyph.dx = baselineDx + shift;
-                }
-            }
-        } else {
-            glyph.ax = pending!.baselineAx + delta;
-        }
         pending!.previewValue = previewValue;
+        this.applyPendingTextModeKerningPreviewDelta();
 
         this.textModeKerningDraftPairKey = getTextModeKerningPairKey(
             context.selectedFirstKey,
@@ -8027,6 +8005,97 @@ class GlyphCanvas {
         this.textRunEditor.updateCursorVisualPosition();
         this.invalidateTextModeKerningOverlayCache();
         this.render();
+    }
+
+    private captureTextModeKerningPreviewRtlBaselines(
+        caretFontX: number
+    ): Record<number, number> {
+        const baselineDxByGlyphIndex: Record<number, number> = {};
+        const shapedGlyphs = this.textRunEditor?.shapedGlyphs;
+        if (!shapedGlyphs) {
+            return baselineDxByGlyphIndex;
+        }
+
+        for (const index of this.getGlyphIndicesVisuallyLeftOfCaret(
+            caretFontX
+        )) {
+            const leftGlyph = shapedGlyphs[index];
+            if (leftGlyph) {
+                baselineDxByGlyphIndex[index] = leftGlyph.dx || 0;
+            }
+        }
+        return baselineDxByGlyphIndex;
+    }
+
+    private recaptureTextModeKerningPreviewBaselines(
+        pending: PendingTextModeKerningPreview
+    ): boolean {
+        const textRunEditor = this.textRunEditor;
+        const shapedGlyphs = textRunEditor?.shapedGlyphs;
+        if (!textRunEditor || !shapedGlyphs) {
+            return false;
+        }
+
+        const glyph = shapedGlyphs[pending.glyphIndex];
+        if (!glyph) {
+            return false;
+        }
+
+        const master = this.getSelectedTextModeKerningMaster();
+        if (!master || master.id !== pending.masterId) {
+            return false;
+        }
+
+        pending.baselineValue =
+            getKerningPairValue(
+                (pending.isRTL ? master.kerning_rtl : master.kerning) as
+                    KerningContainer | undefined,
+                pending.firstKey,
+                pending.secondKey
+            ) ?? 0;
+        pending.baselineAx = glyph.ax || 0;
+
+        if (pending.isRTL) {
+            const context = this.getCurrentTextModeKerningContext();
+            const caretFontX = Number.isFinite(textRunEditor.cursorX)
+                ? textRunEditor.cursorX
+                : context.secondCluster
+                  ? context.secondCluster.x + context.secondCluster.width
+                  : 0;
+            pending.baselineDxByGlyphIndex =
+                this.captureTextModeKerningPreviewRtlBaselines(caretFontX);
+        } else {
+            pending.baselineDxByGlyphIndex = null;
+        }
+
+        return true;
+    }
+
+    private applyPendingTextModeKerningPreviewDelta(): void {
+        const pending = this.pendingTextModeKerningPreview;
+        const shapedGlyphs = this.textRunEditor?.shapedGlyphs;
+        if (!pending || !shapedGlyphs) {
+            return;
+        }
+
+        const delta = (pending.previewValue ?? 0) - pending.baselineValue;
+        if (pending.isRTL && pending.baselineDxByGlyphIndex) {
+            const shift = -delta;
+            for (const [indexText, baselineDx] of Object.entries(
+                pending.baselineDxByGlyphIndex
+            )) {
+                const leftGlyph = shapedGlyphs[Number(indexText)];
+                if (leftGlyph) {
+                    leftGlyph.dx = baselineDx + shift;
+                }
+            }
+            return;
+        }
+
+        const glyph = shapedGlyphs[pending.glyphIndex];
+        if (glyph) {
+            glyph.ax = pending.baselineAx + delta;
+        }
     }
 
     private scheduleTextModeKerningPreviewCommit(): void {
@@ -8063,7 +8132,9 @@ class GlyphCanvas {
                 pending.secondKey
             ) ?? null;
         if (committedValue === pending.previewValue) {
-            this.pendingTextModeKerningPreview = null;
+            // Keep the live preview object so a later nudge on the same
+            // pair reuses the original shaped baseline instead of
+            // recapturing advances that still include the previous preview.
             return;
         }
 
@@ -8074,7 +8145,6 @@ class GlyphCanvas {
             pending.previewValue,
             pending.isRTL
         );
-        this.pendingTextModeKerningPreview = null;
     }
 
     private async commitTextModeKerningValueDirectly(
@@ -8138,6 +8208,62 @@ class GlyphCanvas {
 
         this.pendingTextModeKerningCursorAnchor = true;
         this.scheduleTextModeKerningCompile('kerning-property-panel');
+    }
+
+    /**
+     * True while a text-mode kerning nudge/field burst is still live
+     * (uncommitted preview, or a pending preview commit). Used to postpone
+     * the deferred full compile so its reshape cannot clobber the burst.
+     */
+    hasActiveTextModeKerningPreviewBurst(): boolean {
+        if (this.textModeKerningPreviewFunnel.hasPendingWork()) {
+            return true;
+        }
+
+        const pending = this.pendingTextModeKerningPreview;
+        if (!pending) {
+            return false;
+        }
+
+        const master = this.getSelectedTextModeKerningMaster();
+        if (!master || master.id !== pending.masterId) {
+            return false;
+        }
+
+        const committedValue =
+            getKerningPairValue(
+                (pending.isRTL ? master.kerning_rtl : master.kerning) as
+                    KerningContainer | undefined,
+                pending.firstKey,
+                pending.secondKey
+            ) ?? null;
+        return pending.previewValue !== committedValue;
+    }
+
+    /**
+     * After a kerning-only or full reshape, recapture shaped baselines and
+     * re-apply any newer uncommitted preview instead of clearing it.
+     */
+    reapplyTextModeKerningLivePreviewAfterReshape(): void {
+        const pending = this.pendingTextModeKerningPreview;
+        if (!pending) {
+            return;
+        }
+
+        if (!this.recaptureTextModeKerningPreviewBaselines(pending)) {
+            this.clearTextModeKerningLivePreview();
+            return;
+        }
+
+        this.applyPendingTextModeKerningPreviewDelta();
+        if (pending.previewValue === pending.baselineValue) {
+            this.pendingTextModeKerningPreview = null;
+            return;
+        }
+
+        this.textRunEditor?.buildClusterMap();
+        this.textRunEditor?.updateCursorVisualPosition();
+        this.invalidateTextModeKerningOverlayCache();
     }
 
     clearTextModeKerningLivePreview(
@@ -11116,7 +11242,7 @@ function setupFontLoadingListener() {
                         gc.captureTextModeKerningPanAnchor();
                         gc.textRunEditor!.setShapingFontBlob(fontBytesArray);
                         gc.textRunEditor!.shapeText(true);
-                        gc.clearTextModeKerningLivePreview();
+                        gc.reapplyTextModeKerningLivePreviewAfterReshape();
                         gc.applyTextModeKerningPanAdjustment();
                         gc.clearTextModeKerningPanAnchor();
                         timelineMark(
@@ -11176,7 +11302,7 @@ function setupFontLoadingListener() {
                         gc.captureTextModeKerningPanAnchor();
                     }
                     gc.textRunEditor!.shapeText(true);
-                    gc.clearTextModeKerningLivePreview();
+                    gc.reapplyTextModeKerningLivePreviewAfterReshape();
                     if (gc.pendingTextModeKerningCursorAnchor) {
                         gc.applyTextModeKerningPanAdjustment();
                         gc.clearTextModeKerningPanAnchor();

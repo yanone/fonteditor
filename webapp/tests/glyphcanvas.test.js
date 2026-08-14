@@ -15556,7 +15556,65 @@ describe('Text-mode kerning property panel', () => {
                 APP_SETTINGS.KEYBOARD_PREVIEW_COMMIT_DEBOUNCE
             );
             expect(fontModel.masters[0].kerning['A:@VSecond']).toBe(69);
-            expect(canvas.pendingTextModeKerningPreview).toBeNull();
+            expect(canvas.pendingTextModeKerningPreview.previewValue).toBe(69);
+            expect(canvas.hasActiveTextModeKerningPreviewBurst()).toBe(false);
+        } finally {
+            jest.useRealTimers();
+        }
+    });
+
+    test('kerning-only compile re-applies a newer uncommitted preview instead of clearing it', async () => {
+        jest.useFakeTimers();
+        setTextRunState();
+        const APP_SETTINGS = require('../js/settings').default;
+        const { setupFontLoadingListener } = require('../js/glyph-canvas');
+        setupFontLoadingListener();
+        canvas.textRunEditor.setShapingFontBlob = jest.fn();
+        canvas.textRunEditor.shapeText = jest.fn(() => {
+            canvas.textRunEditor.shapedGlyphs[0].ax = 39;
+        });
+        canvas.requestRepaintAfterCompile = jest.fn();
+        canvas.captureTextModeKerningPanAnchor = jest.fn();
+        canvas.applyTextModeKerningPanAdjustment = jest.fn();
+        canvas.clearTextModeKerningPanAnchor = jest.fn();
+
+        try {
+            await canvas.onKeyDown(
+                new KeyboardEvent('keydown', {
+                    key: 'ArrowLeft',
+                    altKey: true
+                })
+            );
+            await jest.advanceTimersByTimeAsync(
+                APP_SETTINGS.KEYBOARD_PREVIEW_COMMIT_DEBOUNCE
+            );
+            expect(fontModel.masters[0].kerning['A:@VSecond']).toBe(-41);
+
+            await canvas.onKeyDown(
+                new KeyboardEvent('keydown', {
+                    key: 'ArrowLeft',
+                    altKey: true
+                })
+            );
+            expect(fontModel.masters[0].kerning['A:@VSecond']).toBe(-41);
+            expect(canvas.pendingTextModeKerningPreview.previewValue).toBe(-42);
+            expect(canvas.hasActiveTextModeKerningPreviewBurst()).toBe(true);
+
+            window.dispatchEvent(
+                new CustomEvent('editingFontCompiled', {
+                    detail: {
+                        fontBytes: new Uint8Array([1, 2, 3]),
+                        compilationMode: 'kerning-only',
+                        dragActive: false
+                    }
+                })
+            );
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(canvas.pendingTextModeKerningPreview.previewValue).toBe(-42);
+            expect(canvas.textRunEditor.shapedGlyphs[0].ax).toBe(38);
+            expect(canvas.hasActiveTextModeKerningPreviewBurst()).toBe(true);
         } finally {
             jest.useRealTimers();
         }

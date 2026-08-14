@@ -222,6 +222,18 @@ export async function processCommittedEdit(
     }
 }
 
+function shouldPostponeDeferredFullCompile(): boolean {
+    const canvas = window.glyphCanvas;
+    if (!canvas) {
+        return false;
+    }
+
+    return (
+        !!canvas.outlineEditor?.draggingSomething ||
+        !!canvas.hasActiveTextModeKerningPreviewBurst?.()
+    );
+}
+
 /**
  * Arm (or re-arm) the deferred full-compile timer.
  * This is the only deferred editing-compile timer.
@@ -234,10 +246,13 @@ function armDeferredFullCompile(): void {
     deferredTimer = window.setTimeout(() => {
         deferredTimer = null;
 
-        // Don't fire while a drag is in progress — re-arm instead.
-        if (window.glyphCanvas?.outlineEditor?.draggingSomething) {
+        // Don't fire while a drag or live kerning burst is in progress —
+        // re-arm instead. A trailing full reshape must not clobber an
+        // uncommitted kerning preview the way a drag-time full compile
+        // must not serialize mid-drag.
+        if (shouldPostponeDeferredFullCompile()) {
             console.log(
-                '[CompiledEditFunnel] Deferred full compile postponed until drag ends'
+                '[CompiledEditFunnel] Deferred full compile postponed until interaction settles'
             );
             armDeferredFullCompile();
             return;
