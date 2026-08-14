@@ -22,6 +22,13 @@ import { StackPreviewAnimator } from './glyph-canvas/stack-preview-animator';
 import { get_glyph_name } from '../wasm-dist/babelfont_fontc_web';
 import fontManager from './font-manager';
 import { OutlineEditor } from './glyph-canvas/outline-editor';
+import {
+    buildGlyphKerningGroupChips,
+    collectKerningGroupMemberships,
+    formatKerningOperandLabel,
+    renderKerningGroupWidget,
+    type KerningGroupChip
+} from './glyph-canvas/kerning-group-widget';
 import { Logger } from './logger';
 import APP_SETTINGS from './settings';
 import { attachTopRowSidebarInterpolation } from './top-row-sidebar-interpolation';
@@ -337,33 +344,6 @@ function buildOrderedTextModeKerningPairs(
     appendPairs(groupFirstKeys, groupSecondKeys);
 
     return orderedPairs;
-}
-
-function collectKerningGroupMemberships(
-    groups: Record<string, string[]> | undefined,
-    glyphName: string | null
-): string[] {
-    if (!groups || !glyphName) {
-        return [];
-    }
-
-    const memberships: string[] = [];
-    for (const [groupName, members] of Object.entries(groups)) {
-        if (!Array.isArray(members) || !members.includes(glyphName)) {
-            continue;
-        }
-        memberships.push(groupName);
-    }
-
-    memberships.sort((left, right) => left.localeCompare(right));
-    return memberships;
-}
-
-function formatKerningOperandLabel(
-    kind: 'glyph' | 'group',
-    name: string
-): string {
-    return kind === 'group' ? `@${name}` : name;
 }
 
 function compareLocationMaps(
@@ -7692,7 +7672,8 @@ class GlyphCanvas {
 
     private promptAndAddTextModeKerningGroup(
         side: KerningSide,
-        glyphName: string | null
+        glyphName: string | null,
+        sideTitle: string = side
     ): void {
         if (!glyphName) {
             return;
@@ -7710,7 +7691,7 @@ class GlyphCanvas {
         }
 
         const groupName = window.prompt(
-            `Add ${glyphName} to a ${side} kerning group`
+            `Add ${glyphName} to a ${sideTitle.toLowerCase()} kerning group`
         );
         if (groupName === null) {
             return;
@@ -8234,6 +8215,7 @@ class GlyphCanvas {
         const activeInputState = this.getActivePropertyInputState();
         this.propertyPanel.classList.remove('component-properties');
         this.propertyPanel.classList.remove('text-mode-kerning-panel');
+        this.propertyPanel.classList.remove('glyph-kerning-groups-panel');
 
         this.propertyPanel.textContent = '';
 
@@ -9151,6 +9133,7 @@ class GlyphCanvas {
 
             const label = document.createElement('span');
             label.className = 'glyph-property-control-label';
+            label.dataset.kerningSide = side === 'left' ? 'second' : 'first';
             label.textContent = shortLabel;
             label.title =
                 side === 'left' ? 'Left sidebearing' : 'Right sidebearing';
@@ -9299,7 +9282,67 @@ class GlyphCanvas {
         content.appendChild(createControl('left', 'LSB'));
         content.appendChild(createWidthDisplay());
         content.appendChild(createControl('right', 'RSB'));
-        this.propertyPanel.appendChild(content);
+
+        const rawGlyphName = this.getCurrentGlyphName();
+        const fontModel = fontManager.currentFont?.fontModel;
+        const glyphName = fontModel?.findGlyph?.(rawGlyphName)
+            ? rawGlyphName
+            : null;
+        const leftGroupNames = collectKerningGroupMemberships(
+            fontModel?.second_kern_groups,
+            glyphName
+        );
+        const rightGroupNames = collectKerningGroupMemberships(
+            fontModel?.first_kern_groups,
+            glyphName
+        );
+
+        this.propertyPanel.classList.add('glyph-kerning-groups-panel');
+        renderKerningGroupWidget(this.propertyPanel, {
+            startSide: {
+                pairSide: 'second',
+                title: 'Left',
+                glyphName,
+                chips: glyphName
+                    ? buildGlyphKerningGroupChips(
+                          'second',
+                          glyphName,
+                          leftGroupNames
+                      )
+                    : []
+            },
+            endSide: {
+                pairSide: 'first',
+                title: 'Right',
+                glyphName,
+                chips: glyphName
+                    ? buildGlyphKerningGroupChips(
+                          'first',
+                          glyphName,
+                          rightGroupNames
+                      )
+                    : []
+            },
+            center: content,
+            onRemoveChip: (chip) => {
+                if (!glyphName) {
+                    return;
+                }
+                this.updateTextModeKerningGroupMembership(
+                    chip.pairSide,
+                    glyphName,
+                    chip.name,
+                    false
+                );
+            },
+            onAdd: (pairSide, sideGlyphName) => {
+                this.promptAndAddTextModeKerningGroup(
+                    pairSide,
+                    sideGlyphName,
+                    pairSide === 'first' ? 'Right' : 'Left'
+                );
+            }
+        });
         this.restoreActivePropertyInput(activeInputState);
     }
 
@@ -9312,6 +9355,7 @@ class GlyphCanvas {
 
         this.propertyPanel.classList.remove('hidden');
         this.propertyPanel.classList.add('text-mode-kerning-panel');
+        this.propertyPanel.classList.add('glyph-kerning-groups-panel');
 
         const context = this.getCurrentTextModeKerningContext();
         if (
@@ -9330,136 +9374,19 @@ class GlyphCanvas {
             return;
         }
 
-        const content = document.createElement('div');
-        content.className =
-            'glyph-property-panel-content glyph-kerning-panel-content';
-
-        const shell = document.createElement('div');
-        shell.className = 'glyph-kerning-panel-shell';
-
-        const createSide = (
-            side: KerningSide,
-            title: string,
-            glyphName: string | null,
-            options: TextModeKerningOperand[]
-        ) => {
-            const sideElement = document.createElement('div');
-            sideElement.className = 'glyph-kerning-side';
-
-            const header = document.createElement('span');
-            header.className = 'glyph-property-control-label';
-            header.textContent = title;
-            sideElement.appendChild(header);
-
-            const pills = document.createElement('div');
-            pills.className = 'glyph-kerning-pills';
-
-            for (const option of options) {
-                const button = document.createElement('button');
-                button.type = 'button';
-                button.className =
-                    'glyph-filter-legend-item glyph-kerning-pill';
-                button.dataset.kerningSide = side;
-                button.dataset.kerningKey = option.key;
-                button.title = option.label;
-
-                const label = document.createElement('span');
-                label.className =
-                    'glyph-filter-legend-label glyph-kerning-pill-label';
-                label.textContent = option.label;
-
-                button.appendChild(label);
-
-                button.classList.toggle(
-                    'glyph-kerning-pill-base',
-                    option.kind === 'glyph'
-                );
-                if (option.participates) {
-                    button.classList.add('glyph-kerning-pill-participates');
-                }
-                if (option.compatible && !option.active) {
-                    button.classList.add('selected-glyph-group');
-                }
-                if (option.active) {
-                    button.classList.add('active');
-                }
-
-                if (option.removable) {
-                    const removeBadge = document.createElement('span');
-                    removeBadge.className = 'glyph-kerning-pill-remove';
-                    removeBadge.title = glyphName
-                        ? `Remove kerning group "${option.name}" from glyph "${glyphName}"`
-                        : `Remove kerning group "${option.name}"`;
-                    removeBadge.setAttribute('aria-hidden', 'true');
-
-                    const removeIcon = document.createElement('span');
-                    removeIcon.className =
-                        'material-symbols-outlined glyph-kerning-pill-remove-icon';
-                    removeIcon.textContent = 'close';
-                    removeIcon.setAttribute('aria-hidden', 'true');
-                    removeBadge.appendChild(removeIcon);
-                    button.appendChild(removeBadge);
-                }
-
-                button.addEventListener('click', (event) => {
-                    const removeTarget = (
-                        event.target as HTMLElement | null
-                    )?.closest('.glyph-kerning-pill-remove');
-                    if (removeTarget) {
-                        event.preventDefault();
-                        if (!glyphName) {
-                            return;
-                        }
-                        this.updateTextModeKerningGroupMembership(
-                            side,
-                            glyphName,
-                            option.name,
-                            false
-                        );
-                        return;
-                    }
-
-                    this.setTextModeKerningSelection(side, option.key);
-                });
-
-                pills.appendChild(button);
-            }
-
-            sideElement.appendChild(pills);
-            return sideElement;
-        };
-
-        const createAddButton = (
-            side: KerningSide,
-            glyphName: string | null
-        ) => {
-            const fontModel = fontManager.currentFont?.fontModel;
-            const hasExistingGroup = glyphName
-                ? collectKerningGroupMemberships(
-                      side === 'first'
-                          ? fontModel?.first_kern_groups
-                          : fontModel?.second_kern_groups,
-                      glyphName
-                  ).length > 0
-                : false;
-            const addButton = document.createElement('button');
-            addButton.type = 'button';
-            addButton.className = 'glyph-kerning-pill-add';
-            addButton.textContent = '+';
-            addButton.disabled = hasExistingGroup;
-            addButton.title = glyphName
-                ? hasExistingGroup
-                    ? `Glyph "${glyphName}" already has a ${side} kerning group`
-                    : `Add kerning group to glyph "${glyphName}"`
-                : 'Add kerning group';
-            addButton.addEventListener('click', () => {
-                this.promptAndAddTextModeKerningGroup(side, glyphName);
-            });
-            return addButton;
-        };
+        const toChip = (option: TextModeKerningOperand): KerningGroupChip => ({
+            pairSide: option.side,
+            kind: option.kind,
+            name: option.name,
+            key: option.key,
+            label: option.label,
+            removable: option.removable,
+            participates: option.participates,
+            compatible: option.compatible,
+            active: option.active
+        });
 
         const center = document.createElement('div');
-        center.className = 'glyph-kerning-center';
 
         if (context.status === 'off-master') {
             const message = document.createElement('span');
@@ -9620,29 +9547,47 @@ class GlyphCanvas {
             center.appendChild(code);
         }
 
-        shell.appendChild(createAddButton('first', context.firstGlyphName));
-        shell.appendChild(
-            createSide(
-                'first',
-                'First',
-                context.firstGlyphName,
-                context.firstOptions
-            )
-        );
-        shell.appendChild(center);
-        shell.appendChild(
-            createSide(
-                'second',
-                'Second',
-                context.secondGlyphName,
-                context.secondOptions
-            )
-        );
-        shell.appendChild(createAddButton('second', context.secondGlyphName));
+        renderKerningGroupWidget(this.propertyPanel, {
+            startSide: {
+                pairSide: 'first',
+                title: 'First',
+                glyphName: context.firstGlyphName,
+                chips: context.firstOptions.map(toChip)
+            },
+            endSide: {
+                pairSide: 'second',
+                title: 'Second',
+                glyphName: context.secondGlyphName,
+                chips: context.secondOptions.map(toChip)
+            },
+            center,
+            onSelectChip: (chip) => {
+                this.setTextModeKerningSelection(chip.pairSide, chip.key);
+            },
+            onRemoveChip: (chip) => {
+                const glyphName =
+                    chip.pairSide === 'first'
+                        ? context.firstGlyphName
+                        : context.secondGlyphName;
+                if (!glyphName) {
+                    return;
+                }
+                this.updateTextModeKerningGroupMembership(
+                    chip.pairSide,
+                    glyphName,
+                    chip.name,
+                    false
+                );
+            },
+            onAdd: (pairSide, glyphName) => {
+                this.promptAndAddTextModeKerningGroup(
+                    pairSide,
+                    glyphName,
+                    pairSide === 'first' ? 'First' : 'Second'
+                );
+            }
+        });
 
-        content.appendChild(shell);
-
-        this.propertyPanel.appendChild(content);
         this.restoreActivePropertyInput(activeInputState);
     }
 

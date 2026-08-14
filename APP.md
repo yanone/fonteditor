@@ -240,6 +240,8 @@ When a text-mode kerning value edit reshapes the text run (kerning-only compile,
 
 Text-mode kerning value edits (keyboard nudges and arrow-adjusted field input) preview immediately by adjusting only the active pair's shaped x-advance and overlays; they do not write the font model or request compile until `KEYBOARD_PREVIEW_COMMIT_DEBOUNCE` idle time elapses (same shared delay as keyboard outline/anchor/sidebearing preview commits). Other identical pairs in the text run update only after the deferred compile reshape.
 
+The editor property panel uses one shared kerning-group chip widget in text mode (First/Second of the pair at the caret) and in outline edit view (Left/Right of the current glyph). Left/LSB groups use the orange Second accent; right/RSB groups use the blue First accent. A glyph may belong to one kerning group per side.
+
 ##### Tests
 
 **Test 1: Unkeyed Sidebearing Edits**

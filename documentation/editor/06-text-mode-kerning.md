@@ -11,6 +11,8 @@ Switch the Editor to text mode and put the caret between two glyphs. The propert
 - an inline kerning value in the center
 - chips for the base glyph and any kerning group on each side
 
+The same chips and `+` control appear in outline edit view for the current glyph's left and right groups (LSB orange, RSB blue), not the pair at the caret.
+
 Without an exact master the operands still show, but kerning is read-only until you choose a real master.
 
 **Font → Kerning Editor…** opens a table of all defined pairs (LTR or RTL) with values per master. Opening it from text mode selects the active First/Second chips from the panel and scrolls that row into view. Select a row to delete it from every master, or edit individual cells. Undo restores previous values and the table UI state.

@@ -4,7 +4,9 @@ Sidebearing formulas let you link spacing instead of typing the same numbers int
 
 ## Where to edit
 
-With nothing selected on the canvas, the editor property panel shows left and right sidebearings. Each field takes a number or a metrics key. The resolved value sits next to the input, so you can keep `=n+10` in the field and still see the spacing that is applied.
+With nothing selected on the canvas, the editor property panel shows left and right sidebearings, plus the glyph's left and right kerning groups. Left (LSB) uses orange; right (RSB) uses blue, the same colors as the Second and First chips in text-mode kerning. Each side can have one group. `+` adds the current glyph to a group; `x` removes it.
+
+Each field takes a number or a metrics key. The resolved value sits next to the input, so you can keep `=n+10` in the field and still see the spacing that is applied.
 
 An empty field clears the metrics key for that side. On a fully auto-aligned component layer with no key, the field stays empty.
 

@@ -14672,6 +14672,51 @@ describe('Text-mode kerning property panel', () => {
         expect(addButtons.every((button) => button.disabled)).toBe(true);
     });
 
+    test('shows left and right kerning group chips for the current glyph in edit view', () => {
+        const layer = fontModel.findGlyph('A').layers[0];
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.selectedLayerId = layer.id;
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        canvas.getCurrentEditingLayerModel = jest.fn(() => layer);
+
+        canvas.updatePropertyPanel();
+
+        const sides = document.querySelectorAll('.glyph-kerning-side');
+        const sideLabels = Array.from(
+            document.querySelectorAll(
+                '.glyph-kerning-side .glyph-property-control-label'
+            )
+        ).map((element) => element.textContent);
+        const startPills = Array.from(
+            sides[0].querySelectorAll('.glyph-kerning-pill-label')
+        ).map((element) => element.textContent);
+        const endPills = Array.from(
+            sides[1].querySelectorAll('.glyph-kerning-pill-label')
+        ).map((element) => element.textContent);
+        const addButtons = Array.from(
+            document.querySelectorAll('.glyph-kerning-pill-add')
+        );
+
+        expect(sideLabels).toEqual(['Left', 'Right']);
+        expect(startPills).toEqual(['A']);
+        expect(endPills).toEqual(['A', '@AFirst']);
+        expect(addButtons[0].disabled).toBe(false);
+        expect(addButtons[1].disabled).toBe(true);
+        expect(
+            document.querySelector(
+                '.glyph-property-input[data-sidebearing-side="left"]'
+            )
+        ).not.toBeNull();
+        expect(
+            sides[0].querySelector('.glyph-property-control-label').dataset
+                .kerningSide
+        ).toBe('second');
+        expect(
+            sides[1].querySelector('.glyph-property-control-label').dataset
+                .kerningSide
+        ).toBe('first');
+    });
+
     test('blocks adding a second kerning group on the same side', () => {
         canvas['updateTextModeKerningGroupMembership'](
             'second',

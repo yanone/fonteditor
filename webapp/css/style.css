@@ -6419,10 +6419,13 @@ kbd + kbd {
     accent-color: var(--accent-blue);
 }
 
+.glyph-property-panel.glyph-kerning-groups-panel,
 .glyph-property-panel.text-mode-kerning-panel {
     flex: 0 0 auto;
     min-height: 56px;
     padding: 6px 12px;
+    --glyph-kerning-first-accent: var(--kerning-accent-first);
+    --glyph-kerning-second-accent: var(--kerning-accent-second);
 }
 
 .glyph-kerning-panel-content {
@@ -6459,11 +6462,6 @@ kbd + kbd {
     align-items: center;
     justify-content: center;
     max-width: 100%;
-}
-
-.glyph-property-panel.text-mode-kerning-panel {
-    --glyph-kerning-first-accent: var(--kerning-accent-first);
-    --glyph-kerning-second-accent: var(--kerning-accent-second);
 }
 
 .glyph-kerning-pill {
@@ -6508,6 +6506,14 @@ kbd + kbd {
 .glyph-kerning-pill.active[data-kerning-side='second'] {
     background-color: var(--glyph-kerning-second-accent);
     color: var(--text-primary);
+}
+
+.glyph-property-control-label[data-kerning-side='first'] {
+    color: var(--glyph-kerning-first-accent);
+}
+
+.glyph-property-control-label[data-kerning-side='second'] {
+    color: var(--glyph-kerning-second-accent);
 }
 
 .glyph-kerning-pill.selected-glyph-group {
