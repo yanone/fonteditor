@@ -152,8 +152,8 @@ class HistoryViewController {
         }
         toggle.classList.toggle('active', this.showUnreachable);
         const label = this.showUnreachable
-            ? 'Hide edits outside this undo context'
-            : 'Show edits outside this undo context';
+            ? 'Hide edits outside this undo surface'
+            : 'Show edits outside this undo surface';
         toggle.title = label;
         toggle.setAttribute('aria-label', label);
         toggle.setAttribute(
@@ -477,10 +477,10 @@ class HistoryViewController {
         marker.className = 'history-hidden-run';
         const label =
             count === 1
-                ? '1 hidden · other context'
-                : `${count} hidden · other context`;
+                ? '1 hidden · other undo surface'
+                : `${count} hidden · other undo surface`;
         marker.innerHTML = `<span class="history-hidden-run-dots">· · ·</span><span class="history-hidden-run-label">${this.escapeHtml(label)}</span>`;
-        marker.title = 'Show edits outside this undo context';
+        marker.title = 'Show edits outside this undo surface';
         marker.addEventListener('click', () => {
             this.revealHiddenRunIndex = firstHiddenIndex;
             this.setShowUnreachable(true);
@@ -502,7 +502,7 @@ class HistoryViewController {
             .join(' ');
         if (!isReachable) {
             row.title =
-                'Outside this undo/redo context — switch to its origin surface to undo or redo';
+                'Outside this undo surface — switch to its origin undo surface to undo or redo';
         }
 
         const actionChip = this.buildActionChip(item.historyAction);

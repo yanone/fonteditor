@@ -637,6 +637,11 @@ declare global {
             };
         };
 
+        // From docs-viewer.ts
+        docsViewer: import('./docs-viewer').DocsViewer | undefined;
+        openDocs: (id?: string, heading?: string) => void;
+        closeDocs: () => void;
+
         // From view-settings.js
         VIEW_SETTINGS: Record<string, any>;
 

@@ -458,7 +458,7 @@ When changing the glyph filter event registry, regenerate `developer-docs/GLYPH_
 
 When changing compilation scheduling, compile-mode selection, worker cache invalidation, subset handling, or any other editing compile behavior, update `developer-docs/COMPILATION_EDIT_POLICY.md` in the same change and follow it as the normative policy document.
 
-When introducing, removing, renaming, or changing any class, method, property, or parameter in the font object model (`babelfont-model.ts`), regenerate `API.md` using `node generate-api-docs.mjs` (from repo root) so the API reference stays current. The same command is also available as `npm run generate-api-docs` from the repo root, or together with event docs via `npm run generate-docs`.
+When introducing, removing, renaming, or changing any class, method, property, or parameter in the font object model (`babelfont-model.ts`), regenerate `API.md` using `node generate-api-docs.mjs` (from repo root) so the API reference stays current. That script also writes the handbook mirror at `documentation/python/06-python-api.md`. The same command is also available as `npm run generate-api-docs` from the repo root, or together with event docs via `npm run generate-docs`.
 
 ## Useful Resources
 

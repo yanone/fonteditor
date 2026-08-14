@@ -324,7 +324,9 @@ describe('history view', () => {
         expect(rows).toHaveLength(2);
         expect(document.body.textContent).toContain('Resize glyph');
         expect(document.body.textContent).toContain('Undo');
-        expect(document.body.textContent).toContain('1 hidden · other context');
+        expect(document.body.textContent).toContain(
+            '1 hidden · other undo surface'
+        );
         expect(
             rows.every(
                 (row) =>
@@ -547,7 +549,9 @@ describe('history view', () => {
 
         expect(document.querySelectorAll('.history-entry')).toHaveLength(1);
         expect(document.body.textContent).toContain('Paste glyph');
-        expect(document.body.textContent).toContain('1 hidden · other context');
+        expect(document.body.textContent).toContain(
+            '1 hidden · other undo surface'
+        );
 
         document.getElementById('view-overview').classList.remove('focused');
         document.getElementById('view-history').classList.add('focused');

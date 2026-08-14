@@ -1,0 +1,293 @@
+.app-shell {
+    display: flex;
+    flex-direction: row;
+    height: calc(100vh - 50px);
+    width: 100vw;
+    min-width: 0;
+    background-color: var(--border-primary);
+}
+
+.app-shell .container {
+    height: 100%;
+    width: auto;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* Stay in the flex row when closed so width can tween like other views.
+   Must beat later `.view { display: flex; flex: 1 1 0; min-width: 100px }`. */
+.app-shell > .view-docs {
+    display: flex;
+    flex: 0 0 0;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    height: calc(100% - 5px);
+    margin: 0;
+    min-height: 0;
+    overflow: hidden;
+    border-width: 0;
+    pointer-events: none;
+    --view-title-color: var(--accent-blue);
+}
+
+.app-shell.docs-open > .view-docs {
+    margin: 0 0 5px 5px;
+    border-width: 2px;
+    pointer-events: auto;
+}
+
+.view-docs .view-title-name {
+    color: var(--accent-blue);
+}
+
+.app-shell > #docs-divider {
+    display: block;
+    flex: 0 0 0;
+    width: 0;
+    min-width: 0;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+    cursor: default;
+}
+
+.app-shell.docs-open > #docs-divider {
+    flex: 0 0 4px;
+    width: 4px;
+    opacity: 1;
+    pointer-events: auto;
+    cursor: col-resize;
+}
+
+.app-shell.docs-open .container {
+    padding-left: 0;
+}
+
+.docs-view-content {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: 0;
+}
+
+.docs-toc {
+    flex: 0 0 auto;
+    max-height: 36%;
+    overflow: auto;
+    border-bottom: 1px solid var(--border-primary);
+    padding: 8px 10px 10px;
+}
+
+.docs-toc-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.docs-toc-list .docs-toc-list {
+    margin: 0 0 4px 6px;
+    padding-left: 10px;
+    border-left: 1px solid var(--border-secondary);
+}
+
+.docs-toc-list li {
+    margin: 0;
+}
+
+.docs-toc details > summary {
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 4px 0;
+}
+
+.docs-toc-link {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 13px;
+    line-height: 1.25;
+    padding: 2px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.docs-toc-link:hover {
+    background: var(--background-hover);
+}
+
+.docs-toc-link.is-current {
+    background: var(--background-hover);
+    color: var(--accent-blue);
+}
+
+.docs-article {
+    --docs-code-bg: color-mix(
+        in srgb,
+        var(--text-primary) 8%,
+        var(--background-primary)
+    );
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 14px 16px 28px;
+    color: var(--text-primary);
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+.docs-article h1 {
+    font-size: 1.4em;
+    font-weight: 650;
+    line-height: 1.25;
+    margin: 0 0 0.75em;
+}
+
+.docs-article h2 {
+    font-size: 1.12em;
+    font-weight: 650;
+    margin: 1.4em 0 0.55em;
+    padding-bottom: 0.25em;
+    border-bottom: 1px solid var(--border-secondary);
+}
+
+.docs-article h3 {
+    font-size: 1.02em;
+    font-weight: 600;
+    margin: 1.15em 0 0.4em;
+}
+
+.docs-article h4 {
+    font-size: 1em;
+    font-weight: 600;
+    margin: 1em 0 0.35em;
+}
+
+.docs-article p {
+    margin: 0 0 0.9em;
+}
+
+.docs-article a {
+    color: color-mix(in srgb, var(--accent-cyan) 72%, var(--accent-blue));
+    text-decoration: none;
+    border-bottom: 1px solid
+        color-mix(in srgb, var(--accent-cyan) 35%, transparent);
+}
+
+.docs-article a:hover {
+    color: var(--accent-cyan);
+    border-bottom-color: var(--accent-cyan);
+}
+
+:root[data-theme='light'] .docs-article a {
+    color: color-mix(in srgb, var(--accent-blue) 82%, var(--accent-cyan));
+    border-bottom-color: color-mix(
+        in srgb,
+        var(--accent-blue) 32%,
+        transparent
+    );
+}
+
+:root[data-theme='light'] .docs-article a:hover {
+    color: var(--accent-blue);
+    border-bottom-color: var(--accent-blue);
+}
+
+.docs-article ul,
+.docs-article ol {
+    margin: 0 0 1em;
+    padding-left: 1.6em;
+}
+
+.docs-article ul {
+    list-style: disc;
+}
+
+.docs-article ol {
+    list-style: decimal;
+}
+
+.docs-article li {
+    margin: 0.28em 0;
+    padding-left: 0.15em;
+}
+
+.docs-article li > ul,
+.docs-article li > ol {
+    margin: 0.2em 0 0.35em;
+}
+
+.docs-article hr {
+    border: none;
+    border-top: 1px solid var(--border-secondary);
+    margin: 1.4em 0;
+}
+
+.docs-article blockquote {
+    margin: 0 0 1em;
+    padding: 0.15em 0 0.15em 0.9em;
+    border-left: 3px solid var(--border-secondary);
+    color: var(--text-secondary);
+}
+
+.docs-article img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 0.75em 0 1.1em;
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+}
+
+.docs-article img.docs-image-missing {
+    min-height: 48px;
+    background: var(--background-hover);
+    border-style: dashed;
+}
+
+.docs-article :not(pre) > code {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.9em;
+    background: var(--docs-code-bg);
+    padding: 0.12em 0.38em;
+    border-radius: 3px;
+}
+
+.docs-article pre,
+.docs-article .ace_static_highlight {
+    font-family: 'IBM Plex Mono', var(--font-mono, ui-monospace, monospace);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.docs-article pre,
+.docs-article pre.docs-code-block,
+.docs-article pre .ace_static_highlight,
+.docs-article pre [class*='ace-'] {
+    background: var(--docs-code-bg) !important;
+    background-color: var(--docs-code-bg) !important;
+}
+
+.docs-article pre,
+.docs-article pre.docs-code-block {
+    overflow: auto;
+    margin: 0 0 1.35em;
+    padding: 12px 14px;
+    border-radius: 6px;
+}
+
+.docs-article pre .ace_static_highlight {
+    margin: 0;
+}
+
+.docs-article :focus {
+    outline: none;
+}

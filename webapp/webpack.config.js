@@ -6,6 +6,19 @@ const UnusedWebpackPlugin = require('unused-webpack-plugin');
 const webpack = require('webpack');
 const { execSync } = require('child_process');
 
+class GenerateDocsManifestPlugin {
+    apply(compiler) {
+        const generate = () => {
+            execSync('node ../scripts/generate-documentation-manifest.mjs', {
+                cwd: __dirname,
+                stdio: 'inherit'
+            });
+        };
+        compiler.hooks.beforeRun.tap('GenerateDocsManifestPlugin', generate);
+        compiler.hooks.watchRun.tap('GenerateDocsManifestPlugin', generate);
+    }
+}
+
 // Get version from environment variable, package.json, or default to development
 const packageJson = JSON.parse(
     fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')
@@ -94,6 +107,7 @@ module.exports = {
             ],
             root: __dirname
         }),
+        new GenerateDocsManifestPlugin(),
         new HtmlWebpackPlugin({
             template: './index.html',
             inject: 'body',

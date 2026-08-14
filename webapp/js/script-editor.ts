@@ -23,9 +23,6 @@ import {
 } from './managed-file-events';
 import type { FileSystemAdapter } from './file-system-adapter';
 import { createGlyphFilterTemplate } from './glyph-filter-template';
-import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
-
-const console = new Logger('ScriptEditor');
 
 (function () {
     type ScriptDocumentState = {
@@ -1799,40 +1796,13 @@ const console = new Logger('ScriptEditor');
     // API Documentation modal handlers
     function initAPIDocsModal() {
         const apiDocsBtn = document.getElementById('script-api-docs-btn');
-        const apiDocsModal = document.getElementById('api-docs-modal');
-        const apiDocsCloseBtn = document.getElementById(
-            'api-docs-modal-close-btn'
-        );
-
-        if (apiDocsBtn && apiDocsModal && apiDocsCloseBtn) {
-            let escapeBinding: ModalEscapeBinding | null = null;
-
-            // Close modal
-            const closeModal = () => {
-                escapeBinding?.release();
-                escapeBinding = null;
-                apiDocsModal.style.display = 'none';
-            };
-
-            // Open modal
-            apiDocsBtn.addEventListener('click', (event: Event) => {
-                event.stopPropagation();
-                apiDocsModal.style.display = 'flex';
-                escapeBinding?.release();
-                escapeBinding = bindModalEscape(closeModal, {
-                    isOpen: () => apiDocsModal.style.display === 'flex'
-                });
-            });
-
-            apiDocsCloseBtn.addEventListener('click', closeModal);
-
-            // Close on backdrop click
-            apiDocsModal.addEventListener('click', (e: Event) => {
-                if (e.target === apiDocsModal) {
-                    closeModal();
-                }
-            });
+        if (!apiDocsBtn) {
+            return;
         }
+        apiDocsBtn.addEventListener('click', (event: Event) => {
+            event.stopPropagation();
+            window.openDocs?.('python/python-api');
+        });
     }
 
     // Initialize API docs modal

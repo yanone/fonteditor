@@ -9,6 +9,9 @@
  *
  * Usage:
  *   node generate-api-docs.mjs
+ *
+ * Writes API.md at the repo root and a handbook mirror at
+ * documentation/python/06-python-api.md.
  */
 
 import { readFileSync, writeFileSync } from "fs";
@@ -383,6 +386,28 @@ function generateClassDocs(classInfo) {
     return lines.join("\n");
 }
 
+function ensurePythonFences(markdown) {
+    let inFence = false;
+    return markdown
+        .split("\n")
+        .map((line) => {
+            const match = line.match(/^```([\w+-]*)\s*$/);
+            if (!match) {
+                return line;
+            }
+            if (inFence) {
+                inFence = false;
+                return line;
+            }
+            inFence = true;
+            if (!match[1]) {
+                return "```python";
+            }
+            return line;
+        })
+        .join("\n");
+}
+
 /**
  * Generate the complete API documentation
  */
@@ -457,15 +482,26 @@ function generateAPIDocs(version = null) {
     // Examples and tips
     lines.push(getExamplesSection());
 
-    const docs = lines.join("\n");
+    const docs = ensurePythonFences(lines.join("\n"));
 
     console.log(`✅ Generated ${docs.length} characters of documentation`);
 
-    // Write to API.md
     const outputPath = join(__dirname, "API.md");
     writeFileSync(outputPath, docs, "utf-8");
-
     console.log(`📝 Documentation saved to: ${outputPath}`);
+
+    const handbookPath = join(
+        __dirname,
+        "documentation",
+        "python",
+        "06-python-api.md"
+    );
+    const handbookDocs = docs.replace(
+        /^# Font Object Model API Documentation/m,
+        "# Python API"
+    );
+    writeFileSync(handbookPath, handbookDocs, "utf-8");
+    console.log(`📝 Handbook copy saved to: ${handbookPath}`);
     console.log("✨ Done!");
 }
 

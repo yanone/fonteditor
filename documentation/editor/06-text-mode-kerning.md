@@ -1,91 +1,38 @@
-# Text-Mode Kerning
+# Text-mode kerning
 
-Counterpunch edits kerning directly in text mode, where you can place the text cursor between two glyphs and work on the active pair in context. The goal is practical: keep pair editing close to the shaped text, make group membership visible, and let you switch quickly between glyph-level and group-level kerning.
+Counterpunch edits kerning in text mode, with the caret between two glyphs, so pair work stays next to the shaped text. Group membership is visible, and you can switch between glyph-level and group-level kerning. Edits apply to the currently selected exact master.
 
-## Summary
+## Where to edit
 
-When the text cursor sits between two adjacent glyphs, the property panel shows the current kerning pair. Counterpunch lets you:
+Switch the Editor to text mode and put the caret between two glyphs. The property panel shows:
 
-- inspect which glyph-level and group-level operands are available on each side
-- switch the active pair by clicking the chips
-- edit the kerning value directly in the inline field
-- add or remove one kerning group per glyph per side
+- **First** for the glyph before the caret
+- **Second** for the glyph after the caret
+- an inline kerning value in the center
+- chips for the base glyph and any kerning group on each side
 
-Kerning edits happen on the currently selected exact master.
+Without an exact master the operands still show, but kerning is read-only until you choose a real master.
 
-## Where To Edit
+**Font → Kerning Editor…** opens a table of all defined pairs (LTR or RTL) with values per master. Opening it from text mode selects the active First/Second chips from the panel and scrolls that row into view. Select a row to delete it from every master, or edit individual cells. Undo restores previous values and the table UI state.
 
-Open the Editor in text mode and place the cursor between two glyphs. The property panel at the bottom switches to a kerning panel.
+## Pair choice and groups
 
-You can also open **Font → Kerning Editor…** for a table of all defined pairs (LTR or RTL) with values per master. From text mode, opening the editor selects the active First/Second chips from the property panel (glyph or class) and scrolls that row into view. Select a row to delete it from every master, or edit individual cells. Undo restores the previous values and the table UI state.
+Counterpunch prefers an existing glyph-to-glyph or glyph-to-group pair when one is defined, otherwise a group pair. Click a different chip to override. The active pair is the selected chips plus the inline preview.
 
-The panel shows:
+A glyph may belong to one kerning group per side. `+` adds the current glyph to a group on that side; `x` removes it. The add button disables once that side already has a group.
 
-- a `First` side for the glyph before the cursor
-- a `Second` side for the glyph after the cursor
-- an inline kerning value field in the center
-- pills for the base glyph and any kerning group on each side
+## Values and shortcuts
 
-If no exact master is selected, the panel still shows the operands, but kerning stays read-only until you choose a real master.
+Type a number in the inline field. Negative values tighten, positive values open, an empty field clears the pair. The overlay updates from the active pair.
 
-## How Pair Selection Works
+For LTR, the caret stays at the between-glyph edge: left of the overlay when the value is negative, right when positive. The canvas stays anchored on the glyph left of the pair. RTL is the mirror: the canvas stays anchored on the glyph right of the caret.
 
-Counterpunch tries to pick the most useful pair automatically.
+Arrow nudges and field arrows update the active pair immediately, then commit after a short idle (same delay as keyboard outline edits). Other matching pairs in the proof string refresh after compile.
 
-- If a defined glyph-to-glyph or glyph-to-group pair exists, it prefers that.
-- If no explicit value exists, it can fall back to a group pair.
-- You can override the automatic choice by clicking a different chip.
+- `Alt/Option+Left` / `Alt/Option+Right` change the value by 1
+- add Shift for 10
+- add `Cmd/Ctrl` with Shift for 100
 
-The active pair is shown both by the selected chips and by the inline code preview in the center of the panel.
+A practical loop: type a short proof, put the caret in the pair, check whether it is a glyph or group pair, switch chips if needed, nudge with Alt+Arrow, and add a group only when that side has none yet.
 
-## Kerning Groups
-
-Kerning groups are edited from the same panel.
-
-- Click `+` on either side to add the current glyph to a group on that side.
-- Click the `x` on a group chip to remove the current glyph from that group.
-- A glyph may currently belong to only one kerning group per side.
-
-That means:
-
-- if a glyph already has a first-side group, the first-side add button is disabled
-- if a glyph already has a second-side group, the second-side add button is disabled
-
-This keeps group membership simple while the broader kerning strategy is being revised.
-
-## Editing Values
-
-Type a number into the inline field to set the active kerning pair.
-
-- negative values tighten spacing
-- positive values open spacing
-- an empty field clears the active pair
-
-The kerning overlay in text mode updates from the active pair so you can see the adjustment in place.
-
-For LTR, the caret stays at the between-glyph edge: left of the kerning overlay when the value is negative, right when positive, so it moves with the kerning as spacing changes. The canvas stays anchored on the glyph left of the pair, not on the caret. RTL is the mirror: the canvas stays anchored on the glyph right of the caret; everything visually left of the caret moves with the kerning, and everything visually right stays put. Before the font recompiles, the overlay band and bottom marker also grow from the caret so nudges do not expand in the opposite direction.
-
-Arrow nudges and field arrow adjustments update the active pair’s spacing and overlays immediately, then commit after a short idle debounce (same delay as keyboard outline edits). Other matching pairs in the proof string refresh only after compile.
-
-## Keyboard Shortcuts
-
-These shortcuts are the main ones for text-mode kerning:
-
-- `Alt/Option + Left Arrow` decreases the active kerning value by `1`
-- `Alt/Option + Right Arrow` increases the active kerning value by `1`
-- add `Shift` to change by `10`
-- add `Cmd/Ctrl` together with `Shift` to change by `100`
-
-## A Practical Workflow
-
-1. Type a short proof string and place the cursor between the pair you want to inspect.
-2. Check whether the active pair is a glyph pair or a group pair.
-3. If needed, switch operands by clicking the chips.
-4. Adjust the value with `Alt/Option + Arrow` for quick tuning.
-5. Add a group only when the glyph has no group yet on that side.
-
-## Related Pages
-
-- [Glyph Editor Basics](01-glyph-editor-basics.md)
-- [Sidebearing Arithmetics](03-sidebearing-arithmetics.md)
-- [Keyboard Shortcuts](../reference/keyboard-shortcuts.md)
+Related: [Glyph editor](01-glyph-editor.md), [Sidebearing arithmetics](04-sidebearing-arithmetics.md), [Keyboard shortcuts](../reference/keyboard-shortcuts.md).

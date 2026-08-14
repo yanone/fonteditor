@@ -1,137 +1,38 @@
-# Before You Begin
+# Before you begin
 
-Counterpunch is a font editor that runs entirely in your web browser without requiring any installation, downloads, or local server setup. This page explains how to get the best experience from the application, including browser recommendations and optional offline capabilities.
+Counterpunch is a font studio that runs in the browser. There is no install, download, or local server. Open [editor.counterpunch.space](https://editor.counterpunch.space) (or [preview.editor.counterpunch.space](https://preview.editor.counterpunch.space) for preview versions) and the studio loads in the browser. Font data, edits, and scripts stay on your computer. Nothing is uploaded for editing or compilation.
 
-## How It Works
+That architecture means you can start immediately on macOS, Windows, or Linux, pick up updates without a separate installer, and keep source files private by default.
 
-The application runs completely in your browser. When you visit https://editor.counterpunch.space, the editor loads into your browser's memory and executes there. Your font data, edits, and scripts all remain on your computer—nothing is uploaded to remote servers for processing. This architecture provides several advantages:
+## Recommended browser: Chrome
 
-- **No installation required**: Open the URL and start working immediately
-- **Cross-platform**: Works on macOS, Windows, and Linux without platform-specific builds
-- **Instant updates**: Updating to the latest version takes just one click
-- **Privacy by design**: Your font files never leave your machine
+**Chrome** (or **Chromium**) is the recommended browser. It has the most complete support for the File System Access API which we need to read and write file to your disk.
 
-## Recommended Browser: Chrome
+Chrome can watch a granted local folder and refresh Counterpunch when files change on disk — for example after an edit in another app, a script, or version control. Other browsers may require a manual refresh.
 
-While Counterpunch works in several modern browsers, **Chrome (or Chromium) provides the best experience** for one critical reason: **hot-reloading of external files**.
+If you only ever work inside Counterpunch and do not need that hot-reload, **Edge** and **Safari** are the next-best options.
 
-When you grant Counterpunch access to a local folder on disk, Chrome can automatically detect when files in that folder change. If you edit a source file externally—in another editor, through a script, or via version control—Chrome will immediately refresh Counterpunch's view of that file without requiring manual reloading. This creates a seamless workflow where external changes appear instantly in the editor.
+Use **Firefox** only if you don’t need file system access at all. However, plugins, glyph filters, and reusable Python scripts need to be stored on your disk, so Firefox is **not recommended**.
 
-Other browsers may require you to manually refresh or re-grant folder access to see external changes, which interrupts your workflow and slows iteration.
+Counterpunch is currently **not optimized for mobile operating systems**. Use a desktop computer.
 
-### Browser Requirements
 
-For full functionality, your browser needs to support:
+## Install as a Progressive Web App
 
-- **File System Access API** (for direct local folder access)
-- **SharedArrayBuffer** (for WebAssembly performance and Python runtime)
-- **Service Workers** (for PWA capabilities and offline use)
+A Progressive Web App is a website that can be installed and launched like a regular application in your operating system. Installing Counterpunch from Chrome’s address-bar install icon (or the browser menu’s Install command) gives you:
 
-Chrome and Chromium-based browsers have the most complete and reliable implementation of these standards.
+- a dedicated window without browser tabs and address bar
+- a dock or applications-menu icon
+- the ability to open supported font files from the desktop
 
-If you don’t need hot-reloading of files because you’re only ever working directly in the editor, **Edge** and **Safari** are your second-best options. Other browsers are not recommended.
+Once installed, you can open and edit fonts on disk, run Python, and compile previews without a network. The AI assistant still needs a connection and a signed-in account.
 
-## Install as a Progressive Web App (PWA)
+Even though now locally installed, the editor’s Python environment will not be able to access your computer’s normal Python environment. It’s still separate from that in a browser sandbox.
 
-A Progressive Web App (PWA) is simply a website that gets downloaded to your computer and treated as a regular app.
+## First launch and updates
 
-Counterpunch can be installed as a Progressive Web App, which provides several benefits:
+On first visit the browser may ask about folder access, and after a browser restart you may have to repeat giving those permissions once. This is a result of the editor not being a native OS app.
 
-- **Offline access**: Work without an internet connection after initial installation
-- **Desktop integration**: Launch from your applications menu or dock like a native app
-- **Dedicated window**: Run Counterpunch in its own window without browser tabs and address bar
-- **Faster startup**: The application shell loads from cache rather than downloading
-- **Direct file opening**: Open supported font sources directly with the installed app (for example from Finder/Explorer or via app-icon file open)
+Reloading the page does not load a new version, because the app is cached on purpose. When an update is ready, an Update control appears in the title bar (File menu). Click it to switch. That behaviour is the same online and in the installed app.
 
-When you open a font directly via the installed app and Counterpunch does not yet have folder access, the font opens immediately in detached mode. To enable full folder browsing and external hot-reload, attach the containing folder in the Disk context.
-
-For folder-based sources such as `.glyphspackage`, `.ufo`, and `.designspace` projects, open the containing folder first and then open the source from there.
-
-### How to Install
-
-The installation process is simple and takes just a moment:
-
-1. Open Counterpunch in Chrome (or a Chromium-based browser)
-2. Look for the install icon in your browser's address bar (usually computer icon)
-3. Click the install button and confirm
-4. Counterpunch will now appear in your applications menu
-
-Alternatively, you can usually find an "Install Counterpunch" option in your browser's menu (⋮ → More tools or similar).
-
-### Working Offline
-
-Once installed as a PWA, Counterpunch caches the application code locally. You can:
-
-- Open and edit fonts stored on your computer without internet access
-- Run Python scripts and use all editing features offline
-- Compile and preview fonts locally
-
-Note that features requiring external services—such as the AI Assistant—will only function when you have an internet connection and are signed in.
-
-## First Launch
-
-On your first visit or after installation, Counterpunch may request permissions for:
-
-- **Local storage**: To cache application data and remember your preferences
-- **Folder access** (optional): If you want to work directly with files on disk rather than browser memory
-
-You control these permissions and can adjust them at any time through your browser's settings.
-
-## Updating The App
-
-Simply reloading the website won’t reload the latest application version, because of intentional caching.
-
-When a new app update is available, an Update symbol will appear in the app’s title bar and only once you click that will the app update to the latest version.
-
-This behaviour is identical whether you’re using it online of offline as a PWA.
-
-## Suggested Screenshots
-
-### Screenshot 1 — Counterpunch in browser
-
-- Filename: `getting-started-00-01-browser-view.png`
-- Capture: Counterpunch running in Chrome browser with URL visible.
-- Suggested annotations:
-    1. Browser address bar showing Counterpunch URL
-    2. Install PWA icon
-    3. Active editor workspace
-- Alt text: Counterpunch font editor running in Chrome browser.
-
-### Screenshot 2 — PWA installation prompt
-
-- Filename: `getting-started-00-02-pwa-install.png`
-- Capture: Browser installation dialog or install icon highlighted.
-- Suggested annotations:
-    1. Install button or icon
-    2. Installation confirmation dialog
-- Alt text: Progressive Web App installation prompt for Counterpunch.
-
-### Screenshot 3 — Installed PWA on desktop
-
-- Filename: `getting-started-00-03-pwa-desktop.png`
-- Capture: Counterpunch running as installed PWA in standalone window.
-- Suggested annotations:
-    1. Application window without browser chrome
-    2. Desktop/dock icon (if visible)
-    3. Dedicated window controls
-- Alt text: Counterpunch running as an installed Progressive Web App.
-
-### Screenshot 4 — Chrome hot-reload in action
-
-- Filename: `getting-started-00-04-hot-reload.png`
-- Capture: Split view showing external file change and automatic update in Counterpunch.
-- Suggested annotations:
-    1. External file being edited
-    2. Counterpunch automatically reflecting changes
-    3. File changed notification (if visible)
-- Alt text: Chrome hot-reloading external file changes in Counterpunch workspace.
-
-## Next Step
-
-Continue with [What is Counterpunch?](01-what-is-counterpunch.md) to understand the editor's capabilities and design philosophy.
-
-## Related Pages
-
-- [Your First Session](02-first-session.md)
-- [Files View Basics](../files/01-files-view-basics.md)
-- [Local Disk Access](../files/02-local-disk-access.md)
+Continue with [What is Counterpunch?](01-what-is-counterpunch.md).

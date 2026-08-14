@@ -1,46 +1,13 @@
-# What is Counterpunch?
+# What is Counterpunch
 
-Counterpunch is a browser-native type design environment that combines visual editing, live compilation, scripting, and AI assistance in one workspace. Instead of splitting your workflow across multiple disconnected tools, you can inspect font data, edit outlines, and test ideas quickly in the same session. This guide introduces the product with a practical focus so new users can build confidence while understanding how professional workflows scale.
+Counterpunch is a browser-native type design environment. Visual editing, live compilation, Python, and an AI assistant share one workspace, so you do not have to split inspection, drawing, and automation across disconnected tools.
 
-## Summary
+You can open existing sources, draw and refine outlines, build variable fonts with masters and axes, write OpenType feature code, space and kern in context, and run scripts on the live font model. The compile-and-shape loop stays in the same window as the canvas.
 
-Counterpunch is a font editor for designing and refining typefaces with both manual and code-assisted workflows. You can draw glyphs, manage structured font data, run Python scripts against the current font model, and use an AI assistant to accelerate repetitive operations while keeping control over final design decisions.
+Counterpunch is unique in that it generates an authoritative OpenType font after each edit which is immediately shaped and displayed using Harfbuzz, the leading text shaping engine. It removes the edit-compile-test cycle of established font editors, so **you are always looking at a completely functional font**. If the font behaves correctly in Counterpunch, it’s a correct font!
 
-## Who This Is For
+It is meant for first edits as well as production work. Beginners can make a controlled change and see the result immediately. Intermediate designers can move from static files into interpolation. People who already script will find Python and the assistant next to the outlines they are changing.
 
-Counterpunch serves designers at various stages of their practice. Beginners will find a welcoming environment for making their first font edits, while intermediate designers can use it to transition from static workflows to variable font design. Professionals who value scripting and automation will appreciate having these capabilities integrated directly into their editing environment.
+![Counterpunch workspace after a font is open](images/workspace.png)
 
-## What Counterpunch Helps You Do
-
-The editor supports a range of type design activities. You can open and work with existing font source files, draw and refine glyph outlines, and develop variable fonts through masters, axes, and interpolation. Python scripting enables automation of repetitive edits, while the integrated AI assistant can generate and help you automate otherwise tedious repetitive data edits or help analyze.
-
-## Suggested Screenshots
-
-### Screenshot 1 — Main application workspace
-
-- Filename: `getting-started-01-01-main-workspace.png`
-- Capture: full app view after loading a font.
-- Suggested annotations:
-    1. Toolbar (Save / Share / Settings)
-    2. Main view selector area
-    3. Active editing area
-- Alt text: Counterpunch main window showing toolbar and active editing workspace.
-
-### Screenshot 2 — Beginner mental model diagram (optional)
-
-- Filename: `getting-started-01-02-workflow-overview.png`
-- Capture: simple annotated screenshot or slide-style image with flow.
-- Suggested annotations:
-    1. Open font
-    2. Edit glyphs
-    3. Save and iterate
-- Alt text: Simple three-step workflow for editing fonts in Counterpunch.
-
-## Next Step
-
-Continue with [Your First Session](02-first-session.md).
-
-## Related Pages
-
-- [Before You Begin](00-before-you-begin.md)
-- [Workspace Tour](03-workspace-tour.md)
+Start a session with [Your first session](02-first-session.md). The [Workspace tour](03-workspace-tour.md) names each view. Browser setup is in [Before you begin](00-before-you-begin.md).

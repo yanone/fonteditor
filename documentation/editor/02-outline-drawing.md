@@ -1,0 +1,45 @@
+# Outline drawing
+
+Start with the drawing tools in the Editor title bar. Click a tool, then click on the canvas. The letter shortcuts `T`, `V`, `P`, `I`, and `C` select the same tools. Enter a glyph first (`Cmd/Ctrl+Enter` or double-click an outline). The tools other than Text stay unavailable until you are in outline editing.
+
+![Drawing tools in the Editor title bar](images/edit-tools.png)
+
+## Tools
+
+- **Text** (`T`) leaves outline editing and returns to the text run.
+- **Select** (`V`) clicks and drags points, handles, components, and other objects. Entering a glyph always starts on Select.
+- **Pen** (`P`) draws a new contour point by point, or continues from a selected open end. Each click places a point. Click the first point to close, or connect to another open end to join two contours. While Pen is active, drawing can continue beyond the current glyph width; nearby glyphs are ignored so they do not steal the gesture.
+- **Insert** (`I`) clicks a segment to add a node. It is enabled when the layer has path segments.
+- **Convert** (`C`) clicks a straight segment to turn it into a curve. It is enabled when the layer has straight segments.
+
+Pen only draws. Insert only inserts. Convert only converts. Switch back to Select when you want to move points.
+
+## Select, move, and measure
+
+With Select, click a point, then drag. Handles appear on curve points. Make small moves first so you can tell whether you changed one segment or the whole rhythm.
+
+Hold Tab in outline mode, then drag, to measure a custom distance.
+
+## Curves and smooth points
+
+Double-click an on-curve point in a curve to toggle smooth and corner. Hold Shift while dragging a smooth point’s off-curve handle to constrain it horizontally or vertically. Hold Alt/Option while dragging a smooth on-curve point to slide it along its handle axis while the handles stay put. Hold Alt/Option while dragging an off-curve that is not part of a smooth connection to keep it on its original direction from the on-curve point.
+
+Open contour ends are always corners.
+
+## Snapping
+
+Drawing and dragging snap to on-curve points in the glyph and neighbours, the dragged point’s original position, glyph edges, and vertical metric lines. Two nodes on the same spot get a red circle; inspect whether that overlap is intentional.
+
+A short practice: open `O`, `H`, or `n`; choose Pen; draw a short open contour; continue it and close it; switch to Insert and add a point; switch to Convert and turn a straight into a curve; double-click an on-curve point to toggle smooth.
+
+## Modifier shortcuts
+
+When the tools feel familiar, you can keep Select active and hold modifiers instead of switching tools. These are the same actions as Pen, Insert, and Convert, without clicking the toolbar.
+
+Hold `Cmd/Ctrl` in empty glyph space to draw, or on a selected open end to continue that contour. `Cmd/Ctrl+Click` on a segment inserts a point; on an on-curve point it cuts the contour open. `Alt/Option+Click` on a straight segment converts it to a curve. Drag one open end onto another to join or close.
+
+While `Cmd/Ctrl` is held, the toolbar highlights Pen, or Insert when an add-point preview is showing. While `Alt/Option` is held, it highlights Convert. Releasing the modifier returns the highlight to the sticky tool. Sticky Pen, Insert, and Convert stay single-purpose; the `Cmd/Ctrl` hold is what combines draw and insert by hover.
+
+Cutting a closed contour creates a new start and end at that point. Cutting an already open contour at another point splits it into two open contours.
+
+Sidebearings are in [Sidebearing arithmetics](04-sidebearing-arithmetics.md). Shortcuts are in [Keyboard shortcuts](../reference/keyboard-shortcuts.md).

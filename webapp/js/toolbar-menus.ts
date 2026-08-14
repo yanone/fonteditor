@@ -450,6 +450,20 @@ function openPrivacyPolicyModal(): void {
 function getHelpMenuItems(): ToolbarMenuItem[] {
     return [
         {
+            label: 'Documentation',
+            icon: 'menu_book',
+            action: async () => {
+                window.openDocs?.();
+            }
+        },
+        {
+            label: 'Keyboard Shortcuts',
+            icon: 'keyboard',
+            action: async () => {
+                window.openDocs?.('reference/keyboard-shortcuts');
+            }
+        },
+        {
             label: 'Privacy Policy',
             icon: 'privacy_tip',
             action: async () => {

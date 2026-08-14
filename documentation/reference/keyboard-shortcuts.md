@@ -1,86 +1,81 @@
-# Keyboard Shortcuts
+# Keyboard shortcuts
 
-Keyboard shortcuts are one of the fastest ways to reduce friction in repeated type design tasks. Even learning a small core set makes navigation and execution more fluid, especially when alternating between editing, overview inspection, scripting, and assistant workflows. This page groups shortcuts by intent so users can adopt them progressively.
+Shortcuts cut friction when you move between drawing, overview, scripting, and the assistant. Learn a small core set first. Some commands only work when that view is focused. macOS uses Cmd. Windows and Linux use Ctrl.
 
-## Summary
+## Views
 
-Use shortcuts to move faster between views and trigger common actions with less context switching. The list prioritizes practical, high-frequency commands that matter in everyday sessions.
+- `Cmd/Ctrl+Shift+E` — Editor
+- `Cmd/Ctrl+Shift+O` — Overview
+- `Cmd/Ctrl+Shift+I` — Font Info
+- `Cmd/Ctrl+Shift+A` — Assistant
+- `Cmd/Ctrl+Shift+Y` — Scripts
+- `Cmd/Ctrl+Shift+K` — Konsole
+- `Cmd/Ctrl+Shift+H` — History
+- `Cmd/Ctrl+Shift+D` — Docs (toggle)
+- `Cmd/Ctrl+Escape` — close the focused panel
 
-## Global View Navigation
+Each view title bar shows the same shortcut.
 
-These shortcuts allow you to move quickly between different areas of Counterpunch:
+## Files and glyphs
 
-- `Cmd/Ctrl + Shift + E` navigates to the Editor
-- `Cmd/Ctrl + Shift + O` opens the Overview
-- `Cmd/Ctrl + Shift + A` displays the Assistant
-- `Cmd/Ctrl + Shift + Y` opens Scripts
-- `Cmd/Ctrl + Shift + K` shows the Konsole
-- `Cmd/Ctrl + Shift + I` reveals Font Info
+- `Cmd/Ctrl+O` — open a font
+- `Cmd/Ctrl+S` — save
+- `Cmd/Ctrl+Shift+S` — Save As
+- `Cmd/Ctrl+Shift+G` — Add Glyph(s)
+- `Cmd/Ctrl+Shift+F` — Rename Glyph(s) for the Overview selection
+- `Cmd/Ctrl+D` — Font → Duplicate Glyph(s); the shortcut fires when Overview is focused
+- `Cmd/Ctrl+F` — focus Overview search (when Overview is focused)
+- Delete / Backspace — delete the Overview selection after confirm
 
-## File Actions
+## Scripts, Konsole, and Ace
 
-- `Cmd/Ctrl + O` opens the font file dialog
-- `Cmd/Ctrl + S` saves the current font
-- `Cmd/Ctrl + Shift + S` opens the font Save As dialog
+- `Cmd/Ctrl+Alt+R` — run the current script
+- `Cmd/Ctrl+K` — clear Konsole
+- `Cmd/Ctrl+Z` / `Cmd/Ctrl+Shift+Z` — undo / redo font history for Python and assistant edits while Scripts, Konsole, or Assistant is focused
+- `Cmd/Ctrl+Alt+Z` / `Cmd/Ctrl+Alt+Shift+Z` — undo / redo text inside the Script Editor or Features Ace buffer
 
-## Glyph Actions
+## Editor
 
-- `Cmd/Ctrl + Shift + G` opens Add Glyph(s)
-- `Cmd/Ctrl + Shift + F` opens Rename Glyph(s) for the current overview selection
-- `Delete` / `Backspace` deletes the current overview glyph selection (with confirm)
+### Text mode
 
-## Script and Konsole Actions
+- `Cmd/Ctrl+Enter` — enter outline editing at the cursor
+- Double-click a glyph outline — enter outline editing
+- `Esc` — exit outline editing
+- `Tab` — sidebearing measurement overlay (not a tab character)
+- `Cmd/Ctrl+Up` / `Cmd/Ctrl+Down` — cycle masters
 
-When working with Python, these shortcuts streamline common operations:
+### Outline editing
 
-- `Cmd/Ctrl + Alt + R` runs the current script or executes the primary action in the active context
-- `Cmd/Ctrl + K` clears the Konsole output for a fresh start
-- `Cmd/Ctrl + Z` / `Cmd/Ctrl + Shift + Z` undo and redo font history for Python / Assistant edits while Scripts, Konsole, or Assistant is focused
-- `Cmd/Ctrl + Alt + Z` / `Cmd/Ctrl + Alt + Shift + Z` undo and redo text inside the Script Editor (and Features) Ace buffer
+- Double-click a component — enter nested component editing in place
+- `Esc` — exit nested component editing, or exit live interpolation to the last selected layer
+- `Cmd/Ctrl+Left` / `Cmd/Ctrl+Right` — go to the previous or next glyph, as the text cursor would
+- `Cmd/Ctrl+Up` / `Cmd/Ctrl+Down` — cycle layers
+- `Cmd/Ctrl+A` — select all objects on the current layer
+- `Cmd/Ctrl+B` — copy the selection to the paired (background) layer
+- `Cmd/Ctrl+Shift+B` — toggle editing the background layer
+- `Cmd/Ctrl+Alt+B` — show or hide the paired layer
+- Arrow keys — nudge selected objects (`Shift` for 10×)
+- `Space` — preview outline fill (grab cursor; drag to pan)
+- `Tab` — measurement tool; click and drag for a custom line
+- `T` — text mode (leave glyph editing)
+- `V` — select tool
+- `P` — draw path (pen)
+- `I` — insert a node on a segment
+- `C` — convert tool
+- After the tools feel familiar, hold `Cmd/Ctrl` in empty space to draw a contour, or on a selected open end to continue it (same as Pen / Insert without switching tools)
+- `Cmd/Ctrl+Click` on a segment inserts a point; on an on-curve point it cuts the path open
+- Drag one open end onto another to join or close
+- `Alt/Option+Click` on a straight segment converts it to a curve
+- Double-click an on-curve point to toggle smooth and corner
+- `Shift` constrains a smooth handle while dragging
+- `Alt/Option` slides a smooth on-curve point along its handles
 
-## Editor Measurement
+### Panning and zooming
 
-- Hold `Tab` to show the measurement overlay immediately in Editor text mode
-- Hold `Tab` to show the measurement tool immediately in outline editing mode, then click and drag to define a custom measurement line
+- `Cmd/Ctrl++` / `Cmd/Ctrl+-` — zoom in or out
+- `Cmd/Ctrl+0` — frame the current glyph in outline mode; reset zoom and position in text mode
+- `Space` + drag — pan
+- `Alt/Option` + wheel or trackpad — zoom
+- Wheel pans vertically; `Shift`+wheel pans horizontally
 
-## Editor Outline Actions
-
-- Hold `Cmd/Ctrl` in empty glyph space to start drawing a new contour point by point
-- Hold `Cmd/Ctrl` on a selected open end point to continue an open contour from that end
-- `Cmd/Ctrl + Click` on a segment adds a point to that segment
-- `Cmd/Ctrl + Click` on an on-curve point cuts the contour open at that point
-- Drag one open end point onto another open end point to connect or close a contour
-- `Alt/Option + Click` on a straight segment converts it into a curve
-- Double-click an on-curve point toggles smooth and corner behavior
-- Hold `Shift` while dragging an off-curve handle of a smooth point to constrain it horizontally or vertically
-- Hold `Alt/Option` while dragging a smooth on-curve point to slide it along its existing handle axis
-
-## Notes for Beginners
-
-Keep in mind that some shortcuts may only be available when certain views are active or have focus. Additionally, keyboard conventions differ between platforms: macOS uses `Cmd` while Windows and Linux use `Ctrl`. The measurement overlay uses the dedicated `Tab` key rather than `Cmd/Ctrl`.
-
-## Suggested Screenshots
-
-### Screenshot 1 — Keyboard shortcut hints in UI
-
-- Filename: `reference-shortcuts-01-ui-hints.png`
-- Capture: view buttons showing shortcut hints.
-- Suggested annotations:
-    1. Visible shortcut labels
-    2. Active view marker
-- Alt text: View controls with keyboard shortcut hints displayed.
-
-### Screenshot 2 — Shortcut help modal (if enabled)
-
-- Filename: `reference-shortcuts-02-help-modal.png`
-- Capture: keyboard shortcut cheat sheet panel/modal.
-- Suggested annotations:
-    1. Grouped shortcut categories
-    2. Close/help action
-- Alt text: Keyboard shortcut help panel grouped by feature area.
-
-## Related Pages
-
-- [Workspace Tour](../getting-started/03-workspace-tour.md)
-- [Outline Drawing and Editing](../editor/04-outline-drawing-and-editing.md)
-- [Script Editor Workflow](../python/02-script-editor-workflow.md)
+More outline detail is in [Outline drawing](../editor/02-outline-drawing.md). Undo surfaces are in [Undo and history](undo-and-history-scopes.md).

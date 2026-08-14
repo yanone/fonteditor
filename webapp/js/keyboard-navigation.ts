@@ -581,6 +581,10 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
      */
     function collapseActiveView(viewId: string) {
         console.log('[KeyboardNav]', 'collapseActiveView called for:', viewId);
+        if (viewId === 'view-docs') {
+            window.closeDocs();
+            return;
+        }
         const view = document.getElementById(viewId);
         if (!view) {
             console.log('[KeyboardNav]', 'Aborting - view not found');
@@ -1145,6 +1149,11 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
             return;
         }
 
+        if (viewId === 'view-docs') {
+            focusViewShell(viewId);
+            return;
+        }
+
         if (viewId === 'view-overview' || viewId === 'view-fontinfo') {
             // Always take DOM focus when activating these views so keyboard
             // shortcuts and typeahead do not keep hitting the previous control.
@@ -1236,6 +1245,14 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
             );
             return;
         }
+        if (
+            viewId === 'view-docs' &&
+            !document
+                .getElementById('app-shell')
+                ?.classList.contains('docs-open')
+        ) {
+            return;
+        }
         isFocusing = true;
 
         console.log('[KeyboardNav]', 'focusView called with:', viewId);
@@ -1267,7 +1284,9 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
             }
 
             // Save the last active view to localStorage
-            localStorage.setItem('last_active_view', viewId);
+            if (viewId !== 'view-docs') {
+                localStorage.setItem('last_active_view', viewId);
+            }
 
             // Expand view if below threshold (auto-expand on activation)
             const wasExpanded = options?.skipExpand
@@ -1469,7 +1488,20 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
         const key =
             typeof event.key === 'string' ? event.key.toLowerCase() : '';
 
-        // Cmd/Ctrl+Escape clicks the focused view's close button when shown.
+        // Cmd/Ctrl+Shift+D toggles the documentation column.
+        if (cmdKey && shiftKey && !event.altKey && key === 'd') {
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+            if (window.docsViewer?.isOpen()) {
+                window.closeDocs();
+            } else {
+                window.openDocs();
+            }
+            return;
+        }
+
+        // Cmd/Ctrl+Escape closes the focused panel (including Docs).
         if (cmdKey && event.code === 'Escape' && !shiftKey && !event.altKey) {
             const focusedViewId =
                 currentFocusedView ||

@@ -34,6 +34,7 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     CriticalErrorHandler: false,
     DeleteGlyphsDialog: false,
     Design: false,
+    DocsViewer: false,
     Features: false,
     FileBrowser: false,
     ViewFocus: false,

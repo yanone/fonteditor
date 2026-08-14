@@ -96,7 +96,7 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
                     topic: {
                         type: 'string',
                         description:
-                            'Path to the documentation file, e.g. "getting-started/00-before-you-begin.md", "editor/01-glyph-editor-basics.md", "python/01-python-in-counterpunch.md"'
+                            'Handbook page id or path, e.g. "getting-started/before-you-begin" or "python/04-writing-general-scripts.md"'
                     }
                 },
                 required: ['topic']

@@ -309,6 +309,8 @@ import { hasBoundModalEscape } from './ui/modal-escape';
                         theme === THEMES.LIGHT ? 'light' : 'dark'
                     );
                 }
+
+                window.docsViewer?.refreshCodeHighlight();
             }, 100);
         }
 

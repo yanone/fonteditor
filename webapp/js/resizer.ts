@@ -11,6 +11,7 @@ type SavedViewLayout = {
     horizontal?: { top: string; bottom: string };
     vertical?: { top?: string[]; bottom?: string[] };
     visitOrder?: Partial<RowVisitOrder>;
+    docsWidth?: string;
 };
 
 class ResizableViews {
@@ -22,6 +23,8 @@ class ResizableViews {
     static SECONDARY_MIN_HEIGHT = 24; // Title bar only
     static FONTINFO_MIN_WIDTH = 24; // Title bar width when rotated
     static FONTINFO_MIN_HEIGHT = 100;
+    static DOCS_MIN_WIDTH = 200;
+    static WORKSPACE_MIN_WIDTH = 400;
 
     isResizing: boolean;
     currentDivider: HTMLElement | null;
@@ -47,6 +50,9 @@ class ResizableViews {
      * Get the minimum width for a view based on its type
      */
     getMinWidth(view: Element): number {
+        if ((view as HTMLElement).id === 'view-docs') {
+            return ResizableViews.DOCS_MIN_WIDTH;
+        }
         if ((view as HTMLElement).closest('.top-row')) {
             return ResizableViews.FONTINFO_MIN_WIDTH;
         }
@@ -90,6 +96,9 @@ class ResizableViews {
 
         views.forEach((view: Element) => {
             const viewEl = view as HTMLElement;
+            if (viewEl.id === 'view-docs') {
+                return;
+            }
             const rect = viewEl.getBoundingClientRect();
             const titleBarHeight = ResizableViews.TITLE_BAR_HEIGHT;
             const threshold = 5; // Tolerance for float comparison
@@ -394,6 +403,18 @@ class ResizableViews {
                 window.setViewVisitOrder(layout.visitOrder);
             }
 
+            if (
+                layout.docsWidth &&
+                document
+                    .getElementById('app-shell')
+                    ?.classList.contains('docs-open')
+            ) {
+                const docsView = document.getElementById('view-docs');
+                if (docsView) {
+                    docsView.style.flex = layout.docsWidth;
+                }
+            }
+
             // Normalize flex values to current viewport after restoring saved layout.
             // Saved layouts may contain stale pixel values from a different window size.
             this.normalizeTopRowWidths();
@@ -455,8 +476,23 @@ class ResizableViews {
                 },
                 visitOrder: window.getViewVisitOrder
                     ? window.getViewVisitOrder()
-                    : undefined
+                    : undefined,
+                docsWidth:
+                    document.getElementById('view-docs')?.style.flex ||
+                    undefined
             };
+            const docsView = document.getElementById('view-docs');
+            if (
+                docsView &&
+                document
+                    .getElementById('app-shell')
+                    ?.classList.contains('docs-open')
+            ) {
+                localStorage.setItem(
+                    'docsViewWidth',
+                    String(Math.round(docsView.offsetWidth))
+                );
+            }
             const topLayout = layout.vertical?.top;
             const bottomLayout = layout.vertical?.bottom;
 
@@ -507,6 +543,11 @@ class ResizableViews {
     }
 
     storeVerticalDimensions() {
+        if (this.currentDivider?.id === 'docs-divider') {
+            const docsView = document.getElementById('view-docs');
+            this.startWidths[0] = docsView?.offsetWidth || 0;
+            return;
+        }
         if (!this.currentDivider?.parentElement) {
             return;
         }
@@ -552,6 +593,10 @@ class ResizableViews {
     }
 
     resizeVertical(e: MouseEvent) {
+        if (this.currentDivider?.id === 'docs-divider') {
+            this.resizeDocsColumn(e);
+            return;
+        }
         const deltaX = e.clientX - this.startX;
         if (!this.currentDivider?.parentElement) {
             return;
@@ -847,6 +892,35 @@ class ResizableViews {
             // Update collapsed states
             this.updateCollapsedStates();
         }
+    }
+
+    resizeDocsColumn(e: MouseEvent) {
+        const docsView = document.getElementById('view-docs');
+        const shell = document.getElementById('app-shell');
+        if (!docsView || !shell || !this.currentDivider) {
+            return;
+        }
+
+        const minDocs = ResizableViews.DOCS_MIN_WIDTH;
+        const minWorkspace = ResizableViews.WORKSPACE_MIN_WIDTH;
+        const maxDocs = Math.max(
+            minDocs,
+            shell.clientWidth - this.currentDivider.offsetWidth - minWorkspace
+        );
+        let newWidth = this.startWidths[0] + (e.clientX - this.startX);
+
+        const snapThreshold = 10;
+        if (Math.abs(newWidth - minDocs) < snapThreshold) {
+            newWidth = minDocs;
+        }
+        if (newWidth < minDocs) {
+            newWidth = minDocs;
+        }
+        if (newWidth > maxDocs) {
+            newWidth = maxDocs;
+        }
+
+        docsView.style.flex = `0 0 ${newWidth}px`;
     }
 
     stopResize() {

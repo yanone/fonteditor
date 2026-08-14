@@ -1,41 +1,9 @@
-# Konsole Quick Tasks
+# Konsole
 
-Konsole is optimized for fast, low-friction interaction with the current font context. It is ideal when you need immediate answers, quick sanity checks, or tiny prototype commands before committing to a full script. Used well, it becomes your fastest debugging and exploration surface in Counterpunch.
+Konsole is a Python prompt on the current font. It is the fastest place for a one-line inspection, a tiny prototype, or a sanity check before you commit the same idea to a script.
 
-## Summary
+Use it to print one property, try a small transform, or verify an assumption about the object model. Long or reusable work belongs in the Script editor, including multi-step production logic that you will run again.
 
-Konsole is best for short exploratory commands, rapid validation steps, and debugging localized issues. It complements the Script Editor by supporting quick experimentation before formalizing repeatable logic.
+`Cmd/Ctrl+K` clears Konsole output. Font undo from this view uses the automation undo surface, same as Scripts.
 
-## Good Uses of Konsole
-
-The Konsole excels at certain types of tasks. It's ideal for inspecting a single glyph attribute quickly, testing a small transformation idea before committing to a full script, and verifying assumptions about the font model before writing more substantial code.
-
-## Not Ideal for Konsole
-
-Some workflows are better suited to the Scripts view. Long scripts intended for reuse, and multi-step production workflows with complex logic, benefit from the structure and persistence that the Scripts editor provides.
-
-## Suggested Screenshots
-
-### Screenshot 1 — Konsole with quick inspection command
-
-- Filename: `python-03-01-konsole-inspection.png`
-- Capture: one command and result in terminal-style panel.
-- Suggested annotations:
-    1. Command prompt/input
-    2. Result output
-    3. Clear/reset action (if visible)
-- Alt text: Konsole panel executing a quick Python inspection command.
-
-### Screenshot 2 — Konsole to Script Editor handoff
-
-- Filename: `python-03-02-konsole-to-script-editor.png`
-- Capture: short command prototyped in Konsole then copied to script area.
-- Suggested annotations:
-    1. Prototype command
-    2. Script editor target
-- Alt text: Workflow from interactive Konsole testing to reusable script editing.
-
-## Related Pages
-
-- [Script Editor Workflow](02-script-editor-workflow.md)
-- [Troubleshooting](../troubleshooting/common-problems.md)
+Move a command that worked into [Script editor](02-script-editor-workflow.md) when you want to keep it. If a command fails, [Common problems](../troubleshooting/common-problems.md) has a short recovery path.

@@ -1,0 +1,255 @@
+{
+    "version": 1,
+    "defaultId": "getting-started/before-you-begin",
+    "nodes": [
+        {
+            "id": "getting-started",
+            "title": "Getting Started",
+            "kind": "section",
+            "children": [
+                {
+                    "id": "getting-started/before-you-begin",
+                    "title": "Before you begin",
+                    "kind": "page",
+                    "path": "getting-started/00-before-you-begin.md"
+                },
+                {
+                    "id": "getting-started/what-is-counterpunch",
+                    "title": "What is Counterpunch",
+                    "kind": "page",
+                    "path": "getting-started/01-what-is-counterpunch.md"
+                },
+                {
+                    "id": "getting-started/first-session",
+                    "title": "Your first session",
+                    "kind": "page",
+                    "path": "getting-started/02-first-session.md"
+                },
+                {
+                    "id": "getting-started/workspace-tour",
+                    "title": "Workspace tour",
+                    "kind": "page",
+                    "path": "getting-started/03-workspace-tour.md"
+                }
+            ]
+        },
+        {
+            "id": "files",
+            "title": "Files",
+            "kind": "section",
+            "children": [
+                {
+                    "id": "files/files-view-basics",
+                    "title": "Files view",
+                    "kind": "page",
+                    "path": "files/01-files-view-basics.md"
+                },
+                {
+                    "id": "files/local-disk-access",
+                    "title": "Local disk access",
+                    "kind": "page",
+                    "path": "files/02-local-disk-access.md"
+                },
+                {
+                    "id": "files/open-save-formats",
+                    "title": "Open, save, and file formats",
+                    "kind": "page",
+                    "path": "files/03-open-save-formats.md"
+                },
+                {
+                    "id": "files/editing-in-multiple-windows",
+                    "title": "Editing in multiple windows",
+                    "kind": "page",
+                    "path": "files/04-editing-in-multiple-windows.md"
+                }
+            ]
+        },
+        {
+            "id": "editor",
+            "title": "Editor",
+            "kind": "section",
+            "children": [
+                {
+                    "id": "editor/glyph-editor",
+                    "title": "Glyph editor",
+                    "kind": "page",
+                    "path": "editor/01-glyph-editor.md"
+                },
+                {
+                    "id": "editor/outline-drawing",
+                    "title": "Outline drawing",
+                    "kind": "page",
+                    "path": "editor/02-outline-drawing.md"
+                },
+                {
+                    "id": "editor/axes-masters",
+                    "title": "Axes and masters",
+                    "kind": "page",
+                    "path": "editor/03-axes-masters.md"
+                },
+                {
+                    "id": "editor/sidebearing-arithmetics",
+                    "title": "Sidebearing arithmetics",
+                    "kind": "page",
+                    "path": "editor/04-sidebearing-arithmetics.md"
+                },
+                {
+                    "id": "editor/layer-operations",
+                    "title": "Layer operations",
+                    "kind": "page",
+                    "path": "editor/05-layer-operations.md"
+                },
+                {
+                    "id": "editor/text-mode-kerning",
+                    "title": "Text-mode kerning",
+                    "kind": "page",
+                    "path": "editor/06-text-mode-kerning.md"
+                }
+            ]
+        },
+        {
+            "id": "features",
+            "title": "Features",
+            "kind": "section",
+            "children": [
+                {
+                    "id": "features/feature-code-editor",
+                    "title": "Feature code editor",
+                    "kind": "page",
+                    "path": "features/01-feature-code-editor.md"
+                }
+            ]
+        },
+        {
+            "id": "overview",
+            "title": "Overview",
+            "kind": "section",
+            "children": [
+                {
+                    "id": "overview/glyph-overview-basics",
+                    "title": "Glyph overview",
+                    "kind": "page",
+                    "path": "overview/01-glyph-overview-basics.md"
+                },
+                {
+                    "id": "overview/code-driven-filters",
+                    "title": "Code-driven filters",
+                    "kind": "page",
+                    "path": "overview/02-code-driven-filters.md"
+                }
+            ]
+        },
+        {
+            "id": "python",
+            "title": "Python",
+            "kind": "section",
+            "children": [
+                {
+                    "id": "python/python-in-counterpunch",
+                    "title": "Python in Counterpunch",
+                    "kind": "page",
+                    "path": "python/01-python-in-counterpunch.md"
+                },
+                {
+                    "id": "python/script-editor-workflow",
+                    "title": "Script editor",
+                    "kind": "page",
+                    "path": "python/02-script-editor-workflow.md"
+                },
+                {
+                    "id": "python/konsole-quick-tasks",
+                    "title": "Konsole",
+                    "kind": "page",
+                    "path": "python/03-konsole-quick-tasks.md"
+                },
+                {
+                    "id": "python/writing-general-scripts",
+                    "title": "Writing general scripts",
+                    "kind": "page",
+                    "path": "python/04-writing-general-scripts.md"
+                },
+                {
+                    "id": "python/writing-glyph-overview-filters",
+                    "title": "Writing glyph overview filters",
+                    "kind": "page",
+                    "path": "python/05-writing-glyph-overview-filters.md"
+                },
+                {
+                    "id": "python/python-api",
+                    "title": "Python API",
+                    "kind": "page",
+                    "path": "python/06-python-api.md"
+                }
+            ]
+        },
+        {
+            "id": "ai",
+            "title": "AI assistant",
+            "kind": "section",
+            "children": [
+                {
+                    "id": "ai/ai-assistant-overview",
+                    "title": "AI assistant",
+                    "kind": "page",
+                    "path": "ai/01-ai-assistant-overview.md"
+                },
+                {
+                    "id": "ai/ai-safety-and-review",
+                    "title": "Safety and review",
+                    "kind": "page",
+                    "path": "ai/02-ai-safety-and-review.md"
+                },
+                {
+                    "id": "ai/subscription-trial-and-usage",
+                    "title": "Subscription and usage",
+                    "kind": "page",
+                    "path": "ai/03-subscription-trial-and-usage.md"
+                }
+            ]
+        },
+        {
+            "id": "reference",
+            "title": "Reference",
+            "kind": "section",
+            "children": [
+                {
+                    "id": "reference/glossary",
+                    "title": "Glossary",
+                    "kind": "page",
+                    "path": "reference/glossary.md"
+                },
+                {
+                    "id": "reference/keyboard-shortcuts",
+                    "title": "Keyboard shortcuts",
+                    "kind": "page",
+                    "path": "reference/keyboard-shortcuts.md"
+                },
+                {
+                    "id": "reference/undo-and-history-scopes",
+                    "title": "Undo and history",
+                    "kind": "page",
+                    "path": "reference/undo-and-history-scopes.md"
+                }
+            ]
+        },
+        {
+            "id": "troubleshooting",
+            "title": "Troubleshooting",
+            "kind": "section",
+            "children": [
+                {
+                    "id": "troubleshooting/common-problems",
+                    "title": "Common problems",
+                    "kind": "page",
+                    "path": "troubleshooting/common-problems.md"
+                }
+            ]
+        },
+        {
+            "id": "acknowledgements",
+            "title": "Acknowledgements",
+            "kind": "page",
+            "path": "acknowledgements.md"
+        }
+    ]
+}

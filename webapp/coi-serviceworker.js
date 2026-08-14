@@ -14,7 +14,7 @@ const PRECACHE_ASSETS = [
     './index.html',
     './manifest.json',
 
-    // CSS (style.css @imports tokens.css, glyph-overview.css, features-editor.css, editor-left-sidebar.css, editor-right-sidebar.css, ui/dialogs.css)
+    // CSS (style.css @imports tokens.css, glyph-overview.css, features-editor.css, editor-left-sidebar.css, editor-right-sidebar.css, ui/dialogs.css, docs-viewer.css)
     './css/style.css',
     './css/file-dialog.css',
     './css/tokens.css',
@@ -23,6 +23,7 @@ const PRECACHE_ASSETS = [
     './css/editor-left-sidebar.css',
     './css/editor-right-sidebar.css',
     './css/ui/dialogs.css',
+    './css/docs-viewer.css',
 
     // JavaScript bundles (webpack output)
     './js/bootstrap.js',
@@ -74,6 +75,9 @@ const CDN_PRECACHE = [
     'https://cdn.jsdelivr.net/npm/ace-builds@1.32.2/src-min-noconflict/ace.js',
     'https://cdn.jsdelivr.net/npm/ace-builds@1.32.2/src-min-noconflict/mode-python.js',
     'https://cdn.jsdelivr.net/npm/ace-builds@1.32.2/src-min-noconflict/theme-monokai.js',
+    'https://cdn.jsdelivr.net/npm/ace-builds@1.32.2/src-min-noconflict/theme-tomorrow.js',
+    'https://cdn.jsdelivr.net/npm/ace-builds@1.32.2/src-min-noconflict/theme-tomorrow_night.js',
+    'https://cdn.jsdelivr.net/npm/ace-builds@1.32.2/src-min-noconflict/ext-static_highlight.js',
     'https://cdn.jsdelivr.net/npm/diff@5.1.0/dist/diff.min.js',
     'https://cdn.jsdelivr.net/npm/diff2html@3.4.47/bundles/css/diff2html.min.css',
     'https://cdn.jsdelivr.net/npm/diff2html@3.4.47/bundles/js/diff2html-ui.min.js',

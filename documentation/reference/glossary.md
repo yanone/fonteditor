@@ -1,37 +1,18 @@
 # Glossary
 
-Type design tools combine geometric, typographic, and technical vocabulary, which can slow down new users when terms are unfamiliar. This glossary provides concise definitions in Counterpunch context so documentation pages remain readable without repeating long explanations. Use it as a companion reference while learning workflows.
+Type design mixes geometric, typographic, and technical terms. These are the meanings used in Counterpunch’s interface and handbook.
 
-## Summary
+- **Glyph** — a stored character shape: a letter, number, or symbol.
+- **Contour** — a connected outline path that is part of a glyph.
+- **Node / point** — an editable location on a contour.
+- **Layer** — a stored design state of a glyph, often a master in a variable font.
+- **Axis** — a variable dimension such as weight or width.
+- **Master** — a key design at a location in that space.
+- **Instance** — a named style at chosen axis values.
+- **Interpolation** — generated shapes between masters.
+- **Assistant editing** — the pen toggle in the Assistant title bar. Off: inspect only. On: the assistant may mutate the font and edit an unsaved Script Editor buffer.
+- **Metrics key** — a sidebearing formula such as `=n+10` or `==|H`.
+- **Undo surface** — the focused `Cmd/Ctrl+Z` stack (Canvas, Overview, Font Info, Features, or Automation). History lists edits; it does not change which surface undo uses.
+- **Filter script** — Python in `Counterpunch/Filters` that decides which glyphs Overview shows.
 
-This glossary provides quick definitions of common terms used throughout Counterpunch's documentation and interface.
-
-- **Glyph**: A single character shape within a font, such as a letter, number, or symbol.
-- **Contour**: A connected outline path that defines part of a glyph's shape.
-- **Node/Point**: An editable point along a contour that you can move to adjust the shape.
-- **Layer**: A design state of a glyph, often corresponding to a master in variable fonts.
-- **Axis**: A variable dimension along which a font can change, such as weight or width.
-- **Master**: A key design source positioned at a specific location within the variable design space.
-- **Instance**: A named style generated from specific axis values, representing one variant of the variable font.
-- **Interpolation**: The process of generating intermediate shapes between masters.
-- **Context**: The operational environment where code or AI applies, such as font context, script context, or filter context.
-- **Filter Script**: Code that determines which glyphs appear in the Overview based on custom criteria.
-
-## Suggested Screenshots
-
-### Screenshot 1 — Labeled glossary visual map
-
-- Filename: `reference-glossary-01-visual-map.png`
-- Capture: one annotated glyph/editor screenshot with multiple labels.
-- Suggested annotations:
-    1. Glyph
-    2. Contour
-    3. Node
-    4. Axis control
-    5. Master indicator
-- Alt text: Annotated visual map of common Counterpunch terminology.
-
-## Related Pages
-
-- [Axes, Masters, and Interpolation](../editor/02-axes-masters-interpolation.md)
-- [Python in Counterpunch](../python/01-python-in-counterpunch.md)
+Axes are covered in [Axes and masters](../editor/03-axes-masters.md). Scripting starts in [Python in Counterpunch](../python/01-python-in-counterpunch.md).

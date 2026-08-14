@@ -38,6 +38,47 @@ import {
 import { getGlyphFilterEventAssistantView } from './glyph-filter-events';
 import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
 
+type HandbookManifestNode = {
+    id: string;
+    title: string;
+    kind: 'section' | 'page';
+    path?: string;
+    children?: HandbookManifestNode[];
+};
+
+function formatHandbookToc(nodes: HandbookManifestNode[], indent = ''): string {
+    return nodes
+        .map((node) => {
+            if (node.kind === 'section') {
+                const nested = formatHandbookToc(
+                    node.children || [],
+                    `${indent}  `
+                );
+                return `${indent}${node.title}/\n${nested}`;
+            }
+            return `${indent}${node.id} — ${node.title} (${node.path})`;
+        })
+        .join('\n');
+}
+
+function findHandbookPath(
+    nodes: HandbookManifestNode[],
+    topic: string
+): string | null {
+    for (const node of nodes) {
+        if (node.path && (node.id === topic || node.path === topic)) {
+            return node.path;
+        }
+        if (node.children) {
+            const nested = findHandbookPath(node.children, topic);
+            if (nested) {
+                return nested;
+            }
+        }
+    }
+    return null;
+}
+
 const console = new Logger('AIAssistant');
 const DEFAULT_PROMPT_HISTORY_SUMMARY = 'Assistant changes';
 
@@ -2738,16 +2779,33 @@ __counterpunch_assistant_validate_syntax(${sourceKey})`
         const { name, arguments: argsStr } = toolCall.function;
         const args = JSON.parse(argsStr || '{}');
         switch (name) {
-            case 'handbook_toc':
-                return await this.fetchText('/handbook/README.md');
+            case 'handbook_toc': {
+                const manifestText = await this.fetchText(
+                    '/handbook/manifest.json'
+                );
+                const manifest = JSON.parse(manifestText) as {
+                    nodes: HandbookManifestNode[];
+                };
+                return formatHandbookToc(manifest.nodes);
+            }
             case 'handbook_topic': {
                 const topic = args.topic;
                 if (!topic)
                     throw new Error('Missing required parameter: topic');
                 const clean = topic.replace(/\.\.\//g, '').replace(/^\/+/, '');
-                if (!clean.endsWith('.md'))
+                let path = clean.endsWith('.md') ? clean : null;
+                if (!path) {
+                    const manifestText = await this.fetchText(
+                        '/handbook/manifest.json'
+                    );
+                    const manifest = JSON.parse(manifestText) as {
+                        nodes: HandbookManifestNode[];
+                    };
+                    path = findHandbookPath(manifest.nodes, clean);
+                }
+                if (!path || !path.endsWith('.md'))
                     throw new Error('Only .md files can be accessed');
-                return await this.fetchText(`/handbook/${clean}`);
+                return await this.fetchText(`/handbook/${path}`);
             }
             case 'python_api_docs': {
                 let res = await fetch('/API.md').catch(() => null);

@@ -1,21 +1,14 @@
-# Writing General Python Scripts
+# Writing general scripts
 
-Use a general-purpose Python script for a reusable font operation that you run yourself
-from the Script Editor. Save it in `Counterpunch/Scripts` when you want to keep
-it for later. It is different from a Glyph Overview filter: a general-purpose script
-may inspect or modify the active font, while a filter only describes glyphs for
-Overview to show.
+Use a general-purpose Python script for a reusable font operation that you run from the Script Editor. Save it in `Counterpunch/Scripts` when you want to keep it. A general script may inspect or modify the active font. A glyph overview filter only describes glyphs for Overview.
 
-## Start With the Active Font
-
-Counterpunch already provides the font API in the scripting environment. Start
-with `Font()` which does not need to be imported:
+Counterpunch already provides the font API. Start with `Font()`, which does not need to be imported:
 
 ```python
 # Report glyph and master counts
-# 
+#
 # Prints the font's glyphs and masters
-# 
+#
 # Keywords: glyphs, masters
 
 font = Font()
@@ -23,26 +16,16 @@ print(f'Glyphs: {len(font.glyphs)}')
 print(f'Masters: {len(font.masters)}')
 ```
 
-`Font()` returns the current open font and raises an error when no font is
-open. Use the Python API reference (tool python_api_docs) when you need an exact property or method.
+`Font()` returns the current open font and raises when none is open. In outline editing, `Glyph()` and `Layer()` return the glyph and layer being edited. `Master()` returns the selected master, or `None` when the location is not a stored master. Use the [Python API](06-python-api.md) when you need an exact property or method.
 
-## Write Reusable Scripts
+Keep a script self-contained and focused on one operation. Start with a small read-only report. Before a script changes font data, save the font and make the intended change clear in its header. Font manipulation can be undone with `Cmd/Ctrl+Z` while Scripts, Konsole, or Assistant is focused. Those views use the automation undo surface.
 
-Keep a script self-contained and focused on one operation. Start with a small,
-read-only report when you are exploring data. Before a script changes font data,
-save the font and make the intended change clear in its header and comments.
-Font manipulation by a Python script can be undone with the undo command
-(`Cmd/Ctrl + Z`) while the Scripts, Konsole, or Assistant view is focused —
-those views use the automation history surface so scripted edits stay reachable
-regardless of which glyph or font field they touched.
-
-Use `print()` for results, counts, skipped items, and next steps. This makes a
-script useful when you return to it later and makes errors easier to diagnose.
+Use `print()` for results, counts, skipped items, and next steps.
 
 ```python
 # List glyphs without Unicode values
 #
-# Walks the font's glyph list and find and prints glyphs
+# Walks the font's glyph list and prints glyphs
 # without a Unicode value
 #
 # Keywords: glyphs, unicode
@@ -55,16 +38,12 @@ for glyph_name in missing_unicode:
     print(glyph_name)
 ```
 
-## Handle Errors Deliberately
-
-When an operation can fail for an expected reason, report that reason rather
-than silently continuing. Do not catch broad errors just to hide a traceback:
-the Script Editor traceback is useful while developing a script.
+When an operation can fail for an expected reason, report that reason. Do not catch broad errors just to hide a traceback. The Script Editor traceback is useful while you are developing.
 
 ```python
 # Report a required glyph width
 #
-# Finds glyph A and print its width
+# Finds glyph A and prints its width
 #
 # Keywords: metrics
 
@@ -78,44 +57,17 @@ else:
     print(f'{glyph_name} width: {glyph.width}')
 ```
 
-## File Header
+The file header is shown in the Run Python Script dialog. The first commented line is a short title and becomes the suggested file name with a `.py` suffix. Optional following lines are the description. An optional `Keywords:` line is a comma-separated list shown as a keyword cloud.
 
-At the top of a file you include information that is displayed to the user in the Run Python Script dialog as commented annotations. They consist of three parts: a title, a description, and a list of keywords.
+Choose keywords from this set when they describe the actual target of the script: glyphs, layers, paths, nodes, anchors, components, metrics, names, masters, unicode, kerning, groups, features, guidelines. If glyphs are only used to loop, omit them. Do not remove keywords a user added. Update the header if the purpose of the script changes.
 
-The first line consists of a short title which is re-used as the file name suggestion when saving the file to disk, with a .py suffix appended.
-
-The description consists of several optional lines describing the script functionality briefly.
-
-The optional keywords line that starts with `Keywords:` and contains a comma-delimited list of keywords that will be displayed to the user in a keyword cloud in the Run Python Script dialog.
-
-Update the description and the keywords if the script purpose changes significantly from the stated description.
-
-The keywords are primarily chosen from the below list, and only if they pertain to the actual target functionality of the script. If for example glyphs and layers are merely used for filtering in a for loop, omit glyphs and layers from the keywords list.
-
-The following keywords are permitted, and may be extended manually by the user:
-glyphs, layers, paths, nodes, anchors, components, metrics, names, masters, unicode, kerning, groups, features, guidelines
-
-Don't remove keywords that a user has put in that list.
-
-Example:
 ```python
 # Update glyphs
-# 
+#
 # This script updates the selected glyphs
 # and prints a summary.
 #
 # Keywords: metrics
 ```
 
-## Agent Boundary
-
-The Agent can read and edit the unsaved Script Editor buffer when Agent editing
-is enabled. It never runs the script or saves it. Review the buffer, then use
-the Script Editor's own Save and Run controls when you decide to persist or run
-the operation.
-
-## Related Pages
-
-- [Python in Counterpunch](01-python-in-counterpunch.md)
-- [Script Editor Workflow](02-script-editor-workflow.md)
-- [Python API Reference](../../API.md)
+With **Assistant editing** on, the assistant can read and edit the unsaved Script Editor buffer. It never runs the script or saves it. Review the buffer, then use Save and Run in the Script Editor.

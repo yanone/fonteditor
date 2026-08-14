@@ -1,41 +1,13 @@
-# Script Editor Workflow
+# Script editor
 
-The Script Editor is the place to turn one-off experiments into reliable, reusable procedures. Instead of repeating manual actions across many glyphs, you can encode intent once and execute it with consistency. This page frames scripting as a production tool for type design, not just a developer feature.
+The Scripts view is where one-off experiments become reusable procedures. Encode intent once and run it with consistency, instead of repeating the same manual action across many glyphs.
 
-## Summary
+Write a small read-only report first. Run it with `Cmd/Ctrl+Alt+R` and read the output. Check the Editor or Overview if the script should have changed outlines. Save the font before a script that modifies data. Keep one purpose per file, and keep versions if you are iterating on a destructive approach.
 
-Use Scripts view to write reusable Python code for repeatable font operations with clear, reviewable intent. A disciplined script workflow reduces repetitive effort, lowers error rates, and makes complex transformations easier to maintain.
+`print()` counts, skips, and errors so you can see what happened. File headers (title, description, `Keywords:`) appear in the Run Python Script dialog.
 
-## Recommended Workflow
+While Scripts, Konsole, or Assistant is focused, `Cmd/Ctrl+Z` undoes those font edits on the automation undo surface.
 
-Developing reliable scripts follows a natural progression. Begin with a small test script to verify basic functionality, then run it and inspect the output carefully. Check that any visual changes appear as expected in the Editor or Overview views before saving the script for future use.
+With **Assistant editing** on (pen button in the Assistant title bar), the assistant can create or replace text in the unsaved Script Editor buffer. It does not run or save that file. You review, then Save or Run yourself.
 
-## Beginner Safety Pattern
-
-When you're still learning, certain practices reduce risk and make troubleshooting easier. Focus each script on a single type of change rather than combining multiple operations. Save your font before running scripts that modify data destructively, and maintain different versions of your scripts so you can revert to earlier approaches if needed.
-
-## Suggested Screenshots
-
-### Screenshot 1 — Script editor with run action
-
-- Filename: `python-02-01-script-editor-run.png`
-- Capture: script code area and run trigger.
-- Suggested annotations:
-    1. Script text area
-    2. Run shortcut/button
-    3. Output/feedback region
-- Alt text: Script editor showing Python code and run control.
-
-### Screenshot 2 — Script result reflected in glyph
-
-- Filename: `python-02-02-script-result-glyph.png`
-- Capture: before/after state after script run.
-- Suggested annotations:
-    1. Script operation summary
-    2. Changed glyph region
-- Alt text: Glyph updated after executing a Python script.
-
-## Related Pages
-
-- [Python in Counterpunch](01-python-in-counterpunch.md)
-- [AI Safety and Review](../ai/02-ai-safety-and-review.md)
+Authoring rules are in [Writing general scripts](04-writing-general-scripts.md). Quick experiments belong in [Konsole](03-konsole-quick-tasks.md). Review habits for generated code are in [Safety and review](../ai/02-ai-safety-and-review.md).

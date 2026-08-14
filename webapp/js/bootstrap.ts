@@ -520,6 +520,7 @@ import './python-execution-wrapper';
 import './python-package-lazy-loader';
 import './python-ui-sync';
 import './python-post-execution';
+import './docs-viewer';
 import './resizer';
 import './save-button';
 import './script-editor';

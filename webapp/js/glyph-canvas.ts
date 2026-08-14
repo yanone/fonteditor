@@ -11239,42 +11239,14 @@ function setupFontLoadingListener() {
     window.addEventListener('fontCompiled', fontCompiledHandler);
 }
 
-// Set up editor keyboard shortcuts info modal
+// Set up editor keyboard shortcuts docs entry
 function setupEditorShortcutsModal() {
     const infoButton = document.getElementById('editor-info-btn');
-    const modal = document.getElementById('editor-shortcuts-modal');
-    const closeBtn = document.getElementById(
-        'editor-shortcuts-modal-close-btn'
-    );
+    if (!infoButton) return;
 
-    if (!infoButton || !modal || !closeBtn) return;
-
-    let escapeBinding: ModalEscapeBinding | null = null;
-
-    // Close modal
-    const closeModal = () => {
-        escapeBinding?.release();
-        escapeBinding = null;
-        modal.style.display = 'none';
-    };
-
-    // Open modal
     infoButton.addEventListener('click', (event: Event) => {
         event.stopPropagation();
-        modal.style.display = 'flex';
-        escapeBinding?.release();
-        escapeBinding = bindModalEscape(closeModal, {
-            isOpen: () => modal.style.display === 'flex'
-        });
-    });
-
-    closeBtn.addEventListener('click', closeModal);
-
-    // Close on backdrop click
-    modal.addEventListener('click', (e: Event) => {
-        if (e.target === modal) {
-            closeModal();
-        }
+        window.openDocs?.('editor/glyph-editor');
     });
 }
 

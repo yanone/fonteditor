@@ -200,12 +200,22 @@ glyphs = font.findGlyphsUsingComponent("o")
 ```
 
 #### `duplicateGlyph(glyph: [Glyph](#glyph), newName: str) -> [Glyph](#glyph)`
-Duplicate a glyph with a new name
+Duplicate a glyph with a new name, inserted immediately after the source.
+The duplicate does not keep Unicode codepoints.
 
 **Example:**
 ```python
 new_glyph = font.duplicateGlyph(glyph, "A.alt")
 ```
+
+#### `allocateUniqueGlyphName(baseName: str) -> str`
+Next free glyph name using Glyphs-style .001 / .002 suffixes.
+`a` → `a`; if taken → `a.001`, then `a.002`, …
+
+#### `duplicateGlyphs(names: Iterable<string>) -> list[[Glyph](#glyph)]`
+Duplicate each named glyph under a unique .001-style name.
+Each clone is inserted directly after its source, loses codepoints,
+regenerates layer IDs, and keeps master references.
 
 #### `findAxis(id: str) -> [Axis](#axis) | None`
 Find an axis by ID
@@ -223,7 +233,13 @@ Find a master by ID
 
 #### `addMaster(master: Babelfont.Master | None = None, options: AddMasterOptions | None = None) -> Promise<Master | null>`
 #### `removeMastersByIds(masterIds: list[str]) -> Promise<boolean>`
-#### `addGlyph(name: str, category: Babelfont.GlyphCategory | str) -> [Glyph](#glyph)`
+#### `findInsertIndexAfterName(baseName: str) -> float | int`
+Index at which to insert a new glyph that belongs with `baseName`.
+Strips a trailing `.NNN` so clipboard names like `a.001` still land
+with the `a` / `a.NNN` family. Prefers immediately after the last
+existing family sibling; otherwise appends.
+
+#### `addGlyph(name: str, category: Babelfont.GlyphCategory | str, options: { insertIndex?: number } | None = None) -> [Glyph](#glyph)`
 Add a new glyph to the font
 
 **Example:**
@@ -556,7 +572,7 @@ Handles the babelfont node format where:
 - For closed paths, the path can start with offcurve nodes
 
 #### `getPathSegmentDescriptors(pathData: { nodes: Unsafe[]; closed?: boolean; }) -> Array<{ segmentId: number; type: 'line' | 'quadratic' | 'cubic'; points: Array<{ x: number; y: number }>; startNodeIndex: number; endNodeIndex: number; controlNodeIndices: number[]; runStartNodeIndex: number; runEndNodeIndex: number; runControlNodeIndices: number[]; segmentIndexInRun: number; wrapsAround: boolean; }>`
-#### `calculatePathBounds(pathData: list[{ nodes?: Unsafe] | string; closed?: boolean; }) -> { minX: number; minY: number; maxX: number; maxY: number; width: number; height: number; } | None`
+#### `calculatePathBounds(pathData: { nodes?: Unsafe[]; closed?: boolean; }) -> { minX: number; minY: number; maxX: number; maxY: number; width: number; height: number; } | None`
 #### `calculateShapeBounds(shapes: list[Unsafe] | None, parentTransform: list[float | int]) -> { minX: number; minY: number; maxX: number; maxY: number; width: number; height: number; } | None`
 #### `calculateSvgPathBounds(pathData: str) -> { minX: number; minY: number; maxX: number; maxY: number; width: number; height: number; } | None`
 #### `getAllPaths() -> list[Babelfont.Path]`
