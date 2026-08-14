@@ -140,6 +140,7 @@ declare global {
             }
         ) => string;
         timelineSpanEnd: (spanId: string) => void;
+        dumpCodeLoadingTimeline: () => import('./perf-timeline').CodeLoadingTimelineDump;
 
         // Build metadata
         EDITOR_VERSION: string | null;

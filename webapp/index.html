@@ -12,6 +12,9 @@
         <meta name="apple-mobile-web-app-status-bar-style" content="black" />
         <meta name="apple-mobile-web-app-title" content="counterpunch" />
         <title>Counterpunch Editor</title>
+        <script>
+            performance.mark('cp:app.html.headStart');
+        </script>
         <!-- Favicon -->
         <link rel="icon" type="image/svg+xml" href="assets/favicon/icon.svg" />
         <link
@@ -138,6 +141,9 @@
 
         <!-- Markdown parser -->
         <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+        <script>
+            performance.mark('cp:app.headCdnScriptsParsed');
+        </script>
 
         <!-- Cache busting for local development only -->
         <script>
@@ -2378,5 +2384,8 @@
         <script src="js/glyph-overview.js"></script>
         <script src="js/find-glyph-dialog.js"></script>
         <script src="js/overview-view.js"></script>
+        <script>
+            performance.mark('cp:app.bodyChunkScriptsParsed');
+        </script>
     </body>
 </html>

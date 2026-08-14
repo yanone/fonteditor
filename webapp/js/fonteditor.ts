@@ -6,6 +6,11 @@ const {
     markFontEditorReadyFailed
 } = require('./editor-startup-ready.js');
 import { fontDestinationPluginManager } from './font-destination-plugin-manager';
+import {
+    timelineMark,
+    timelineSpanEnd,
+    timelineSpanStart
+} from './perf-timeline';
 
 type WheelsManifest = {
     wheels: string[];
@@ -21,6 +26,8 @@ type ExtendedWindow = Window & {
 
 async function initFontEditor() {
     'use strict';
+
+    let initSpanId: string | null = null;
 
     try {
         // Ensure pyodide is available
@@ -77,18 +84,22 @@ async function initFontEditor() {
         }
 
         console.log('[FontEditor]', 'Initializing FontEditor...');
+        initSpanId = timelineSpanStart('python.initFontEditor');
         if (window.updateLoadingStatus) {
             window.updateLoadingStatus('Initializing Python environment...');
         }
 
         // First load micropip package
+        const micropipSpanId = timelineSpanStart('python.loadMicropip');
         await window.pyodide.loadPackage('micropip');
+        timelineSpanEnd(micropipSpanId);
         console.log('[FontEditor]', 'micropip loaded successfully');
         if (window.updateLoadingStatus) {
             window.updateLoadingStatus('Loading package manager...');
         }
 
         // Fetch the list of wheel files from the manifest
+        const wheelsSpanId = timelineSpanStart('python.installWheels');
         const manifestResponse = await fetch('./wheels/wheels.json');
         const manifest = (await manifestResponse.json()) as WheelsManifest;
         const wheelFiles = manifest.wheels;
@@ -112,14 +123,19 @@ async function initFontEditor() {
                 await micropip.install("${wheelUrl}")
             `);
         }
+        timelineSpanEnd(wheelsSpanId);
 
         // Load the fonteditor Python module
+        const fonteditorModuleSpanId = timelineSpanStart(
+            'python.loadFonteditorModule'
+        );
         if (window.updateLoadingStatus) {
             window.updateLoadingStatus('Loading font editor...');
         }
         const fonteditorModule = await fetch('./py/fonteditor.py');
         const fonteditorCode = await fonteditorModule.text();
         await window.pyodide.runPython(fonteditorCode);
+        timelineSpanEnd(fonteditorModuleSpanId);
         console.log('[FontEditor]', 'fonteditor.py module loaded');
 
         // Stored third-party wheels are restored only when their Disk permission persists.
@@ -263,9 +279,17 @@ async function initFontEditor() {
         }, 200); // Wait 200ms after "Ready" appears
 
         markFontEditorReady();
+        if (initSpanId) {
+            timelineSpanEnd(initSpanId);
+        }
+        timelineMark('python.initFontEditor.ready');
 
         return true;
     } catch (error) {
+        if (initSpanId) {
+            timelineSpanEnd(initSpanId);
+        }
+        timelineMark('python.initFontEditor.failed');
         const message = error instanceof Error ? error.message : String(error);
         console.error('[FontEditor]', 'Error initializing FontEditor:', error);
         markFontEditorReadyFailed(error);
@@ -291,15 +315,13 @@ async function initFontEditor() {
 
 // Initialize FontEditor when Pyodide is ready
 document.addEventListener('DOMContentLoaded', () => {
-    // Wait for pyodide to be available
+    timelineMark('python.waitForPyodide.started');
     const checkPyodide = () => {
         if (window.pyodide) {
-            // Wait a bit more to ensure pyodide is fully initialized
-            setTimeout(() => {
-                initFontEditor();
-            }, 1000);
+            timelineMark('python.waitForPyodide.available');
+            initFontEditor();
         } else {
-            // Check again in 500ms
+            timelineMark('python.waitForPyodide.pollMiss');
             setTimeout(checkPyodide, 500);
         }
     };

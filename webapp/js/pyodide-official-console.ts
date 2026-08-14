@@ -11,6 +11,11 @@ function sleep(s: number) {
 async function initPyodideConsole() {
     'use strict';
 
+    const { timelineMark, timelineSpanEnd, timelineSpanStart } =
+        await import('./perf-timeline');
+    const consoleInitSpanId = timelineSpanStart('python.consoleInit');
+    timelineMark('python.consoleInit.started');
+
     // Import dependencies
     const { get, set } = await import('idb-keyval');
     const { showCriticalError, isWebAssemblyMemoryError } =
@@ -30,6 +35,7 @@ async function initPyodideConsole() {
 
     try {
         // Load Pyodide
+        const loadPyodideSpanId = timelineSpanStart('python.loadPyodide');
         pyodide = await loadPyodide({
             stdin: () => {
                 let result = prompt();
@@ -37,6 +43,8 @@ async function initPyodideConsole() {
                 return result;
             }
         });
+        timelineSpanEnd(loadPyodideSpanId);
+        timelineMark('python.pyodideReady');
 
         // Make pyodide globally available
         window.pyodide = pyodide;
@@ -579,7 +587,11 @@ async function initPyodideConsole() {
             setTimeout(releaseConsoleDomFocus, 0);
             setTimeout(releaseConsoleDomFocus, 100);
         }
+        timelineSpanEnd(consoleInitSpanId);
+        timelineMark('python.consoleInit.ready');
     } catch (error) {
+        timelineSpanEnd(consoleInitSpanId);
+        timelineMark('python.consoleInit.failed');
         const message = error instanceof Error ? error.message : String(error);
         console.error(
             '[PyodideConsole]',
@@ -650,6 +662,7 @@ document.addEventListener('keydown', (event) => {
 
 // Initialize when DOM is ready and container exists
 document.addEventListener('DOMContentLoaded', () => {
+    performance.mark('cp:python.consoleInit.scheduled');
     // Wait a bit for the view to be properly rendered
     setTimeout(() => {
         if (document.getElementById('console-container')) {

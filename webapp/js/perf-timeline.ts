@@ -164,8 +164,145 @@ export function timelineWrap<T>(
     });
 }
 
+export type CodeLoadingTimelineEntry = {
+    name: string;
+    startTime: number;
+    duration?: number;
+};
+
+export type CodeLoadingResourceEntry = {
+    name: string;
+    initiator: string;
+    startTime: number;
+    duration: number;
+    transferSize: number;
+    encodedBodySize: number;
+    decodedBodySize: number;
+};
+
+export type CodeLoadingTimelineDump = {
+    now: number;
+    navigation: {
+        type: string;
+        fetchStart: number;
+        responseEnd: number;
+        domInteractive: number;
+        domContentLoaded: number;
+        loadEventEnd: number;
+        transferSize: number;
+    } | null;
+    marks: CodeLoadingTimelineEntry[];
+    measures: CodeLoadingTimelineEntry[];
+    resources: CodeLoadingResourceEntry[];
+};
+
+const CODE_LOADING_MARK_PREFIXES = [
+    'cp:app.html.',
+    'cp:app.head',
+    'cp:app.body',
+    'cp:app.bootstrap.',
+    'cp:app.domContentLoaded',
+    'cp:python.'
+];
+
+function roundMs(value: number): number {
+    return Math.round(value * 10) / 10;
+}
+
+function isCodeLoadingLabel(name: string): boolean {
+    return CODE_LOADING_MARK_PREFIXES.some((prefix) => name.startsWith(prefix));
+}
+
+function shortenResourceName(url: string): string {
+    return url
+        .replace(/^https:\/\/cdn\.jsdelivr\.net/, 'jsdelivr')
+        .replace(/^https?:\/\/[^/]+/, '');
+}
+
+function isCodeLoadingResource(entry: PerformanceResourceTiming): boolean {
+    const name = entry.name;
+    if (/\.(woff2?|ttf|otf)(\?|$)/i.test(name)) {
+        return false;
+    }
+    if (
+        entry.initiatorType === 'script' ||
+        entry.initiatorType === 'link' ||
+        entry.initiatorType === 'css'
+    ) {
+        return (
+            /\.(js|css|wasm|zip|whl|py|json)(\?|$)/i.test(name) ||
+            name.includes('pyodide') ||
+            name.includes('/npm/')
+        );
+    }
+    return (
+        /\.(js|wasm|zip|whl|py)(\?|$)/i.test(name) ||
+        name.includes('pyodide') ||
+        name.includes('/wheels/')
+    );
+}
+
+export function dumpCodeLoadingTimeline(): CodeLoadingTimelineDump {
+    const navigationEntry = performance.getEntriesByType('navigation')[0] as
+        PerformanceNavigationTiming | undefined;
+
+    const marks = performance
+        .getEntriesByType('mark')
+        .filter((entry) => isCodeLoadingLabel(entry.name))
+        .map((entry) => ({
+            name: entry.name,
+            startTime: roundMs(entry.startTime)
+        }));
+
+    const measures = performance
+        .getEntriesByType('measure')
+        .filter((entry) => isCodeLoadingLabel(entry.name))
+        .map((entry) => ({
+            name: entry.name,
+            startTime: roundMs(entry.startTime),
+            duration: roundMs(entry.duration)
+        }));
+
+    const resources = performance
+        .getEntriesByType('resource')
+        .filter((entry): entry is PerformanceResourceTiming =>
+            isCodeLoadingResource(entry as PerformanceResourceTiming)
+        )
+        .map((entry) => ({
+            name: shortenResourceName(entry.name),
+            initiator: entry.initiatorType,
+            startTime: roundMs(entry.startTime),
+            duration: roundMs(entry.duration),
+            transferSize: entry.transferSize,
+            encodedBodySize: entry.encodedBodySize,
+            decodedBodySize: entry.decodedBodySize
+        }))
+        .sort((a, b) => a.startTime - b.startTime);
+
+    return {
+        now: roundMs(performance.now()),
+        navigation: navigationEntry
+            ? {
+                  type: navigationEntry.type,
+                  fetchStart: roundMs(navigationEntry.fetchStart),
+                  responseEnd: roundMs(navigationEntry.responseEnd),
+                  domInteractive: roundMs(navigationEntry.domInteractive),
+                  domContentLoaded: roundMs(
+                      navigationEntry.domContentLoadedEventEnd
+                  ),
+                  loadEventEnd: roundMs(navigationEntry.loadEventEnd),
+                  transferSize: navigationEntry.transferSize
+              }
+            : null,
+        marks,
+        measures,
+        resources
+    };
+}
+
 if (typeof window !== 'undefined') {
     window.timelineMark = timelineMark;
     window.timelineSpanStart = timelineSpanStart;
     window.timelineSpanEnd = timelineSpanEnd;
+    window.dumpCodeLoadingTimeline = dumpCodeLoadingTimeline;
 }
