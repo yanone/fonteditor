@@ -3361,6 +3361,12 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                 .iter()
                 .any(|hint| hint == "feature-code");
             let refresh_masters = non_glyph_change_hints.iter().any(|hint| hint == "masters");
+            let refresh_master_kerning = non_glyph_change_hints
+                .iter()
+                .any(|hint| hint == "kerning-value");
+            let refresh_kern_groups = non_glyph_change_hints
+                .iter()
+                .any(|hint| hint == "kerning-groups");
             let top_level_keys: Vec<&str> = non_glyph_change_hints
                 .iter()
                 .filter_map(|hint| hint.strip_prefix("top-level:"))
@@ -3460,13 +3466,6 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                 && changed_layer_snapshots.is_empty()
                 && glyph_renames.is_empty()
             {
-                let refresh_master_kerning = non_glyph_change_hints
-                    .iter()
-                    .any(|hint| hint == "kerning-value");
-                let refresh_kern_groups = non_glyph_change_hints
-                    .iter()
-                    .any(|hint| hint == "kerning-groups");
-
                 if refresh_feature_caches {
                     let _rebuild_span = PerfSpan::start("apply_yjs_update.feature_refresh");
                     refresh_feature_related_caches_from_ydoc(&txn)?;
@@ -3538,11 +3537,7 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                             }
 
                             if refresh_axes {
-                                replace_top_level_json_entry(
-                                    canonical,
-                                    "axes",
-                                    axes_json.clone(),
-                                );
+                                replace_top_level_json_entry(canonical, "axes", axes_json.clone());
                             }
 
                             if !glyph_renames.is_empty()
@@ -3844,6 +3839,20 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                         *FILTERED_FONT_CACHE.lock().unwrap() = None;
                         FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
                         SUBSET_FONT_CACHE_BUILT_AT_EPOCH.store(0, Ordering::Relaxed);
+                    }
+
+                    // Layer/glyph packets can also carry kerning-group or
+                    // kerning-value edits (enabling automatic alignment).
+                    // The dedicated non-glyph branch is skipped when layer
+                    // targets are present. Refresh after dropping
+                    // CANONICAL_JSON_CACHE — that mutex is not reentrant.
+                    if refresh_master_kerning || refresh_kern_groups {
+                        let _rebuild_span = PerfSpan::start("apply_yjs_update.kerning_refresh");
+                        refresh_kerning_related_caches_from_ydoc(
+                            &txn,
+                            refresh_master_kerning,
+                            refresh_kern_groups,
+                        )?;
                     }
                 }
             }
@@ -6627,6 +6636,91 @@ mod tests {
     #[wasm_bindgen_test]
     fn wasm_apply_yjs_update_visual_layer_patch_advances_filter_epoch() {
         apply_yjs_update_visual_layer_patch_advances_filter_epoch();
+    }
+
+    #[test]
+    fn apply_yjs_update_layer_patch_with_kern_groups_refreshes_group_caches() {
+        clear_font_cache();
+
+        let mut font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        font_json["second_kern_groups"] = json!({ "A": ["A"] });
+        store_font_from_value(font_json.clone()).unwrap();
+
+        let subset_font: babelfont::Font = serde_json::from_value(font_json.clone()).unwrap();
+        store_subset_font_cache("A", &subset_font).unwrap();
+        *SUBSET_JSON_CACHE.lock().unwrap() = Some(("A".to_string(), 1, font_json.clone()));
+
+        let author_doc = Doc::new();
+        let font_map = author_doc.get_or_insert_map("font");
+        let layer_map: yrs::MapRef;
+        let group_members: yrs::ArrayRef;
+        {
+            let mut txn = author_doc.transact_mut();
+            let glyphs_map: yrs::MapRef =
+                font_map.insert(&mut txn, "glyphs", MapPrelim::<Any>::new());
+            let glyph_map: yrs::MapRef = glyphs_map.insert(&mut txn, "A", MapPrelim::<Any>::new());
+            let layers_map: yrs::MapRef =
+                glyph_map.insert(&mut txn, "layers", MapPrelim::<Any>::new());
+            layer_map = layers_map.insert(&mut txn, "layer-1", MapPrelim::<Any>::new());
+            layer_map.insert(&mut txn, "id", "layer-1");
+            layer_map.insert(&mut txn, "width", Any::Number(600.0));
+            layer_map.insert(&mut txn, "shapes", ArrayPrelim::from(Vec::<Any>::new()));
+            layer_map.insert(&mut txn, "anchors", ArrayPrelim::from(Vec::<Any>::new()));
+
+            let groups: yrs::MapRef =
+                font_map.insert(&mut txn, "second_kern_groups", MapPrelim::<Any>::new());
+            group_members = groups.insert(&mut txn, "A", ArrayPrelim::from(vec![Any::from("A")]));
+        }
+
+        let initial_update = author_doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let base_state_vector = author_doc.transact().state_vector();
+        {
+            let mut txn = author_doc.transact_mut();
+            layer_map.insert(&mut txn, "width", Any::Number(610.0));
+            group_members.push_back(&mut txn, Any::from("Adieresis"));
+        }
+        let incremental_update = author_doc.transact().encode_diff_v1(&base_state_vector);
+
+        let worker_doc = Doc::new();
+        {
+            let update = yrs::Update::decode_v1(initial_update.as_slice()).unwrap();
+            let mut txn = worker_doc.transact_mut();
+            txn.apply_update(update);
+        }
+        *Y_DOC.lock().unwrap() = Some(worker_doc);
+
+        apply_yjs_update(
+            incremental_update.as_slice(),
+            r#"{
+                "changedGlyphs": ["A"],
+                "layerTargets": [{ "glyphName": "A", "layerId": "layer-1" }],
+                "nonGlyphChangeHints": ["kerning-groups"]
+            }"#,
+        )
+        .unwrap();
+
+        {
+            let canonical = CANONICAL_JSON_CACHE.lock().unwrap();
+            assert_eq!(
+                canonical.as_ref().unwrap()["second_kern_groups"]["A"],
+                json!(["A", "Adieresis"])
+            );
+            assert_eq!(
+                canonical.as_ref().unwrap()["glyphs"][0]["layers"][0]["width"],
+                json!(610)
+            );
+        }
+        {
+            let subset = SUBSET_JSON_CACHE.lock().unwrap();
+            assert_eq!(
+                subset.as_ref().unwrap().2["second_kern_groups"]["A"],
+                json!(["A", "Adieresis"])
+            );
+        }
+
+        clear_font_cache();
     }
 
     fn apply_yjs_update_applies_array_nodes_to_subset_cache() {

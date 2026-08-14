@@ -1031,6 +1031,217 @@ describe('Automatic Glyph Composition canonical behavior', () => {
         expect(layer.isAutomaticAlignedLayer()).toBe(false);
     });
 
+    function enableAutomaticAlignment(layer) {
+        for (const component of layer.components) {
+            component.automaticAlignment = true;
+        }
+    }
+
+    test('enabling automatic alignment copies base kerning groups and creates missing groups by glyph name', () => {
+        const font = makeAutomaticCompositionFont();
+        const layer = font.findGlyph('manualComposite').layers[0];
+
+        enableAutomaticAlignment(layer);
+
+        expect(layer.isAutomaticAlignedLayer()).toBe(true);
+        expect(font.second_kern_groups).toEqual({
+            A: ['A', 'manualComposite']
+        });
+        expect(font.first_kern_groups).toEqual({
+            A: ['A', 'manualComposite']
+        });
+    });
+
+    test('enabling automatic alignment reuses existing base kerning groups on each side', () => {
+        const font = makeAutomaticCompositionFont();
+        font.second_kern_groups = { ALeft: ['A'] };
+        font.first_kern_groups = { ARight: ['A'] };
+        const layer = font.findGlyph('manualComposite').layers[0];
+
+        enableAutomaticAlignment(layer);
+
+        expect(font.second_kern_groups).toEqual({
+            ALeft: ['A', 'manualComposite']
+        });
+        expect(font.first_kern_groups).toEqual({
+            ARight: ['A', 'manualComposite']
+        });
+    });
+
+    test('rebuilds and disabling automatic alignment do not change kerning groups', () => {
+        const font = makeAutomaticCompositionFont();
+        const adieresis = font.findGlyph('adieresis').layers[0];
+        adieresis.rebuildAutomaticComposition();
+
+        expect(font.first_kern_groups).toEqual({});
+        expect(font.second_kern_groups).toEqual({});
+
+        const layer = font.findGlyph('manualComposite').layers[0];
+        enableAutomaticAlignment(layer);
+        layer.components[0].automaticAlignment = false;
+
+        expect(layer.isAutomaticAlignedLayer()).toBe(false);
+        expect(font.second_kern_groups).toEqual({
+            A: ['A', 'manualComposite']
+        });
+        expect(font.first_kern_groups).toEqual({
+            A: ['A', 'manualComposite']
+        });
+    });
+
+    test('automatic ligatures take the left group from the first base and the right group from the last base', () => {
+        const font = makeAutomaticCompositionFont();
+        const layer = font.findGlyph('AB').layers[0];
+        for (const component of layer.components) {
+            component.automaticAlignment = false;
+        }
+
+        expect(font.first_kern_groups).toEqual({});
+        expect(font.second_kern_groups).toEqual({});
+
+        enableAutomaticAlignment(layer);
+
+        expect(font.second_kern_groups).toEqual({ A: ['A', 'AB'] });
+        expect(font.first_kern_groups).toEqual({ B: ['AB', 'B'] });
+    });
+
+    test('automatic composites follow nested automatic bases recursively for kerning groups', () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [makeMaster()],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'A0',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'M0'
+                            },
+                            shapes: [makeRectPath(50, 0, 450, 700)],
+                            anchors: [
+                                { name: 'top', x: 250, y: 700 },
+                                { name: '#exit', x: 480, y: 150 }
+                            ],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: {}
+                },
+                {
+                    name: 'E',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'E0',
+                            width: 400,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'M0'
+                            },
+                            shapes: [makeRectPath(20, 0, 380, 700)],
+                            anchors: [
+                                { name: 'top', x: 200, y: 700 },
+                                { name: '#entry', x: 20, y: 150 }
+                            ],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: {}
+                },
+                {
+                    name: 'acutecomb',
+                    category: 'Mark',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'AC0',
+                            width: 180,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'M0'
+                            },
+                            shapes: [makeRectPath(-40, 680, 40, 780)],
+                            anchors: [{ name: '_top', x: 0, y: 720 }],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: {}
+                },
+                {
+                    name: 'AE',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'AE0',
+                            width: 0,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'M0'
+                            },
+                            shapes: [makeComponent('A'), makeComponent('E')],
+                            anchors: [{ name: 'top', x: 250, y: 700 }],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: {}
+                },
+                {
+                    name: 'AEacute',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'AEA0',
+                            width: 0,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'M0'
+                            },
+                            shapes: [
+                                makeComponent('AE', { auto: false }),
+                                makeComponent('acutecomb', { auto: false })
+                            ],
+                            anchors: [],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: {}
+                }
+            ],
+            names: { family_name: { en: 'Nested Automatic Ligature Kerning' } },
+            note: '',
+            date: '2026-08-14',
+            features: { classes: {}, prefixes: {}, features: [] },
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        enableAutomaticAlignment(font.findGlyph('AEacute').layers[0]);
+
+        expect(font.second_kern_groups).toEqual({ A: ['A', 'AEacute'] });
+        expect(font.first_kern_groups).toEqual({ E: ['AEacute', 'E'] });
+        expect(font.second_kern_groups.A).not.toContain('AE');
+        expect(font.first_kern_groups.E).not.toContain('AE');
+    });
+
     test('only component-only layers with all-auto components participate in automatic composition', () => {
         const font = makeAutomaticCompositionFont();
 

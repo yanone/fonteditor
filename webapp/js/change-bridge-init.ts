@@ -819,6 +819,35 @@ function pathTouchesKerningGroups(path: string): boolean {
     );
 }
 
+function pathTouchesGlyphOrLayer(path: string): boolean {
+    return (
+        path === 'glyphs' ||
+        path.startsWith('glyphs.') ||
+        path.includes('.layers.') ||
+        path.includes(':layers.')
+    );
+}
+
+function packetMixesKerningAndGlyphEdits(entries: ChangeLogEntry[]): boolean {
+    let hasKerningChange = false;
+    let hasGlyphOrLayerChange = false;
+    for (const entry of entries) {
+        const path = entry.path ?? '';
+        if (
+            inferKerningEditTypeFromMetadata(entry.transactionLabel ?? '', path)
+        ) {
+            hasKerningChange = true;
+        }
+        if (pathTouchesGlyphOrLayer(path)) {
+            hasGlyphOrLayerChange = true;
+        }
+        if (hasKerningChange && hasGlyphOrLayerChange) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function inferKerningEditTypeFromMetadata(
     label: string,
     path: string
@@ -974,6 +1003,15 @@ function inferCommittedEditTypeFromEntries(
         // tuple, so locations past the previous extrema fall back to the default
         // master (e.g. Regular at the new axis max).
         if (label === 'Add master' || label === 'Remove master') {
+            return {
+                editType: null,
+                changeSource: changeSourceFor(null)
+            };
+        }
+        // Outline-only skips kerning; kerning-only skips outlines. Packets that
+        // change both (for example enabling automatic alignment while assigning
+        // inherited kerning groups) must compile as full and reshape immediately.
+        if (packetMixesKerningAndGlyphEdits(entries)) {
             return {
                 editType: null,
                 changeSource: changeSourceFor(null)

@@ -1938,6 +1938,54 @@ describe('handleRemoteChangeRefresh', () => {
         );
     });
 
+    test('classifies mixed automatic-alignment and kern-group packets as full editing compiles', async () => {
+        const awaitWorkerSync = jest.fn(async () => {});
+        const requestCompile = jest.fn(async () => {});
+        const queueCacheRefresh = jest.fn(async () => {});
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set())
+                }
+            },
+            lastChangeSource: null,
+            lastEditType: null
+        };
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Set component automatic alignment',
+                        path: 'glyphs.manualComposite.layers.MC0.shapes.0.format_specific'
+                    },
+                    {
+                        transactionLabel: 'Set component automatic alignment',
+                        path: 'first_kern_groups'
+                    },
+                    {
+                        transactionLabel: 'Set component automatic alignment',
+                        path: 'second_kern_groups'
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync,
+                    requestCompile,
+                    queueCacheRefresh
+                }
+            );
+        } finally {
+            delete window.fontManager;
+        }
+
+        expect(requestCompile).toHaveBeenCalledWith(
+            'change-bridge-local',
+            null
+        );
+    });
+
     test('rebuilds editor axis sliders after committed axis range edits', async () => {
         expect(committedEntriesTouchAxes([{ path: 'axes.0.max' }])).toBe(true);
         expect(committedEntriesTouchAxes([{ path: 'masters' }])).toBe(false);

@@ -380,6 +380,156 @@ function hasExplicitAutomaticComponentAlignment(component: Component): boolean {
     return value === 1;
 }
 
+type AutomaticKerningGroupPairSide = 'first' | 'second';
+
+function glyphSideToKerningGroupPairSide(
+    side: 'left' | 'right'
+): AutomaticKerningGroupPairSide {
+    // Left side of a glyph is the second of a kerning pair (MMK_L).
+    // Right side of a glyph is the first of a kerning pair (MMK_R).
+    return side === 'left' ? 'second' : 'first';
+}
+
+function getKerningGroupsForPairSide(
+    font: Font,
+    pairSide: AutomaticKerningGroupPairSide
+): Record<string, string[]> | undefined {
+    return pairSide === 'first'
+        ? font.first_kern_groups
+        : font.second_kern_groups;
+}
+
+function setKerningGroupsForPairSide(
+    font: Font,
+    pairSide: AutomaticKerningGroupPairSide,
+    groups: Record<string, string[]>
+): void {
+    if (pairSide === 'first') {
+        font.first_kern_groups = groups;
+    } else {
+        font.second_kern_groups = groups;
+    }
+}
+
+function cloneKerningGroups(
+    groups: Record<string, string[]> | undefined
+): Record<string, string[]> {
+    const next: Record<string, string[]> = {};
+    for (const [groupName, members] of Object.entries(groups || {})) {
+        if (Array.isArray(members)) {
+            next[groupName] = [...members];
+        }
+    }
+    return next;
+}
+
+function findKerningGroupNameForGlyph(
+    groups: Record<string, string[]> | undefined,
+    glyphName: string
+): string | null {
+    if (!groups) {
+        return null;
+    }
+
+    const memberships: string[] = [];
+    for (const [groupName, members] of Object.entries(groups)) {
+        if (Array.isArray(members) && members.includes(glyphName)) {
+            memberships.push(groupName);
+        }
+    }
+    memberships.sort((left, right) => left.localeCompare(right));
+    return memberships[0] ?? null;
+}
+
+function withGlyphInKerningGroup(
+    groups: Record<string, string[]>,
+    glyphName: string,
+    groupName: string
+): Record<string, string[]> {
+    const next: Record<string, string[]> = {};
+    for (const [name, members] of Object.entries(groups)) {
+        if (!Array.isArray(members)) {
+            continue;
+        }
+        const filtered = members.filter((member) => member !== glyphName);
+        if (filtered.length > 0) {
+            next[name] = filtered;
+        }
+    }
+
+    const members = [...(next[groupName] || [])];
+    if (!members.includes(glyphName)) {
+        members.push(glyphName);
+        members.sort((left, right) => left.localeCompare(right));
+    }
+    next[groupName] = members;
+    return next;
+}
+
+function kerningGroupsEqual(
+    left: Record<string, string[]> | undefined,
+    right: Record<string, string[]> | undefined
+): boolean {
+    const leftGroups = left || {};
+    const rightGroups = right || {};
+    const leftNames = Object.keys(leftGroups).sort();
+    const rightNames = Object.keys(rightGroups).sort();
+    if (leftNames.length !== rightNames.length) {
+        return false;
+    }
+
+    for (let index = 0; index < leftNames.length; index++) {
+        if (leftNames[index] !== rightNames[index]) {
+            return false;
+        }
+        const groupName = leftNames[index];
+        const leftMembers = [...(leftGroups[groupName] || [])]
+            .sort()
+            .join('\0');
+        const rightMembers = [...(rightGroups[groupName] || [])]
+            .sort()
+            .join('\0');
+        if (leftMembers !== rightMembers) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function assignAutomaticCompositeKerningGroupsForSide(
+    font: Font,
+    pairSide: AutomaticKerningGroupPairSide,
+    terminalGlyphName: string,
+    compositeGlyphName: string
+): boolean {
+    const currentGroups = getKerningGroupsForPairSide(font, pairSide);
+    let nextGroups = cloneKerningGroups(currentGroups);
+    let groupName = findKerningGroupNameForGlyph(nextGroups, terminalGlyphName);
+    if (!groupName) {
+        groupName = terminalGlyphName;
+        nextGroups = withGlyphInKerningGroup(
+            nextGroups,
+            terminalGlyphName,
+            groupName
+        );
+    }
+    if (compositeGlyphName !== terminalGlyphName) {
+        nextGroups = withGlyphInKerningGroup(
+            nextGroups,
+            compositeGlyphName,
+            groupName
+        );
+    }
+
+    if (kerningGroupsEqual(currentGroups, nextGroups)) {
+        return false;
+    }
+
+    setKerningGroupsForPairSide(font, pairSide, nextGroups);
+    return true;
+}
+
 function isAutomaticSidebearingOverrideKey(value: string | undefined): boolean {
     const normalizedValue = normalizeMetricsKeyValue(value);
     return Boolean(normalizedValue && /^==?[+-]/.test(normalizedValue));
@@ -5120,7 +5270,11 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
             ...(this.format_specific || {}),
             [GLYPHS_COMPONENT_ALIGNMENT_KEY]: nextValue
         };
-        getLayerForSelectableObject(this)?.invalidateLayoutCache();
+        const layer = getLayerForSelectableObject(this);
+        layer?.invalidateLayoutCache();
+        if (value) {
+            layer?.assignAutomaticCompositeKerningGroups();
+        }
     }
 
     /**
@@ -6357,6 +6511,132 @@ export class Layer extends ArrayElementBase {
 
         return components.every((shape) =>
             hasExplicitAutomaticComponentAlignment(shape.asComponent())
+        );
+    }
+
+    /**
+     * Copy kerning groups from resolved automatic bases onto this glyph.
+     * Invoked only when enabling automatic alignment makes the layer automatic.
+     */
+    assignAutomaticCompositeKerningGroups(): boolean {
+        if (!this.isAutomaticAlignedLayer()) {
+            return false;
+        }
+
+        const font = this.getFont();
+        const glyphName = this.getGlyphName();
+        if (!font || !glyphName) {
+            return false;
+        }
+
+        let changed = false;
+        for (const side of ['left', 'right'] as const) {
+            const terminal = this.resolveAutomaticKerningGroupTerminal(
+                side,
+                new Set()
+            );
+            if (!terminal?.name) {
+                continue;
+            }
+
+            if (
+                assignAutomaticCompositeKerningGroupsForSide(
+                    font,
+                    glyphSideToKerningGroupPairSide(side),
+                    terminal.name,
+                    glyphName
+                )
+            ) {
+                changed = true;
+            }
+        }
+
+        return changed;
+    }
+
+    private collectAutomaticBaseGlyphNames(): string[] {
+        if (!this.isAutomaticAlignedLayer()) {
+            return [];
+        }
+
+        const baseGlyphNames: string[] = [];
+        const availableAnchors = new Map<
+            string,
+            AutomaticCompositionAnchorPoint
+        >();
+
+        for (const component of this.components) {
+            const componentLayer = this.getAutomaticComponentLayer(component);
+            if (!componentLayer) {
+                continue;
+            }
+
+            const sourceData =
+                this.getAutomaticCompositionSourceData(componentLayer);
+            const attachment = this.resolveAutomaticComponentAttachment(
+                component,
+                sourceData,
+                availableAnchors
+            );
+            const contributesBaseMetrics =
+                !attachment || attachment.kind === 'chained-base';
+            if (contributesBaseMetrics && component.reference) {
+                baseGlyphNames.push(component.reference);
+            }
+
+            for (const anchor of sourceData.outgoingAnchors) {
+                if (!anchor.name) {
+                    continue;
+                }
+                availableAnchors.set(anchor.name, {
+                    name: anchor.name,
+                    x: 0,
+                    y: 0
+                });
+            }
+        }
+
+        return baseGlyphNames;
+    }
+
+    private resolveAutomaticKerningGroupTerminal(
+        side: 'left' | 'right',
+        visited: Set<string>
+    ): Glyph | null {
+        const glyph = this.parent() as Glyph | undefined;
+        if (!glyph?.name) {
+            return null;
+        }
+        if (visited.has(glyph.name)) {
+            return glyph;
+        }
+        visited.add(glyph.name);
+
+        if (!this.isAutomaticAlignedLayer()) {
+            return glyph;
+        }
+
+        const bases = this.collectAutomaticBaseGlyphNames();
+        if (bases.length === 0) {
+            return glyph;
+        }
+
+        const baseName = side === 'left' ? bases[0] : bases[bases.length - 1];
+        const font = this.getFont();
+        const baseGlyph = font?.findGlyph(baseName);
+        if (!baseGlyph) {
+            return glyph;
+        }
+
+        const baseLayer =
+            this.getMatchingLayerOnGlyph(baseName) ?? baseGlyph.layers?.[0];
+        if (!baseLayer?.isAutomaticAlignedLayer()) {
+            return baseGlyph;
+        }
+
+        return (
+            baseLayer.resolveAutomaticKerningGroupTerminal(side, visited) ??
+            baseGlyph
         );
     }
 

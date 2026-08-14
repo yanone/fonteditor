@@ -499,6 +499,10 @@ without scanning the full font. Use during interactive editing
 (keyboard/mouse) where only the current layer needs updating.
 
 #### `isAutomaticAlignedLayer() -> bool`
+#### `assignAutomaticCompositeKerningGroups() -> bool`
+Copy kerning groups from resolved automatic bases onto this glyph.
+Invoked only when enabling automatic alignment makes the layer automatic.
+
 #### `getAutomaticComponentTargetAnchorOptions(component: [Component](#component)) -> list[str]`
 #### `rebuildAutomaticComposition(sourceDataCache: WeakMap<object | None = None, AutomaticCompositionSourceData>) -> bool`
 #### `applyAutomaticCompositionToLayerData(layerData: { shapes?: Unsafe[]; width?: number; }, sourceDataCache: WeakMap<object | None = None, AutomaticCompositionSourceData>) -> bool`
