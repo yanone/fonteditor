@@ -4,6 +4,38 @@ import { Point, RectWithWidthHeight } from '../basictypes';
 import APP_SETTINGS from '../settings';
 import { ShapedGlyph } from './textrun';
 
+export interface ViewportPanLockTarget {
+    panX: number;
+    panY: number;
+    fontToScreenCoordinates(
+        fontX: number,
+        fontY: number
+    ): { x: number; y: number };
+}
+
+/**
+ * Shift pan so `fontX`/`fontY` maps to the captured screen point.
+ * Default is X-only; pass `{ lockY: true }` to also lock vertical.
+ */
+export function applyFontPointScreenLock(
+    viewport: ViewportPanLockTarget,
+    screen: { x: number; y: number } | null | undefined,
+    fontX: number,
+    fontY: number,
+    options?: { lockY?: boolean }
+): void {
+    if (!screen) {
+        return;
+    }
+    const current = viewport.fontToScreenCoordinates(fontX, fontY);
+    viewport.panX += screen.x - current.x;
+    if (options?.lockY) {
+        viewport.panY += screen.y - current.y;
+    }
+}
+
+const lockFontPointToScreen = applyFontPointScreenLock;
+
 export class ViewportManager {
     scale: number;
     panX: number;
@@ -72,6 +104,20 @@ export class ViewportManager {
         const screenX = transform.a * fontX + transform.c * fontY + transform.e;
         const screenY = transform.b * fontX + transform.d * fontY + transform.f;
         return { x: screenX, y: screenY };
+    }
+
+    /**
+     * Shift pan so a font-space point stays at a previously captured screen
+     * position. Text-mode cursor/kerning locks X only; edit-mode bbox and
+     * feature-change glyph origin also lock Y when `lockY` is true.
+     */
+    applyFontPointScreenLock(
+        screen: { x: number; y: number } | null | undefined,
+        fontX: number,
+        fontY: number,
+        options?: { lockY?: boolean }
+    ): void {
+        lockFontPointToScreen(this, screen, fontX, fontY, options);
     }
 
     /**

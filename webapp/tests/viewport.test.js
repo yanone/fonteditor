@@ -85,3 +85,39 @@ describe('ViewportManager zoom to fit', () => {
         expect(panY).toBeCloseTo(610);
     });
 });
+
+describe('applyFontPointScreenLock', () => {
+    const { applyFontPointScreenLock } = require('../js/glyph-canvas/viewport');
+
+    test('pans so the font point stays on the captured screen X', () => {
+        const viewport = {
+            panX: 10,
+            panY: 20,
+            fontToScreenCoordinates(fontX, fontY) {
+                return { x: this.panX + fontX, y: this.panY - fontY };
+            }
+        };
+
+        applyFontPointScreenLock(viewport, { x: 300, y: 20 }, 200, 0);
+        expect(viewport.fontToScreenCoordinates(200, 0).x).toBe(300);
+        expect(viewport.panY).toBe(20);
+    });
+
+    test('optionally locks Y as well', () => {
+        const viewport = {
+            panX: 0,
+            panY: 0,
+            fontToScreenCoordinates(fontX, fontY) {
+                return { x: this.panX + fontX, y: this.panY - fontY };
+            }
+        };
+
+        applyFontPointScreenLock(viewport, { x: 50, y: 80 }, 10, 20, {
+            lockY: true
+        });
+        expect(viewport.fontToScreenCoordinates(10, 20)).toEqual({
+            x: 50,
+            y: 80
+        });
+    });
+});

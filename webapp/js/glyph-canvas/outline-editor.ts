@@ -59,6 +59,7 @@ import {
     type ParsedClipboard
 } from '../clipboard';
 import APP_SETTINGS from '../settings';
+import { applyFontPointScreenLock } from './viewport';
 import { userspaceToDesignspace, designspaceToUserspace } from '../locations';
 import type { DesignspaceLocation, UserspaceLocation } from '../locations';
 import { SavedVariationState } from '../saved-variation-state';
@@ -6679,7 +6680,7 @@ export class OutlineEditor {
         });
     }
 
-    private getBoundingBoxCenterScreenPosition(): {
+    private getBoundingBoxCenterFontPosition(): {
         x: number;
         y: number;
     } | null {
@@ -6715,13 +6716,24 @@ export class OutlineEditor {
             localCenterY = transformedY;
         }
 
-        const worldCenterX =
-            glyphPosition.xPosition + glyphPosition.xOffset + localCenterX;
-        const worldCenterY = glyphPosition.yOffset + localCenterY;
+        return {
+            x: glyphPosition.xPosition + glyphPosition.xOffset + localCenterX,
+            y: glyphPosition.yOffset + localCenterY
+        };
+    }
+
+    private getBoundingBoxCenterScreenPosition(): {
+        x: number;
+        y: number;
+    } | null {
+        const fontPosition = this.getBoundingBoxCenterFontPosition();
+        if (!fontPosition || !this.glyphCanvas.viewportManager) {
+            return null;
+        }
 
         return this.glyphCanvas.viewportManager.fontToScreenCoordinates(
-            worldCenterX,
-            worldCenterY
+            fontPosition.x,
+            fontPosition.y
         );
     }
 
@@ -6735,15 +6747,18 @@ export class OutlineEditor {
             return;
         }
 
-        const currentScreenPos = this.getBoundingBoxCenterScreenPosition();
-        if (!currentScreenPos) {
+        const fontPosition = this.getBoundingBoxCenterFontPosition();
+        if (!fontPosition) {
             return;
         }
 
-        this.glyphCanvas.viewportManager.panX +=
-            anchorScreen.x - currentScreenPos.x;
-        this.glyphCanvas.viewportManager.panY +=
-            anchorScreen.y - currentScreenPos.y;
+        applyFontPointScreenLock(
+            this.glyphCanvas.viewportManager,
+            anchorScreen,
+            fontPosition.x,
+            fontPosition.y,
+            { lockY: true }
+        );
     }
 
     private refreshKeyedMetricsAfterStructuralEdit(

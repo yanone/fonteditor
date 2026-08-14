@@ -1,4 +1,8 @@
 import { Logger } from '../logger';
+import {
+    applyFontPointScreenLock,
+    type ViewportPanLockTarget
+} from './viewport';
 import type { ShapedGlyph } from './textrun';
 
 const console = new Logger('FeatureChangeAnimator');
@@ -31,7 +35,7 @@ export interface FeatureChangeDrawState {
     frame: number;
     alphaOld: number;
     alphaNew: number;
-    hideOutlineEditor: boolean;
+    fadeActiveOutlines: boolean;
     fromSelectedIndex: number;
     toSelectedIndex: number;
 }
@@ -53,6 +57,43 @@ export function snapshotShapedRun(
 
 export function lerp(a: number, b: number, u: number): number {
     return a + (b - a) * u;
+}
+
+export function shapedRunHorizontalExtents(
+    glyphs: ShapedGlyph[],
+    selectedIndex: number,
+    selectedVisualWidth: number | null
+): { minX: number; maxX: number } | null {
+    if (!Array.isArray(glyphs) || glyphs.length === 0) {
+        return null;
+    }
+
+    let xPosition = 0;
+    let minX = Infinity;
+    let maxX = -Infinity;
+
+    for (let glyphIndex = 0; glyphIndex < glyphs.length; glyphIndex++) {
+        const shapedGlyph = glyphs[glyphIndex];
+        const xOffset = shapedGlyph.dx || 0;
+        const xAdvance = shapedGlyph.ax || 0;
+        const glyphStartX = xPosition + xOffset;
+        const glyphVisualAdvance =
+            glyphIndex === selectedIndex &&
+            selectedVisualWidth !== null &&
+            Number.isFinite(selectedVisualWidth)
+                ? selectedVisualWidth
+                : xAdvance;
+        const glyphEndX = glyphStartX + glyphVisualAdvance;
+        minX = Math.min(minX, glyphStartX, glyphEndX);
+        maxX = Math.max(maxX, glyphStartX, glyphEndX);
+        xPosition += xAdvance;
+    }
+
+    if (!Number.isFinite(minX) || !Number.isFinite(maxX) || maxX <= minX) {
+        return null;
+    }
+
+    return { minX, maxX };
 }
 
 export function getFeatureChangeFrame(elapsedMs: number): {
@@ -421,14 +462,40 @@ export function buildAnimatedGlyphDrawOps(
     return ops;
 }
 
+/**
+ * HarfBuzz fill ops that belong to the glyph currently in the outline editor.
+ * Those stay invisible; the outline editor fades instead.
+ */
+export function isActiveEditGlyphDrawOp(
+    op: AnimatedGlyphDrawOp,
+    fromSelectedIndex: number,
+    toSelectedIndex: number
+): boolean {
+    if (op.fromGlyphIndex === fromSelectedIndex) {
+        return true;
+    }
+    return op.fromGlyphIndex === null && op.toGlyphIndex === toSelectedIndex;
+}
+
+export interface FeatureChangeViewportAnchor {
+    screenX: number;
+    screenY: number;
+    fromFontX: number;
+    fromFontY: number;
+    toFontX: number;
+    toFontY: number;
+    lockY: boolean;
+}
+
 export class FeatureChangeAnimator {
     private animation: {
         from: ShapedRunSnapshot;
         to: ShapedRunSnapshot;
         startTime: number;
-        hideOutlineEditor: boolean;
+        fadeActiveOutlines: boolean;
         fromSelectedIndex: number;
         toSelectedIndex: number;
+        viewportAnchor: FeatureChangeViewportAnchor | null;
     } | null = null;
     private rafId: number | null = null;
     private readonly onFrame: () => void;
@@ -441,13 +508,12 @@ export class FeatureChangeAnimator {
         return this.animation !== null;
     }
 
-    shouldHideOutlineEditor(): boolean {
-        if (!this.animation) {
-            return false;
+    getOutlineEditorFadeAlpha(): number {
+        const state = this.getDrawState();
+        if (!state?.fadeActiveOutlines) {
+            return 1;
         }
-        const elapsed = performance.now() - this.animation.startTime;
-        const { done } = getFeatureChangeFrame(elapsed);
-        return !done && this.animation.hideOutlineEditor;
+        return state.alphaOld + state.alphaNew;
     }
 
     begin(
@@ -457,6 +523,7 @@ export class FeatureChangeAnimator {
             fromSelectedIndex: number;
             toSelectedIndex: number;
             editMode: boolean;
+            viewportAnchor?: FeatureChangeViewportAnchor | null;
         }
     ): boolean {
         this.stopRaf();
@@ -465,7 +532,7 @@ export class FeatureChangeAnimator {
             return false;
         }
 
-        const hideOutlineEditor =
+        const fadeActiveOutlines =
             options.editMode &&
             selectedClusterIsSubstituted(
                 from,
@@ -478,13 +545,14 @@ export class FeatureChangeAnimator {
             from,
             to,
             startTime: performance.now(),
-            hideOutlineEditor,
+            fadeActiveOutlines,
             fromSelectedIndex: options.fromSelectedIndex,
-            toSelectedIndex: options.toSelectedIndex
+            toSelectedIndex: options.toSelectedIndex,
+            viewportAnchor: options.viewportAnchor ?? null
         };
         console.log(
             '[FeatureChangeAnimator]',
-            `begin hideOutlineEditor=${hideOutlineEditor}`
+            `begin fadeActiveOutlines=${fadeActiveOutlines}`
         );
         this.rafId = requestAnimationFrame(() => this.tick());
         return true;
@@ -516,7 +584,7 @@ export class FeatureChangeAnimator {
             frame,
             alphaOld: alphas.alphaOld,
             alphaNew: alphas.alphaNew,
-            hideOutlineEditor: this.animation.hideOutlineEditor,
+            fadeActiveOutlines: this.animation.fadeActiveOutlines,
             fromSelectedIndex: this.animation.fromSelectedIndex,
             toSelectedIndex: this.animation.toSelectedIndex
         };
@@ -532,6 +600,56 @@ export class FeatureChangeAnimator {
             state.to,
             state.toSelectedIndex,
             state.u
+        );
+    }
+
+    getPlaybackU(): number | null {
+        if (!this.animation) {
+            return null;
+        }
+        const elapsed = performance.now() - this.animation.startTime;
+        const { u, done } = getFeatureChangeFrame(elapsed);
+        return done ? 1 : u;
+    }
+
+    getInterpolatedAnchorFontX(): number | null {
+        const position = this.getInterpolatedAnchorFontPosition();
+        return position?.x ?? null;
+    }
+
+    getInterpolatedAnchorFontPosition(): { x: number; y: number } | null {
+        if (!this.animation?.viewportAnchor) {
+            return null;
+        }
+        const u = this.getPlaybackU();
+        if (u === null) {
+            return null;
+        }
+        const anchor = this.animation.viewportAnchor;
+        return {
+            x: lerp(anchor.fromFontX, anchor.toFontX, u),
+            y: lerp(anchor.fromFontY, anchor.toFontY, u)
+        };
+    }
+
+    applyViewportAnchor(
+        viewport: ViewportPanLockTarget | null | undefined,
+        uOverride?: number
+    ): void {
+        if (!this.animation?.viewportAnchor || !viewport) {
+            return;
+        }
+        const u = uOverride ?? this.getPlaybackU();
+        if (u === null) {
+            return;
+        }
+        const anchor = this.animation.viewportAnchor;
+        applyFontPointScreenLock(
+            viewport,
+            { x: anchor.screenX, y: anchor.screenY },
+            lerp(anchor.fromFontX, anchor.toFontX, u),
+            lerp(anchor.fromFontY, anchor.toFontY, u),
+            { lockY: anchor.lockY }
         );
     }
 

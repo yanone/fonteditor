@@ -6,8 +6,10 @@ const {
     getFeatureChangeAlphas,
     getFeatureChangeFrame,
     getInterpolatedGlyphOriginX,
+    isActiveEditGlyphDrawOp,
     selectedClusterIsSubstituted,
     shapedRunNeedsAnimation,
+    shapedRunHorizontalExtents,
     snapshotShapedRun,
     FeatureChangeAnimator
 } = require('../js/glyph-canvas/feature-change-animator');
@@ -63,6 +65,29 @@ describe('feature-change animator', () => {
         expect(getFeatureChangeAlphas(13)).toEqual({
             alphaOld: 0,
             alphaNew: 1
+        });
+    });
+
+    test('shaped run extents use the selected glyph visual width', () => {
+        const run = snapshot([
+            ['a', { ax: 500, cl: 0 }],
+            ['v', { ax: 400, cl: 1 }]
+        ]);
+        expect(shapedRunHorizontalExtents(run.glyphs, 0, null)).toEqual({
+            minX: 0,
+            maxX: 900
+        });
+        expect(shapedRunHorizontalExtents(run.glyphs, 0, 600)).toEqual({
+            minX: 0,
+            maxX: 900
+        });
+        const tight = snapshot([
+            ['a', { ax: 460, cl: 0 }],
+            ['v', { ax: 400, cl: 1 }]
+        ]);
+        expect(shapedRunHorizontalExtents(tight.glyphs, 1, 420)).toEqual({
+            minX: 0,
+            maxX: 880
         });
     });
 
@@ -133,7 +158,7 @@ describe('feature-change animator', () => {
         expect(clusters[1].x).toBe(300);
     });
 
-    test('begin/cancel and hides the outline editor for substitutions', () => {
+    test('fades the outline editor instead of filling the active glyph', () => {
         const frames = [];
         const originalNow = performance.now.bind(performance);
         const originalRaf = global.requestAnimationFrame;
@@ -158,18 +183,87 @@ describe('feature-change animator', () => {
                     editMode: true
                 })
             ).toBe(true);
-            expect(animator.shouldHideOutlineEditor()).toBe(true);
-            expect(animator.getDrawState()?.alphaOld).toBe(1);
+            expect(animator.getOutlineEditorFadeAlpha()).toBe(1);
+            expect(animator.getDrawState()?.fadeActiveOutlines).toBe(true);
+
+            now = FEATURE_CHANGE_DURATION_MS / 2;
+            expect(animator.getOutlineEditorFadeAlpha()).toBe(0);
 
             now = FEATURE_CHANGE_DURATION_MS;
             frames[0]();
             expect(animator.isActive()).toBe(false);
-            expect(animator.shouldHideOutlineEditor()).toBe(false);
+            expect(animator.getOutlineEditorFadeAlpha()).toBe(1);
         } finally {
             animator.cancel();
             performance.now = originalNow;
             global.requestAnimationFrame = originalRaf;
             global.cancelAnimationFrame = originalCancel;
+        }
+    });
+
+    test('does not treat a neighboring ligature glyph as the active edit slot', () => {
+        const fromOps = buildAnimatedGlyphDrawOps(
+            snapshot([
+                ['f', { ax: 300, cl: 0 }],
+                ['i', { ax: 200, cl: 1 }]
+            ]),
+            snapshot([['fi', { ax: 500, cl: 0 }]]),
+            0,
+            1,
+            0
+        );
+        const iOp = fromOps.find((op) => op.name === 'i');
+        const fOp = fromOps.find((op) => op.name === 'f');
+        expect(fOp).toBeDefined();
+        expect(iOp).toBeDefined();
+        expect(isActiveEditGlyphDrawOp(fOp, 0, 0)).toBe(true);
+        expect(isActiveEditGlyphDrawOp(iOp, 0, 0)).toBe(false);
+    });
+
+    test('keeps the viewport anchored on the interpolated cursor or glyph', () => {
+        const originalNow = performance.now.bind(performance);
+        const originalRaf = global.requestAnimationFrame;
+        performance.now = () => 0;
+        global.requestAnimationFrame = () => 1;
+
+        const animator = new FeatureChangeAnimator(() => {});
+        const from = snapshot([['a', { ax: 500, cl: 0 }]]);
+        const to = snapshot([['a', { ax: 400, cl: 0 }]]);
+        const viewport = {
+            panX: 100,
+            panY: 50,
+            fontToScreenCoordinates(fontX, fontY) {
+                return { x: this.panX + fontX, y: this.panY - fontY };
+            }
+        };
+
+        try {
+            animator.begin(from, to, {
+                fromSelectedIndex: 0,
+                toSelectedIndex: 0,
+                editMode: false,
+                viewportAnchor: {
+                    screenX: 300,
+                    screenY: 50,
+                    fromFontX: 200,
+                    fromFontY: 0,
+                    toFontX: 80,
+                    toFontY: 0,
+                    lockY: false
+                }
+            });
+            performance.now = () => FEATURE_CHANGE_DURATION_MS / 2;
+            animator.applyViewportAnchor(viewport);
+            const u = animator.getPlaybackU();
+            const expectedFontX = 200 + (80 - 200) * u;
+            expect(
+                viewport.fontToScreenCoordinates(expectedFontX, 0).x
+            ).toBeCloseTo(300, 5);
+            expect(viewport.panY).toBe(50);
+        } finally {
+            animator.cancel();
+            performance.now = originalNow;
+            global.requestAnimationFrame = originalRaf;
         }
     });
 });

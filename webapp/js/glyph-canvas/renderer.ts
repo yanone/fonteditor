@@ -15,6 +15,9 @@ import type { TextRunEditor } from './textrun';
 import { GlyphCanvas } from '../glyph-canvas';
 import {
     buildAnimatedGlyphDrawOps,
+    isActiveEditGlyphDrawOp,
+    lerp,
+    shapedRunHorizontalExtents,
     type FeatureChangeDrawState
 } from './feature-change-animator';
 import {
@@ -351,9 +354,7 @@ export class GlyphCanvasRenderer {
         } else {
             // Normal rendering
             this.drawBackgroundEditingTint();
-            if (!this.shouldHideOutlineEditorForFeatureChange()) {
-                this.drawEditingMetricsUnderlay();
-            }
+            this.drawEditingMetricsUnderlay();
             // Draw selection highlight
             this.drawSelection();
 
@@ -364,14 +365,13 @@ export class GlyphCanvasRenderer {
             // Draw canvas plugins below outline editor
             this.drawCanvasPluginsBelow();
 
-            // Draw outline editor (when layer is selected)
-            if (!this.shouldHideOutlineEditorForFeatureChange()) {
+            const outlineFade = this.getFeatureChangeOutlineFadeAlpha();
+            if (outlineFade > 0) {
+                this.ctx.save();
+                this.ctx.globalAlpha *= outlineFade;
                 this.drawOutlineEditor();
-            }
-
-            // Draw snap visualization (debug candidates + snap highlight)
-            if (!this.shouldHideOutlineEditorForFeatureChange()) {
                 this.drawSnapVisualization();
+                this.ctx.restore();
             }
 
             // Draw canvas plugins above outline editor
@@ -672,10 +672,10 @@ export class GlyphCanvasRenderer {
         return false;
     }
 
-    private shouldHideOutlineEditorForFeatureChange(): boolean {
+    private getFeatureChangeOutlineFadeAlpha(): number {
         return (
-            this.glyphCanvas.featureChangeAnimator?.shouldHideOutlineEditor() ===
-            true
+            this.glyphCanvas.featureChangeAnimator?.getOutlineEditorFadeAlpha() ??
+            1
         );
     }
 
@@ -894,7 +894,9 @@ export class GlyphCanvasRenderer {
     ): void {
         const isDarkTheme =
             document.documentElement.getAttribute('data-theme') !== 'light';
-        const hideOutlineEditor = drawState.hideOutlineEditor;
+        const inEditMode =
+            this.glyphCanvas.outlineEditor.active &&
+            !this.glyphCanvas.outlineEditor.isPreviewMode;
         const ops = buildAnimatedGlyphDrawOps(
             drawState.from,
             drawState.to,
@@ -902,7 +904,6 @@ export class GlyphCanvasRenderer {
             drawState.alphaOld,
             drawState.alphaNew
         );
-
         for (const op of ops) {
             if (op.alpha <= 0) {
                 continue;
@@ -911,16 +912,14 @@ export class GlyphCanvasRenderer {
             const isHovered =
                 glyphIndex === this.glyphCanvas.outlineEditor.hoveredGlyphIndex;
             const isSelected =
-                op.toGlyphIndex === this.textRunEditor.selectedGlyphIndex ||
-                (hideOutlineEditor &&
-                    (op.fromGlyphIndex === drawState.fromSelectedIndex ||
-                        op.toGlyphIndex === drawState.toSelectedIndex));
+                op.toGlyphIndex === this.textRunEditor.selectedGlyphIndex;
             const skipHarfBuzz =
-                isSelected &&
-                !op.isSubstitute &&
-                !hideOutlineEditor &&
-                this.glyphCanvas.outlineEditor.active &&
-                !this.glyphCanvas.outlineEditor.isPreviewMode;
+                inEditMode &&
+                isActiveEditGlyphDrawOp(
+                    op,
+                    drawState.fromSelectedIndex,
+                    drawState.toSelectedIndex
+                );
             if (skipHarfBuzz) {
                 continue;
             }
@@ -1001,56 +1000,72 @@ export class GlyphCanvasRenderer {
         }
     }
 
+    private getLiveSelectedLayerWidth(): number | null {
+        const activeSidebearingDragLayout =
+            this.glyphCanvas.outlineEditor.activeSidebearingDragLayout;
+        if (
+            typeof activeSidebearingDragLayout?.width === 'number' &&
+            Number.isFinite(activeSidebearingDragLayout.width)
+        ) {
+            return activeSidebearingDragLayout.width;
+        }
+        if (
+            this.glyphCanvas.outlineEditor.active &&
+            this.glyphCanvas.outlineEditor.layerData &&
+            Number.isFinite(this.glyphCanvas.outlineEditor.layerData.width)
+        ) {
+            return this.glyphCanvas.outlineEditor.layerData.width;
+        }
+        return null;
+    }
+
     private getTextRunHorizontalExtents(): {
         minX: number;
         maxX: number;
     } | null {
+        const liveSelectedLayerWidth = this.getLiveSelectedLayerWidth();
+        const toExtents = shapedRunHorizontalExtents(
+            this.textRunEditor.shapedGlyphs,
+            this.textRunEditor.selectedGlyphIndex,
+            liveSelectedLayerWidth
+        );
+        const drawState =
+            this.glyphCanvas.featureChangeAnimator?.getDrawState() ?? null;
+        if (!drawState || !toExtents) {
+            return toExtents;
+        }
+
+        const fromExtents = shapedRunHorizontalExtents(
+            drawState.from.glyphs,
+            drawState.fromSelectedIndex,
+            liveSelectedLayerWidth
+        );
+        if (!fromExtents) {
+            return toExtents;
+        }
+
+        return {
+            minX: lerp(fromExtents.minX, toExtents.minX, drawState.u),
+            maxX: lerp(fromExtents.maxX, toExtents.maxX, drawState.u)
+        };
+    }
+
+    private getAnimatedActiveGlyphOriginX(): number | null {
+        const animatedOriginX =
+            this.glyphCanvas.featureChangeAnimator?.getSelectedGlyphOriginX();
+        if (animatedOriginX !== null && animatedOriginX !== undefined) {
+            return animatedOriginX;
+        }
+        const selectedGlyphIndex = this.textRunEditor.selectedGlyphIndex;
         if (
-            !this.textRunEditor.shapedGlyphs ||
-            this.textRunEditor.shapedGlyphs.length === 0
+            selectedGlyphIndex < 0 ||
+            selectedGlyphIndex >= this.textRunEditor.shapedGlyphs.length
         ) {
             return null;
         }
-
-        let xPosition = 0;
-        let minX = Infinity;
-        let maxX = -Infinity;
-        const selectedGlyphIndex = this.textRunEditor.selectedGlyphIndex;
-        const activeSidebearingDragLayout =
-            this.glyphCanvas.outlineEditor.activeSidebearingDragLayout;
-        const liveSelectedLayerWidth =
-            activeSidebearingDragLayout?.width ??
-            (this.glyphCanvas.outlineEditor.active &&
-            this.glyphCanvas.outlineEditor.layerData &&
-            Number.isFinite(this.glyphCanvas.outlineEditor.layerData.width)
-                ? this.glyphCanvas.outlineEditor.layerData.width
-                : null);
-
-        let glyphIndex = 0;
-
-        for (const shapedGlyph of this.textRunEditor.shapedGlyphs) {
-            const xOffset = shapedGlyph.dx || 0;
-            const xAdvance = shapedGlyph.ax || 0;
-            const glyphStartX = xPosition + xOffset;
-            const glyphVisualAdvance =
-                glyphIndex === selectedGlyphIndex &&
-                liveSelectedLayerWidth !== null
-                    ? liveSelectedLayerWidth
-                    : xAdvance;
-            const glyphEndX = glyphStartX + glyphVisualAdvance;
-
-            minX = Math.min(minX, glyphStartX, glyphEndX);
-            maxX = Math.max(maxX, glyphStartX, glyphEndX);
-
-            xPosition += xAdvance;
-            glyphIndex += 1;
-        }
-
-        if (!Number.isFinite(minX) || !Number.isFinite(maxX) || maxX <= minX) {
-            return null;
-        }
-
-        return { minX, maxX };
+        const glyphPosition =
+            this.textRunEditor._getGlyphPosition(selectedGlyphIndex);
+        return glyphPosition.xPosition + glyphPosition.xOffset;
     }
 
     private drawBackgroundEditingTint(): void {
@@ -1075,8 +1090,10 @@ export class GlyphCanvasRenderer {
             return;
         }
 
-        const glyphPosition =
-            this.textRunEditor._getGlyphPosition(selectedGlyphIndex);
+        const widthOriginX = this.getAnimatedActiveGlyphOriginX();
+        if (widthOriginX === null) {
+            return;
+        }
         const pairedLayer = outlineEditor.getPairedLayerModel();
         const width = pairedLayer?.width ?? outlineEditor.layerData?.width;
         if (typeof width !== 'number' || !Number.isFinite(width)) {
@@ -1092,12 +1109,7 @@ export class GlyphCanvasRenderer {
         this.ctx.save();
         this.ctx.fillStyle = accentYellow;
         this.ctx.globalAlpha = 0.1;
-        this.ctx.fillRect(
-            glyphPosition.xPosition + glyphPosition.xOffset,
-            bottomY,
-            width,
-            topY - bottomY
-        );
+        this.ctx.fillRect(widthOriginX, bottomY, width, topY - bottomY);
         this.ctx.restore();
     }
 
@@ -1233,8 +1245,11 @@ export class GlyphCanvasRenderer {
             const selectedLayerData = this.glyphCanvas.outlineEditor.layerData;
             const selectedGlyph =
                 this.textRunEditor.shapedGlyphs[selectedGlyphIndex];
-            const glyphPosition =
-                this.textRunEditor._getGlyphPosition(selectedGlyphIndex);
+            const animatedOriginX = this.getAnimatedActiveGlyphOriginX();
+            if (animatedOriginX === null) {
+                this.ctx.restore();
+                return;
+            }
 
             const pairedLayer =
                 this.glyphCanvas.outlineEditor.isEditingBackgroundLayer()
@@ -1253,8 +1268,7 @@ export class GlyphCanvasRenderer {
                     ? layerWidth
                     : Number(selectedGlyph.ax) || 0;
 
-            const activeGlyphStartX =
-                glyphPosition.xPosition + glyphPosition.xOffset;
+            const activeGlyphStartX = animatedOriginX;
             const activeGlyphEndX = activeGlyphStartX + activeGlyphAdvance;
 
             this.ctx.strokeStyle = underlayColor;
@@ -1392,6 +1406,9 @@ export class GlyphCanvasRenderer {
 
     private drawTextModeKerningOverlay(): void {
         if (this.glyphCanvas.outlineEditor.active) {
+            return;
+        }
+        if (this.glyphCanvas.featureChangeAnimator?.isActive()) {
             return;
         }
 
@@ -4561,11 +4578,15 @@ export class GlyphCanvasRenderer {
             ? `rgba(0, 0, 0, ${opacity})`
             : `rgba(255, 255, 255, ${opacity})`;
 
+        const cursorX =
+            this.glyphCanvas.featureChangeAnimator?.getInterpolatedAnchorFontX() ??
+            this.textRunEditor.cursorX;
+
         this.ctx.strokeStyle = cursorColor;
         this.ctx.lineWidth = 2 * invScale;
         this.ctx.beginPath();
-        this.ctx.moveTo(this.textRunEditor.cursorX, 1000); // Top (above cap height, positive Y is up in font space)
-        this.ctx.lineTo(this.textRunEditor.cursorX, -300); // Bottom (below baseline, negative Y is down)
+        this.ctx.moveTo(cursorX, 1000); // Top (above cap height, positive Y is up in font space)
+        this.ctx.lineTo(cursorX, -300); // Bottom (below baseline, negative Y is down)
         this.ctx.stroke();
     }
 

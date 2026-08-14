@@ -8,7 +8,10 @@ import {
 import { AxesManager } from './glyph-canvas/variations';
 import { FeaturesManager } from './glyph-canvas/features';
 import { TextRunEditor } from './glyph-canvas/textrun';
-import { ViewportManager } from './glyph-canvas/viewport';
+import {
+    applyFontPointScreenLock,
+    ViewportManager
+} from './glyph-canvas/viewport';
 import { GlyphCanvasRenderer } from './glyph-canvas/renderer';
 import {
     FeatureChangeAnimator,
@@ -1558,11 +1561,6 @@ class GlyphCanvas {
                 'Features changed, re-running Stage 2 shaping'
             );
 
-            if (!this.outlineEditor.active) {
-                // Text mode: capture cursor position before reshaping
-                this.captureTextModeAutoPanAnchor();
-            }
-
             // Re-run Stage 2 only (apply new feature settings to existing glyphs).
             // Layout closure ensures all substituted glyphs are already in the editing font,
             // so no compile is needed for feature toggles.
@@ -1576,6 +1574,16 @@ class GlyphCanvas {
                 textRun.shapedGlyphs,
                 textRun.glyphNameBuffer
             );
+            const fromAnchor = this.getViewportAnchorFontPosition();
+            const fromAnchorScreen = this.viewportManager
+                ? this.viewportManager.fontToScreenCoordinates(
+                      fromAnchor.x,
+                      fromAnchor.y
+                  )
+                : null;
+            if (!this.outlineEditor.active) {
+                this.textModeAutoPanAnchorScreen = fromAnchorScreen;
+            }
 
             this.textRunEditor!.shapeStage2WithBiDiRuns();
 
@@ -1593,7 +1601,8 @@ class GlyphCanvas {
                 await this.syncEditModeGlyphAfterTextMutation();
             }
 
-            this.featureChangeAnimator?.begin(
+            const toAnchor = this.getViewportAnchorFontPosition();
+            const started = this.featureChangeAnimator?.begin(
                 fromSnapshot,
                 snapshotShapedRun(
                     textRun.shapedGlyphs,
@@ -1604,17 +1613,30 @@ class GlyphCanvas {
                     toSelectedIndex: textRun.selectedGlyphIndex,
                     editMode:
                         this.outlineEditor.active &&
-                        !this.outlineEditor.isPreviewMode
+                        !this.outlineEditor.isPreviewMode,
+                    viewportAnchor:
+                        fromAnchorScreen && this.viewportManager
+                            ? {
+                                  screenX: fromAnchorScreen.x,
+                                  screenY: fromAnchorScreen.y,
+                                  fromFontX: fromAnchor.x,
+                                  fromFontY: fromAnchor.y,
+                                  toFontX: toAnchor.x,
+                                  toFontY: toAnchor.y,
+                                  lockY: this.outlineEditor.active
+                              }
+                            : null
                 }
             );
 
-            if (this.outlineEditor.active) {
-                this.render();
-            } else {
+            if (!this.outlineEditor.active && !started) {
                 this.applyTextModeAutoPanAdjustment();
                 this.textModeAutoPanAnchorScreen = null;
-                this.render();
+            } else if (!this.outlineEditor.active && started) {
+                this.textModeAutoPanAnchorScreen = null;
             }
+
+            this.render();
         });
         this.setupTextEditorEventHandlers();
     }
@@ -2064,7 +2086,7 @@ class GlyphCanvas {
 
     setupTextEditorEventHandlers(): void {
         this.textRunEditor!.on('willreshape', () => {
-            this.featureChangeAnimator?.cancel();
+            this.cancelFeatureChangeAnimation();
         });
         this.textRunEditor!.on('cursormoved', (reason?: string) => {
             this.updatePropertyPanel();
@@ -2142,7 +2164,7 @@ class GlyphCanvas {
                 previousIndex: number,
                 fromKeyboard: boolean = false
             ) => {
-                this.featureChangeAnimator?.cancel();
+                this.cancelFeatureChangeAnimation();
                 const wasInEditMode = this.outlineEditor.active;
 
                 // Increment sequence counter to track this selection
@@ -2244,7 +2266,7 @@ class GlyphCanvas {
         this.isDraggingCanvas = false;
 
         if (this.featureChangeAnimator?.isActive()) {
-            this.featureChangeAnimator.cancel();
+            this.cancelFeatureChangeAnimation();
             this.render();
         }
 
@@ -10150,6 +10172,7 @@ class GlyphCanvas {
         }
 
         this.hasDeferredRenderRequest = false;
+        this.featureChangeAnimator?.applyViewportAnchor(this.viewportManager);
 
         // Update glyph_stack label if it exists (development mode only, not in test mode)
         if (window.isDevelopment?.() && !window.isTestMode?.()) {
@@ -10625,24 +10648,51 @@ class GlyphCanvas {
         );
     }
 
+    /**
+     * Font-space lock point for text-mode cursor auto-pan and OT feature
+     * clips. Edit-mode feature clips use the selected glyph origin (not
+     * outline bbox center — that is layer-switch / interpolation).
+     */
+    private getViewportAnchorFontPosition(): { x: number; y: number } {
+        const textRun = this.textRunEditor;
+        if (
+            this.outlineEditor.active &&
+            textRun &&
+            textRun.selectedGlyphIndex >= 0
+        ) {
+            const position = textRun._getGlyphPosition(
+                textRun.selectedGlyphIndex
+            );
+            return {
+                x: position.xPosition + position.xOffset,
+                y: position.yOffset
+            };
+        }
+        return { x: textRun?.cursorX ?? 0, y: 0 };
+    }
+
+    private cancelFeatureChangeAnimation(): void {
+        if (!this.featureChangeAnimator?.isActive()) {
+            return;
+        }
+        this.featureChangeAnimator.applyViewportAnchor(this.viewportManager, 1);
+        this.featureChangeAnimator.cancel();
+    }
+
     captureTextModeAutoPanAnchor(): void {
-        // Capture the current cursor screen position for auto-panning during slider animation
         if (!this.textRunEditor || !this.viewportManager) {
             this.textModeAutoPanAnchorScreen = null;
             return;
         }
 
-        // Convert cursor position from font coordinates to screen coordinates
-        const screenPos = this.viewportManager.fontToScreenCoordinates(
-            this.textRunEditor.cursorX,
-            0 // Y position doesn't matter for horizontal text
-        );
-
-        this.textModeAutoPanAnchorScreen = screenPos;
+        this.textModeAutoPanAnchorScreen =
+            this.viewportManager.fontToScreenCoordinates(
+                this.textRunEditor.cursorX,
+                0
+            );
     }
 
     applyTextModeAutoPanAdjustment(): void {
-        // Adjust pan to keep cursor at the anchor position during animation
         if (
             !this.textModeAutoPanAnchorScreen ||
             !this.textRunEditor ||
@@ -10651,17 +10701,12 @@ class GlyphCanvas {
             return;
         }
 
-        // Get current cursor screen position
-        const currentScreenPos = this.viewportManager.fontToScreenCoordinates(
+        applyFontPointScreenLock(
+            this.viewportManager,
+            this.textModeAutoPanAnchorScreen,
             this.textRunEditor.cursorX,
             0
         );
-
-        // Calculate the offset
-        const offsetX = this.textModeAutoPanAnchorScreen.x - currentScreenPos.x;
-
-        // Apply the pan adjustment (only horizontal for text mode)
-        this.viewportManager.panX += offsetX;
     }
 
     /** Visual font-space X of a cluster's first glyph (advance pen + dx). */
@@ -10711,11 +10756,12 @@ class GlyphCanvas {
             return;
         }
 
-        const currentScreenX = this.viewportManager.fontToScreenCoordinates(
+        applyFontPointScreenLock(
+            this.viewportManager,
+            { x: anchor.screenX, y: 0 },
             this.getTextModeClusterVisualFontX(cluster),
             0
-        ).x;
-        this.viewportManager.panX += anchor.screenX - currentScreenX;
+        );
     }
 
     clearTextModeKerningPanAnchor(): void {

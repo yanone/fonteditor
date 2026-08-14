@@ -1083,6 +1083,26 @@ describe('GlyphCanvas renderer kerning overlays', () => {
             1000
         );
     });
+
+    test('hides kerning overlays while a feature-change animation is running', () => {
+        jest.spyOn(canvas, 'getTextModeKerningOverlayStates').mockReturnValue([
+            {
+                minX: 10,
+                maxX: 50,
+                topY: 800,
+                bottomY: -200,
+                value: -40
+            }
+        ]);
+        jest.spyOn(canvas.featureChangeAnimator, 'isActive').mockReturnValue(
+            true
+        );
+        canvas.renderer.ctx.fillRect.mockClear();
+
+        canvas.renderer.drawTextModeKerningOverlay();
+
+        expect(canvas.renderer.ctx.fillRect).not.toHaveBeenCalled();
+    });
 });
 
 describe('GlyphCanvas renderer snap visualization', () => {
