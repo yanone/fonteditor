@@ -34,8 +34,6 @@ export function applyFontPointScreenLock(
     }
 }
 
-const lockFontPointToScreen = applyFontPointScreenLock;
-
 export class ViewportManager {
     scale: number;
     panX: number;
@@ -104,20 +102,6 @@ export class ViewportManager {
         const screenX = transform.a * fontX + transform.c * fontY + transform.e;
         const screenY = transform.b * fontX + transform.d * fontY + transform.f;
         return { x: screenX, y: screenY };
-    }
-
-    /**
-     * Shift pan so a font-space point stays at a previously captured screen
-     * position. Text-mode cursor/kerning locks X only; edit-mode bbox and
-     * feature-change glyph origin also lock Y when `lockY` is true.
-     */
-    applyFontPointScreenLock(
-        screen: { x: number; y: number } | null | undefined,
-        fontX: number,
-        fontY: number,
-        options?: { lockY?: boolean }
-    ): void {
-        lockFontPointToScreen(this, screen, fontX, fontY, options);
     }
 
     /**

@@ -600,10 +600,6 @@ class GlyphCanvas {
     // Re-apply kerning pan after the compile reshape that follows a kerning write
     pendingTextModeKerningCursorAnchor: boolean = false;
 
-    pendingFeatureChangeAnchor: {
-        text: { x: number; y: number } | null;
-    } = { text: null };
-
     // Flag to suppress rendering during critical operations (e.g., layer data swap)
     renderSuppressed: boolean = false;
     hasDeferredRenderRequest: boolean = false;
@@ -3237,7 +3233,6 @@ class GlyphCanvas {
         this.textModeAutoPanAnchorScreen = null;
         this.pendingTextModeKerningCursorAnchor = false;
         this.clearTextModeKerningLivePreview({ cancelCommit: true });
-        this.pendingFeatureChangeAnchor.text = null;
         this.renderSuppressed = false;
         this.hasDeferredRenderRequest = false;
         this.editModeGlyphResyncInProgress = false;
@@ -3253,7 +3248,6 @@ class GlyphCanvas {
             this.textRunEditor.selectedMasterId = null;
             this.textRunEditor.selectionStart = null;
             this.textRunEditor.selectionEnd = null;
-            this.textRunEditor.skipRenderingDuringFeatureChange = false;
 
             // Clear shaping state so the compile fallback chain doesn't feed
             // stale glyph names from the previous font into a new empty font,
@@ -11183,8 +11177,6 @@ function setupFontLoadingListener() {
                         }
                     }
 
-                    const hasPendingAnchor = gc.pendingFeatureChangeAnchor.text;
-
                     if (deferredCommittedSidebearingRender) {
                         gc.renderSuppressed = true;
                         timelineMark(
@@ -11210,28 +11202,6 @@ function setupFontLoadingListener() {
                         '[GlyphCanvas]',
                         '   ✅ Editing font loaded and text shaped'
                     );
-
-                    if (gc.textRunEditor) {
-                        gc.textRunEditor.skipRenderingDuringFeatureChange = false;
-                    }
-
-                    if (gc.pendingFeatureChangeAnchor.text) {
-                        console.log(
-                            '[GlyphCanvas]',
-                            '   Applying pending text mode anchor after font reload'
-                        );
-                        gc.textModeAutoPanAnchorScreen =
-                            gc.pendingFeatureChangeAnchor.text;
-                        gc.applyTextModeAutoPanAdjustment();
-                        gc.textModeAutoPanAnchorScreen = null;
-                        gc.pendingFeatureChangeAnchor.text = null;
-                    }
-
-                    if (hasPendingAnchor) {
-                        timelineMark(
-                            'canvas.editingFontCompiled.pendingAnchorApplied'
-                        );
-                    }
 
                     const forceShapeTextSpanId = timelineSpanStart(
                         'canvas.editingFontCompiled.forceShapeText'

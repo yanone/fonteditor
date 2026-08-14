@@ -99,7 +99,6 @@ export class TextRunEditor {
     spaceActivatedPreview: boolean; // Whether space key activated preview mode
     saveTextBufferToFontTimer: any; // Debounce timer for saveTextBufferToFont()
     cursorStyleBeforePreview: string | null; // Cursor style before entering preview mode
-    skipRenderingDuringFeatureChange: boolean; // Skip rendering during OpenType feature changes to prevent .notdef flicker
 
     constructor(featuresManager: FeaturesManager, axesManager: AxesManager) {
         this.featuresManager = featuresManager;
@@ -158,7 +157,6 @@ export class TextRunEditor {
         this.spaceActivatedPreview = false;
         this.saveTextBufferToFontTimer = null;
         this.cursorStyleBeforePreview = null;
-        this.skipRenderingDuringFeatureChange = false;
 
         this.selectedMasterId = null; // No master selected by default
 
