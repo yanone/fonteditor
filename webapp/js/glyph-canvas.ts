@@ -8248,7 +8248,7 @@ class GlyphCanvas {
             fieldsRow.className = 'glyph-component-property-grid';
 
             if (selectedAnchors.length === 1) {
-                const nameControl = document.createElement('label');
+                const nameControl = document.createElement('div');
                 nameControl.className =
                     'glyph-component-property-control glyph-anchor-property-name';
 
@@ -8330,7 +8330,7 @@ class GlyphCanvas {
             const createAnchorPositionControl = (
                 field: AnchorPositionField
             ) => {
-                const wrapper = document.createElement('label');
+                const wrapper = document.createElement('div');
                 wrapper.className = 'glyph-component-property-control';
 
                 const input = document.createElement('input');
@@ -8489,7 +8489,7 @@ class GlyphCanvas {
             const fieldsRow = document.createElement('div');
             fieldsRow.className = 'glyph-component-property-grid';
 
-            const nameControl = document.createElement('label');
+            const nameControl = document.createElement('div');
             nameControl.className =
                 'glyph-component-property-control glyph-anchor-property-name';
 
@@ -8566,7 +8566,7 @@ class GlyphCanvas {
             fieldsRow.appendChild(nameControl);
 
             const createGuideNumericControl = (field: GuidePositionField) => {
-                const wrapper = document.createElement('label');
+                const wrapper = document.createElement('div');
                 wrapper.className = 'glyph-component-property-control';
 
                 const input = document.createElement('input');
@@ -8726,8 +8726,8 @@ class GlyphCanvas {
             globalLabel.title =
                 'Master-level guideline (shared across glyphs for this master)';
 
-            globalControl.appendChild(globalInput);
             globalControl.appendChild(globalLabel);
+            globalControl.appendChild(globalInput);
             fieldsRow.appendChild(globalControl);
 
             content.appendChild(fieldsRow);
@@ -8770,8 +8770,8 @@ class GlyphCanvas {
                 label.title =
                     'Enable stroke-aware scaling for fully selected closed contours';
 
-                control.appendChild(input);
                 control.appendChild(label);
+                control.appendChild(input);
                 content.appendChild(control);
             }
 
@@ -8810,7 +8810,7 @@ class GlyphCanvas {
                 field: ComponentTransformField,
                 labelText?: string
             ) => {
-                const wrapper = document.createElement('label');
+                const wrapper = document.createElement('div');
                 wrapper.className = 'glyph-component-property-control';
 
                 const labelTooltips: Record<ComponentTransformField, string> = {
@@ -9048,8 +9048,8 @@ class GlyphCanvas {
                 this.canvas!.focus();
             });
 
-            alignmentControl.appendChild(alignmentInput);
             alignmentControl.appendChild(alignmentLabel);
+            alignmentControl.appendChild(alignmentInput);
             fieldsRow.appendChild(alignmentControl);
 
             fieldsRow.appendChild(
@@ -9071,7 +9071,7 @@ class GlyphCanvas {
             content.appendChild(fieldsRow);
 
             if (anchorOverrideOptions.length > 1) {
-                const anchorWrapper = document.createElement('label');
+                const anchorWrapper = document.createElement('div');
                 anchorWrapper.className = 'glyph-component-property-control';
 
                 const anchorLabel = document.createElement('span');
@@ -9129,7 +9129,7 @@ class GlyphCanvas {
         const automaticLayer = layer.isAutomaticAlignedLayer();
 
         const createControl = (side: 'left' | 'right', shortLabel: string) => {
-            const wrapper = document.createElement('label');
+            const wrapper = document.createElement('div');
             wrapper.className = 'glyph-property-control';
 
             const label = document.createElement('span');
@@ -9404,12 +9404,20 @@ class GlyphCanvas {
         } else {
             const code = document.createElement('div');
             code.className = 'glyph-kerning-code';
+            const pairLine = document.createElement('div');
+            pairLine.className = 'glyph-kerning-code-line';
+            const valueLine = document.createElement('div');
+            valueLine.className = 'glyph-kerning-code-line';
 
-            const addCodeToken = (text: string, className?: string) => {
+            const addCodeToken = (
+                parent: HTMLElement,
+                text: string,
+                className?: string
+            ) => {
                 const token = document.createElement('span');
                 token.className = className || 'glyph-property-value';
                 token.textContent = text;
-                code.appendChild(token);
+                parent.appendChild(token);
             };
 
             const pairKey =
@@ -9504,24 +9512,29 @@ class GlyphCanvas {
                 }
             });
 
-            addCodeToken('pos\u00A0');
+            addCodeToken(pairLine, 'pos\u00A0');
             addCodeToken(
+                pairLine,
                 `${context.selectedFirstLabel || ''}\u00A0`,
                 'glyph-property-value glyph-kerning-code-first'
             );
             addCodeToken(
+                pairLine,
                 `${context.selectedSecondLabel || ''}\u00A0`,
                 'glyph-property-value glyph-kerning-code-second'
             );
 
             if (context.isRTL) {
-                addCodeToken('<0\u00A00\u00A0');
-                code.appendChild(input);
-                addCodeToken('\u00A00>;');
+                addCodeToken(valueLine, '<0\u00A00\u00A0');
+                valueLine.appendChild(input);
+                addCodeToken(valueLine, '\u00A00>;');
             } else {
-                code.appendChild(input);
-                addCodeToken(';');
+                valueLine.appendChild(input);
+                addCodeToken(valueLine, ';');
             }
+
+            code.appendChild(pairLine);
+            code.appendChild(valueLine);
 
             input.addEventListener('blur', () => {
                 setTimeout(() => {

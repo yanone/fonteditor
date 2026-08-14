@@ -4125,7 +4125,7 @@ class GlyphOverview {
         const layers = this.getSelectedOverviewLayers();
         const sidebearingSummary = this.summarizeOverviewSidebearings(layers);
 
-        const nameControl = document.createElement('label');
+        const nameControl = document.createElement('div');
         nameControl.className =
             'glyph-property-control glyph-overview-property-name';
 
@@ -4151,7 +4151,7 @@ class GlyphOverview {
         nameControl.appendChild(nameInput);
         content.appendChild(nameControl);
 
-        const unicodeControl = document.createElement('label');
+        const unicodeControl = document.createElement('div');
         unicodeControl.className =
             'glyph-property-control glyph-overview-property-unicode';
 
@@ -4207,8 +4207,8 @@ class GlyphOverview {
         shortLabel: string,
         editable: boolean,
         summary: OverviewSidebearingSideSummary
-    ): HTMLLabelElement {
-        const wrapper = document.createElement('label');
+    ): HTMLDivElement {
+        const wrapper = document.createElement('div');
         wrapper.className = 'glyph-property-control';
 
         const label = document.createElement('span');

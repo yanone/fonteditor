@@ -6216,12 +6216,12 @@ kbd + kbd {
 }
 
 .glyph-property-panel {
-    flex: 0 0 38px;
-    min-height: 38px;
+    flex: 0 0 auto;
+    min-height: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 0 12px;
+    padding: 2px 12px;
     border-top: 1px solid var(--border-primary);
     background: var(--background-editor-sidebar);
 }
@@ -6232,29 +6232,33 @@ kbd + kbd {
 
 .glyph-property-panel.component-properties {
     flex: 0 0 auto;
-    min-height: 52px;
-    padding: 6px 12px;
+    min-height: 0;
+    padding: 2px 12px;
 }
 
 .glyph-property-panel-content {
     display: flex;
-    align-items: center;
+    align-items: stretch;
     justify-content: center;
-    gap: 16px;
+    gap: 2px;
 }
 
-.glyph-property-control {
+.glyph-property-control,
+.glyph-property-display,
+.glyph-component-property-control,
+.glyph-component-property-transform-group,
+.glyph-kerning-side,
+.glyph-kerning-center {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 6px;
-}
-
-.glyph-property-display {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-width: 52px;
     justify-content: center;
+    gap: 2px;
+    min-width: 0;
+    padding: 4px;
+    box-sizing: border-box;
+    border: 1px solid var(--background-secondary);
+    border-radius: 4px;
 }
 
 .glyph-property-control-label {
@@ -6263,18 +6267,29 @@ kbd + kbd {
     color: var(--text-secondary);
     letter-spacing: 0.04em;
     text-transform: uppercase;
+    text-align: center;
+    line-height: 1.1;
 }
 
 .glyph-property-input {
-    width: 50px;
-    height: 24px;
-    padding: 2px 6px;
+    width: 48px;
+    height: 18px;
+    padding: 0 5px;
     border: 1px solid var(--border-primary);
     border-radius: 4px;
     background: var(--background-primary);
     color: var(--text-primary);
     font-family: var(--font-families-mono);
-    font-size: 11px;
+    font-size: 10px;
+    text-align: center;
+    box-sizing: border-box;
+}
+
+select.glyph-property-input {
+    appearance: none;
+    -webkit-appearance: none;
+    padding-right: 16px;
+    background-image: none;
 }
 
 .glyph-property-input.invalid {
@@ -6284,15 +6299,21 @@ kbd + kbd {
 .glyph-property-value {
     color: var(--text-secondary);
     font-family: var(--font-families-mono);
-    font-size: 11px;
-    text-align: right;
+    font-size: 10px;
+    text-align: center;
+    line-height: 1.1;
 }
 
 .glyph-property-display-value {
     color: var(--text-primary);
     font-family: var(--font-families-mono);
-    font-size: 11px;
+    font-size: 10px;
     text-align: center;
+    line-height: 1.2;
+    min-height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .glyph-property-panel-placeholder {
@@ -6300,15 +6321,15 @@ kbd + kbd {
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 28px;
-    padding: 2px 0;
+    min-height: 0;
+    padding: 0;
 }
 
 .glyph-component-property-panel-content {
     width: 100%;
     display: flex;
     flex-direction: row;
-    align-items: center;
+    align-items: stretch;
     justify-content: center;
 }
 
@@ -6316,23 +6337,17 @@ kbd + kbd {
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
-    gap: 12px;
+    align-items: stretch;
+    gap: 2px;
     width: 100%;
 }
 
-.glyph-component-property-control {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    min-width: 0;
-}
-
 .glyph-component-property-control .glyph-property-input {
-    width: 52px;
+    width: 48px;
 }
 
 .glyph-anchor-property-name .glyph-property-input {
-    width: 96px;
+    width: 88px;
 }
 
 .glyph-component-property-reference {
@@ -6340,19 +6355,56 @@ kbd + kbd {
     white-space: nowrap;
 }
 
+.glyph-component-property-transform-group {
+    display: grid;
+    grid-template-columns: auto auto;
+    justify-items: center;
+    align-items: center;
+    align-content: center;
+    column-gap: 2px;
+    row-gap: 2px;
+}
+
+.glyph-component-property-transform-group > .glyph-property-control-label {
+    grid-column: 1 / -1;
+}
+
+.glyph-component-property-transform-group > .glyph-component-property-control {
+    border: none;
+    background: transparent;
+    padding: 0;
+    gap: 0;
+}
+
+.glyph-kerning-center {
+    width: max-content;
+    max-width: 100%;
+    justify-self: center;
+}
+
+.glyph-kerning-center > .glyph-property-panel-content {
+    gap: 4px;
+}
+
+.glyph-kerning-center .glyph-property-control,
+.glyph-kerning-center .glyph-property-display {
+    border: none;
+    padding: 0;
+}
+
 .glyph-component-reference-box {
     display: flex;
     align-items: center;
     gap: 0;
-    width: 150px;
-    height: 24px;
-    padding: 0 0 0 6px;
+    width: 132px;
+    height: 18px;
+    padding: 0 0 0 5px;
     border: 1px solid var(--border-primary);
     border-radius: 4px;
     background: var(--background-primary);
     color: var(--text-primary);
     font-family: var(--font-families-mono);
-    font-size: 11px;
+    font-size: 10px;
     box-sizing: border-box;
 }
 
@@ -6362,15 +6414,15 @@ kbd + kbd {
     overflow: hidden;
     text-overflow: ellipsis;
     font-family: var(--font-families-mono);
-    font-size: 11px;
+    font-size: 10px;
     color: var(--text-primary);
-    line-height: 22px;
+    line-height: 16px;
 }
 
 .glyph-component-reference-replace {
-    width: 22px;
-    height: 22px;
-    flex: 0 0 22px;
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
     display: grid;
     place-items: center;
     padding: 0;
@@ -6382,7 +6434,7 @@ kbd + kbd {
 }
 
 .glyph-component-reference-replace .material-symbols-outlined {
-    font-size: 16px;
+    font-size: 14px;
 }
 
 .glyph-component-reference-replace:hover {
@@ -6390,40 +6442,30 @@ kbd + kbd {
     background: var(--background-hover);
 }
 
-.glyph-component-property-transform-group {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    min-width: 0;
+.glyph-component-property-checkbox {
     white-space: nowrap;
+}
+
+.glyph-component-property-auto-align {
+    margin: 0;
+}
+
+.glyph-component-property-checkbox-input {
+    width: 12px;
+    height: 12px;
+    margin: 0;
+    accent-color: var(--accent-blue);
 }
 
 .glyph-property-input-mixed::placeholder {
     color: var(--text-muted);
 }
 
-.glyph-component-property-checkbox {
-    gap: 4px;
-    justify-content: flex-start;
-    white-space: nowrap;
-}
-
-.glyph-component-property-auto-align {
-    margin-inline-start: 4px;
-}
-
-.glyph-component-property-checkbox-input {
-    width: 14px;
-    height: 14px;
-    margin: 0;
-    accent-color: var(--accent-blue);
-}
-
 .glyph-property-panel.glyph-kerning-groups-panel,
 .glyph-property-panel.text-mode-kerning-panel {
     flex: 0 0 auto;
-    min-height: 56px;
-    padding: 6px 12px;
+    min-height: 0;
+    padding: 2px 12px;
     --glyph-kerning-first-accent: var(--kerning-accent-first);
     --glyph-kerning-second-accent: var(--kerning-accent-second);
 }
@@ -6437,7 +6479,7 @@ kbd + kbd {
     width: 100%;
     display: flex;
     justify-content: center;
-    align-items: center;
+    align-items: stretch;
 }
 
 .glyph-kerning-panel-shell {
@@ -6446,18 +6488,10 @@ kbd + kbd {
     display: grid;
     grid-template-columns: auto auto auto;
     justify-content: center;
-    justify-items: center;
-    align-items: center;
-    column-gap: 14px;
-    row-gap: 10px;
-}
-
-.glyph-kerning-side {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    align-items: center;
+    justify-items: stretch;
+    align-items: stretch;
+    column-gap: 2px;
+    row-gap: 2px;
 }
 
 .glyph-kerning-pills {
@@ -6580,24 +6614,25 @@ kbd + kbd {
     color: var(--text-secondary);
 }
 
-.glyph-kerning-center {
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    justify-self: center;
-}
-
 .glyph-kerning-code {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: center;
+    width: max-content;
+    max-width: 100%;
+    gap: 2px;
+    font-family: var(--font-families-mono);
+    font-size: 12px;
+    line-height: 1.2;
+}
+
+.glyph-kerning-code-line {
+    display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0;
-    min-width: 0;
-    font-family: var(--font-families-mono);
-    font-size: 15px;
-    line-height: 1.3;
+    width: max-content;
+    max-width: 100%;
+    white-space: nowrap;
 }
 
 .glyph-kerning-code-first {
@@ -6611,16 +6646,16 @@ kbd + kbd {
 }
 
 .glyph-kerning-value-input {
-    width: 60px;
-    text-align: right;
+    width: 52px;
+    text-align: center;
     font-family: var(--font-families-mono);
-    font-size: 11px;
+    font-size: 10px;
 }
 
 @media (max-width: 900px) {
     .glyph-kerning-panel-shell {
         grid-template-columns: auto auto auto;
-        column-gap: 10px;
+        column-gap: 2px;
     }
 }
 
