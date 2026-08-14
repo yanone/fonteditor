@@ -92,6 +92,9 @@ declare global {
         __pyodideLoadPromise?: Promise<any>;
         __pyodideLoadStarted?: boolean;
         __startPyodideLoad?: () => void;
+        __fontcWorker?: Worker;
+        __fontcWorkerReadyPromise?: Promise<boolean>;
+        __startFontcWorker?: () => void;
         createHarfBuzz: any; // HarfBuzz.js
         hbjs: any; // HarfBuzz.js
         hbInit: () => Promise<void>; // HarfBuzz.js

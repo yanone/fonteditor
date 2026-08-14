@@ -218,13 +218,25 @@ export async function buildManifest(rootDir = DOCUMENTATION_ROOT) {
 export async function writeManifest(rootDir = DOCUMENTATION_ROOT) {
     const manifest = await buildManifest(rootDir);
     const outputPath = join(rootDir, 'manifest.json');
-    await writeFile(outputPath, `${JSON.stringify(manifest, null, 4)}\n`);
-    return { manifest, outputPath };
+    const contents = `${JSON.stringify(manifest, null, 4)}\n`;
+    try {
+        const existing = await readFile(outputPath, 'utf8');
+        if (existing === contents) {
+            return { manifest, outputPath, wrote: false };
+        }
+    } catch {
+        // Manifest is missing or unreadable; write a fresh copy.
+    }
+    await writeFile(outputPath, contents);
+    return { manifest, outputPath, wrote: true };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
     writeManifest()
-        .then(({ outputPath, manifest }) => {
+        .then(({ outputPath, manifest, wrote }) => {
+            if (!wrote) {
+                return;
+            }
             console.log(
                 `Wrote ${outputPath} (${manifest.nodes.length} top-level nodes)`
             );

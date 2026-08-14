@@ -14,8 +14,35 @@ class GenerateDocsManifestPlugin {
                 stdio: 'inherit'
             });
         };
+        const documentationSourcesChanged = (watchingCompiler) => {
+            const changed = new Set([
+                ...(watchingCompiler.modifiedFiles || []),
+                ...(watchingCompiler.removedFiles || [])
+            ]);
+            if (changed.size === 0) {
+                return true;
+            }
+            for (const file of changed) {
+                const normalized = String(file).replace(/\\/g, '/');
+                if (
+                    normalized.includes('/documentation/') &&
+                    !normalized.endsWith('/documentation/manifest.json')
+                ) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
         compiler.hooks.beforeRun.tap('GenerateDocsManifestPlugin', generate);
-        compiler.hooks.watchRun.tap('GenerateDocsManifestPlugin', generate);
+        compiler.hooks.watchRun.tap(
+            'GenerateDocsManifestPlugin',
+            (watchingCompiler) => {
+                if (documentationSourcesChanged(watchingCompiler)) {
+                    generate();
+                }
+            }
+        );
     }
 }
 
@@ -83,6 +110,11 @@ const isProductionBuild = process.env.NODE_ENV === 'production';
 module.exports = {
     mode: isProductionBuild ? 'production' : 'development',
     devtool: 'source-map',
+    optimization: {
+        // Minify even in `webpack serve` so the ~1.2MB development bundle is
+        // not parsed/eval'd as a giant unminified script on every reload.
+        minimize: true
+    },
     entry: {
         'bootstrap': './js/bootstrap.ts',
         'fontc-worker': './js/fontc-worker.ts',
@@ -113,6 +145,7 @@ module.exports = {
         new HtmlWebpackPlugin({
             template: './index.html',
             inject: 'body',
+            scriptLoading: 'defer',
             chunks: ['bootstrap']
         }),
         new webpack.DefinePlugin({
@@ -180,6 +213,9 @@ module.exports = {
     },
     resolve: {
         extensions: ['.tsx', '.ts', '.js']
+    },
+    watchOptions: {
+        ignored: ['**/documentation/manifest.json', '**/webapp/build/**']
     },
     devServer: {
         static: [

@@ -17,7 +17,6 @@
 // Direct .babelfont JSON → TTF compilation (zero file system)
 // Based on: DIRECT_PYTHON_RUST_INTEGRATION.md
 
-import { get_glyph_name } from '../wasm-dist/babelfont_fontc_web';
 import { fontInterpolation } from './font-interpolation';
 import { Logger } from './logger';
 import {
@@ -368,6 +367,19 @@ function getDebugFontCacheBudgetBytes(): number {
     return DEFAULT_DEBUG_FONT_CACHE_BYTES;
 }
 
+let glyphNameModulePromise: Promise<{
+    get_glyph_name: (fontBytes: Uint8Array, glyphId: number) => string;
+}> | null = null;
+
+function loadGlyphNameModule(): Promise<{
+    get_glyph_name: (fontBytes: Uint8Array, glyphId: number) => string;
+}> {
+    if (!glyphNameModulePromise) {
+        glyphNameModulePromise = import('../wasm-dist/babelfont_fontc_web');
+    }
+    return glyphNameModulePromise;
+}
+
 async function shapeTextWithFontDetailed(
     fontBytes: Uint8Array,
     inputString: string,
@@ -405,6 +417,7 @@ async function shapeTextWithFontDetailed(
     const offsetsX: number[] = [];
     const offsetsY: number[] = [];
     const clusters: number[] = [];
+    const { get_glyph_name } = await loadGlyphNameModule();
 
     for (const shapedGlyph of shapedGlyphs) {
         const glyphId = Number(shapedGlyph.g || 0);
@@ -656,16 +669,30 @@ export class FontCompilation {
         }
 
         try {
-            // Create a Web Worker for fontc
             timelineMark('fontCompilation.initialize.createWorker');
-            this.worker = new Worker('js/fontc-worker.js', { type: 'module' });
+            const prestartedWorker =
+                this.connectInterpolation && window.__fontcWorker
+                    ? window.__fontcWorker
+                    : null;
+            const prestartedReadyPromise =
+                prestartedWorker && window.__fontcWorkerReadyPromise
+                    ? window.__fontcWorkerReadyPromise
+                    : null;
+
+            if (prestartedWorker) {
+                this.worker = prestartedWorker;
+                window.__fontcWorker = undefined;
+                timelineMark(
+                    'fontCompilation.initialize.adoptedPrestartedWorker'
+                );
+            } else {
+                this.worker = new Worker('js/fontc-worker.js');
+            }
             this.lastEditingSubsetKey = null;
 
-            // Set up message handler
             this.worker.onmessage = (e) => this.handleWorkerMessage(e);
             this.worker.onerror = (e) => this.handleWorkerError(e);
 
-            // Wait for worker to be ready
             timelineMark('fontCompilation.initialize.waitWorkerReady');
             const ready = await new Promise<boolean>((resolve, reject) => {
                 const timeout = setTimeout(() => {
@@ -674,7 +701,21 @@ export class FontCompilation {
                             'Worker initialization timeout after 30 seconds. Check console for worker errors.'
                         )
                     );
-                }, 30000); // 30 second timeout
+                }, 30000);
+
+                if (prestartedReadyPromise) {
+                    prestartedReadyPromise.then(
+                        (value) => {
+                            clearTimeout(timeout);
+                            resolve(value);
+                        },
+                        (error) => {
+                            clearTimeout(timeout);
+                            reject(error);
+                        }
+                    );
+                    return;
+                }
 
                 const checkReady = (e: MessageEvent) => {
                     console.log('[FontCompilation]', 'Worker message:', e.data);
@@ -691,7 +732,6 @@ export class FontCompilation {
 
                 this.worker!!.addEventListener('message', checkReady);
 
-                // Send an empty message to trigger worker auto-initialization
                 console.log(
                     '[FontCompilation]',
                     'Sending initialization trigger to worker...'

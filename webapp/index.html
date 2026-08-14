@@ -104,6 +104,57 @@
             href="assets/icons/icon-512x512.png"
         />
 
+        <link rel="preload" href="js/fontc-worker.js" as="script" />
+        <script>
+            window.__startFontcWorker = function () {
+                if (window.__fontcWorker || window.__fontcWorkerReadyPromise) {
+                    return;
+                }
+                performance.mark('cp:fontCompilation.preloadWorker');
+                var worker = new Worker('js/fontc-worker.js');
+                window.__fontcWorker = worker;
+                window.__fontcWorkerReadyPromise = new Promise(function (
+                    resolve,
+                    reject
+                ) {
+                    var timeoutId = setTimeout(function () {
+                        reject(
+                            new Error(
+                                'Prestarted fontc worker timeout after 30 seconds'
+                            )
+                        );
+                    }, 30000);
+                    function onMessage(event) {
+                        var data = event.data || {};
+                        if (data.ready) {
+                            clearTimeout(timeoutId);
+                            worker.removeEventListener('message', onMessage);
+                            performance.mark(
+                                'cp:fontCompilation.preloadWorker.ready'
+                            );
+                            resolve(true);
+                            return;
+                        }
+                        if (data.error) {
+                            clearTimeout(timeoutId);
+                            worker.removeEventListener('message', onMessage);
+                            reject(new Error(String(data.error)));
+                        }
+                    }
+                    worker.addEventListener('message', onMessage);
+                    worker.addEventListener('error', function (event) {
+                        clearTimeout(timeoutId);
+                        worker.removeEventListener('message', onMessage);
+                        reject(
+                            event.error ||
+                                new Error('Prestarted fontc worker failed')
+                        );
+                    });
+                    worker.postMessage({});
+                });
+            };
+            window.__startFontcWorker();
+        </script>
         <link rel="stylesheet" href="css/style.css" id="local-css" />
         <link
             rel="stylesheet"
@@ -475,6 +526,9 @@
         <script>
             if (typeof window.__startPyodideLoad === 'function') {
                 window.__startPyodideLoad();
+            }
+            if (typeof window.__startFontcWorker === 'function') {
+                window.__startFontcWorker();
             }
         </script>
 
