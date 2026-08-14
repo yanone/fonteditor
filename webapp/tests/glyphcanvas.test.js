@@ -5037,16 +5037,29 @@ describe('GlyphCanvas property panel metrics edits', () => {
     });
 
     test('feature toggles in edit mode fetch layer data for the reshaped active glyph', async () => {
+        const currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({
+                fontModel: {
+                    glyphs: [{ name: 'f' }, { name: 'fi' }]
+                }
+            });
         canvas.outlineEditor.active = true;
         canvas.outlineEditor.selectedLayerId = 'layer-1';
         canvas.outlineEditor.currentGlyphName = 'f';
+        canvas.outlineEditor.glyphStack = 'f@layer-1';
+        canvas.outlineEditor.layerData = { width: 400, shapes: [] };
         canvas.outlineEditor.captureAutoPanAnchor = jest.fn();
         canvas.outlineEditor.applyAutoPanAdjustment = jest.fn();
-        canvas.outlineEditor.fetchLayerData = jest
-            .fn()
-            .mockResolvedValue(undefined);
-        canvas.outlineEditor.buildGlyphStack = jest.fn();
+        canvas.outlineEditor.onGlyphSelected = jest.fn();
+        canvas.outlineEditor.performHitDetection = jest.fn();
+        const prepareForGlyphSwitchSpy = jest.spyOn(
+            canvas.outlineEditor,
+            'prepareForGlyphSwitch'
+        );
+        canvas.updatePropertiesUI = jest.fn().mockResolvedValue(undefined);
         canvas.updateComponentBreadcrumb = jest.fn();
+        canvas.updatePropertyPanel = jest.fn();
         canvas.render = jest.fn();
         canvas.textRunEditor.selectedGlyphIndex = 0;
         canvas.textRunEditor.shapedGlyphs = [{ explicitGlyphName: 'f', g: 1 }];
@@ -5058,18 +5071,55 @@ describe('GlyphCanvas property panel metrics edits', () => {
         canvas.textRunEditor.buildClusterMap = jest.fn();
         canvas.textRunEditor.updateCursorVisualPosition = jest.fn();
 
-        await canvas.featuresManager.call('change');
+        try {
+            await canvas.featuresManager.call('change');
 
-        expect(canvas.outlineEditor.buildGlyphStack).toHaveBeenCalledWith(
-            'fi',
-            'layer-1',
-            []
-        );
-        expect(canvas.outlineEditor.fetchLayerData).toHaveBeenCalledWith(
-            true,
-            'fi'
-        );
-        expect(canvas.outlineEditor.currentGlyphName).toBe('fi');
+            expect(prepareForGlyphSwitchSpy).toHaveBeenCalledWith('fi');
+            expect(canvas.outlineEditor.currentGlyphName).toBe('fi');
+            expect(canvas.outlineEditor.glyphStack).toBe('');
+            expect(canvas.outlineEditor.layerData).toBeNull();
+            expect(canvas.updatePropertiesUI).toHaveBeenCalled();
+        } finally {
+            prepareForGlyphSwitchSpy.mockRestore();
+            currentFontSpy.mockRestore();
+        }
+    });
+
+    test('feature toggles in edit mode keep the stack when shaping does not substitute the glyph', async () => {
+        const currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({
+                fontModel: {
+                    glyphs: [{ name: 'a' }]
+                }
+            });
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.currentGlyphName = 'a';
+        canvas.outlineEditor.glyphStack = 'a@layer-1';
+        canvas.outlineEditor.layerData = { width: 500, shapes: [] };
+        canvas.updatePropertiesUI = jest.fn().mockResolvedValue(undefined);
+        canvas.render = jest.fn();
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.textRunEditor.shapedGlyphs = [{ explicitGlyphName: 'a', g: 1 }];
+        canvas.textRunEditor.shapeStage2WithBiDiRuns = jest.fn(() => {
+            canvas.textRunEditor.shapedGlyphs = [
+                { explicitGlyphName: 'a', g: 1, ax: 480 }
+            ];
+        });
+        canvas.textRunEditor.buildClusterMap = jest.fn();
+        canvas.textRunEditor.updateCursorVisualPosition = jest.fn();
+
+        try {
+            await canvas.featuresManager.call('change');
+
+            expect(canvas.outlineEditor.currentGlyphName).toBe('a');
+            expect(canvas.outlineEditor.glyphStack).toBe('a@layer-1');
+            expect(canvas.updatePropertiesUI).not.toHaveBeenCalled();
+            expect(canvas.render).toHaveBeenCalled();
+        } finally {
+            currentFontSpy.mockRestore();
+        }
     });
 
     test('editingFontCompiled skips superseded full-compile revisions', async () => {

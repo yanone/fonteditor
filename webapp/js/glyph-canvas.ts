@@ -1566,29 +1566,18 @@ class GlyphCanvas {
             this.textRunEditor!.buildClusterMap();
             this.textRunEditor!.updateCursorVisualPosition();
 
-            if (
-                this.outlineEditor.active &&
-                this.outlineEditor.selectedLayerId
-            ) {
-                // Keep authoring state anchored to the source glyph, not its compiled substitution.
-                const newGlyphName = this.getCurrentGlyphName();
-                this.outlineEditor.prepareForGlyphSwitch(newGlyphName);
-                const authoringRootGlyphName =
-                    this.outlineEditor.getAuthoringRootGlyphName();
-                this.outlineEditor.currentGlyphName = authoringRootGlyphName;
-                this.outlineEditor.buildGlyphStack(
-                    authoringRootGlyphName,
-                    this.outlineEditor.selectedLayerId!,
-                    []
-                );
-
-                // Editing mode: fetch new layer data for the reshaped glyph.
-                await this.outlineEditor.fetchLayerData(
-                    true,
-                    authoringRootGlyphName
-                ); // Skip render
-
-                this.updateComponentBreadcrumb();
+            if (this.outlineEditor.active) {
+                const textRun = this.textRunEditor!;
+                if (textRun.selectedGlyphIndex >= textRun.shapedGlyphs.length) {
+                    textRun.selectedGlyphIndex = Math.max(
+                        0,
+                        textRun.shapedGlyphs.length - 1
+                    );
+                }
+                // Follow the shaped substitution (ss01, liga, …). Compiled
+                // *.VAR.* names still resolve to their source glyph; this must
+                // not keep the previous stack root when GSUB replaced it.
+                await this.syncEditModeGlyphAfterTextMutation();
                 this.render();
             } else {
                 // Text mode: apply auto-pan to keep cursor centered and render
