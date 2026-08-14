@@ -55,11 +55,39 @@ export function formatKerningOperandLabel(
     return kind === 'group' ? `@${name}` : name;
 }
 
+export function formatKerningGroupKindLabel(
+    pairSide: KerningPairSide,
+    isRTL: boolean = false
+): 'LKG' | 'RKG' {
+    return (pairSide === 'first') === !isRTL ? 'RKG' : 'LKG';
+}
+
+export function formatTextModeKerningSideTitle(
+    pairSide: KerningPairSide,
+    isRTL: boolean = false
+): string {
+    const role = pairSide === 'first' ? 'First' : 'Second';
+    return `${role} (${formatKerningGroupKindLabel(pairSide, isRTL)})`;
+}
+
 export function buildGlyphKerningGroupChips(
     pairSide: KerningPairSide,
     glyphName: string,
-    groupNames: string[]
+    groupNames: string[],
+    includeGlyphName: boolean = true
 ): KerningGroupChip[] {
+    const groupChips = groupNames.map((groupName) => ({
+        pairSide,
+        kind: 'group' as const,
+        name: groupName,
+        key: `@${groupName}`,
+        label: formatKerningOperandLabel('group', groupName),
+        removable: true
+    }));
+    if (!includeGlyphName) {
+        return groupChips;
+    }
+
     return [
         {
             pairSide,
@@ -69,14 +97,7 @@ export function buildGlyphKerningGroupChips(
             label: formatKerningOperandLabel('glyph', glyphName),
             removable: false
         },
-        ...groupNames.map((groupName) => ({
-            pairSide,
-            kind: 'group' as const,
-            name: groupName,
-            key: `@${groupName}`,
-            label: formatKerningOperandLabel('group', groupName),
-            removable: true
-        }))
+        ...groupChips
     ];
 }
 
@@ -156,30 +177,29 @@ function createSide(
         pills.appendChild(button);
     }
 
+    if (!side.chips.some((chip) => chip.kind === 'group')) {
+        const canAdd = Boolean(side.glyphName);
+        const placeholder = document.createElement(canAdd ? 'button' : 'span');
+        if (canAdd) {
+            (placeholder as HTMLButtonElement).type = 'button';
+        }
+        placeholder.className =
+            'glyph-kerning-pill glyph-kerning-pill-placeholder';
+        placeholder.dataset.kerningSide = side.pairSide;
+        placeholder.textContent = '+';
+        placeholder.title = canAdd
+            ? `Add kerning group to glyph "${side.glyphName}"`
+            : 'Add kerning group';
+        if (canAdd) {
+            placeholder.addEventListener('click', () => {
+                options.onAdd?.(side.pairSide, side.glyphName);
+            });
+        }
+        pills.appendChild(placeholder);
+    }
+
     sideElement.appendChild(pills);
     return sideElement;
-}
-
-function createAddButton(
-    side: KerningGroupWidgetSide,
-    options: KerningGroupWidgetOptions
-): HTMLButtonElement {
-    const hasExistingGroup = side.chips.some((chip) => chip.kind === 'group');
-    const addButton = document.createElement('button');
-    addButton.type = 'button';
-    addButton.className = 'glyph-kerning-pill-add';
-    addButton.dataset.kerningSide = side.pairSide;
-    addButton.textContent = '+';
-    addButton.disabled = !side.glyphName || hasExistingGroup;
-    addButton.title = side.glyphName
-        ? hasExistingGroup
-            ? `Glyph "${side.glyphName}" already has a ${side.title.toLowerCase()} kerning group`
-            : `Add kerning group to glyph "${side.glyphName}"`
-        : 'Add kerning group';
-    addButton.addEventListener('click', () => {
-        options.onAdd?.(side.pairSide, side.glyphName);
-    });
-    return addButton;
 }
 
 export function renderKerningGroupWidget(
@@ -197,11 +217,9 @@ export function renderKerningGroupWidget(
     center.className = 'glyph-kerning-center';
     center.appendChild(options.center);
 
-    shell.appendChild(createAddButton(options.startSide, options));
     shell.appendChild(createSide(options.startSide, options));
     shell.appendChild(center);
     shell.appendChild(createSide(options.endSide, options));
-    shell.appendChild(createAddButton(options.endSide, options));
 
     content.appendChild(shell);
     parent.appendChild(content);

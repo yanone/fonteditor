@@ -14643,9 +14643,12 @@ describe('Text-mode kerning property panel', () => {
                 element.querySelector('.glyph-kerning-pill-label')?.textContent
         );
 
-        expect(sideLabels).toEqual(['First', 'Second']);
+        expect(sideLabels).toEqual(['First (RKG)', 'Second (LKG)']);
         expect(firstPills).toEqual(['A', '@AFirst']);
         expect(secondPills).toEqual(['V', '@VSecond']);
+        expect(
+            canvas.propertyPanel.classList.contains('glyph-kerning-groups-rtl')
+        ).toBe(false);
         expect(
             document.querySelectorAll('.glyph-kerning-pill-remove')
         ).toHaveLength(2);
@@ -14659,17 +14662,39 @@ describe('Text-mode kerning property panel', () => {
         ).toContain('Select an exact master');
     });
 
-    test('disables add kerning group buttons when the glyph already has one group per side', () => {
+    test('inverts First and Second kerning-group colors in RTL text mode', () => {
+        setTextRunState({ rtl: true });
+
+        canvas.updatePropertyPanel();
+
+        expect(
+            canvas.propertyPanel.classList.contains('glyph-kerning-groups-rtl')
+        ).toBe(true);
+        expect(
+            canvas.propertyPanel.classList.contains(
+                'glyph-kerning-groups-panel'
+            )
+        ).toBe(true);
+        expect(
+            Array.from(
+                document.querySelectorAll(
+                    '.glyph-kerning-side .glyph-property-control-label'
+                )
+            ).map((element) => element.textContent)
+        ).toEqual(['First (LKG)', 'Second (RKG)']);
+    });
+
+    test('hides the add placeholder when both sides already have a group', () => {
         setTextRunState();
 
         canvas.updatePropertyPanel();
 
-        const addButtons = Array.from(
+        expect(
             document.querySelectorAll('.glyph-kerning-pill-add')
-        );
-
-        expect(addButtons).toHaveLength(2);
-        expect(addButtons.every((button) => button.disabled)).toBe(true);
+        ).toHaveLength(0);
+        expect(
+            document.querySelectorAll('.glyph-kerning-pill-placeholder')
+        ).toHaveLength(0);
     });
 
     test('shows left and right kerning group chips for the current glyph in edit view', () => {
@@ -14696,12 +14721,22 @@ describe('Text-mode kerning property panel', () => {
         const addButtons = Array.from(
             document.querySelectorAll('.glyph-kerning-pill-add')
         );
+        const placeholder = sides[0].querySelector(
+            '.glyph-kerning-pill-placeholder'
+        );
 
-        expect(sideLabels).toEqual(['Left', 'Right']);
-        expect(startPills).toEqual(['A']);
-        expect(endPills).toEqual(['A', '@AFirst']);
-        expect(addButtons[0].disabled).toBe(false);
-        expect(addButtons[1].disabled).toBe(true);
+        expect(sideLabels).toEqual(['LKG', 'RKG']);
+        expect(startPills).toEqual([]);
+        expect(endPills).toEqual(['@AFirst']);
+        expect(placeholder).not.toBeNull();
+        expect(placeholder.textContent).toBe('+');
+        expect(
+            sides[1].querySelector('.glyph-kerning-pill-placeholder')
+        ).toBeNull();
+        expect(
+            canvas.propertyPanel.classList.contains('glyph-kerning-groups-rtl')
+        ).toBe(false);
+        expect(addButtons).toHaveLength(0);
         expect(
             document.querySelector(
                 '.glyph-property-input[data-sidebearing-side="left"]'

@@ -6428,6 +6428,11 @@ kbd + kbd {
     --glyph-kerning-second-accent: var(--kerning-accent-second);
 }
 
+.glyph-property-panel.glyph-kerning-groups-rtl {
+    --glyph-kerning-first-accent: var(--kerning-accent-second);
+    --glyph-kerning-second-accent: var(--kerning-accent-first);
+}
+
 .glyph-kerning-panel-content {
     width: 100%;
     display: flex;
@@ -6439,7 +6444,7 @@ kbd + kbd {
     width: fit-content;
     max-width: 100%;
     display: grid;
-    grid-template-columns: 28px auto auto auto 28px;
+    grid-template-columns: auto auto auto;
     justify-content: center;
     justify-items: center;
     align-items: center;
@@ -6457,8 +6462,9 @@ kbd + kbd {
 
 .glyph-kerning-pills {
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 2px;
     align-items: center;
     justify-content: center;
     max-width: 100%;
@@ -6478,9 +6484,10 @@ kbd + kbd {
     justify-content: center;
     gap: 4px;
     box-sizing: border-box;
-    min-height: 26px;
-    padding: 0 9px;
+    min-height: 13px;
+    padding: 0 7px;
     font-family: var(--font-families-mono);
+    font-size: 10px;
     color: var(--text-secondary);
     transition:
         background-color 0.15s ease,
@@ -6520,12 +6527,19 @@ kbd + kbd {
     border-color: var(--text-primary);
 }
 
+.glyph-kerning-pill.glyph-filter-legend-item {
+    padding: 0 7px;
+    gap: 4px;
+}
+
 .glyph-kerning-pill-label {
     overflow: hidden;
     text-overflow: ellipsis;
     font-family: inherit;
+    font-size: inherit;
     font-weight: 700;
     line-height: 1;
+    color: inherit;
 }
 
 .glyph-kerning-pill-remove {
@@ -6533,18 +6547,18 @@ kbd + kbd {
     align-items: center;
     justify-content: center;
     margin-left: 2px;
-    min-width: 12px;
-    height: 12px;
+    min-width: 10px;
+    height: 10px;
     border-radius: 999px;
     background-color: transparent;
     color: currentColor;
-    font-size: 10px;
+    font-size: 9px;
     line-height: 1;
     flex: 0 0 auto;
 }
 
 .glyph-kerning-pill-remove-icon {
-    font-size: 11px;
+    font-size: 9px;
     line-height: 1;
 }
 
@@ -6554,26 +6568,16 @@ kbd + kbd {
     color: currentColor;
 }
 
-.glyph-kerning-pill-add {
-    appearance: none;
-    -webkit-appearance: none;
-    border: 1px solid var(--border-primary);
-    border-radius: 4px;
-    background: transparent;
-    color: var(--text-secondary);
-    font-family: var(--font-families-sans);
-    font-size: 15px;
-    line-height: 1;
-    width: 26px;
-    height: 26px;
-    padding: 0;
-    cursor: pointer;
+.glyph-kerning-pill-placeholder {
+    border: 1px dashed var(--border-primary);
+    background-color: transparent;
+    color: var(--text-tertiary);
+    font-weight: 400;
 }
 
-.glyph-kerning-pill-add:hover {
-    background: var(--button-hover);
-    border-color: var(--border-hover);
-    color: var(--text-primary);
+.glyph-kerning-pill-placeholder:hover {
+    background-color: transparent;
+    color: var(--text-secondary);
 }
 
 .glyph-kerning-center {
@@ -6615,7 +6619,7 @@ kbd + kbd {
 
 @media (max-width: 900px) {
     .glyph-kerning-panel-shell {
-        grid-template-columns: 28px auto auto auto 28px;
+        grid-template-columns: auto auto auto;
         column-gap: 10px;
     }
 }

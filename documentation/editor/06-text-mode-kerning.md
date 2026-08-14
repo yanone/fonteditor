@@ -6,12 +6,12 @@ Counterpunch edits kerning in text mode, with the caret between two glyphs, so p
 
 Switch the Editor to text mode and put the caret between two glyphs. The property panel shows:
 
-- **First** for the glyph before the caret
-- **Second** for the glyph after the caret
+- **First (RKG)** for the glyph before the caret (First (LKG) in RTL)
+- **Second (LKG)** for the glyph after the caret (Second (RKG) in RTL)
 - an inline kerning value in the center
-- chips for the base glyph and any kerning group on each side
+- chips for the base glyph and any kerning group on each side, stacked in the same vertical space; a placeholder `+` chip stands in when that side has no group
 
-The same chips and `+` control appear in outline edit view for the current glyph's left and right groups (LSB orange, RSB blue), not the pair at the caret.
+The same chips appear in outline edit view for the current glyph's LKG and RKG (LSB orange, RSB blue), not the pair at the caret. Edit view shows only the group chip, not the glyph name. In RTL text, First/Second colors swap so First stays LSB orange.
 
 Without an exact master the operands still show, but kerning is read-only until you choose a real master.
 
@@ -21,7 +21,7 @@ Without an exact master the operands still show, but kerning is read-only until 
 
 Counterpunch prefers an existing glyph-to-glyph or glyph-to-group pair when one is defined, otherwise a group pair. Click a different chip to override. The active pair is the selected chips plus the inline preview.
 
-A glyph may belong to one kerning group per side. `+` adds the current glyph to a group on that side; `x` removes it. The add button disables once that side already has a group.
+A glyph may belong to one kerning group per side. Click the placeholder `+` to add the current glyph to a group on that side; `x` removes it. The placeholder is gone once that side has a group.
 
 ## Values and shortcuts
 

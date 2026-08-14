@@ -25,7 +25,9 @@ import { OutlineEditor } from './glyph-canvas/outline-editor';
 import {
     buildGlyphKerningGroupChips,
     collectKerningGroupMemberships,
+    formatKerningGroupKindLabel,
     formatKerningOperandLabel,
+    formatTextModeKerningSideTitle,
     renderKerningGroupWidget,
     type KerningGroupChip
 } from './glyph-canvas/kerning-group-widget';
@@ -7690,9 +7692,7 @@ class GlyphCanvas {
             return;
         }
 
-        const groupName = window.prompt(
-            `Add ${glyphName} to a ${sideTitle.toLowerCase()} kerning group`
-        );
+        const groupName = window.prompt(`Add ${glyphName} to ${sideTitle}`);
         if (groupName === null) {
             return;
         }
@@ -8216,6 +8216,7 @@ class GlyphCanvas {
         this.propertyPanel.classList.remove('component-properties');
         this.propertyPanel.classList.remove('text-mode-kerning-panel');
         this.propertyPanel.classList.remove('glyph-kerning-groups-panel');
+        this.propertyPanel.classList.remove('glyph-kerning-groups-rtl');
 
         this.propertyPanel.textContent = '';
 
@@ -9301,25 +9302,27 @@ class GlyphCanvas {
         renderKerningGroupWidget(this.propertyPanel, {
             startSide: {
                 pairSide: 'second',
-                title: 'Left',
+                title: formatKerningGroupKindLabel('second'),
                 glyphName,
                 chips: glyphName
                     ? buildGlyphKerningGroupChips(
                           'second',
                           glyphName,
-                          leftGroupNames
+                          leftGroupNames,
+                          false
                       )
                     : []
             },
             endSide: {
                 pairSide: 'first',
-                title: 'Right',
+                title: formatKerningGroupKindLabel('first'),
                 glyphName,
                 chips: glyphName
                     ? buildGlyphKerningGroupChips(
                           'first',
                           glyphName,
-                          rightGroupNames
+                          rightGroupNames,
+                          false
                       )
                     : []
             },
@@ -9339,7 +9342,7 @@ class GlyphCanvas {
                 this.promptAndAddTextModeKerningGroup(
                     pairSide,
                     sideGlyphName,
-                    pairSide === 'first' ? 'Right' : 'Left'
+                    formatKerningGroupKindLabel(pairSide)
                 );
             }
         });
@@ -9373,6 +9376,11 @@ class GlyphCanvas {
             this.propertyPanel.appendChild(placeholder);
             return;
         }
+
+        this.propertyPanel.classList.toggle(
+            'glyph-kerning-groups-rtl',
+            context.isRTL
+        );
 
         const toChip = (option: TextModeKerningOperand): KerningGroupChip => ({
             pairSide: option.side,
@@ -9550,13 +9558,13 @@ class GlyphCanvas {
         renderKerningGroupWidget(this.propertyPanel, {
             startSide: {
                 pairSide: 'first',
-                title: 'First',
+                title: formatTextModeKerningSideTitle('first', context.isRTL),
                 glyphName: context.firstGlyphName,
                 chips: context.firstOptions.map(toChip)
             },
             endSide: {
                 pairSide: 'second',
-                title: 'Second',
+                title: formatTextModeKerningSideTitle('second', context.isRTL),
                 glyphName: context.secondGlyphName,
                 chips: context.secondOptions.map(toChip)
             },
@@ -9583,7 +9591,7 @@ class GlyphCanvas {
                 this.promptAndAddTextModeKerningGroup(
                     pairSide,
                     glyphName,
-                    pairSide === 'first' ? 'First' : 'Second'
+                    formatKerningGroupKindLabel(pairSide, context.isRTL)
                 );
             }
         });

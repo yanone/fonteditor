@@ -4,7 +4,7 @@ Sidebearing formulas let you link spacing instead of typing the same numbers int
 
 ## Where to edit
 
-With nothing selected on the canvas, the editor property panel shows left and right sidebearings, plus the glyph's left and right kerning groups. Left (LSB) uses orange; right (RSB) uses blue, the same colors as the Second and First chips in text-mode kerning. Each side can have one group. `+` adds the current glyph to a group; `x` removes it.
+With nothing selected on the canvas, the editor property panel shows left and right sidebearings, plus LKG and RKG chips. Left (LKG) uses orange; right (RKG) uses blue, the same colors as the Second and First chips in LTR text-mode kerning. Each side can have one group. A placeholder `+` chip stands in when a side has no group; click it to add. `x` removes a group.
 
 Each field takes a number or a metrics key. The resolved value sits next to the input, so you can keep `=n+10` in the field and still see the spacing that is applied.
 
