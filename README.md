@@ -56,11 +56,11 @@ Coverage: 🟢 Should work · 🟡 Partial · 🔴 Missing
 | Undo and history | 🟢 | |
 | Multiple windows | 🟢 | Panel arrangement saved and restored only for main window currently |
 | Binary font export | 🟢 | |
-| Documentation | 🟢 | |
 | Language database | 🟢 | Ships with Hyperglot temporarily as a demo, later as user-installable plugins |
+| Documentation | 🟡 | Incomplete, bad screenshots |
 | Glyph composition | 🟡 | Not all composition types implemented yet |
 | Glyph overview and filters | 🟡 | Glyph categorization missing |
 | Source file I/O | 🟡 | UFO/DS and `.glyphspackage` writing is missing |
-| Plugin system | 🟡 | Most plugin types not yet implemented |
+| Plugin system | 🟡 | Most plugin types not yet implemented, no auto-update yet |
 | OpenType feature code generator | 🔴 | |
 | Live online collaboration | 🔴 | |
