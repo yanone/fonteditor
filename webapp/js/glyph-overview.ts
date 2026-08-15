@@ -248,7 +248,6 @@ class GlyphOverview {
     private readonly linesVirtualizationThreshold = 1200;
     private readonly linesVirtualizationBufferRows = 6;
     private readonly tileCacheViewportMarginPx = 100;
-    private readonly tileCacheBudgetFallbackBytes = 32 * 1024 * 1024;
     private tileViewClock = 0;
     private tileContextMenu: TippyInstance | null = null;
     private onContainerScrollBound = this.onContainerScroll.bind(this);
@@ -1233,21 +1232,7 @@ class GlyphOverview {
     }
 
     private getTileCacheBudgetBytes(): number {
-        const fraction = APP_SETTINGS.GLYPH_OVERVIEW.TILE_CACHE_HEAP_FRACTION;
-        const memory = (
-            performance as Performance & {
-                memory?: { jsHeapSizeLimit?: number };
-            }
-        ).memory;
-        const heapLimit = memory?.jsHeapSizeLimit;
-        if (
-            typeof heapLimit === 'number' &&
-            Number.isFinite(heapLimit) &&
-            heapLimit > 0
-        ) {
-            return Math.floor(heapLimit * fraction);
-        }
-        return this.tileCacheBudgetFallbackBytes;
+        return APP_SETTINGS.GLYPH_OVERVIEW.TILE_CACHE_MAX_BYTES;
     }
 
     private isTileInOverscan(

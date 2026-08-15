@@ -1101,7 +1101,6 @@ describe('overviewTileCanvasBackingBytes', () => {
 describe('GlyphOverview tile cache LRU', () => {
     let overview;
     let parent;
-    let originalMemory;
 
     function paintTile(tile, lastViewedAt) {
         tile.canvas.width = 80;
@@ -1127,25 +1126,12 @@ describe('GlyphOverview tile cache LRU', () => {
         document.body.appendChild(parent);
 
         overview = new window.GlyphOverview(parent);
-        originalMemory = performance.memory;
-        Object.defineProperty(performance, 'memory', {
-            configurable: true,
-            value: { jsHeapSizeLimit: 512000 }
-        });
     });
 
     afterEach(() => {
         jest.runOnlyPendingTimers();
         jest.useRealTimers();
         jest.restoreAllMocks();
-        if (originalMemory === undefined) {
-            delete performance.memory;
-        } else {
-            Object.defineProperty(performance, 'memory', {
-                configurable: true,
-                value: originalMemory
-            });
-        }
         delete window.GlyphOverview;
     });
 
@@ -1167,13 +1153,16 @@ describe('GlyphOverview tile cache LRU', () => {
         expect(overview.tiles.has('glyph-a')).toBe(true);
     });
 
-    test('evicts oldest off-screen tile first when over the heap fraction', () => {
+    test('evicts oldest off-screen tile first when over the cache budget', () => {
         const older = overview.createGlyphTile('glyph-a', 'A');
         const newer = overview.createGlyphTile('glyph-b', 'B');
         overview.tiles.set('glyph-a', older);
         overview.tiles.set('glyph-b', newer);
         paintTile(older, 1);
         paintTile(newer, 2);
+        jest.spyOn(overview, 'getTileCacheBudgetBytes').mockReturnValue(
+            80 * 80 * 4
+        );
 
         overview.enforceTileCacheBudget();
 

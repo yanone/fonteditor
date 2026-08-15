@@ -32,8 +32,8 @@ const APP_SETTINGS = {
 
     // Glyph overview tile bitmap + outline-JSON cache
     GLYPH_OVERVIEW: {
-        // Cap cached tile backing stores at this fraction of jsHeapSizeLimit.
-        TILE_CACHE_HEAP_FRACTION: 0.05
+        // Cap cached tile backing stores (canvas pixels), not V8 heap.
+        TILE_CACHE_MAX_BYTES: 500 * 1024 * 1024
     },
 
     // Outline editor display settings

@@ -5512,6 +5512,16 @@ kbd + kbd {
     width: min(720px, 92vw);
 }
 
+.memory-breakdown-tables {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.memory-breakdown-block h4 {
+    margin: 0 0 8px;
+}
+
 .memory-breakdown-status {
     font-family: var(--font-families-mono);
     font-size: 11px;

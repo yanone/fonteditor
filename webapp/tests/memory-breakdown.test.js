@@ -89,9 +89,83 @@ describe('memory breakdown helpers', () => {
                     method: 'exact',
                     inSum: false
                 }
+            ],
+            domRows: [
+                {
+                    id: 'overview-tiles',
+                    label: 'Glyph overview tiles',
+                    bytes: 800,
+                    method: 'exact',
+                    inSum: true
+                }
             ]
         };
-        expect(breakdownMeasuredBytes(breakdown)).toBe(400);
-        expect(breakdownCoveragePercent(breakdown)).toBe(40);
+        expect(breakdownMeasuredBytes(breakdown)).toBe(250);
+        expect(breakdownCoveragePercent(breakdown)).toBe(25);
+    });
+
+    test('renders V8 and DOM as separate tables', () => {
+        const { renderMemoryBreakdown } = require('../js/memory-breakdown');
+        const html = renderMemoryBreakdown({
+            browserUsedBytes: 1000,
+            browserLimitBytes: 4000,
+            accountedBytes: 200,
+            domains: [
+                {
+                    id: 'main-js',
+                    label: 'Main JS',
+                    usedBytes: 1000,
+                    usedLabel: 'Used heap',
+                    rows: [
+                        {
+                            id: 'ydoc',
+                            label: 'Y.Doc store',
+                            bytes: 200,
+                            method: 'est.',
+                            inSum: true
+                        }
+                    ]
+                },
+                {
+                    id: 'worker-wasm',
+                    label: 'Worker WASM / Rust',
+                    usedBytes: 8000,
+                    usedLabel: 'Linear memory',
+                    rows: [
+                        {
+                            id: 'rust-outlines',
+                            label: 'OUTLINE_CACHE',
+                            bytes: 150,
+                            method: 'est.',
+                            inSum: true
+                        }
+                    ]
+                }
+            ],
+            otherRows: [],
+            domRows: [
+                {
+                    id: 'overview-tiles',
+                    label: 'Glyph overview tiles',
+                    bytes: 800,
+                    method: 'exact',
+                    inSum: true
+                }
+            ]
+        });
+
+        const v8Index = html.indexOf('V8 heap');
+        const wasmIndex = html.indexOf('>WASM<');
+        const domIndex = html.indexOf('>DOM<');
+        const tileIndex = html.indexOf('Glyph overview tiles');
+        const rustIndex = html.indexOf('OUTLINE_CACHE');
+        expect(v8Index).toBeGreaterThan(-1);
+        expect(domIndex).toBeGreaterThan(wasmIndex);
+        expect(wasmIndex).toBeGreaterThan(v8Index);
+        expect(tileIndex).toBeGreaterThan(domIndex);
+        expect(rustIndex).toBeGreaterThan(v8Index);
+        expect(rustIndex).toBeLessThan(domIndex);
+        expect(html).toContain('canvas backing stores, not V8');
+        expect(html).not.toContain('including Rust');
     });
 });

@@ -28,6 +28,7 @@ export type MemoryDomain = {
 export type MemoryBreakdown = {
     domains: MemoryDomain[];
     otherRows: MemoryRow[];
+    domRows: MemoryRow[];
     accountedBytes: number;
     browserUsedBytes: number | null;
     browserLimitBytes: number | null;
@@ -129,9 +130,14 @@ export function domainMeasuredBytes(domain: MemoryDomain): number {
     );
 }
 
+function isV8Domain(domain: MemoryDomain): boolean {
+    return domain.id === 'main-js' || domain.id === 'worker-js';
+}
+
 export function breakdownMeasuredBytes(breakdown: MemoryBreakdown): number {
     return breakdown.domains.reduce(
-        (sum, domain) => sum + domainMeasuredBytes(domain),
+        (sum, domain) =>
+            isV8Domain(domain) ? sum + domainMeasuredBytes(domain) : sum,
         0
     );
 }
@@ -386,14 +392,6 @@ function collectMainJsDomain(): MemoryDomain {
     const overviewSnapshot =
         window.glyphOverviewInstance?.getMemoryInspectionSnapshot?.();
     if (overviewSnapshot) {
-        rows.push({
-            id: 'overview-tiles',
-            label: 'Glyph overview tiles',
-            bytes: overviewSnapshot.canvasBytes,
-            method: 'exact',
-            inSum: true,
-            note: `${overviewSnapshot.paintedCount} painted of ${overviewSnapshot.tileCount} · width × height × 4`
-        });
         const cachedOutlines = overviewSnapshot.cachedOutlines ?? [];
         const outlineSeen = new WeakSet<object>();
         const cachedOutlineBytes = cachedOutlines.reduce(
@@ -514,16 +512,46 @@ function mapWorkerStats(stats: {
     return [workerJs, workerWasm];
 }
 
+function collectDomRows(): MemoryRow[] {
+    const overviewSnapshot =
+        window.glyphOverviewInstance?.getMemoryInspectionSnapshot?.();
+    if (!overviewSnapshot) {
+        return [
+            {
+                id: 'overview-tiles',
+                label: 'Glyph overview tiles',
+                bytes: 0,
+                method: 'exact',
+                inSum: true,
+                note: 'no overview'
+            }
+        ];
+    }
+    return [
+        {
+            id: 'overview-tiles',
+            label: 'Glyph overview tiles',
+            bytes: overviewSnapshot.canvasBytes,
+            method: 'exact',
+            inSum: true,
+            note: `${overviewSnapshot.paintedCount} painted of ${overviewSnapshot.tileCount} · width × height × 4`
+        }
+    ];
+}
+
 function finishBreakdown(
     domains: MemoryDomain[],
     otherRows: MemoryRow[],
-    heap: BrowserHeapSnapshot
+    heap: BrowserHeapSnapshot,
+    domRows: MemoryRow[] = collectDomRows()
 ): MemoryBreakdown {
     return {
         domains,
         otherRows,
+        domRows,
         accountedBytes: domains.reduce(
-            (sum, domain) => sum + domainMeasuredBytes(domain),
+            (sum, domain) =>
+                isV8Domain(domain) ? sum + domainMeasuredBytes(domain) : sum,
             0
         ),
         browserUsedBytes: heap.usedBytes,
@@ -706,6 +734,29 @@ function renderSectionRows(label: string, rows: MemoryRow[]): string {
                 ${rows.map(renderRow).join('')}`;
 }
 
+function renderMemoryTable(
+    title: string,
+    body: string,
+    footer: string
+): string {
+    return `
+        <section class="memory-breakdown-block">
+            <h4>${escapeHtml(title)}</h4>
+            <table class="memory-breakdown-table">
+                <thead>
+                    <tr>
+                        <th>Item</th>
+                        <th>Size</th>
+                        <th>Method</th>
+                        <th>Notes</th>
+                    </tr>
+                </thead>
+                <tbody>${body}</tbody>
+                <tfoot>${footer}</tfoot>
+            </table>
+        </section>`;
+}
+
 export function renderMemoryBreakdown(breakdown: MemoryBreakdown): string {
     const measured = breakdownMeasuredBytes(breakdown);
     const usedBytes = breakdownUsedBytes(breakdown);
@@ -713,30 +764,32 @@ export function renderMemoryBreakdown(breakdown: MemoryBreakdown): string {
     const usedText = usedBytes == null ? 'n/a' : formatMemoryBytes(usedBytes);
     const coverageText =
         coverage == null ? 'n/a' : `${Math.min(coverage, 999).toFixed(0)}%`;
-    const body = [
-        ...breakdown.domains.map((domain) =>
+
+    const v8Domains = breakdown.domains.filter(isV8Domain);
+    const wasmDomains = breakdown.domains.filter(
+        (domain) => !isV8Domain(domain)
+    );
+    const v8Body = v8Domains
+        .map((domain) => renderSectionRows(domain.label, domain.rows))
+        .join('');
+    const wasmBody = [
+        ...wasmDomains.map((domain) =>
             renderSectionRows(domain.label, domain.rows)
         ),
         renderSectionRows('Other (not in Used)', breakdown.otherRows)
     ].join('');
+    const domBytes = breakdown.domRows.reduce(
+        (sum, row) => (row.inSum ? sum + row.bytes : sum),
+        0
+    );
+    const domBody = renderSectionRows('Overview', breakdown.domRows);
 
-    return `
-        <table class="memory-breakdown-table">
-            <thead>
-                <tr>
-                    <th>Item</th>
-                    <th>Size</th>
-                    <th>Method</th>
-                    <th>Notes</th>
-                </tr>
-            </thead>
-            <tbody>${body}</tbody>
-            <tfoot>
+    const v8Footer = `
                 <tr>
                     <td>Accounted in table</td>
                     ${renderSizeCell(measured)}
                     <td></td>
-                    <td class="memory-breakdown-note">sum of the cache rows, including Rust</td>
+                    <td class="memory-breakdown-note">V8 cache rows only</td>
                 </tr>
                 <tr>
                     <td>Browser used</td>
@@ -758,8 +811,37 @@ export function renderMemoryBreakdown(breakdown: MemoryBreakdown): string {
                     <td>Table / browser used</td>
                     <td class="memory-breakdown-num">${escapeHtml(coverageText)}</td>
                     <td></td>
-                    <td class="memory-breakdown-note">can exceed 100% because Rust is a separate heap</td>
-                </tr>
-            </tfoot>
-        </table>`;
+                    <td class="memory-breakdown-note">Worker JS is a separate V8 isolate</td>
+                </tr>`;
+
+    const wasmFooter = `
+                <tr>
+                    <td>WASM / other</td>
+                    ${renderSizeCell(
+                        wasmDomains.reduce(
+                            (sum, domain) => sum + domainMeasuredBytes(domain),
+                            0
+                        ) +
+                            breakdown.otherRows.reduce(
+                                (sum, row) => sum + row.bytes,
+                                0
+                            )
+                    )}
+                    <td></td>
+                    <td class="memory-breakdown-note">not part of the V8 heap</td>
+                </tr>`;
+
+    const domFooter = `
+                <tr>
+                    <td>DOM / renderer</td>
+                    ${renderSizeCell(domBytes)}
+                    <td></td>
+                    <td class="memory-breakdown-note">canvas backing stores, not V8</td>
+                </tr>`;
+
+    return [
+        renderMemoryTable('V8 heap', v8Body, v8Footer),
+        renderMemoryTable('WASM', wasmBody, wasmFooter),
+        renderMemoryTable('DOM', domBody, domFooter)
+    ].join('');
 }
