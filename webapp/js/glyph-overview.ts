@@ -28,6 +28,7 @@ import {
     GLYPH_OVERVIEW_TYPEAHEAD_TIMEOUT_MS,
     matchGlyphOverviewTypeahead
 } from './glyph-overview-typeahead';
+import APP_SETTINGS from './settings';
 import { getGlyphRenamePreflightErrors } from './rename-glyphs-preflight';
 import { ArrowAdjustableTextInput } from './arrow-adjustable-text-input';
 import {
@@ -69,7 +70,8 @@ interface GlyphTile {
     glyphId: string;
     glyphName: string;
     selected: boolean;
-    cachedData?: any; // Cached glyph outline data for resizing
+    cachedData?: any; // Cached glyph outline data for resize / LRU
+    lastViewedAt?: number;
     canvas?: HTMLCanvasElement; // Reusable canvas element
     filterColor?: string; // Primary background overlay color from active filter
     filterColors?: string[]; // All unique colors for multi-group display
@@ -245,6 +247,9 @@ class GlyphOverview {
         null;
     private readonly linesVirtualizationThreshold = 1200;
     private readonly linesVirtualizationBufferRows = 6;
+    private readonly tileCacheViewportMarginPx = 100;
+    private readonly tileCacheBudgetFallbackBytes = 32 * 1024 * 1024;
+    private tileViewClock = 0;
     private tileContextMenu: TippyInstance | null = null;
     private onContainerScrollBound = this.onContainerScroll.bind(this);
     private onCapturedScrollBound = this.onCapturedScroll.bind(this);
@@ -1003,6 +1008,7 @@ class GlyphOverview {
             }
 
             const queuedVisibleTileCount = this.queueVisibleUncachedTiles();
+            this.enforceTileCacheBudget();
             if (queuedVisibleTileCount > 0) {
                 this.scheduleBatchRender();
             }
@@ -1019,33 +1025,21 @@ class GlyphOverview {
             return 0;
         }
 
-        const viewportMargin = 100;
         let queuedCount = 0;
 
         for (const tile of this.tiles.values()) {
-            if (tile.cachedData || !tile.element.isConnected) {
+            if (!this.isTileInOverscan(tile, containerRect)) {
                 continue;
             }
 
-            const tileRect = tile.element.getBoundingClientRect();
-            if (tileRect.width <= 0 || tileRect.height <= 0) {
+            this.touchTileViewed(tile);
+
+            if (tile.cachedData || this.pendingGlyphIds.has(tile.glyphId)) {
                 continue;
             }
 
-            const intersectsViewport =
-                tileRect.bottom >= containerRect.top - viewportMargin &&
-                tileRect.top <= containerRect.bottom + viewportMargin &&
-                tileRect.right >= containerRect.left - viewportMargin &&
-                tileRect.left <= containerRect.right + viewportMargin;
-
-            if (!intersectsViewport) {
-                continue;
-            }
-
-            if (!this.pendingGlyphIds.has(tile.glyphId)) {
-                this.pendingGlyphIds.add(tile.glyphId);
-                queuedCount += 1;
-            }
+            this.pendingGlyphIds.add(tile.glyphId);
+            queuedCount += 1;
         }
 
         return queuedCount;
@@ -1128,6 +1122,7 @@ class GlyphOverview {
             if (!tile) continue;
             tile.element.style.display = '';
             fragment.appendChild(tile.element);
+            this.touchTileViewed(tile);
             if (!tile.cachedData && !this.pendingGlyphIds.has(glyphId)) {
                 this.pendingGlyphIds.add(glyphId);
                 queuedVisibleTileCount += 1;
@@ -1148,6 +1143,7 @@ class GlyphOverview {
 
         this.container.innerHTML = '';
         this.container.appendChild(fragment);
+        this.enforceTileCacheBudget();
 
         if (queuedVisibleTileCount > 0) {
             this.scheduleBatchRender();
@@ -1236,6 +1232,111 @@ class GlyphOverview {
         return { width, height };
     }
 
+    private getTileCacheBudgetBytes(): number {
+        const fraction = APP_SETTINGS.GLYPH_OVERVIEW.TILE_CACHE_HEAP_FRACTION;
+        const memory = (
+            performance as Performance & {
+                memory?: { jsHeapSizeLimit?: number };
+            }
+        ).memory;
+        const heapLimit = memory?.jsHeapSizeLimit;
+        if (
+            typeof heapLimit === 'number' &&
+            Number.isFinite(heapLimit) &&
+            heapLimit > 0
+        ) {
+            return Math.floor(heapLimit * fraction);
+        }
+        return this.tileCacheBudgetFallbackBytes;
+    }
+
+    private isTileInOverscan(
+        tile: GlyphTile,
+        containerRect?: DOMRect
+    ): boolean {
+        if (!this.container || !tile.element.isConnected) {
+            return false;
+        }
+        const viewport =
+            containerRect ?? this.container.getBoundingClientRect();
+        if (viewport.width <= 0 || viewport.height <= 0) {
+            return false;
+        }
+        const tileRect = tile.element.getBoundingClientRect();
+        if (tileRect.width <= 0 || tileRect.height <= 0) {
+            return false;
+        }
+        const margin = this.tileCacheViewportMarginPx;
+        return (
+            tileRect.bottom >= viewport.top - margin &&
+            tileRect.top <= viewport.bottom + margin &&
+            tileRect.right >= viewport.left - margin &&
+            tileRect.left <= viewport.right + margin
+        );
+    }
+
+    private touchTileViewed(tile: GlyphTile): void {
+        this.tileViewClock += 1;
+        tile.lastViewedAt = this.tileViewClock;
+    }
+
+    private evictTileCache(tile: GlyphTile): void {
+        if (tile.canvas) {
+            tile.canvas.width = 0;
+            tile.canvas.height = 0;
+            tile.canvas.style.width = '';
+            tile.canvas.style.height = '';
+        }
+        tile.cachedData = undefined;
+    }
+
+    private evictAllTileCaches(): void {
+        for (const tile of this.tiles.values()) {
+            this.evictTileCache(tile);
+        }
+    }
+
+    private tileCacheBytes(tile: GlyphTile): number {
+        return tile.canvas ? overviewTileCanvasBackingBytes(tile.canvas) : 0;
+    }
+
+    private tileHoldsCache(tile: GlyphTile): boolean {
+        return Boolean(tile.cachedData) || this.tileCacheBytes(tile) > 0;
+    }
+
+    private enforceTileCacheBudget(): void {
+        const budget = this.getTileCacheBudgetBytes();
+        const cached: GlyphTile[] = [];
+        let used = 0;
+        for (const tile of this.tiles.values()) {
+            if (!this.tileHoldsCache(tile)) {
+                continue;
+            }
+            cached.push(tile);
+            used += this.tileCacheBytes(tile);
+        }
+        if (used <= budget) {
+            return;
+        }
+
+        cached.sort((a, b) => (a.lastViewedAt ?? 0) - (b.lastViewedAt ?? 0));
+
+        const evictFrom = (candidates: GlyphTile[]) => {
+            for (const tile of candidates) {
+                if (used <= budget || !this.tileHoldsCache(tile)) {
+                    continue;
+                }
+                used -= this.tileCacheBytes(tile);
+                this.evictTileCache(tile);
+            }
+        };
+
+        evictFrom(cached.filter((tile) => !this.isTileInOverscan(tile)));
+        if (used > budget) {
+            evictFrom(cached);
+        }
+    }
+
     private updateTileSize(): void {
         const resizeFocusAnchor = this.getResizeFocusAnchor();
         const dims = this.getTileDimensions();
@@ -1255,21 +1356,16 @@ class GlyphOverview {
             );
         }
 
-        // Re-render all tiles with new size in a single frame
         requestAnimationFrame(() => {
-            this.tiles.forEach((tile) => {
-                if (tile.cachedData) {
-                    this.renderTileCanvas(
-                        tile,
-                        tile.cachedData,
-                        dims.width,
-                        dims.height
-                    );
-                }
-            });
+            this.evictAllTileCaches();
 
             if (this.linesVirtualizationActive) {
                 this.renderVirtualizedLinesWindow(true);
+            }
+
+            const queuedVisibleTileCount = this.queueVisibleUncachedTiles();
+            if (queuedVisibleTileCount > 0) {
+                this.scheduleBatchRender();
             }
 
             this.applyResizeFocusAnchor(resizeFocusAnchor);
@@ -1995,6 +2091,7 @@ class GlyphOverview {
                 if (index < outlines.length) {
                     requestAnimationFrame(renderChunk);
                 } else {
+                    this.enforceTileCacheBudget();
                     resolve();
                 }
             };
@@ -2104,6 +2201,7 @@ class GlyphOverview {
                     dims.height,
                     tile.canvas
                 );
+                this.touchTileViewed(tile);
                 return true;
             } catch (error) {
                 const message =
@@ -2379,6 +2477,7 @@ class GlyphOverview {
                     );
                 }
             });
+            this.enforceTileCacheBudget();
         });
     }
 
@@ -2659,6 +2758,9 @@ class GlyphOverview {
                             .glyphId;
                         if (glyphId) {
                             const tile = this.tiles.get(glyphId);
+                            if (tile) {
+                                this.touchTileViewed(tile);
+                            }
                             // Only add if not already rendered (check for cachedData instead of canvas presence)
                             if (tile && !tile.cachedData) {
                                 this.pendingGlyphIds.add(glyphId);
@@ -2667,6 +2769,7 @@ class GlyphOverview {
                         }
                     }
                 });
+                this.enforceTileCacheBudget();
                 if (addedCount > 0) {
                     this.scheduleBatchRender();
                 }
@@ -2833,6 +2936,7 @@ class GlyphOverview {
                     });
 
                     renderDurationMs = performance.now() - renderStart;
+                    this.enforceTileCacheBudget();
                     timelineSpanEnd(renderBatchFrameSpanId);
                     resolve();
                 });
@@ -2939,6 +3043,7 @@ class GlyphOverview {
             glyphId: glyphId,
             glyphName: glyphName,
             selected: false,
+            lastViewedAt: 0,
             canvas: canvas
         };
     }

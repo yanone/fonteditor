@@ -30,6 +30,12 @@ const APP_SETTINGS = {
         LOAD_FROM_FONT: true // Set to true to load display string from font.format_specific on font open
     },
 
+    // Glyph overview tile bitmap + outline-JSON cache
+    GLYPH_OVERVIEW: {
+        // Cap cached tile backing stores at this fraction of jsHeapSizeLimit.
+        TILE_CACHE_HEAP_FRACTION: 0.05
+    },
+
     // Outline editor display settings
     OUTLINE_EDITOR: {
         // Zoom thresholds

@@ -1097,3 +1097,90 @@ describe('overviewTileCanvasBackingBytes', () => {
         expect(overviewTileCanvasBackingBytes(painted)).toBe(120 * 168 * 4);
     });
 });
+
+describe('GlyphOverview tile cache LRU', () => {
+    let overview;
+    let parent;
+    let originalMemory;
+
+    function paintTile(tile, lastViewedAt) {
+        tile.canvas.width = 80;
+        tile.canvas.height = 80;
+        tile.canvas.style.width = '40px';
+        tile.canvas.style.height = '40px';
+        tile.cachedData = { name: tile.glyphName };
+        tile.lastViewedAt = lastViewedAt;
+    }
+
+    beforeEach(() => {
+        jest.useFakeTimers();
+        jest.resetModules();
+        localStorage.clear();
+
+        global.requestAnimationFrame = (callback) => setTimeout(callback, 0);
+        global.cancelAnimationFrame = (id) => clearTimeout(id);
+
+        require('../js/glyph-overview');
+
+        document.body.innerHTML = '';
+        parent = document.createElement('div');
+        document.body.appendChild(parent);
+
+        overview = new window.GlyphOverview(parent);
+        originalMemory = performance.memory;
+        Object.defineProperty(performance, 'memory', {
+            configurable: true,
+            value: { jsHeapSizeLimit: 512000 }
+        });
+    });
+
+    afterEach(() => {
+        jest.runOnlyPendingTimers();
+        jest.useRealTimers();
+        jest.restoreAllMocks();
+        if (originalMemory === undefined) {
+            delete performance.memory;
+        } else {
+            Object.defineProperty(performance, 'memory', {
+                configurable: true,
+                value: originalMemory
+            });
+        }
+        delete window.GlyphOverview;
+    });
+
+    test('wipes tile bitmaps and cachedData on size change', () => {
+        const tile = overview.createGlyphTile('glyph-a', 'A');
+        overview.tiles.set('glyph-a', tile);
+        paintTile(tile, 1);
+        jest.spyOn(overview, 'queueVisibleUncachedTiles').mockReturnValue(0);
+        jest.spyOn(overview, 'scheduleBatchRender').mockImplementation(
+            () => {}
+        );
+
+        overview.updateTileSize();
+        jest.advanceTimersByTime(0);
+
+        expect(tile.cachedData).toBeUndefined();
+        expect(tile.canvas.width).toBe(0);
+        expect(tile.canvas.height).toBe(0);
+        expect(overview.tiles.has('glyph-a')).toBe(true);
+    });
+
+    test('evicts oldest off-screen tile first when over the heap fraction', () => {
+        const older = overview.createGlyphTile('glyph-a', 'A');
+        const newer = overview.createGlyphTile('glyph-b', 'B');
+        overview.tiles.set('glyph-a', older);
+        overview.tiles.set('glyph-b', newer);
+        paintTile(older, 1);
+        paintTile(newer, 2);
+
+        overview.enforceTileCacheBudget();
+
+        expect(older.cachedData).toBeUndefined();
+        expect(older.canvas.width).toBe(0);
+        expect(newer.cachedData).toEqual({ name: 'B' });
+        expect(newer.canvas.width).toBe(80);
+        expect(overview.tiles.size).toBe(2);
+    });
+});
