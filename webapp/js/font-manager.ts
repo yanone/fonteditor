@@ -1458,6 +1458,7 @@ class FontManager {
         this.pendingCommittedKeyboardDriftCheckAfterDrag = false;
         this.forceFullEditingCacheRefresh = false;
         this.workerLayerFingerprintCache.clear();
+        this.workerMirrorQuarantined = false;
         window.currentFontModel = null;
         (window.fontInterpolation as any)?.resetRequestTracking?.();
 
@@ -4504,9 +4505,7 @@ class FontManager {
             const recovery =
                 fontCompilation.seedWorkerYDocFromState(bridgeState);
             await fontCompilation.trackWorkerDocumentSync(recovery);
-            this.workerLayerFingerprintCache.clear();
-            this.workerMirrorQuarantined = false;
-            fontCompilation.setWorkerCacheDocumentReady(true);
+            this.acknowledgeWorkerBridgeReseed();
             console.warn(
                 '[FontManager] Re-seeded worker cache from authoritative bridge state:',
                 reason
@@ -4522,6 +4521,17 @@ class FontManager {
             );
             return false;
         }
+    }
+
+    /**
+     * Mark the editing worker as aligned with the bridge after an explicit
+     * bootstrap/rebaseline `seedYdoc`. Clears quarantine so later incremental
+     * packets are not forced through a redundant recover.
+     */
+    acknowledgeWorkerBridgeReseed(): void {
+        this.workerLayerFingerprintCache.clear();
+        this.workerMirrorQuarantined = false;
+        fontCompilation?.setWorkerCacheDocumentReady(true);
     }
 
     async recoverWorkerCacheFromBridgeState(reason: string): Promise<boolean> {
@@ -5204,7 +5214,13 @@ class FontManager {
             return true;
         })();
 
-        const cacheUpdatePromise = refreshPromise.then(() => undefined);
+        const previousWorkerCacheUpdatePromise = this.workerCacheUpdatePromise;
+        const cacheUpdatePromise = previousWorkerCacheUpdatePromise
+            ? Promise.allSettled([
+                  previousWorkerCacheUpdatePromise,
+                  refreshPromise
+              ]).then(() => undefined)
+            : refreshPromise.then(() => undefined);
         this.workerCacheUpdatePromise = cacheUpdatePromise;
         try {
             return await refreshPromise;

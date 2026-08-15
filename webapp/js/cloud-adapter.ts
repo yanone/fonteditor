@@ -1190,10 +1190,16 @@ export class CloudAdapter implements FileSystemAdapter {
             throw new Error('empty checkpoint response');
         }
 
-        // Apply the checkpoint as full remote state so the live JSON/model,
-        // undo managers, and worker mirror are rehydrated consistently.
+        // Apply the checkpoint as full remote state so the live JSON/model
+        // and undo managers rehydrate from the same CRDT baseline. When the
+        // editing worker is already initialized, reseed it immediately so
+        // local edits cannot land against a pre-checkpoint Rust Y.Doc before
+        // the later sync-response rebaseline (COMPILATION_EDIT_POLICY §28).
         if (this._bridge) {
             this._bridge.applyFullState(stateBytes);
+            await this._reseedEditingWorkerFromBridgeAfterCheckpoint(
+                'R2 checkpoint bootstrap'
+            );
         }
 
         this._checkpointLogId =
@@ -1705,6 +1711,7 @@ export class CloudAdapter implements FileSystemAdapter {
             | (typeof window.fontManager & {
                   buildWorkerSeedYjsState?: () => Uint8Array | null;
                   recordFullFontCrossing?: () => void;
+                  acknowledgeWorkerBridgeReseed?: () => void;
               })
             | undefined;
         const seedState =
@@ -1727,13 +1734,21 @@ export class CloudAdapter implements FileSystemAdapter {
         const syncPromise = (async () => {
             if (typeof fontCompilation.seedWorkerYDocFromState === 'function') {
                 await fontCompilation.seedWorkerYDocFromState(seedState);
-                return;
+            } else {
+                await fontCompilation.sendMessage({
+                    type: 'seedYdoc',
+                    state: seedState
+                });
             }
-
-            await fontCompilation.sendMessage({
-                type: 'seedYdoc',
-                state: seedState
-            });
+            // Clear quarantine + ready so later incremental packets are not
+            // forced through a redundant recover after a successful rebaseline.
+            if (
+                typeof fontManager?.acknowledgeWorkerBridgeReseed === 'function'
+            ) {
+                fontManager.acknowledgeWorkerBridgeReseed();
+            } else {
+                fontCompilation.setWorkerCacheDocumentReady?.(true);
+            }
         })().catch((error) => {
             if (this._syncGeneration !== syncGeneration) {
                 this._scheduleCurrentWorkerBridgeSyncRecovery();
@@ -1760,6 +1775,77 @@ export class CloudAdapter implements FileSystemAdapter {
                 }
             });
         return true;
+    }
+
+    /**
+     * Reseed the editing Rust worker from the current bridge after an R2
+     * checkpoint apply. Tracks the same worker-bridge sync promise used by
+     * sync-response rebaseline so compiles wait for alignment.
+     */
+    private async _reseedEditingWorkerFromBridgeAfterCheckpoint(
+        reason: string
+    ): Promise<void> {
+        const fontCompilation = window.fontCompilation;
+        if (!fontCompilation?.isInitialized || !this._bridge) {
+            return;
+        }
+
+        const fontManager = window.fontManager as
+            | (typeof window.fontManager & {
+                  buildWorkerSeedYjsState?: () => Uint8Array | null;
+                  recordFullFontCrossing?: () => void;
+                  acknowledgeWorkerBridgeReseed?: () => void;
+              })
+            | undefined;
+        const seedState =
+            this._bridge.encodeBridgeState?.() ??
+            fontManager?.buildWorkerSeedYjsState?.();
+        if (!seedState?.length) {
+            console.warn(
+                `CloudAdapter: skipping worker reseed after ${reason}: missing bridge Yjs state`
+            );
+            return;
+        }
+
+        const syncGeneration = this._syncGeneration;
+        fontManager?.recordFullFontCrossing?.();
+
+        const syncPromise = (async () => {
+            if (typeof fontCompilation.seedWorkerYDocFromState === 'function') {
+                await fontCompilation.seedWorkerYDocFromState(seedState);
+            } else {
+                await fontCompilation.sendMessage({
+                    type: 'seedYdoc',
+                    state: seedState
+                });
+            }
+            if (
+                typeof fontManager?.acknowledgeWorkerBridgeReseed === 'function'
+            ) {
+                fontManager.acknowledgeWorkerBridgeReseed();
+            } else {
+                fontCompilation.setWorkerCacheDocumentReady?.(true);
+            }
+        })().catch((error) => {
+            fontCompilation.setWorkerCacheDocumentReady?.(false);
+            console.warn(
+                `CloudAdapter: failed to reseed Rust worker after ${reason}`,
+                error
+            );
+            throw error;
+        });
+
+        this._workerBridgeSyncPromise = syncPromise;
+        try {
+            await syncPromise;
+        } finally {
+            if (
+                this._workerBridgeSyncPromise === syncPromise &&
+                this._syncGeneration === syncGeneration
+            ) {
+                this._workerBridgeSyncPromise = null;
+            }
+        }
     }
 
     private _scheduleCurrentWorkerBridgeSyncRecovery(): void {

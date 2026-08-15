@@ -3692,6 +3692,18 @@ describe('FontManager boundary-crossing budget', () => {
         }
     });
 
+    test('acknowledgeWorkerBridgeReseed clears quarantine after an external bridge reseed', () => {
+        fontManager.workerMirrorQuarantined = true;
+        fontManager.workerLayerFingerprintCache.set('a::layer', 'stale');
+        fontCompilation.setWorkerCacheDocumentReady(false);
+
+        fontManager.acknowledgeWorkerBridgeReseed();
+
+        expect(fontManager.workerMirrorQuarantined).toBe(false);
+        expect(fontManager.workerLayerFingerprintCache.size).toBe(0);
+        expect(fontCompilation.hasWorkerCacheDocument()).toBe(true);
+    });
+
     test('consecutive raw Yjs layer updates forward each change as an incremental worker packet', async () => {
         const currentFont = fontManager.currentFont;
         const originalPatchSyncEngine = window.patchSyncEngine;

@@ -458,7 +458,8 @@ describe('CloudAdapter outbound updates', () => {
                 hasWorkerCacheDocument: jest.fn(() => false)
             };
             window.fontManager = {
-                recordFullFontCrossing: jest.fn()
+                recordFullFontCrossing: jest.fn(),
+                acknowledgeWorkerBridgeReseed: jest.fn()
             };
 
             const bridge = {
@@ -502,6 +503,9 @@ describe('CloudAdapter outbound updates', () => {
             await Promise.resolve();
             await Promise.resolve();
 
+            expect(
+                window.fontManager.acknowledgeWorkerBridgeReseed
+            ).toHaveBeenCalledTimes(1);
             expect(statuses).toContainEqual({
                 status: 'connected',
                 detail: undefined
@@ -537,7 +541,8 @@ describe('CloudAdapter outbound updates', () => {
                 hasWorkerCacheDocument: jest.fn(() => false)
             };
             window.fontManager = {
-                recordFullFontCrossing: jest.fn()
+                recordFullFontCrossing: jest.fn(),
+                acknowledgeWorkerBridgeReseed: jest.fn()
             };
 
             const bridge = {
@@ -577,6 +582,9 @@ describe('CloudAdapter outbound updates', () => {
             await Promise.resolve();
             await Promise.resolve();
 
+            expect(
+                window.fontManager.acknowledgeWorkerBridgeReseed
+            ).toHaveBeenCalledTimes(1);
             expect(statuses).toContainEqual({
                 status: 'connected',
                 detail: undefined
@@ -623,7 +631,8 @@ describe('CloudAdapter outbound updates', () => {
                 hasWorkerCacheDocument: jest.fn(() => false)
             };
             window.fontManager = {
-                recordFullFontCrossing: jest.fn()
+                recordFullFontCrossing: jest.fn(),
+                acknowledgeWorkerBridgeReseed: jest.fn()
             };
 
             const bridge = {
@@ -730,7 +739,8 @@ describe('CloudAdapter outbound updates', () => {
                 hasWorkerCacheDocument: jest.fn(() => workerCacheReady)
             };
             window.fontManager = {
-                recordFullFontCrossing: jest.fn()
+                recordFullFontCrossing: jest.fn(),
+                acknowledgeWorkerBridgeReseed: jest.fn()
             };
 
             const bridge = {
@@ -3041,71 +3051,101 @@ describe('R2 bootstrap (GET /state before WebSocket)', () => {
         const appliedFullStates = [];
         var sentMessages = [];
         const stateRequests = [];
+        const originalFontCompilation = window.fontCompilation;
+        const originalFontManager = window.fontManager;
+        const workerSeedState = new Uint8Array([9, 9, 9]);
 
-        adapter._bridge = {
-            encodeBridgeStateVector: function () {
-                return new Uint8Array(0);
-            },
-            applyFullState: function (bytes) {
-                appliedFullStates.push(bytes);
-            },
-            applyYDocUpdateSilent: jest.fn(),
-            onLocalUpdate: jest.fn(),
-            offLocalUpdate: jest.fn()
-        };
-
-        var socket;
-        global.WebSocket = function FakeWebSocket() {
-            this.readyState = 1;
-            this.send = function (data) {
-                sentMessages.push(JSON.parse(data));
+        try {
+            window.fontCompilation = {
+                isInitialized: true,
+                seedWorkerYDocFromState: jest.fn(() => Promise.resolve()),
+                setWorkerCacheDocumentReady: jest.fn(),
+                hasWorkerCacheDocument: jest.fn(() => true)
             };
-            this.close = function () {};
-        };
+            window.fontManager = {
+                recordFullFontCrossing: jest.fn(),
+                acknowledgeWorkerBridgeReseed: jest.fn()
+            };
 
-        mockFetchWithStateEndpoint({
-            checkpointBytes: new Uint8Array([10, 20, 30, 40]),
-            checkpointLogId: '77',
-            stateRequests
-        });
+            adapter._bridge = {
+                encodeBridgeStateVector: function () {
+                    return new Uint8Array(0);
+                },
+                encodeBridgeState: function () {
+                    return workerSeedState;
+                },
+                applyFullState: function (bytes) {
+                    appliedFullStates.push(bytes);
+                },
+                applyYDocUpdateSilent: jest.fn(),
+                onLocalUpdate: jest.fn(),
+                offLocalUpdate: jest.fn()
+            };
 
-        await adapter.connectDirect(
-            adapter._bridge,
-            'room-token',
-            'wss://rooms.example.com/room/asset-123'
-        );
+            var socket;
+            global.WebSocket = function FakeWebSocket() {
+                this.readyState = 1;
+                this.send = function (data) {
+                    sentMessages.push(JSON.parse(data));
+                };
+                this.close = function () {};
+            };
 
-        await new Promise(function (r) {
-            setTimeout(r, 50);
-        });
+            mockFetchWithStateEndpoint({
+                checkpointBytes: new Uint8Array([10, 20, 30, 40]),
+                checkpointLogId: '77',
+                stateRequests
+            });
 
-        expect(appliedFullStates).toHaveLength(1);
-        expect(Array.from(appliedFullStates[0])).toEqual([10, 20, 30, 40]);
-        expect(adapter._bridge.applyYDocUpdateSilent).not.toHaveBeenCalled();
-        expect(stateRequests).toEqual([
-            {
-                url: 'https://rooms.example.com/room/asset-123/state',
-                opts: {
-                    headers: { Authorization: 'Bearer room-token' }
+            await adapter.connectDirect(
+                adapter._bridge,
+                'room-token',
+                'wss://rooms.example.com/room/asset-123'
+            );
+
+            await new Promise(function (r) {
+                setTimeout(r, 50);
+            });
+
+            expect(appliedFullStates).toHaveLength(1);
+            expect(Array.from(appliedFullStates[0])).toEqual([10, 20, 30, 40]);
+            expect(
+                adapter._bridge.applyYDocUpdateSilent
+            ).not.toHaveBeenCalled();
+            expect(
+                window.fontCompilation.seedWorkerYDocFromState
+            ).toHaveBeenCalledWith(workerSeedState);
+            expect(
+                window.fontManager.acknowledgeWorkerBridgeReseed
+            ).toHaveBeenCalledTimes(1);
+            expect(stateRequests).toEqual([
+                {
+                    url: 'https://rooms.example.com/room/asset-123/state',
+                    opts: {
+                        headers: { Authorization: 'Bearer room-token' }
+                    }
                 }
-            }
-        ]);
+            ]);
 
-        adapter._handleMessage(
-            JSON.stringify({
-                type: 'auth-ok',
-                clientId: 'client-1',
-                roomSchemaVersion: TEST_YDOC_SCHEMA_VERSION
-            })
-        );
+            adapter._handleMessage(
+                JSON.stringify({
+                    type: 'auth-ok',
+                    clientId: 'client-1',
+                    roomSchemaVersion: TEST_YDOC_SCHEMA_VERSION
+                })
+            );
 
-        var syncRequest = sentMessages.find(function (m) {
-            return m.type === 'sync-request';
-        });
-        expect(syncRequest).toBeDefined();
-        expect(syncRequest.checkpointLogId).toBe(77);
-        expect(syncRequest.fullState).toBeUndefined();
-        expect(syncRequest.update).toBeUndefined();
+            var syncRequest = sentMessages.find(function (m) {
+                return m.type === 'sync-request';
+            });
+            expect(syncRequest).toBeDefined();
+            expect(syncRequest.checkpointLogId).toBe(77);
+            expect(syncRequest.fullState).toBeUndefined();
+            expect(syncRequest.update).toBeUndefined();
+        } finally {
+            window.fontCompilation = originalFontCompilation;
+            window.fontManager = originalFontManager;
+        }
     });
 
     it('sends an inherited checkpointLogId in sync-request when reconnect skips HTTP bootstrap', async () => {

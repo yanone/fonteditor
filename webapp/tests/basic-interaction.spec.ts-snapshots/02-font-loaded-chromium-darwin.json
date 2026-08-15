@@ -10,17 +10,15 @@
         "editor_harfbuzz_cl": "0 1 2 3 4 5 6 7 8 9 10 11",
         "editor_harfbuzz_dx": "0 0 0 0 0 0 0 0 0 0 0 0",
         "editor_harfbuzz_dy": "0 0 0 0 0 0 0 0 0 0 0 0",
-        "editor_harfbuzz_gids": "18 17 7 19 16 1 6 8 14 12 13 9",
+        "editor_harfbuzz_gids": "16 15 5 17 14 1 4 6 12 10 11 7",
         "editor_harfbuzz_glyph_names": "H a m b u r g e v o n s",
         "editor_isAnimating": false,
         "editor_isInterpolating": false,
         "editor_mode": "text",
         "editor_opentype_features_in_subset": {
-            "pnum": false,
             "ss03": false,
             "ss04": false,
-            "ss06": false,
-            "tnum": false
+            "ss06": false
         },
         "editor_opentype_features_not_in_subset": {
             "case": false,
@@ -29,12 +27,14 @@
             "liga": true,
             "locl": true,
             "ordn": false,
+            "pnum": false,
             "sinf": false,
             "ss01": false,
             "ss02": false,
             "ss05": false,
             "subs": false,
             "sups": false,
+            "tnum": false,
             "zero": false
         },
         "editor_text_buffer": "Hamburgevons",
