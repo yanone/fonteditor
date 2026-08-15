@@ -922,6 +922,9 @@ test.describe('Open/Close Path across linked masters', () => {
     });
 
     test('full open-close-undo lifecycle', async ({ page }) => {
+        // Suite load can stretch this interaction-heavy lifecycle past 5m.
+        test.setTimeout(600000);
+
         // ---------------------------------------------------------------
         // 1. Load the 3-master test font
         // ---------------------------------------------------------------

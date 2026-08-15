@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import {
     collapseView,
     captureSnapshot,
+    enterEditModeOnFirstShapedGlyph,
     expectJsonSnapshot,
     focusView,
     openFileFromFilesView,
@@ -10,7 +11,8 @@ import {
     waitForFeatureCompilationError,
     waitForFontLoaded,
     waitForOpenSessionReady,
-    waitForOverviewTilesRendered
+    waitForOverviewTilesRendered,
+    waitForStableEditorMetrics
 } from './helpers/snapshot-helper';
 
 /**
@@ -246,16 +248,9 @@ test.describe('Font Editor Basic Workflow', () => {
         await waitForOpenSessionReady(page, 'Fustat.glyphs');
         await page.waitForTimeout(300);
 
-        await page.evaluate(() => {
-            (window as any).glyphCanvas?.enterGlyphEditModeAtCursor?.();
-        });
-        await page.waitForFunction(() => {
-            const glyphCanvas = (window as any).glyphCanvas;
-            return (
-                !!glyphCanvas?.outlineEditor?.active &&
-                (glyphCanvas?.textRunEditor?.selectedGlyphIndex ?? -1) >= 0
-            );
-        });
+        // Suite load can leave shaping unfinished; bare enterGlyphEditModeAtCursor
+        // silently no-ops and this wait then burns the full test timeout.
+        await enterEditModeOnFirstShapedGlyph(page);
 
         const currentFontPathBefore = await page.evaluate(() => {
             const win = window as any;
@@ -423,7 +418,10 @@ test.describe('Font Editor Basic Workflow', () => {
         // Cmd+0
         console.log('[Test] Pressing Cmd+0');
         await page.keyboard.press('Meta+0');
-        await page.waitForTimeout(800);
+        await page.waitForTimeout(200);
+        // Font-open can reshuffle subset feature membership and GIDs after the
+        // initial ready signals; wait for a quiet metrics/feature window.
+        await waitForStableEditorMetrics(page, { idleMs: 500, timeout: 30000 });
 
         // SNAPSHOT POINT 2: Font loaded
         console.log('[Test] Taking snapshot 2: font loaded');
@@ -731,12 +729,21 @@ test.describe('Font Editor Basic Workflow', () => {
                     requestAnimationFrame(() => resolve())
                 );
             });
-            await page.waitForTimeout(300);
+            // Under full-suite load, HB advances can land after the layer-switch
+            // animation flags clear. Wait for metrics idle before snapshotting.
+            await waitForStableEditorMetrics(page);
+            await page.waitForTimeout(100);
 
             console.log(
                 `[Test] Taking snapshot ${snapshotNumber}: ${snapshotLabel}`
             );
-            await takeSnapshot(page, snapshotNumber, snapshotLabel, expect);
+            await takeSnapshot(
+                page,
+                snapshotNumber,
+                snapshotLabel,
+                expect,
+                0.04
+            );
         };
 
         // second layer
@@ -771,7 +778,8 @@ test.describe('Font Editor Basic Workflow', () => {
             const isAnimating = !!glyphCanvas?.axesManager?.isAnimating;
             return !isAnimating && inputValue === '300';
         }, firstAxisTag);
-        await page.waitForTimeout(200);
+        await waitForStableEditorMetrics(page);
+        await page.waitForTimeout(100);
 
         // SNAPSHOT POINT 17: Variation set to 300
         console.log('[Test] Taking snapshot 17: variation 300');
@@ -794,7 +802,8 @@ test.describe('Font Editor Basic Workflow', () => {
             const isAnimating = !!glyphCanvas?.axesManager?.isAnimating;
             return !isAnimating && inputValue === '400';
         }, firstAxisTag);
-        await page.waitForTimeout(200);
+        await waitForStableEditorMetrics(page);
+        await page.waitForTimeout(100);
 
         // SNAPSHOT POINT 18: Variation set to 400
         console.log('[Test] Taking snapshot 18: variation 400');

@@ -297,6 +297,122 @@ export async function waitForFileBrowserReady(page: any) {
     });
 }
 
+/**
+ * Enter outline edit mode on the first shaped glyph.
+ * Prefer this over a bare enterGlyphEditModeAtCursor() call: under suite load,
+ * shaping/editingFont may not be ready yet and the cursor helper silently no-ops.
+ */
+export async function enterEditModeOnFirstShapedGlyph(page: any) {
+    await page.waitForFunction(
+        () => Number((window as any).fontManager?.editingFont?.length || 0) > 0,
+        { timeout: 60000 }
+    );
+
+    await page.evaluate(() => {
+        const textRunEditor = (window as any).glyphCanvas?.textRunEditor;
+        if (!textRunEditor) {
+            return;
+        }
+        if (!textRunEditor.textBuffer) {
+            textRunEditor.setTextBuffer('Hamburgevons');
+        }
+        textRunEditor.shapeText?.(true);
+    });
+
+    await page.waitForFunction(
+        () => {
+            const textRunEditor = (window as any).glyphCanvas?.textRunEditor;
+            return (
+                Array.isArray(textRunEditor?.shapedGlyphs) &&
+                textRunEditor.shapedGlyphs.length > 0
+            );
+        },
+        { timeout: 30000 }
+    );
+
+    await page.evaluate(async () => {
+        await (window as any).glyphCanvas.textRunEditor.selectGlyphByIndex(
+            0,
+            true
+        );
+    });
+
+    await page.waitForFunction(
+        () => {
+            const glyphCanvas = (window as any).glyphCanvas;
+            return (
+                !!glyphCanvas?.outlineEditor?.active &&
+                (glyphCanvas?.textRunEditor?.selectedGlyphIndex ?? -1) >= 0
+            );
+        },
+        { timeout: 15000 }
+    );
+}
+
+/**
+ * Wait until editor HB metrics, feature-subset membership, and animation flags
+ * are stable for a short idle window. Layer switches, axis edits, and initial
+ * font loads can clear their animating flags before reshaped advances and
+ * subset feature classification land in stateManager, which flakes JSON/PNG
+ * snapshots under a loaded full suite.
+ */
+export async function waitForStableEditorMetrics(
+    page: any,
+    options?: { idleMs?: number; timeout?: number }
+) {
+    const idleMs = options?.idleMs ?? 300;
+    const timeout = options?.timeout ?? 20000;
+
+    await page.waitForFunction(
+        (stableIdleMs) => {
+            const win = window as any;
+            const state = win.stateManager?.getStateSnapshot?.()?.state || {};
+            const featuresInSubset = Object.keys(
+                state.editor_opentype_features_in_subset || {}
+            )
+                .sort()
+                .join(',');
+            const featuresNotInSubset = Object.keys(
+                state.editor_opentype_features_not_in_subset || {}
+            )
+                .sort()
+                .join(',');
+            const signature = [
+                state.editor_harfbuzz_ax || '',
+                state.editor_harfbuzz_dx || '',
+                state.editor_harfbuzz_dy || '',
+                state.editor_harfbuzz_gids || '',
+                state.editor_mode || '',
+                state.editor_glyph_stack || '',
+                featuresInSubset,
+                featuresNotInSubset,
+                String(!!state.editor_isAnimating),
+                String(!!state.editor_isInterpolating)
+            ].join('|');
+
+            const previous = win.__pwStableEditorMetrics as
+                { signature: string; since: number } | undefined;
+
+            if (
+                state.editor_isAnimating ||
+                state.editor_isInterpolating ||
+                !previous ||
+                previous.signature !== signature
+            ) {
+                win.__pwStableEditorMetrics = {
+                    signature,
+                    since: Date.now()
+                };
+                return false;
+            }
+
+            return Date.now() - previous.since >= stableIdleMs;
+        },
+        idleMs,
+        { timeout, polling: 100 }
+    );
+}
+
 export async function focusView(page: any, shortcut: string, viewId: string) {
     const waitForFocusedView = async (timeout: number) => {
         await page.waitForFunction(

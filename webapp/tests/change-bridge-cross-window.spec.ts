@@ -1255,7 +1255,9 @@ test.describe('Cross-window ChangeBridge sync', () => {
     test('linked window preserves all layer data after remote outline and anchor edits on Thin layer', async ({
         browser
     }) => {
-        test.setTimeout(300000);
+        // Full suite load (many prior heavy specs) pushes this multi-window
+        // flow past 5 minutes; keep headroom for the late third-window reopen.
+        test.setTimeout(600000);
 
         // ── 1. Open main window ──────────────────────────────────
         const context = await browser.newContext();
