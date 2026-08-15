@@ -923,13 +923,13 @@ class GlyphCanvas {
         const containerWidth = measurementTarget.clientWidth;
         const containerHeight = measurementTarget.clientHeight;
 
-        // Set the canvas size in actual pixels (accounting for DPR)
+        // Set the canvas size in actual pixels (accounting for DPR).
+        // Keep CSS size at 100% of the viewport so a stale pixel height
+        // cannot overflow into the property panel and inflate screenshots.
         this.canvas!.width = containerWidth * dpr;
         this.canvas!.height = containerHeight * dpr;
-
-        // Set CSS size to match container
-        this.canvas!.style.width = containerWidth + 'px';
-        this.canvas!.style.height = containerHeight + 'px';
+        this.canvas!.style.width = '100%';
+        this.canvas!.style.height = '100%';
 
         // Get context again and scale for DPR
         this.ctx = this.canvas!.getContext('2d');
@@ -1500,9 +1500,10 @@ class GlyphCanvas {
         // Window resize
         window.addEventListener('resize', () => this.onResize());
 
-        // Container resize (for when view dividers are moved)
+        // Viewport resize (splitters, and property-panel height changes
+        // inside the container that do not change the container box).
         this.resizeObserver = new ResizeObserver(() => this.onResize());
-        this.resizeObserver.observe(this.container);
+        this.resizeObserver.observe(this.canvasHost || this.container);
 
         // Sidebar click handlers to restore canvas focus in editor mode
         this.setupSidebarFocusHandlers();
@@ -2827,7 +2828,9 @@ class GlyphCanvas {
     }
 
     onResize(): void {
-        // Get current dimensions
+        // Splitter/collapse sizing is based on the outer canvas container.
+        // Property-panel height changes are handled by setupHiDPI measuring
+        // the viewport host; do not treat those as a viewport zoom/pan resize.
         const newWidth = this.container.clientWidth;
         const newHeight = this.container.clientHeight;
 
@@ -11032,11 +11035,14 @@ function initCanvas() {
 }
 
 if (typeof document !== 'undefined' && document.addEventListener) {
-    // Initialize when document is ready
-    document.addEventListener('DOMContentLoaded', () => {
-        // Wait for the editor view to be ready
+    const startInitCanvas = () => {
         initCanvas();
-    });
+    };
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', startInitCanvas);
+    } else {
+        startInitCanvas();
+    }
 }
 
 window.addEventListener(

@@ -438,14 +438,18 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
         await page.mouse.move(-100, -100);
         await page.waitForTimeout(100);
 
-        // Deselect so selection state matches baseline (canvas1)
+        // Deselect so selection state matches baseline (canvas1).
+        // Rebuild the property panel; assigning selection arrays directly
+        // otherwise leaves an empty panel and resizes the canvas.
         await page.evaluate(() => {
-            const oe = (window as any).glyphCanvas?.outlineEditor;
+            const gc = (window as any).glyphCanvas;
+            const oe = gc?.outlineEditor;
             if (oe) {
                 oe.selectedPoints = [];
                 oe.selectedAnchors = [];
                 oe.selectedComponents = [];
             }
+            gc?.updatePropertyPanel?.();
         });
         await revertToFramedViewport();
         await expect(canvasLocator).toHaveScreenshot(

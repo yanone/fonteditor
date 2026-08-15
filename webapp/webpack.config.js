@@ -145,7 +145,7 @@ module.exports = {
         new HtmlWebpackPlugin({
             template: './index.html',
             inject: 'body',
-            scriptLoading: 'defer',
+            scriptLoading: 'blocking',
             chunks: ['bootstrap']
         }),
         new webpack.DefinePlugin({

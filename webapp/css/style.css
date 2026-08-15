@@ -6217,7 +6217,7 @@ kbd + kbd {
 
 .glyph-property-panel {
     flex: 0 0 auto;
-    min-height: 0;
+    min-height: 56px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -6464,7 +6464,7 @@ select.glyph-property-input {
 .glyph-property-panel.glyph-kerning-groups-panel,
 .glyph-property-panel.text-mode-kerning-panel {
     flex: 0 0 auto;
-    min-height: 0;
+    min-height: 56px;
     padding: 2px 12px;
     --glyph-kerning-first-accent: var(--kerning-accent-first);
     --glyph-kerning-second-accent: var(--kerning-accent-second);

@@ -68,7 +68,7 @@ test('Cmd+Escape closes docs only when the docs panel is focused', async ({
     await expect(page.locator('#view-docs')).toHaveClass(/focused/);
 
     await expect(async () => {
-        await page.locator('#view-editor .view-title-bar').click();
+        await page.locator('#view-editor .view-title-name').click();
         await expect(page.locator('#view-editor')).toHaveClass(/focused/, {
             timeout: 500
         });

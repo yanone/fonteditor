@@ -24,23 +24,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
     return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-const VOLATILE_SNAPSHOT_STATE_KEYS = new Set([
-    'editor_harfbuzz_gids',
-    'editor_opentype_features_in_subset',
-    'editor_opentype_features_not_in_subset'
-]);
-
-function stripVolatileSnapshotState(snapshot: AppSnapshot): AppSnapshot {
-    const state = { ...(snapshot.state || {}) };
-    for (const key of VOLATILE_SNAPSHOT_STATE_KEYS) {
-        delete state[key];
-    }
-    return {
-        ...snapshot,
-        state
-    };
-}
-
 function sortJsonValue(value: unknown): JsonValue {
     if (Array.isArray(value)) {
         return value.map((entry) => sortJsonValue(entry));
@@ -58,9 +41,7 @@ function sortJsonValue(value: unknown): JsonValue {
 }
 
 function normalizeSnapshot(snapshot: AppSnapshot): AppSnapshot {
-    return sortJsonValue(
-        stripVolatileSnapshotState(snapshot)
-    ) as unknown as AppSnapshot;
+    return sortJsonValue(snapshot) as unknown as AppSnapshot;
 }
 
 async function readSnapshotFile(path: string): Promise<string> {
