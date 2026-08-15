@@ -159,45 +159,36 @@ describe('OverviewView initial active glyph sync', () => {
 
     test('refreshes overview tiles on fontModelReady before fontReady', async () => {
         require('../js/overview-view');
-        const originalWindowRole = window.windowRole;
-        window.windowRole = {
-            ...originalWindowRole,
-            isLinkedWindow: () => true
+        await jest.runOnlyPendingTimersAsync();
+        await Promise.resolve();
+
+        updateGlyphs.mockClear();
+        syncGlyphs.mockClear();
+        renderGlyphOutlines.mockClear();
+        setOutlinePaintAllowed.mockClear();
+
+        window.currentFontModel = {
+            glyphs: [{ name: '.notdef' }]
         };
 
-        try {
-            await jest.runAllTimersAsync();
-            await Promise.resolve();
+        // Omit babelfontData so change-bridge-init (loaded by Jest setup)
+        // does not start WindowSync / worker seeding on this event.
+        window.dispatchEvent(
+            new CustomEvent('fontModelReady', {
+                detail: {
+                    path: 'overview-view-fontModelReady.babelfont'
+                }
+            })
+        );
 
-            updateGlyphs.mockClear();
-            syncGlyphs.mockClear();
-            renderGlyphOutlines.mockClear();
-            setOutlinePaintAllowed.mockClear();
+        await jest.runOnlyPendingTimersAsync();
+        await Promise.resolve();
 
-            window.currentFontModel = {
-                glyphs: [{ name: '.notdef' }]
-            };
-
-            window.dispatchEvent(
-                new CustomEvent('fontModelReady', {
-                    detail: {
-                        path: 'untitled.babelfont',
-                        babelfontData: {}
-                    }
-                })
-            );
-
-            await jest.runAllTimersAsync();
-            await Promise.resolve();
-
-            expect(setOutlinePaintAllowed).toHaveBeenCalledWith(false);
-            expect(syncGlyphs).toHaveBeenCalledTimes(1);
-            expect(syncGlyphs).toHaveBeenCalledWith([
-                { id: '.notdef', name: '.notdef' }
-            ]);
-        } finally {
-            window.windowRole = originalWindowRole;
-        }
+        expect(setOutlinePaintAllowed).toHaveBeenCalledWith(false);
+        expect(syncGlyphs).toHaveBeenCalledTimes(1);
+        expect(syncGlyphs).toHaveBeenCalledWith([
+            { id: '.notdef', name: '.notdef' }
+        ]);
         expect(renderGlyphOutlines).not.toHaveBeenCalled();
     });
 
