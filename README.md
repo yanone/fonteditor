@@ -1,5 +1,10 @@
 ![](title.png)
 
+## Develpoment Stage
+
+Development is in **Alpha** stage (features not complete).
+See [Feature Overview](#feature-overview) for details.
+
 ## Live App
 
 Try the editor live:
@@ -30,134 +35,31 @@ Saving to UFO/DS and .glyphspackage is in development.
 
 Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. For further developer documentation, see [DEVELOPMENT.md](/developer-docs/DEVELOPMENT.md)
 
-## Roadmap
+## Feature Overview
 
-### Pre-historic bootstrapping phase
+Remember that we’re in **Alpha** stage. "Should work" means you could still encounter problems. [Report them](https://github.com/counterpunchspace/editor/issues).
 
-- ✅ Bidirectional text shaping
-- ✅ Super basic outline editing
-- ✅ Live recompilation during editing
-- ✅ Variable preview, live interpolation, animation
-- ✅ Assistant generates Python code
-- ✅ Canvas drawing plugins
+Coverage: 🟢 Should work · 🟡 Partial · 🔴 Missing
 
-### Pre-babelfont-ts Foundation (February 2nd, 2026)
-
-**Website and subscription system while waiting for `babelfont-ts`**
-
-- ✅ Cloudflare setup
-- ✅ Cloudflare Workers - AI Assistant Relay
-- ✅ Authentication system - Passwordless
-- ✅ Usage metering and billing sync
-- ✅ User dashboard
-- ✅ Stripe setup
-- ✅ Website content
-- ✅ Terms of service, privacy policy
-- ✅ Configure custom domains
-- ✅ Website design
-- ✅ Canvas plugin system
-
-### v0.2 (March 3rd, 2026)
-
-**`babelfont-ts` object model integration — Counterpunch becomes an analysis tool**
-
-- ✅ User file sytem I/O
-- ✅ App state saved in URL, can be shared and restored
-- ✅ .babelfont input/outut
-- ✅ .glyphs input/outut
-- ✅ .glyphspackage input
-- ✅ .sfb input
-- ✅ .vfj input
-- ◻️ .vfb input
-- ✅ Python scripts I/O
-- ✅ Glyph overview
-- ✅ Grid glyph overview
-- ✅ Glyph search and filtering
-- ✅ Glyph filtering plugins
-- ✅ Insert glyphs into editor text
-- ✅ Show intermediate masters
-- ✅ OpenType feature code editor
-- ✅ OpenType feature code error display inline
-- ✅ Hot-reloading fonts on external changes (Chrome/Chromium only)
-- ✅ Explicit binary font export
-- ✅ Open fonts in PWA directly
-- ◻️ Interactive demo
-- ✅ Basic documentation
-- ✅ First video
-
-### v0.3
-
-**Counterpunch becomes a simple font editor**
-
-- ✅ Basic layer operations
-- ✅ Background layers
-- ✅ Basic glyph operations
-- ✅ Add glyphs dialog, including Unicode and Hyperglot databases
-- ✅ Edit outlines
-- ✅ Edit components
-- ✅ Edit anchors
-- ✅ Edit feature variations
-- ✅ Edit sidebearings
-- ◻️ Edit guidelines
-- ✅ Draw new outlines
-- ✅ Python script inference UI
-- ✅ Undo/redo system
-- ✅ Clipboard operations (Fontra wrks natively, Glyphs via scripts)
-- ✅ Selection tools
-- ✅ Edit Font Info
-- ✅ Master/instance management
-- ✅ Visual Kerning UI
-- ✅ Kerning list UI
-- ✅ Automatic glyph metric updates
-- ✅ Automatic glyph composition
-- ✅ Font export
-- ✅ Source saving
-
-### v0.4
-
-**Extended features — Counterpunch becomes a full-featured font editor**
-
-- ◻️ Background images
-- ◻️ Boolean path operations
-- ◻️ Glyph categories in overview
-- ◻️ Transform tools
-- ◻️ Multi-line text
-- ◻️ avar2 editor
-- ◻️ Variable components
-- ◻️ OpenType feature code generator
-- ◻️ Glyph composition UI (OpenType ccmp)
-- ◻️ Manual OpenType class editing
-- ◻️ Contextual kerning/positioning UI
-- ✅ Multiple font windows
-- ◻️ Plugin system architecture complete
-
-### v0.5
-
-Cleanup, documentation, testing, videos
-
-- ◻️ Performance optimization
-- ◻️ Memory usage optimization
-- ◻️ Unit test coverage
-- ◻️ Integration test suite
-- ◻️ End-to-end tests
-- ◻️ Browser compatibility testing
-- ◻️ Code documentation
-- ◻️ Load testing
-- ◻️ User guide completion
-
-### v0.6 Public Beta
-
-- ◻️ Monitoring and analytics setup
-- ◻️ Security and penetration testing
-- ◻️ Demo video production
-- ◻️ Public announcement
-
-### v0.7...v0.9
-
-Polish, incorporate user feedback
-
-### v1.0 Public Release (October 2026)
-
-### v2.0
-
-- ◻️ Live online collaboration
+| Feature | Coverage | Comments |
+| --- | --- | --- |
+| Live font compilation + Harfbuzz shaping | 🟢 | 🔥 |
+| Bi-directional text support | 🟢 | 🔥 |
+| Outline drawing and editing | 🟢 | Basic drawing tools |
+| Variable fonts | 🟢 | No `avar2` support yet |
+| Components | 🟢 | No variable components yet |
+| Sidebearings | 🟢 | Maybe not all metrics key types implemented yet |
+| Kerning | 🟢 | |
+| Python scripting | 🟢 | |
+| AI assistant | 🟢 | |
+| Undo and history | 🟢 | |
+| Multiple windows | 🟢 | Locally only |
+| Binary font export | 🟢 | |
+| Documentation | 🟢 | |
+| Language database | 🟢 | Ships with Hyperglot temporarily as a demo, later as user-installable plugins |
+| Glyph composition | 🟡 | Not all composition types implemented yet |
+| Glyph overview and filters | 🟡 | Glyph categorization missing |
+| Source file I/O | 🟡 | UFO/DS and `.glyphspackage` writing is missing |
+| Plugin system | 🟡 | Most plugin types not yet implemented |
+| OpenType feature code generator | 🔴 | |
+| Live online collaboration | 🔴 | |
