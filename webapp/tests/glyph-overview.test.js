@@ -1073,3 +1073,27 @@ describe('GlyphOverview double-click insertion', () => {
         expect(insertText).not.toHaveBeenCalled();
     });
 });
+
+describe('overviewTileCanvasBackingBytes', () => {
+    test('counts painted canvases and ignores unused HTML defaults', () => {
+        const {
+            overviewTileCanvasBackingBytes
+        } = require('../js/glyph-overview');
+        const unused = document.createElement('canvas');
+        expect(unused.width).toBe(300);
+        expect(unused.height).toBe(150);
+        expect(overviewTileCanvasBackingBytes(unused)).toBe(0);
+
+        const empty = document.createElement('canvas');
+        empty.width = 0;
+        empty.height = 0;
+        expect(overviewTileCanvasBackingBytes(empty)).toBe(0);
+
+        const painted = document.createElement('canvas');
+        painted.width = 120;
+        painted.height = 168;
+        painted.style.width = '60px';
+        painted.style.height = '84px';
+        expect(overviewTileCanvasBackingBytes(painted)).toBe(120 * 168 * 4);
+    });
+});

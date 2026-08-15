@@ -5507,6 +5507,70 @@ kbd + kbd {
     line-height: 1.5;
 }
 
+.info-popup.memory-usage-popup {
+    max-width: 720px;
+    width: min(720px, 92vw);
+}
+
+.memory-breakdown-status {
+    font-family: var(--font-families-mono);
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin: 0 0 8px;
+}
+
+.memory-breakdown-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--font-families-mono);
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.memory-breakdown-table th,
+.memory-breakdown-table td {
+    padding: 4px 6px;
+    border-bottom: 1px solid var(--border-primary);
+    text-align: left;
+    vertical-align: top;
+    color: var(--text-secondary);
+}
+
+.memory-breakdown-table th {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.memory-breakdown-table tr.memory-breakdown-section th {
+    padding-top: 10px;
+    background-color: var(--background-secondary);
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.memory-breakdown-table tfoot td {
+    color: var(--text-primary);
+    font-weight: 600;
+    border-bottom: 1px solid var(--border-primary);
+}
+
+.memory-breakdown-table tfoot tr:first-child td {
+    padding-top: 10px;
+}
+
+.memory-breakdown-table tfoot tr:last-child td {
+    border-bottom: none;
+}
+
+.memory-breakdown-num {
+    white-space: nowrap;
+    text-align: right;
+}
+
+.memory-breakdown-note {
+    color: var(--text-tertiary);
+}
+
 /* Info Icon Button (Reusable) */
 .info-icon-btn {
     background: none;

@@ -5,7 +5,6 @@ import CacheManager from './cache-manager';
 import type { FontCompilation } from './font-compilation';
 import FontManager from './font-manager';
 import { GlyphCanvas } from './glyph-canvas';
-import MemoryMonitor from './memory-monitor';
 import ResizableViews from './resizer';
 import SaveButton from './save-button';
 import { Font } from './babelfont-model';
@@ -501,10 +500,6 @@ declare global {
         // From matplotlib-handler.js
         showMatplotlibPlot: (element: HTMLElement) => void;
         closePlotModal: () => void;
-
-        // From memory-monitor.js
-        memoryMonitor: MemoryMonitor;
-        MemoryMonitor: any; // MemoryMonitor class
 
         // From python-ui-sync.js
         setFontLoadingState: (loading: boolean) => void;

@@ -101,6 +101,47 @@ fn record_component_dependencies(layer: &Layer, glyph_name: &str) {
     }
 }
 
+/// Retained-size estimate for overview outline / interpolated-layer caches.
+pub fn outline_cache_memory_stats() -> (u64, usize, u64, usize) {
+    let (outline_bytes, outline_entries) = {
+        let cache = OUTLINE_CACHE.lock().unwrap();
+        match cache.as_ref() {
+            Some(cache) => (
+                crate::cache_memory::str_bytes(&cache.location_json)
+                    + cache
+                        .results
+                        .iter()
+                        .map(|(name, value)| {
+                            crate::cache_memory::str_bytes(name)
+                                + crate::cache_memory::json_value_bytes(value)
+                        })
+                        .sum::<u64>(),
+                cache.results.len(),
+            ),
+            None => (0, 0),
+        }
+    };
+    let (layer_bytes, layer_entries) = {
+        let cache = LAYER_CACHE.lock().unwrap();
+        match cache.as_ref() {
+            Some(cache) => (
+                crate::cache_memory::str_bytes(&cache.cache_key)
+                    + cache
+                        .layers
+                        .iter()
+                        .map(|(name, layer)| {
+                            crate::cache_memory::str_bytes(name)
+                                + crate::cache_memory::layer_bytes(layer)
+                        })
+                        .sum::<u64>(),
+                cache.layers.len(),
+            ),
+            None => (0, 0),
+        }
+    };
+    (outline_bytes, outline_entries, layer_bytes, layer_entries)
+}
+
 /// Clear all caches (call when font changes)
 pub fn clear_outline_cache() {
     {

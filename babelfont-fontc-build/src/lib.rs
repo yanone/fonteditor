@@ -52,6 +52,8 @@ pub use batch_yjs_ops::{
 // Glyph outlines module
 mod glyph_outlines;
 
+mod cache_memory;
+
 // Global storage for cached fonts
 // Use a Mutex to allow safe mutable access from multiple calls
 
@@ -4429,6 +4431,284 @@ pub fn dump_worker_cache_state_json() -> Result<String, JsValue> {
         .map_err(|e| JsValue::from_str(&format!("Worker cache dump serialization failed: {}", e)))
 }
 
+fn estimate_json_value_bytes(value: &serde_json::Value) -> u64 {
+    cache_memory::json_value_bytes(value)
+}
+
+fn wasm_linear_memory_bytes() -> u64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        (core::arch::wasm32::memory_size(0) as u64).saturating_mul(65536)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        0
+    }
+}
+
+fn memory_stat_item(
+    id: &str,
+    label: &str,
+    bytes: u64,
+    method: &str,
+    in_sum: bool,
+    note: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "id": id,
+        "label": label,
+        "bytes": bytes,
+        "method": method,
+        "inSum": in_sum,
+        "note": note,
+    })
+}
+
+/// Read-only retained-size walks for Rust worker caches.
+/// Does not serialize full font JSON, encode the Y.Doc, or mutate cache state.
+#[wasm_bindgen]
+pub fn get_cache_memory_stats() -> Result<String, JsValue> {
+    let canonical_bytes = {
+        let cache = CANONICAL_JSON_CACHE
+            .lock()
+            .map_err(|_| dump_lock_error("CANONICAL_JSON_CACHE"))?;
+        cache.as_ref().map(estimate_json_value_bytes).unwrap_or(0)
+    };
+    let subset_bytes = {
+        let cache = SUBSET_JSON_CACHE
+            .lock()
+            .map_err(|_| dump_lock_error("SUBSET_JSON_CACHE"))?;
+        cache
+            .as_ref()
+            .map(|(key, _, json)| {
+                cache_memory::str_bytes(key) + estimate_json_value_bytes(json)
+            })
+            .unwrap_or(0)
+    };
+    let native_font_bytes = {
+        let cache = FONT_CACHE
+            .lock()
+            .map_err(|_| dump_lock_error("FONT_CACHE"))?;
+        cache.as_ref().map(cache_memory::font_bytes).unwrap_or(0)
+    };
+    let subset_native_bytes = {
+        let cache = SUBSET_FONT_CACHE
+            .lock()
+            .map_err(|_| dump_lock_error("SUBSET_FONT_CACHE"))?;
+        cache
+            .as_ref()
+            .map(|(key, _, font)| cache_memory::str_bytes(key) + cache_memory::font_bytes(font))
+            .unwrap_or(0)
+    };
+    let filtered_native_bytes = {
+        let cache = FILTERED_FONT_CACHE
+            .lock()
+            .map_err(|_| dump_lock_error("FILTERED_FONT_CACHE"))?;
+        cache
+            .as_ref()
+            .map(|entry| {
+                cache_memory::str_bytes(&entry.subset_key) + cache_memory::font_bytes(&entry.font)
+            })
+            .unwrap_or(0)
+    };
+    let ydoc_bytes = {
+        let ydoc = Y_DOC.lock().map_err(|_| dump_lock_error("Y_DOC"))?;
+        ydoc.as_ref().map(cache_memory::yrs_doc_bytes).unwrap_or(0)
+    };
+    let feature_fea_bytes = {
+        let cache = FEATURE_FEA_STRING_CACHE
+            .lock()
+            .map_err(|_| dump_lock_error("FEATURE_FEA_STRING_CACHE"))?;
+        cache
+            .as_ref()
+            .map(|(fea, names)| {
+                fea.len() as u64
+                    + names.iter().map(|name| 24 + name.len() as u64).sum::<u64>()
+            })
+            .unwrap_or(0)
+    };
+    let feature_file_present = FEATURE_FILE_CACHE
+        .lock()
+        .map_err(|_| dump_lock_error("FEATURE_FILE_CACHE"))?
+        .is_some();
+    let layout_closure_bytes = {
+        let cache = LAYOUT_CLOSURE_CACHE.lock().unwrap();
+        cache
+            .iter()
+            .map(|(key, names)| {
+                key.len() as u64
+                    + names.iter().map(|name| 24 + name.len() as u64).sum::<u64>()
+            })
+            .sum::<u64>()
+    };
+    let debug_font_bytes = DEBUG_FONT_BYTES_CACHE.lock().unwrap().total_bytes as u64;
+    let preview_bytes = {
+        let overlay = PREVIEW_OVERLAY.lock().unwrap();
+        match overlay.as_ref() {
+            Some(overlay) => {
+                let override_bytes = overlay
+                    .layer_overrides
+                    .values()
+                    .map(estimate_json_value_bytes)
+                    .sum::<u64>();
+                let subset_native = overlay
+                    .subset_font_cache
+                    .as_ref()
+                    .map(|entry| cache_memory::font_bytes(&entry.font))
+                    .unwrap_or(0);
+                let filtered_native = overlay
+                    .filtered_font_cache
+                    .as_ref()
+                    .map(|entry| cache_memory::font_bytes(&entry.font))
+                    .unwrap_or(0);
+                override_bytes + subset_native + filtered_native
+            }
+            None => 0,
+        }
+    };
+    let glyph_index_bytes = {
+        let canonical = CANONICAL_GLYPH_INDEX_CACHE.lock().unwrap();
+        let subset = SUBSET_GLYPH_INDEX_CACHE.lock().unwrap();
+        let canonical_bytes = canonical
+            .as_ref()
+            .map(cache_memory::string_usize_map_bytes)
+            .unwrap_or(0);
+        let subset_bytes = subset
+            .as_ref()
+            .map(|(_, map)| cache_memory::string_usize_map_bytes(map))
+            .unwrap_or(0);
+        canonical_bytes + subset_bytes
+    };
+    let (outline_bytes, outline_entries, layer_bytes, layer_entries) =
+        glyph_outlines::outline_cache_memory_stats();
+
+    let response = serde_json::json!({
+        "linearMemoryBytes": wasm_linear_memory_bytes(),
+        "items": [
+            memory_stat_item(
+                "canonicalJson",
+                "Canonical JSON cache",
+                canonical_bytes,
+                "exact",
+                true,
+                if canonical_bytes == 0 { "empty" } else { "owned JSON payload" },
+            ),
+            memory_stat_item(
+                "subsetJson",
+                "Subset JSON cache",
+                subset_bytes,
+                "exact",
+                true,
+                if subset_bytes == 0 { "empty" } else { "owned JSON payload" },
+            ),
+            memory_stat_item(
+                "nativeFont",
+                "Native babelfont::Font",
+                native_font_bytes,
+                "exact",
+                true,
+                if native_font_bytes == 0 { "empty" } else { "walked Font" },
+            ),
+            memory_stat_item(
+                "subsetNativeFont",
+                "Subset babelfont::Font",
+                subset_native_bytes,
+                "exact",
+                true,
+                if subset_native_bytes == 0 { "empty" } else { "walked Font" },
+            ),
+            memory_stat_item(
+                "filteredNativeFont",
+                "Filtered babelfont::Font",
+                filtered_native_bytes,
+                "exact",
+                true,
+                if filtered_native_bytes == 0 { "empty" } else { "walked Font" },
+            ),
+            memory_stat_item(
+                "yrsDoc",
+                "Yrs Y.Doc",
+                ydoc_bytes,
+                "exact",
+                true,
+                if ydoc_bytes == 0 { "empty" } else { "live Yrs values" },
+            ),
+            memory_stat_item(
+                "featureFea",
+                "Feature FEA string",
+                feature_fea_bytes,
+                "exact",
+                true,
+                if feature_fea_bytes == 0 { "empty" } else { "" },
+            ),
+            memory_stat_item(
+                "featureFile",
+                "Parsed FeatureFile AST",
+                if feature_file_present { feature_fea_bytes.saturating_mul(3) } else { 0 },
+                "est.",
+                true,
+                if feature_file_present { "3× FEA string" } else { "empty" },
+            ),
+            memory_stat_item(
+                "previewOverlay",
+                "Live-drag preview overlay",
+                preview_bytes,
+                "exact",
+                true,
+                if preview_bytes == 0 { "empty" } else { "overrides + preview fonts" },
+            ),
+            memory_stat_item(
+                "outlineCache",
+                "Overview outline cache",
+                outline_bytes,
+                "exact",
+                true,
+                if outline_entries == 0 {
+                    "empty"
+                } else {
+                    "owned outline JSON"
+                },
+            ),
+            memory_stat_item(
+                "layerCache",
+                "Interpolated layer cache",
+                layer_bytes,
+                "exact",
+                true,
+                if layer_entries == 0 { "empty" } else { "walked Layer copies" },
+            ),
+            memory_stat_item(
+                "layoutClosure",
+                "Layout closure cache",
+                layout_closure_bytes,
+                "exact",
+                true,
+                if layout_closure_bytes == 0 { "empty" } else { "" },
+            ),
+            memory_stat_item(
+                "debugFontBytes",
+                "Debug compiled-font cache",
+                debug_font_bytes,
+                "exact",
+                true,
+                if debug_font_bytes == 0 { "empty" } else { "" },
+            ),
+            memory_stat_item(
+                "glyphIndexes",
+                "Glyph index maps",
+                glyph_index_bytes,
+                "exact",
+                true,
+                if glyph_index_bytes == 0 { "empty" } else { "" },
+            ),
+        ],
+    });
+
+    serde_json::to_string(&response).map_err(|e| {
+        JsValue::from_str(&format!("Worker memory stats serialization failed: {}", e))
+    })
+}
+
 /// Extract a stable glyph-name list from an array- or map-backed cache payload.
 fn cache_glyph_names(font_json: Option<&serde_json::Value>) -> Vec<String> {
     let Some(glyphs) = font_json.and_then(|json| json.get("glyphs")) else {
@@ -7987,6 +8267,50 @@ mod tests {
             font_cache_epoch_before
         );
         assert_eq!(FILTER_EPOCH.load(Ordering::Relaxed), filter_epoch_before);
+
+        clear_font_cache();
+    }
+
+    #[test]
+    fn get_cache_memory_stats_reports_canonical_and_subset_without_mutation() {
+        clear_font_cache();
+
+        let canonical_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        let native_font: babelfont::Font = serde_json::from_value(canonical_json.clone()).unwrap();
+        set_canonical_json_cache(canonical_json.clone());
+        *FONT_CACHE.lock().unwrap() = Some(native_font);
+        *SUBSET_JSON_CACHE.lock().unwrap() =
+            Some(("A".to_string(), 7, canonical_json.clone()));
+        *FEATURE_FEA_STRING_CACHE.lock().unwrap() =
+            Some(("feature kern { } kern;".to_string(), vec!["A".to_string()]));
+
+        let document_epoch_before = Y_DOC_EPOCH.load(Ordering::Relaxed);
+        let font_cache_epoch_before = FONT_CACHE_EPOCH.load(Ordering::Relaxed);
+
+        let stats_json = get_cache_memory_stats().unwrap();
+        let stats: serde_json::Value = serde_json::from_str(&stats_json).unwrap();
+        let items = stats["items"].as_array().expect("items");
+        let canonical = items
+            .iter()
+            .find(|item| item["id"] == "canonicalJson")
+            .expect("canonicalJson");
+        let subset = items
+            .iter()
+            .find(|item| item["id"] == "subsetJson")
+            .expect("subsetJson");
+        let native = items
+            .iter()
+            .find(|item| item["id"] == "nativeFont")
+            .expect("nativeFont");
+
+        assert!(canonical["bytes"].as_u64().unwrap() > 0);
+        assert!(subset["bytes"].as_u64().unwrap() > 0);
+        assert!(native["bytes"].as_u64().unwrap() > 0);
+        assert_eq!(Y_DOC_EPOCH.load(Ordering::Relaxed), document_epoch_before);
+        assert_eq!(
+            FONT_CACHE_EPOCH.load(Ordering::Relaxed),
+            font_cache_epoch_before
+        );
 
         clear_font_cache();
     }

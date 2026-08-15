@@ -245,6 +245,17 @@ initBabelfontWasm.interpolate_glyph = jest.fn((glyphName, locationJson) => {
     }
 });
 initBabelfontWasm.version = jest.fn(() => '0.1.0');
+initBabelfontWasm.dump_worker_cache_state_json = jest.fn(() =>
+    JSON.stringify({
+        canonical: { present: false, glyphNames: [] }
+    })
+);
+initBabelfontWasm.get_cache_memory_stats = jest.fn(() =>
+    JSON.stringify({
+        linearMemoryBytes: 0,
+        items: []
+    })
+);
 
 // Real implementation using wasm module to convert .glyphs files
 initBabelfontWasm.open_font_file = jest.fn((filename, contents) => {

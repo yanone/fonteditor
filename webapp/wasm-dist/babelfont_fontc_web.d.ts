@@ -145,6 +145,12 @@ export function dump_layer_state_json(layer_targets_json: string): string;
 export function dump_worker_cache_state_json(): string;
 
 /**
+ * Read-only retained-size walks for Rust worker caches.
+ * Does not serialize full font JSON, encode the Y.Doc, or mutate cache state.
+ */
+export function get_cache_memory_stats(): string;
+
+/**
  * Retrieve compiled font bytes from the dedicated debug bytes cache.
  */
 export function get_debug_cached_font_bytes(font_hash: string): Uint8Array;
@@ -519,6 +525,7 @@ export interface InitOutput {
         number,
         number
     ];
+    readonly get_cache_memory_stats: () => [number, number, number, number];
     readonly get_debug_cached_font_bytes: (
         a: number,
         b: number

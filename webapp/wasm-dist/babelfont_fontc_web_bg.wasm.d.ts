@@ -47,6 +47,7 @@ export const dump_worker_cache_state_json: () => [
     number,
     number
 ];
+export const get_cache_memory_stats: () => [number, number, number, number];
 export const get_debug_cached_font_bytes: (
     a: number,
     b: number

@@ -2196,7 +2196,7 @@
                         id="memory-info-popup"
                         style="display: none"
                     >
-                        <div class="info-popup">
+                        <div class="info-popup memory-usage-popup">
                             <div class="info-popup-header">
                                 <h3>Memory Usage</h3>
                                 <button
@@ -2211,14 +2211,16 @@
                             <div class="info-popup-content">
                                 <p>
                                     This shows how much browser memory the font
-                                    editor is using.
+                                    editor is using. The cache table updates
+                                    every second while this panel is open.
                                 </p>
 
                                 <h4>Understanding Memory Usage</h4>
                                 <ul>
                                     <li>
                                         <strong>Used Memory:</strong> Current
-                                        memory allocated by the app
+                                        main-thread JS heap. Worker JS and
+                                        Rust/WASM are separate heaps.
                                     </li>
                                     <li>
                                         <strong>Memory Limit:</strong> Maximum
@@ -2272,6 +2274,18 @@
                                         Critical, close all tabs and restart
                                     </li>
                                 </ul>
+
+                                <h4>Cache breakdown</h4>
+                                <p
+                                    class="memory-breakdown-status"
+                                    id="memory-breakdown-status"
+                                >
+                                    Updates every second
+                                </p>
+                                <div
+                                    id="memory-breakdown-tables"
+                                    class="memory-breakdown-tables"
+                                ></div>
                             </div>
                         </div>
                     </div>

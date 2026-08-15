@@ -55,6 +55,7 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     LayerDataNormalizer: false,
     Locations: false,
     MeasurementTool: false,
+    MemoryMonitor: false,
     OpentypeFeatures: false,
     OutlineEditor: false,
     EditorEditTools: false,

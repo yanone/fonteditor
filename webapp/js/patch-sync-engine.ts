@@ -849,6 +849,47 @@ export class PatchSyncEngine {
         return this._fontJson;
     }
 
+    /**
+     * Read-only sizes for the Preferences memory breakdown.
+     * Does not encode the Y.Doc (that would allocate and move Used).
+     */
+    getMemoryInspectionSnapshot(): {
+        fontJson: Record<string, Unsafe> | null;
+        yDocStore: unknown;
+        undoStacks: unknown[];
+        undoStackItems: number;
+        changeLog: ChangeLogEntry[];
+        collaborationLog: CollaborationLogItem[];
+    } {
+        const undoManagers: Array<{
+            undoStack?: unknown[];
+            redoStack?: unknown[];
+        }> = [
+            this._fontUndoManager,
+            ...this._undoManagers.values(),
+            ...Array.from(this._layerUndoManagers.values()).map(
+                (entry) => entry.manager
+            )
+        ].filter((manager): manager is Y.UndoManager => manager != null);
+
+        const undoStacks: unknown[] = [];
+        let undoStackItems = 0;
+        for (const manager of undoManagers) {
+            undoStacks.push(manager.undoStack, manager.redoStack);
+            undoStackItems += manager.undoStack?.length ?? 0;
+            undoStackItems += manager.redoStack?.length ?? 0;
+        }
+
+        return {
+            fontJson: this._fontJson,
+            yDocStore: this.yDoc.store,
+            undoStacks,
+            undoStackItems,
+            changeLog: this._changeLog,
+            collaborationLog: this._collaborationLog
+        };
+    }
+
     // ── Lifecycle ────────────────────────────────────────────────
 
     /**

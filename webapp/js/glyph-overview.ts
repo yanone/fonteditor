@@ -42,6 +42,28 @@ const console = new Logger('GlyphOverview');
 // and would create a separate worker instance with its own cache
 declare const window: Window & { fontCompilation?: any };
 
+/**
+ * Backing-store bytes for an overview tile canvas.
+ * Unused tiles keep the HTML default 300×150 without a style size and
+ * have never been painted; those do not get a real bitmap until render.
+ */
+export function overviewTileCanvasBackingBytes(
+    canvas: HTMLCanvasElement
+): number {
+    if (canvas.width <= 0 || canvas.height <= 0) {
+        return 0;
+    }
+    const unusedHtmlDefault =
+        canvas.width === 300 &&
+        canvas.height === 150 &&
+        canvas.style.width === '' &&
+        canvas.style.height === '';
+    if (unusedHtmlDefault) {
+        return 0;
+    }
+    return canvas.width * canvas.height * 4;
+}
+
 interface GlyphTile {
     element: HTMLDivElement;
     glyphId: string;
@@ -2859,9 +2881,13 @@ class GlyphOverview {
             tileElement.style.boxShadow = 'inset 0 0 0 2px var(--accent-blue)';
         }
 
-        // Pre-create canvas to avoid DOM insertion during render
+        // Pre-create canvas to avoid DOM insertion during render.
+        // HTML defaults to 300×150; keep unused tiles at 0×0 so they
+        // do not allocate a backing store or inflate memory accounting.
         const canvas = document.createElement('canvas');
         canvas.className = 'glyph-tile-canvas';
+        canvas.width = 0;
+        canvas.height = 0;
         tileElement.appendChild(canvas);
 
         // Create label for glyph name (display name, not ID)
@@ -3106,6 +3132,31 @@ class GlyphOverview {
         return Array.from(this.tiles.values())
             .filter((tile) => tile.selected)
             .map((tile) => tile.glyphName);
+    }
+
+    getMemoryInspectionSnapshot(): {
+        tileCount: number;
+        paintedCount: number;
+        canvasBytes: number;
+    } {
+        let canvasBytes = 0;
+        let paintedCount = 0;
+        for (const tile of this.tiles.values()) {
+            const canvas = tile.canvas;
+            if (!canvas) {
+                continue;
+            }
+            const bytes = overviewTileCanvasBackingBytes(canvas);
+            if (bytes > 0) {
+                paintedCount += 1;
+                canvasBytes += bytes;
+            }
+        }
+        return {
+            tileCount: this.tiles.size,
+            paintedCount,
+            canvasBytes
+        };
     }
 
     public selectGlyphsByNames(

@@ -5135,6 +5135,45 @@ class FontManager {
     }
 
     /**
+     * Read-only sizes for the Preferences memory breakdown. Does not
+     * serialize the font or walk model wrappers.
+     */
+    getMemoryInspectionSnapshot(): {
+        fonts: Array<{
+            id: string;
+            name: string;
+            babelfontJson: string;
+            babelfontData: unknown;
+        }>;
+        validatedCacheInput: string | null;
+        validatedCacheOutput: string | null;
+        editingFontBytes: number;
+        closureCache: FontManager['closureCache'];
+        glyphOrderCache: string[] | null;
+        fingerprintCache: Map<string, string>;
+    } {
+        const fonts = Array.from(this.openedFonts.entries()).map(
+            ([id, font]) => ({
+                id,
+                name: font.name,
+                babelfontJson: font.babelfontJson,
+                babelfontData: font.babelfontData
+            })
+        );
+        return {
+            fonts,
+            validatedCacheInput:
+                this._validatedBabelfontJsonCache?.input ?? null,
+            validatedCacheOutput:
+                this._validatedBabelfontJsonCache?.output ?? null,
+            editingFontBytes: this.editingFont?.byteLength ?? 0,
+            closureCache: this.closureCache,
+            glyphOrderCache: this.glyphOrderCache,
+            fingerprintCache: this.workerLayerFingerprintCache
+        };
+    }
+
+    /**
      * Reset the running boundary-crossing counters. Tests and the AI
      * profiling harness call this between edits to measure per-edit
      * costs in isolation.

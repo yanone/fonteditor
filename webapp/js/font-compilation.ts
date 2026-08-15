@@ -298,6 +298,12 @@ function hasHarfBuzzShapingApi(
     );
 }
 
+let lastHarfBuzzRawModule: unknown = null;
+
+export function getHarfBuzzRawModule(): unknown {
+    return lastHarfBuzzRawModule;
+}
+
 async function getHarfBuzzShapingApi(): Promise<HarfBuzzShapingApi> {
     let rawModule: unknown;
     if (typeof window.createHarfBuzz === 'function') {
@@ -312,6 +318,7 @@ async function getHarfBuzzShapingApi(): Promise<HarfBuzzShapingApi> {
             'HarfBuzz not available. Make sure harfbuzzjs is loaded.'
         );
     }
+    lastHarfBuzzRawModule = rawModule;
 
     let wrappedApi: unknown;
     if (typeof window.hbjs === 'function') {
@@ -1492,6 +1499,42 @@ export class FontCompilation {
             throw new Error('Worker returned no cache diagnostic payload.');
         }
         return result.dumpJson;
+    }
+
+    /**
+     * Read-only worker JS + Rust cache sizes for the Preferences memory panel.
+     */
+    async getWorkerMemoryStats(): Promise<{
+        workerUsedBytes: number | null;
+        cachedBabelfontJsonChars: number;
+        rust: {
+            linearMemoryBytes: number;
+            items: Array<{
+                id: string;
+                label: string;
+                bytes: number;
+                method: 'exact' | 'encoded' | 'est.';
+                inSum: boolean;
+                note?: string;
+            }>;
+        } | null;
+        error?: string;
+    }> {
+        const result = await this.sendMessage({
+            type: 'getMemoryStats'
+        });
+        return {
+            workerUsedBytes:
+                typeof result?.workerUsedBytes === 'number'
+                    ? result.workerUsedBytes
+                    : null,
+            cachedBabelfontJsonChars:
+                typeof result?.cachedBabelfontJsonChars === 'number'
+                    ? result.cachedBabelfontJsonChars
+                    : 0,
+            rust: result?.rust ?? null,
+            error: typeof result?.error === 'string' ? result.error : undefined
+        };
     }
 
     /**

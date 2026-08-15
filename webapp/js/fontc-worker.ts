@@ -16,6 +16,7 @@ import init, {
     clear_preview_layer_overlay,
     dump_layer_state_json,
     dump_worker_cache_state_json,
+    get_cache_memory_stats,
     add_master_with_interpolated_layers_yjs,
     refine_layer_snapshots_yjs,
     remove_masters_yjs,
@@ -2318,6 +2319,52 @@ self.onmessage = async (event) => {
                 });
             } finally {
                 timelineSpanEnd(dumpSpanId);
+            }
+            return;
+        }
+
+        if (data.type === 'getMemoryStats') {
+            const statsSpanId = timelineSpanStart('font.worker.getMemoryStats');
+            const { id } = data;
+            const perfWithMemory = performance as Performance & {
+                memory?: { usedJSHeapSize?: number };
+            };
+            const workerUsedBytes =
+                typeof perfWithMemory.memory?.usedJSHeapSize === 'number'
+                    ? perfWithMemory.memory.usedJSHeapSize
+                    : null;
+
+            try {
+                let rust = null;
+                let rustError: string | undefined;
+                if (initialized) {
+                    try {
+                        rust = JSON.parse(get_cache_memory_stats());
+                    } catch (error) {
+                        rustError = String(error);
+                    }
+                }
+
+                self.postMessage({
+                    id,
+                    type: 'getMemoryStats',
+                    workerUsedBytes,
+                    cachedBabelfontJsonChars: cachedBabelfontJson?.length || 0,
+                    rust,
+                    error: rustError
+                });
+            } catch (e: any) {
+                console.error('[Fontc Worker] getMemoryStats error:', e);
+                self.postMessage({
+                    id,
+                    type: 'getMemoryStats',
+                    workerUsedBytes,
+                    cachedBabelfontJsonChars: cachedBabelfontJson?.length || 0,
+                    rust: null,
+                    error: e.toString()
+                });
+            } finally {
+                timelineSpanEnd(statsSpanId);
             }
             return;
         }
