@@ -1903,7 +1903,22 @@ async function openFustatAutomaticAdieresisEditScenario(
             bridge.endTransaction();
         }
 
-        await win.fontManager?.workerCacheUpdatePromise;
+        // Drain every chained worker Yjs apply from enabling AA + metrics keys.
+        // A single promise read can resolve while a later invalidate is still
+        // queued and would clear SUBSET_JSON_CACHE after this setup returns.
+        const fontManager = win.fontManager;
+        if (typeof fontManager?.awaitWorkerCacheUpdate === 'function') {
+            let awaitedPromise: Promise<void> | null = null;
+            for (;;) {
+                const pendingPromise =
+                    fontManager.workerCacheUpdatePromise ?? null;
+                if (!pendingPromise || pendingPromise === awaitedPromise) {
+                    break;
+                }
+                awaitedPromise = pendingPromise;
+                await fontManager.awaitWorkerCacheUpdate();
+            }
+        }
     });
     await page.waitForFunction(
         () => {
@@ -2018,6 +2033,48 @@ async function openFustatAutomaticAdieresisEditScenario(
             textRunEditor.swapFontBlob(editingFont);
         }
     });
+    // Ensure the editing worker still holds an adieresis subset layer after the
+    // AA/metrics-key packet and setup compile. Without this, beforeState can
+    // observe a transiently cleared SUBSET_JSON_CACHE.
+    await page.waitForFunction(
+        async () => {
+            const win = window as any;
+            const layerId =
+                win.currentFontModel?.findGlyph?.('a')?.layers?.[0]?.id;
+            if (!layerId) {
+                return false;
+            }
+            const workerResponse = await win.fontCompilation?.sendMessage?.({
+                type: 'dumpLayerState',
+                layerTargets: [{ glyphName: 'adieresis', layerId }]
+            });
+            if (workerResponse?.error) {
+                return false;
+            }
+            const workerDump = workerResponse?.dumpJson
+                ? JSON.parse(workerResponse.dumpJson)
+                : null;
+            const workerTarget = Array.isArray(workerDump?.targets)
+                ? workerDump.targets.find(
+                      (target: any) => target?.glyphName === 'adieresis'
+                  )
+                : null;
+            const layer = workerTarget?.subsetLayer;
+            const shape = layer?.shapes?.find(
+                (candidate: any) => candidate?.reference === 'dieresiscomb'
+            );
+            const transform = shape?.transform;
+            if (Array.isArray(transform)) {
+                return Number.isFinite(Number(transform[4]));
+            }
+            if (Array.isArray(transform?.translation)) {
+                return Number.isFinite(Number(transform.translation[0]));
+            }
+            return false;
+        },
+        undefined,
+        { timeout: 60000 }
+    );
 }
 
 test.describe('automatic adieresis anchor browser commit', () => {

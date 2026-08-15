@@ -258,6 +258,12 @@ export function shouldInvalidateLayoutClosureForCommittedEntries(
             !path.includes('.layers.') &&
             !path.includes(':layers.')
         ) {
+            // Glyph-level metrics-key metadata only changes width inheritance
+            // formulas. It does not add/remove glyphs from the closed set, so
+            // clearing SUBSET_JSON_CACHE would race later editing compiles.
+            if (isSidebearingKeyMetadataPath(path)) {
+                continue;
+            }
             return true;
         }
     }

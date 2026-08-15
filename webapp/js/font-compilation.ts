@@ -1884,8 +1884,9 @@ async function requestOpenFontConversion({
 }
 
 // Start worker WASM as soon as this module evaluates so conversion does not
-// wait for the rest of bootstrap and DOMContentLoaded.
-if (typeof document !== 'undefined') {
+// wait for the rest of bootstrap and DOMContentLoaded. Skip in Jest/jsdom
+// (no Worker) so import-time init does not spam "Worker is not defined".
+if (typeof document !== 'undefined' && typeof Worker !== 'undefined') {
     timelineMark('fontCompilation.autoInit');
     void (async () => {
         if ('serviceWorker' in navigator) {

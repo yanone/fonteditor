@@ -4531,6 +4531,18 @@ describe('shouldInvalidateLayoutClosureForCommittedEntries', () => {
         expect(result).toBe(true);
     });
 
+    test('returns false for glyph-level metrics-key metadata paths', () => {
+        const result =
+            changeBridgeInit.shouldInvalidateLayoutClosureForCommittedEntries([
+                { path: 'glyphs.adieresis.format_specific.metric_left' },
+                { path: 'glyphs.adieresis.format_specific.metric_right' },
+                {
+                    path: 'glyphs.n.format_specific.com.schriftgestalt.Glyphs.metricLeft'
+                }
+            ]);
+        expect(result).toBe(false);
+    });
+
     test('returns false for forwarded master reinterpolation glyph snapshots', () => {
         const result =
             changeBridgeInit.shouldInvalidateLayoutClosureForCommittedEntries([
