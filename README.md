@@ -54,7 +54,7 @@ Coverage: 🟢 Should work · 🟡 Partial · 🔴 Missing
 | Python scripting | 🟢 | |
 | AI assistant | 🟢 | |
 | Undo and history | 🟢 | |
-| Multiple windows | 🟢 | Locally only |
+| Multiple windows | 🟢 | Panel arrangement saved and restored only for main window currently |
 | Binary font export | 🟢 | |
 | Documentation | 🟢 | |
 | Language database | 🟢 | Ships with Hyperglot temporarily as a demo, later as user-installable plugins |
