@@ -1,4 +1,5 @@
-import { test, expect, type Page, type TestInfo } from '@playwright/test';
+import { test, expect } from './fixtures';
+import { type Page, type TestInfo } from '@playwright/test';
 import {
     waitForCanvasReady,
     waitForFontLoaded,

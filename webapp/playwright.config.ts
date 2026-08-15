@@ -36,7 +36,11 @@ export default defineConfig({
     retries: process.env.CI ? 2 : 0,
 
     // Reporter to use
-    reporter: [['html', { open: 'never' }], ['list']],
+    reporter: [
+        ['html', { open: 'never' }],
+        ['list'],
+        ['./tests/reporters/step-timing-reporter.ts']
+    ],
 
     expect: {
         toHaveScreenshot: {

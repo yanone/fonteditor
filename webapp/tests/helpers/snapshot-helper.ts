@@ -1,4 +1,5 @@
 import { test } from '@playwright/test';
+import { timedStep } from './timed-step';
 
 /**
  * Test Snapshot Helper
@@ -105,195 +106,214 @@ export async function captureSnapshot(
     page: any,
     label: string
 ): Promise<AppSnapshot> {
-    return await page.evaluate((snapshotLabel: string) => {
-        // Helper to safely access window properties
-        const safeGet = (path: string) => {
-            try {
-                const parts = path.split('.');
-                let obj: any = window;
-                for (const part of parts) {
-                    obj = obj?.[part];
+    return timedStep('helper:captureSnapshot', async () => {
+        return await page.evaluate((snapshotLabel: string) => {
+            // Helper to safely access window properties
+            const safeGet = (path: string) => {
+                try {
+                    const parts = path.split('.');
+                    let obj: any = window;
+                    for (const part of parts) {
+                        obj = obj?.[part];
+                    }
+                    return obj;
+                } catch {
+                    return null;
                 }
-                return obj;
-            } catch {
-                return null;
+            };
+
+            // Prefer centralized state from StateManager
+            const stateSnapshot = safeGet('stateManager.getStateSnapshot')
+                ? safeGet('stateManager').getStateSnapshot()
+                : null;
+            const state = stateSnapshot?.state || {};
+            const textRunEditor = safeGet('glyphCanvas.textRunEditor');
+
+            const snapshot: AppSnapshot = {
+                label: snapshotLabel,
+                state: JSON.parse(JSON.stringify(state || {}))
+            };
+
+            if (textRunEditor) {
+                // Compact per-field strings are populated by state-sync.ts on every
+                // render. Override with a live read to avoid race conditions between
+                // render events and snapshot timing.
+                const nameBuffer = Array.isArray(textRunEditor.glyphNameBuffer)
+                    ? textRunEditor.glyphNameBuffer
+                    : [];
+                snapshot.state.editor_harfbuzz_glyph_names =
+                    nameBuffer.join(' ');
+
+                const glyphBuffer = textRunEditor.shapedGlyphs || [];
+                const gids: string[] = [];
+                const dxs: string[] = [];
+                const dys: string[] = [];
+                const axs: string[] = [];
+                const ays: string[] = [];
+                const cls: string[] = [];
+                for (const g of glyphBuffer) {
+                    gids.push(String(g.g ?? ''));
+                    dxs.push(String(g.dx ?? ''));
+                    dys.push(String(g.dy ?? ''));
+                    axs.push(String(g.ax ?? ''));
+                    ays.push(String(g.ay ?? ''));
+                    cls.push(String(g.cl ?? ''));
+                }
+                snapshot.state.editor_harfbuzz_gids = gids.join(' ');
+                snapshot.state.editor_harfbuzz_dx = dxs.join(' ');
+                snapshot.state.editor_harfbuzz_dy = dys.join(' ');
+                snapshot.state.editor_harfbuzz_ax = axs.join(' ');
+                snapshot.state.editor_harfbuzz_ay = ays.join(' ');
+                snapshot.state.editor_harfbuzz_cl = cls.join(' ');
             }
-        };
 
-        // Prefer centralized state from StateManager
-        const stateSnapshot = safeGet('stateManager.getStateSnapshot')
-            ? safeGet('stateManager').getStateSnapshot()
-            : null;
-        const state = stateSnapshot?.state || {};
-        const textRunEditor = safeGet('glyphCanvas.textRunEditor');
-
-        const snapshot: AppSnapshot = {
-            label: snapshotLabel,
-            state: JSON.parse(JSON.stringify(state || {}))
-        };
-
-        if (textRunEditor) {
-            // Compact per-field strings are populated by state-sync.ts on every
-            // render. Override with a live read to avoid race conditions between
-            // render events and snapshot timing.
-            const nameBuffer = Array.isArray(textRunEditor.glyphNameBuffer)
-                ? textRunEditor.glyphNameBuffer
-                : [];
-            snapshot.state.editor_harfbuzz_glyph_names = nameBuffer.join(' ');
-
-            const glyphBuffer = textRunEditor.shapedGlyphs || [];
-            const gids: string[] = [];
-            const dxs: string[] = [];
-            const dys: string[] = [];
-            const axs: string[] = [];
-            const ays: string[] = [];
-            const cls: string[] = [];
-            for (const g of glyphBuffer) {
-                gids.push(String(g.g ?? ''));
-                dxs.push(String(g.dx ?? ''));
-                dys.push(String(g.dy ?? ''));
-                axs.push(String(g.ax ?? ''));
-                ays.push(String(g.ay ?? ''));
-                cls.push(String(g.cl ?? ''));
-            }
-            snapshot.state.editor_harfbuzz_gids = gids.join(' ');
-            snapshot.state.editor_harfbuzz_dx = dxs.join(' ');
-            snapshot.state.editor_harfbuzz_dy = dys.join(' ');
-            snapshot.state.editor_harfbuzz_ax = axs.join(' ');
-            snapshot.state.editor_harfbuzz_ay = ays.join(' ');
-            snapshot.state.editor_harfbuzz_cl = cls.join(' ');
-        }
-
-        // Ensure everything is JSON-serializable by doing a round-trip
-        return JSON.parse(JSON.stringify(snapshot));
-    }, label);
+            // Ensure everything is JSON-serializable by doing a round-trip
+            return JSON.parse(JSON.stringify(snapshot));
+        }, label);
+    });
 }
 
 /**
  * Wait for app to be fully loaded (loading overlay hidden)
  */
 export async function waitForCanvasReady(page: any) {
-    // Wait for loading overlay to be hidden (app fully initialized)
-    // CI runners can lag on app bootstrap, so keep the startup gates tolerant
-    // and include debug state when a readiness predicate stalls.
-    const waitForStartupState = async (
-        label: string,
-        predicate: () => boolean,
-        timeout: number
-    ) => {
-        try {
-            await page.waitForFunction(predicate, { timeout });
-        } catch (error) {
-            let debugState: unknown = null;
+    return timedStep('helper:waitForCanvasReady', async () => {
+        // Wait for loading overlay to be hidden (app fully initialized)
+        // CI runners can lag on app bootstrap, so keep the startup gates tolerant
+        // and include debug state when a readiness predicate stalls.
+        const waitForStartupState = async (
+            label: string,
+            predicate: () => boolean,
+            timeout: number
+        ) => {
+            return timedStep(`helper:waitForCanvasReady:${label}`, async () => {
+                try {
+                    await page.waitForFunction(predicate, { timeout });
+                } catch (error) {
+                    let debugState: unknown = null;
 
-            try {
-                if (!page.isClosed()) {
-                    debugState = await page.evaluate(() => {
-                        const win = window as any;
-                        const loadingOverlay =
-                            document.getElementById('loading-overlay');
+                    try {
+                        if (!page.isClosed()) {
+                            debugState = await page.evaluate(() => {
+                                const win = window as any;
+                                const loadingOverlay =
+                                    document.getElementById('loading-overlay');
 
-                        return {
-                            loadingOverlayHidden:
-                                !!loadingOverlay?.classList.contains('hidden'),
-                            loadingStatusText:
-                                document.getElementById('loading-status')
-                                    ?.textContent || null,
-                            currentUrl: window.location.href,
-                            pyodidePresent: !!win.pyodide,
-                            loadPyodidePresent:
-                                typeof win.loadPyodide === 'function',
-                            hasGlyphCanvas: !!win.glyphCanvas,
-                            hasCanvasElement: !!win.glyphCanvas?.canvas,
-                            hasRenderer: !!win.glyphCanvas?.renderer,
-                            hasViewSettings: !!win.VIEW_SETTINGS,
-                            hasGetCurrentFocusedView:
-                                typeof win.getCurrentFocusedView === 'function',
-                            hasFocusView: typeof win.focusView === 'function',
-                            hasStateManager: !!win.stateManager,
-                            hasInitFileBrowser:
-                                typeof win.initFileBrowser === 'function',
-                            hasWaitForFileBrowserReady:
-                                typeof win.waitForFileBrowserReady ===
-                                'function'
+                                return {
+                                    loadingOverlayHidden:
+                                        !!loadingOverlay?.classList.contains(
+                                            'hidden'
+                                        ),
+                                    loadingStatusText:
+                                        document.getElementById(
+                                            'loading-status'
+                                        )?.textContent || null,
+                                    currentUrl: window.location.href,
+                                    pyodidePresent: !!win.pyodide,
+                                    loadPyodidePresent:
+                                        typeof win.loadPyodide === 'function',
+                                    hasGlyphCanvas: !!win.glyphCanvas,
+                                    hasCanvasElement: !!win.glyphCanvas?.canvas,
+                                    hasRenderer: !!win.glyphCanvas?.renderer,
+                                    hasViewSettings: !!win.VIEW_SETTINGS,
+                                    hasGetCurrentFocusedView:
+                                        typeof win.getCurrentFocusedView ===
+                                        'function',
+                                    hasFocusView:
+                                        typeof win.focusView === 'function',
+                                    hasStateManager: !!win.stateManager,
+                                    hasInitFileBrowser:
+                                        typeof win.initFileBrowser ===
+                                        'function',
+                                    hasWaitForFileBrowserReady:
+                                        typeof win.waitForFileBrowserReady ===
+                                        'function'
+                                };
+                            });
+                        } else {
+                            debugState = { pageClosed: true };
+                        }
+                    } catch (debugError) {
+                        debugState = {
+                            debugCollectionFailed:
+                                debugError instanceof Error
+                                    ? debugError.message
+                                    : String(debugError)
                         };
-                    });
-                } else {
-                    debugState = { pageClosed: true };
+                    }
+
+                    throw new Error(
+                        `Timed out waiting for canvas startup state: ${label}: ${JSON.stringify(debugState)}`,
+                        { cause: error as Error }
+                    );
                 }
-            } catch (debugError) {
-                debugState = {
-                    debugCollectionFailed:
-                        debugError instanceof Error
-                            ? debugError.message
-                            : String(debugError)
-                };
-            }
+            });
+        };
 
-            throw new Error(
-                `Timed out waiting for canvas startup state: ${label}: ${JSON.stringify(debugState)}`,
-                { cause: error as Error }
-            );
-        }
-    };
+        await waitForStartupState(
+            'loading overlay hidden',
+            () => {
+                const loadingOverlay =
+                    document.getElementById('loading-overlay');
+                return !!(
+                    loadingOverlay &&
+                    loadingOverlay.classList.contains('hidden')
+                );
+            },
+            20000
+        );
 
-    await waitForStartupState(
-        'loading overlay hidden',
-        () => {
-            const loadingOverlay = document.getElementById('loading-overlay');
-            return !!(
-                loadingOverlay && loadingOverlay.classList.contains('hidden')
-            );
-        },
-        20000
-    );
+        await waitForStartupState(
+            'glyph canvas ready',
+            () => {
+                const win = window as any;
+                return (
+                    !!win.glyphCanvas?.canvas &&
+                    !!win.glyphCanvas?.renderer &&
+                    !!win.stateManager
+                );
+            },
+            15000
+        );
 
-    await waitForStartupState(
-        'glyph canvas ready',
-        () => {
-            const win = window as any;
-            return (
-                !!win.glyphCanvas?.canvas &&
-                !!win.glyphCanvas?.renderer &&
-                !!win.stateManager
-            );
-        },
-        15000
-    );
+        await waitForStartupState(
+            'view helpers ready',
+            () => {
+                const win = window as any;
+                return (
+                    !!win.VIEW_SETTINGS &&
+                    typeof win.getCurrentFocusedView === 'function' &&
+                    typeof win.focusView === 'function'
+                );
+            },
+            15000
+        );
 
-    await waitForStartupState(
-        'view helpers ready',
-        () => {
-            const win = window as any;
-            return (
-                !!win.VIEW_SETTINGS &&
-                typeof win.getCurrentFocusedView === 'function' &&
-                typeof win.focusView === 'function'
-            );
-        },
-        15000
-    );
-
-    await page.evaluate(async () => {
-        const win = window as any;
-        if (typeof win.initFileBrowser === 'function') {
-            await win.initFileBrowser();
-        }
-        if (typeof win.waitForFileBrowserReady === 'function') {
-            await win.waitForFileBrowserReady(10000);
-        }
+        await timedStep('helper:waitForCanvasReady:file browser', async () => {
+            await page.evaluate(async () => {
+                const win = window as any;
+                if (typeof win.initFileBrowser === 'function') {
+                    await win.initFileBrowser();
+                }
+                if (typeof win.waitForFileBrowserReady === 'function') {
+                    await win.waitForFileBrowserReady(10000);
+                }
+            });
+        });
     });
 }
 
 export async function waitForFileBrowserReady(page: any) {
-    await page.evaluate(async () => {
-        const win = window as any;
-        if (typeof win.initFileBrowser === 'function') {
-            await win.initFileBrowser();
-        }
-        if (typeof win.waitForFileBrowserReady === 'function') {
-            await win.waitForFileBrowserReady(10000);
-        }
+    return timedStep('helper:waitForFileBrowserReady', async () => {
+        await page.evaluate(async () => {
+            const win = window as any;
+            if (typeof win.initFileBrowser === 'function') {
+                await win.initFileBrowser();
+            }
+            if (typeof win.waitForFileBrowserReady === 'function') {
+                await win.waitForFileBrowserReady(10000);
+            }
+        });
     });
 }
 
@@ -303,50 +323,55 @@ export async function waitForFileBrowserReady(page: any) {
  * shaping/editingFont may not be ready yet and the cursor helper silently no-ops.
  */
 export async function enterEditModeOnFirstShapedGlyph(page: any) {
-    await page.waitForFunction(
-        () => Number((window as any).fontManager?.editingFont?.length || 0) > 0,
-        { timeout: 60000 }
-    );
+    return timedStep('helper:enterEditModeOnFirstShapedGlyph', async () => {
+        await page.waitForFunction(
+            () =>
+                Number((window as any).fontManager?.editingFont?.length || 0) >
+                0,
+            { timeout: 60000 }
+        );
 
-    await page.evaluate(() => {
-        const textRunEditor = (window as any).glyphCanvas?.textRunEditor;
-        if (!textRunEditor) {
-            return;
-        }
-        if (!textRunEditor.textBuffer) {
-            textRunEditor.setTextBuffer('Hamburgevons');
-        }
-        textRunEditor.shapeText?.(true);
-    });
-
-    await page.waitForFunction(
-        () => {
+        await page.evaluate(() => {
             const textRunEditor = (window as any).glyphCanvas?.textRunEditor;
-            return (
-                Array.isArray(textRunEditor?.shapedGlyphs) &&
-                textRunEditor.shapedGlyphs.length > 0
-            );
-        },
-        { timeout: 30000 }
-    );
+            if (!textRunEditor) {
+                return;
+            }
+            if (!textRunEditor.textBuffer) {
+                textRunEditor.setTextBuffer('Hamburgevons');
+            }
+            textRunEditor.shapeText?.(true);
+        });
 
-    await page.evaluate(async () => {
-        await (window as any).glyphCanvas.textRunEditor.selectGlyphByIndex(
-            0,
-            true
+        await page.waitForFunction(
+            () => {
+                const textRunEditor = (window as any).glyphCanvas
+                    ?.textRunEditor;
+                return (
+                    Array.isArray(textRunEditor?.shapedGlyphs) &&
+                    textRunEditor.shapedGlyphs.length > 0
+                );
+            },
+            { timeout: 30000 }
+        );
+
+        await page.evaluate(async () => {
+            await (window as any).glyphCanvas.textRunEditor.selectGlyphByIndex(
+                0,
+                true
+            );
+        });
+
+        await page.waitForFunction(
+            () => {
+                const glyphCanvas = (window as any).glyphCanvas;
+                return (
+                    !!glyphCanvas?.outlineEditor?.active &&
+                    (glyphCanvas?.textRunEditor?.selectedGlyphIndex ?? -1) >= 0
+                );
+            },
+            { timeout: 15000 }
         );
     });
-
-    await page.waitForFunction(
-        () => {
-            const glyphCanvas = (window as any).glyphCanvas;
-            return (
-                !!glyphCanvas?.outlineEditor?.active &&
-                (glyphCanvas?.textRunEditor?.selectedGlyphIndex ?? -1) >= 0
-            );
-        },
-        { timeout: 15000 }
-    );
 }
 
 /**
@@ -360,412 +385,447 @@ export async function waitForStableEditorMetrics(
     page: any,
     options?: { idleMs?: number; timeout?: number }
 ) {
-    const idleMs = options?.idleMs ?? 300;
-    const timeout = options?.timeout ?? 20000;
+    return timedStep('helper:waitForStableEditorMetrics', async () => {
+        const idleMs = options?.idleMs ?? 300;
+        const timeout = options?.timeout ?? 20000;
 
-    await page.waitForFunction(
-        (stableIdleMs) => {
-            const win = window as any;
-            const state = win.stateManager?.getStateSnapshot?.()?.state || {};
-            const featuresInSubset = Object.keys(
-                state.editor_opentype_features_in_subset || {}
-            )
-                .sort()
-                .join(',');
-            const featuresNotInSubset = Object.keys(
-                state.editor_opentype_features_not_in_subset || {}
-            )
-                .sort()
-                .join(',');
-            const signature = [
-                state.editor_harfbuzz_ax || '',
-                state.editor_harfbuzz_dx || '',
-                state.editor_harfbuzz_dy || '',
-                state.editor_harfbuzz_gids || '',
-                state.editor_mode || '',
-                state.editor_glyph_stack || '',
-                featuresInSubset,
-                featuresNotInSubset,
-                String(!!state.editor_isAnimating),
-                String(!!state.editor_isInterpolating)
-            ].join('|');
+        await page.waitForFunction(
+            (stableIdleMs) => {
+                const win = window as any;
+                const state =
+                    win.stateManager?.getStateSnapshot?.()?.state || {};
+                const featuresInSubset = Object.keys(
+                    state.editor_opentype_features_in_subset || {}
+                )
+                    .sort()
+                    .join(',');
+                const featuresNotInSubset = Object.keys(
+                    state.editor_opentype_features_not_in_subset || {}
+                )
+                    .sort()
+                    .join(',');
+                const signature = [
+                    state.editor_harfbuzz_ax || '',
+                    state.editor_harfbuzz_dx || '',
+                    state.editor_harfbuzz_dy || '',
+                    state.editor_harfbuzz_gids || '',
+                    state.editor_mode || '',
+                    state.editor_glyph_stack || '',
+                    featuresInSubset,
+                    featuresNotInSubset,
+                    String(!!state.editor_isAnimating),
+                    String(!!state.editor_isInterpolating)
+                ].join('|');
 
-            const previous = win.__pwStableEditorMetrics as
-                { signature: string; since: number } | undefined;
+                const previous = win.__pwStableEditorMetrics as
+                    { signature: string; since: number } | undefined;
 
-            if (
-                state.editor_isAnimating ||
-                state.editor_isInterpolating ||
-                !previous ||
-                previous.signature !== signature
-            ) {
-                win.__pwStableEditorMetrics = {
-                    signature,
-                    since: Date.now()
-                };
-                return false;
-            }
+                if (
+                    state.editor_isAnimating ||
+                    state.editor_isInterpolating ||
+                    !previous ||
+                    previous.signature !== signature
+                ) {
+                    win.__pwStableEditorMetrics = {
+                        signature,
+                        since: Date.now()
+                    };
+                    return false;
+                }
 
-            return Date.now() - previous.since >= stableIdleMs;
-        },
-        idleMs,
-        { timeout, polling: 100 }
-    );
+                return Date.now() - previous.since >= stableIdleMs;
+            },
+            idleMs,
+            { timeout, polling: 100 }
+        );
+    });
 }
 
 export async function focusView(page: any, shortcut: string, viewId: string) {
-    const waitForFocusedView = async (timeout: number) => {
-        await page.waitForFunction(
-            (expectedViewId: string) => {
-                const win = window as any;
-                const focusedViewId = win.getCurrentFocusedView?.();
-                if (focusedViewId === expectedViewId) {
-                    return true;
-                }
+    return timedStep('helper:focusView', async () => {
+        const waitForFocusedView = async (timeout: number) => {
+            await page.waitForFunction(
+                (expectedViewId: string) => {
+                    const win = window as any;
+                    const focusedViewId = win.getCurrentFocusedView?.();
+                    if (focusedViewId === expectedViewId) {
+                        return true;
+                    }
 
-                const view = document.getElementById(expectedViewId);
-                return !!view?.classList.contains('focused');
-            },
-            viewId,
-            { timeout }
-        );
-    };
-
-    await page.waitForFunction(
-        () => {
-            const win = window as any;
-            return (
-                typeof win.getCurrentFocusedView === 'function' &&
-                typeof win.focusView === 'function'
+                    const view = document.getElementById(expectedViewId);
+                    return !!view?.classList.contains('focused');
+                },
+                viewId,
+                { timeout }
             );
-        },
-        { timeout: 15000 }
-    );
+        };
 
-    await page.keyboard.press(shortcut);
+        await page.waitForFunction(
+            () => {
+                const win = window as any;
+                return (
+                    typeof win.getCurrentFocusedView === 'function' &&
+                    typeof win.focusView === 'function'
+                );
+            },
+            { timeout: 15000 }
+        );
 
-    try {
-        await waitForFocusedView(10000);
-        return;
-    } catch {
-        await page.evaluate((targetViewId: string) => {
-            const win = window as any;
-            win.focusView?.(targetViewId, true);
-        }, viewId);
-    }
+        await page.keyboard.press(shortcut);
 
-    await waitForFocusedView(15000);
+        try {
+            await waitForFocusedView(10000);
+            return;
+        } catch {
+            await page.evaluate((targetViewId: string) => {
+                const win = window as any;
+                win.focusView?.(targetViewId, true);
+            }, viewId);
+        }
+
+        await waitForFocusedView(15000);
+    });
 }
 
 export async function collapseView(page: any, viewId: string) {
-    await page.evaluate((targetViewId: string) => {
-        const win = window as any;
-        win.collapseActiveView?.(targetViewId);
-    }, viewId);
+    return timedStep('helper:collapseView', async () => {
+        await page.evaluate((targetViewId: string) => {
+            const win = window as any;
+            win.collapseActiveView?.(targetViewId);
+        }, viewId);
 
-    await page.waitForFunction(
-        (targetViewId: string) => {
-            const view = document.getElementById(targetViewId);
-            if (!view) {
-                return true;
-            }
+        await page.waitForFunction(
+            (targetViewId: string) => {
+                const view = document.getElementById(targetViewId);
+                if (!view) {
+                    return true;
+                }
 
-            const isTopRow = view.closest('.top-row') !== null;
-            const isBottomRow = view.closest('.bottom-row') !== null;
+                const isTopRow = view.closest('.top-row') !== null;
+                const isBottomRow = view.closest('.bottom-row') !== null;
 
-            if (isTopRow) {
-                return view.getBoundingClientRect().width <= 30;
-            }
+                if (isTopRow) {
+                    return view.getBoundingClientRect().width <= 30;
+                }
 
-            if (isBottomRow) {
-                return view.getBoundingClientRect().height <= 30;
-            }
+                if (isBottomRow) {
+                    return view.getBoundingClientRect().height <= 30;
+                }
 
-            return !view.classList.contains('focused');
-        },
-        viewId,
-        { timeout: 5000 }
-    );
+                return !view.classList.contains('focused');
+            },
+            viewId,
+            { timeout: 5000 }
+        );
+    });
 }
 
 export async function openFileFromFilesView(page: any, fileName: string) {
-    await page.evaluate(async () => {
-        await (window as any).showFontFileDialog?.({ mode: 'open' });
-    });
-    await page.locator('#font-file-dialog').waitFor({ state: 'visible' });
-    await waitForFileBrowserReady(page);
-
-    // Wait for the DOM-driven file tree rebuild to settle. The app uses
-    // requestAnimationFrame to swap fileTree.innerHTML, so locators can
-    // resolve to elements that get detached between check and interaction.
-    const waitForFileTreeStable = async () => {
-        await page.waitForFunction(() => {
-            const fileTree = document.getElementById('file-tree');
-            return (
-                !!fileTree && fileTree.querySelectorAll('.file-item').length > 0
-            );
+    return timedStep('helper:openFileFromFilesView', async () => {
+        await page.evaluate(async () => {
+            await (window as any).showFontFileDialog?.({ mode: 'open' });
         });
-        await page.evaluate(
-            () =>
-                new Promise<void>((resolve) =>
-                    requestAnimationFrame(() =>
-                        requestAnimationFrame(() => resolve())
-                    )
-                )
-        );
-    };
-
-    await waitForFileTreeStable();
-
-    const fileItemSelector = `.file-item[data-name="${fileName}"]`;
-    const locateTargetFile = async () => {
-        await page.evaluate(async (targetFileName: string) => {
-            const win = window as any;
-            if (typeof win.locatePathInFileDialog !== 'function') {
-                return;
-            }
-
-            const fullPath = targetFileName.startsWith('/')
-                ? targetFileName
-                : `/user/${targetFileName}`;
-            const pathSegments = fullPath.split('/').filter(Boolean);
-            const pluginId = pathSegments[0] || 'user';
-
-            await win.locatePathInFileDialog(pluginId, fullPath);
-        }, fileName);
-
         await page.locator('#font-file-dialog').waitFor({ state: 'visible' });
         await waitForFileBrowserReady(page);
-        await waitForFileTreeStable();
-    };
 
-    const waitForTargetFile = async () => {
-        await page.waitForFunction(
-            (selector: string) => {
+        // Wait for the DOM-driven file tree rebuild to settle. The app uses
+        // requestAnimationFrame to swap fileTree.innerHTML, so locators can
+        // resolve to elements that get detached between check and interaction.
+        const waitForFileTreeStable = async () => {
+            await page.waitForFunction(() => {
+                const fileTree = document.getElementById('file-tree');
+                return (
+                    !!fileTree &&
+                    fileTree.querySelectorAll('.file-item').length > 0
+                );
+            });
+            await page.evaluate(
+                () =>
+                    new Promise<void>((resolve) =>
+                        requestAnimationFrame(() =>
+                            requestAnimationFrame(() => resolve())
+                        )
+                    )
+            );
+        };
+
+        await waitForFileTreeStable();
+
+        const fileItemSelector = `.file-item[data-name="${fileName}"]`;
+        const locateTargetFile = async () => {
+            await page.evaluate(async (targetFileName: string) => {
+                const win = window as any;
+                if (typeof win.locatePathInFileDialog !== 'function') {
+                    return;
+                }
+
+                const fullPath = targetFileName.startsWith('/')
+                    ? targetFileName
+                    : `/user/${targetFileName}`;
+                const pathSegments = fullPath.split('/').filter(Boolean);
+                const pluginId = pathSegments[0] || 'user';
+
+                await win.locatePathInFileDialog(pluginId, fullPath);
+            }, fileName);
+
+            await page
+                .locator('#font-file-dialog')
+                .waitFor({ state: 'visible' });
+            await waitForFileBrowserReady(page);
+            await waitForFileTreeStable();
+        };
+
+        const waitForTargetFile = async () => {
+            await page.waitForFunction(
+                (selector: string) => {
+                    const item = document.querySelector(
+                        selector
+                    ) as HTMLElement | null;
+                    return !!item && item.offsetParent !== null;
+                },
+                fileItemSelector,
+                { timeout: 30000 }
+            );
+        };
+
+        const waitForOpenedFile = async () => {
+            await page.waitForFunction(
+                (targetFileName: string) => {
+                    const editorFile =
+                        (window as any).stateManager?.getStateSnapshot?.()
+                            ?.state?.editor_file || '';
+                    const queryFile =
+                        new URLSearchParams(window.location.search).get(
+                            'file'
+                        ) || '';
+
+                    return (
+                        editorFile.includes(targetFileName) ||
+                        decodeURIComponent(queryFile).includes(targetFileName)
+                    );
+                },
+                fileName,
+                { timeout: 20000 }
+            );
+        };
+
+        // Open the file by dispatching a synthetic dblclick inside a single
+        // evaluate call. This eliminates the race where the file-tree DOM is
+        // rebuilt between the visibility check and the interaction.
+        const openVisibleFileItem = async () => {
+            await page.evaluate((selector: string) => {
                 const item = document.querySelector(
                     selector
                 ) as HTMLElement | null;
-                return !!item && item.offsetParent !== null;
-            },
-            fileItemSelector,
-            { timeout: 30000 }
-        );
-    };
-
-    const waitForOpenedFile = async () => {
-        await page.waitForFunction(
-            (targetFileName: string) => {
-                const editorFile =
-                    (window as any).stateManager?.getStateSnapshot?.()?.state
-                        ?.editor_file || '';
-                const queryFile =
-                    new URLSearchParams(window.location.search).get('file') ||
-                    '';
-
-                return (
-                    editorFile.includes(targetFileName) ||
-                    decodeURIComponent(queryFile).includes(targetFileName)
-                );
-            },
-            fileName,
-            { timeout: 20000 }
-        );
-    };
-
-    // Open the file by dispatching a synthetic dblclick inside a single
-    // evaluate call. This eliminates the race where the file-tree DOM is
-    // rebuilt between the visibility check and the interaction.
-    const openVisibleFileItem = async () => {
-        await page.evaluate((selector: string) => {
-            const item = document.querySelector(selector) as HTMLElement | null;
-            if (!item || !item.isConnected || item.offsetParent === null) {
-                throw new Error(`File item not ready: ${selector}`);
-            }
-
-            item.scrollIntoView({ block: 'center', behavior: 'auto' });
-            item.dispatchEvent(
-                new MouseEvent('dblclick', {
-                    bubbles: true,
-                    cancelable: true,
-                    view: window,
-                    detail: 2
-                })
-            );
-        }, fileItemSelector);
-    };
-
-    try {
-        await waitForTargetFile();
-    } catch {
-        await locateTargetFile();
-        await page.evaluate(async () => {
-            const win = window as any;
-            if (typeof win.refreshFileSystem === 'function') {
-                await win.refreshFileSystem();
-            }
-        });
-        await waitForFileBrowserReady(page);
-        await waitForFileTreeStable();
-        await waitForTargetFile();
-    }
-
-    const openWithRetry = async () => {
-        for (let attempt = 0; attempt < 3; attempt++) {
-            try {
-                await waitForTargetFile();
-                await Promise.all([waitForOpenedFile(), openVisibleFileItem()]);
-                return;
-            } catch (error) {
-                if (attempt === 2) {
-                    throw error;
+                if (!item || !item.isConnected || item.offsetParent === null) {
+                    throw new Error(`File item not ready: ${selector}`);
                 }
-                await locateTargetFile();
-                await waitForFileBrowserReady(page);
-                await waitForFileTreeStable();
-            }
-        }
-    };
 
-    await openWithRetry();
+                item.scrollIntoView({ block: 'center', behavior: 'auto' });
+                item.dispatchEvent(
+                    new MouseEvent('dblclick', {
+                        bubbles: true,
+                        cancelable: true,
+                        view: window,
+                        detail: 2
+                    })
+                );
+            }, fileItemSelector);
+        };
+
+        try {
+            await waitForTargetFile();
+        } catch {
+            await locateTargetFile();
+            await page.evaluate(async () => {
+                const win = window as any;
+                if (typeof win.refreshFileSystem === 'function') {
+                    await win.refreshFileSystem();
+                }
+            });
+            await waitForFileBrowserReady(page);
+            await waitForFileTreeStable();
+            await waitForTargetFile();
+        }
+
+        const openWithRetry = async () => {
+            for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                    await waitForTargetFile();
+                    await Promise.all([
+                        waitForOpenedFile(),
+                        openVisibleFileItem()
+                    ]);
+                    return;
+                } catch (error) {
+                    if (attempt === 2) {
+                        throw error;
+                    }
+                    await locateTargetFile();
+                    await waitForFileBrowserReady(page);
+                    await waitForFileTreeStable();
+                }
+            }
+        };
+
+        await openWithRetry();
+    });
 }
 
 /**
  * Wait for font to be loaded
  */
 export async function waitForFontLoaded(page: any) {
-    console.log('[Test] Waiting for fontReady event');
-    // Startup sequencing can dispatch fontReady before this helper attaches
-    // its listener. Wait for the underlying loaded-font state instead of
-    // relying on a single event edge.
-    await page.waitForFunction(
-        () => {
-            const currentFont = window.fontManager?.currentFont;
-            return (
-                !!currentFont &&
-                !!(window.currentFontModel || currentFont.fontModel)
+    return timedStep('helper:waitForFontLoaded', async () => {
+        console.log('[Test] Waiting for fontReady event');
+        // Startup sequencing can dispatch fontReady before this helper attaches
+        // its listener. Wait for the underlying loaded-font state instead of
+        // relying on a single event edge.
+        await timedStep('helper:waitForFontLoaded:model', async () => {
+            await page.waitForFunction(
+                () => {
+                    const currentFont = window.fontManager?.currentFont;
+                    return (
+                        !!currentFont &&
+                        !!(window.currentFontModel || currentFont.fontModel)
+                    );
+                },
+                { timeout: 30000 }
             );
-        },
-        { timeout: 30000 }
-    );
 
-    console.log('[Test] Waiting for font model to be ready');
-    await page.waitForFunction(
-        () => {
-            const currentFont = window.fontManager?.currentFont;
-            return (
-                !!currentFont &&
-                !!(window.currentFontModel || currentFont.fontModel)
+            console.log('[Test] Waiting for font model to be ready');
+            await page.waitForFunction(
+                () => {
+                    const currentFont = window.fontManager?.currentFont;
+                    return (
+                        !!currentFont &&
+                        !!(window.currentFontModel || currentFont.fontModel)
+                    );
+                },
+                { timeout: 15000 }
             );
-        },
-        { timeout: 15000 }
-    );
-
-    console.log(
-        '[Test] Wait for features and axes to be populated with actual data'
-    );
-    // Wait for features/axes signals.
-    // During open-session, URL query params can update before stateManager keys
-    // are fully propagated; use manager + URL signals with a bounded fallback.
-    try {
-        const waitStart = Date.now();
-        await page.waitForFunction(
-            (startedAt) => {
-                const featuresManager = window.glyphCanvas?.featuresManager;
-                const axesManager = window.glyphCanvas?.axesManager;
-                const state =
-                    window.stateManager?.getStateSnapshot?.()?.state || {};
-
-                const modelReady =
-                    !!window.currentFontModel &&
-                    !!window.fontManager?.currentFont;
-                const editorFile = state.editor_file || '';
-
-                if (!featuresManager || !axesManager) {
-                    // Bounded fallback: once core model is ready for long enough,
-                    // allow progress instead of deadlocking on manager lag.
-                    return Date.now() - startedAt > 8000 && modelReady;
-                }
-
-                const featureSettings = featuresManager.featureSettings || {};
-                const variationSettings = axesManager.variationSettings || {};
-
-                const featuresInSubset =
-                    state.editor_opentype_features_in_subset || {};
-                const featuresNotInSubset =
-                    state.editor_opentype_features_not_in_subset || {};
-                const variationLocation = state.editor_variation_location || {};
-
-                const search = new URLSearchParams(window.location.search);
-                const queryFeatures = search.get('features') || '';
-                const queryLocation = search.get('location') || '';
-
-                const hasManagerFeatures =
-                    Object.keys(featureSettings).length > 0;
-                const hasStateFeatures =
-                    Object.keys(featuresInSubset).length > 0 ||
-                    Object.keys(featuresNotInSubset).length > 0;
-                const hasFeatureSignal =
-                    hasManagerFeatures ||
-                    hasStateFeatures ||
-                    queryFeatures.length > 0;
-
-                const variationMatch =
-                    Object.keys(variationSettings).length === 0 ||
-                    Object.keys(variationLocation).length > 0 ||
-                    queryLocation.length > 0;
-
-                const hasEditorFile =
-                    typeof editorFile === 'string' && editorFile.length > 0;
-
-                if (
-                    hasFeatureSignal &&
-                    variationMatch &&
-                    hasEditorFile &&
-                    modelReady
-                ) {
-                    return true;
-                }
-
-                return (
-                    Date.now() - startedAt > 10000 &&
-                    modelReady &&
-                    hasEditorFile
-                );
-            },
-            waitStart,
-            { timeout: 20000 }
-        );
-    } catch (error) {
-        const debugState = await page.evaluate(() => {
-            const state =
-                window.stateManager?.getStateSnapshot?.()?.state || {};
-            const featureSettings =
-                window.glyphCanvas?.featuresManager?.featureSettings || {};
-            const variationSettings =
-                window.glyphCanvas?.axesManager?.variationSettings || {};
-
-            return {
-                editorFile: state.editor_file || '',
-                managerFeatureKeys: Object.keys(featureSettings),
-                subsetFeatureKeys: Object.keys(
-                    state.editor_opentype_features_in_subset || {}
-                ),
-                notInSubsetFeatureKeys: Object.keys(
-                    state.editor_opentype_features_not_in_subset || {}
-                ),
-                variationSettings,
-                variationLocation: state.editor_variation_location || {},
-                glyphBufferLength:
-                    window.glyphCanvas?.textRunEditor?.glyphNameBuffer
-                        ?.length || 0
-            };
         });
 
-        throw new Error(
-            `Timed out waiting for features/axes readiness: ${JSON.stringify(debugState)}`,
-            { cause: error as Error }
+        console.log(
+            '[Test] Wait for features and axes to be populated with actual data'
         );
-    }
+        // Wait for features/axes signals.
+        // During open-session, URL query params can update before stateManager keys
+        // are fully propagated; use manager + URL signals with a bounded fallback.
+        await timedStep('helper:waitForFontLoaded:features-axes', async () => {
+            try {
+                const waitStart = Date.now();
+                await page.waitForFunction(
+                    (startedAt) => {
+                        const featuresManager =
+                            window.glyphCanvas?.featuresManager;
+                        const axesManager = window.glyphCanvas?.axesManager;
+                        const state =
+                            window.stateManager?.getStateSnapshot?.()?.state ||
+                            {};
+
+                        const modelReady =
+                            !!window.currentFontModel &&
+                            !!window.fontManager?.currentFont;
+                        const editorFile = state.editor_file || '';
+
+                        if (!featuresManager || !axesManager) {
+                            // Bounded fallback: once core model is ready for long enough,
+                            // allow progress instead of deadlocking on manager lag.
+                            return Date.now() - startedAt > 8000 && modelReady;
+                        }
+
+                        const featureSettings =
+                            featuresManager.featureSettings || {};
+                        const variationSettings =
+                            axesManager.variationSettings || {};
+
+                        const featuresInSubset =
+                            state.editor_opentype_features_in_subset || {};
+                        const featuresNotInSubset =
+                            state.editor_opentype_features_not_in_subset || {};
+                        const variationLocation =
+                            state.editor_variation_location || {};
+
+                        const search = new URLSearchParams(
+                            window.location.search
+                        );
+                        const queryFeatures = search.get('features') || '';
+                        const queryLocation = search.get('location') || '';
+
+                        const hasManagerFeatures =
+                            Object.keys(featureSettings).length > 0;
+                        const hasStateFeatures =
+                            Object.keys(featuresInSubset).length > 0 ||
+                            Object.keys(featuresNotInSubset).length > 0;
+                        const hasFeatureSignal =
+                            hasManagerFeatures ||
+                            hasStateFeatures ||
+                            queryFeatures.length > 0;
+
+                        const variationMatch =
+                            Object.keys(variationSettings).length === 0 ||
+                            Object.keys(variationLocation).length > 0 ||
+                            queryLocation.length > 0;
+
+                        const hasEditorFile =
+                            typeof editorFile === 'string' &&
+                            editorFile.length > 0;
+
+                        if (
+                            hasFeatureSignal &&
+                            variationMatch &&
+                            hasEditorFile &&
+                            modelReady
+                        ) {
+                            return true;
+                        }
+
+                        return (
+                            Date.now() - startedAt > 10000 &&
+                            modelReady &&
+                            hasEditorFile
+                        );
+                    },
+                    waitStart,
+                    { timeout: 20000 }
+                );
+            } catch (error) {
+                const debugState = await page.evaluate(() => {
+                    const state =
+                        window.stateManager?.getStateSnapshot?.()?.state || {};
+                    const featureSettings =
+                        window.glyphCanvas?.featuresManager?.featureSettings ||
+                        {};
+                    const variationSettings =
+                        window.glyphCanvas?.axesManager?.variationSettings ||
+                        {};
+
+                    return {
+                        editorFile: state.editor_file || '',
+                        managerFeatureKeys: Object.keys(featureSettings),
+                        subsetFeatureKeys: Object.keys(
+                            state.editor_opentype_features_in_subset || {}
+                        ),
+                        notInSubsetFeatureKeys: Object.keys(
+                            state.editor_opentype_features_not_in_subset || {}
+                        ),
+                        variationSettings,
+                        variationLocation:
+                            state.editor_variation_location || {},
+                        glyphBufferLength:
+                            window.glyphCanvas?.textRunEditor?.glyphNameBuffer
+                                ?.length || 0
+                    };
+                });
+
+                throw new Error(
+                    `Timed out waiting for features/axes readiness: ${JSON.stringify(debugState)}`,
+                    { cause: error as Error }
+                );
+            }
+        });
+    });
 }
 
 /**
@@ -777,255 +837,275 @@ export async function waitForOpenSessionReady(
     page: any,
     expectedFilename?: string
 ) {
-    if (expectedFilename) {
-        await page.waitForFunction(
-            (filename) => {
-                const editorFile =
-                    window.stateManager?.getStateSnapshot?.()?.state
-                        ?.editor_file || '';
-                return editorFile.includes(filename);
-            },
-            expectedFilename,
-            { timeout: 15000 }
+    return timedStep('helper:waitForOpenSessionReady', async () => {
+        if (expectedFilename) {
+            await timedStep(
+                'helper:waitForOpenSessionReady:filename',
+                async () => {
+                    await page.waitForFunction(
+                        (filename) => {
+                            const editorFile =
+                                window.stateManager?.getStateSnapshot?.()?.state
+                                    ?.editor_file || '';
+                            return editorFile.includes(filename);
+                        },
+                        expectedFilename,
+                        { timeout: 15000 }
+                    );
+                }
+            );
+        }
+
+        await timedStep(
+            'helper:waitForOpenSessionReady:startupReleased',
+            async () => {
+                await page.waitForFunction(
+                    () => {
+                        const startupReleasedMarkCount =
+                            performance.getEntriesByName(
+                                'cp:font.lifecycle.startupReleased'
+                            ).length;
+
+                        const startupBlocked =
+                            window.autoCompileManager?.getStatus?.()
+                                ?.isStartupBlocked;
+
+                        return (
+                            startupReleasedMarkCount > 0 &&
+                            startupBlocked === false
+                        );
+                    },
+                    undefined,
+                    { timeout: 20000 }
+                );
+            }
         );
-    }
-
-    await page.waitForFunction(
-        () => {
-            const startupReleasedMarkCount = performance.getEntriesByName(
-                'cp:font.lifecycle.startupReleased'
-            ).length;
-
-            const startupBlocked =
-                window.autoCompileManager?.getStatus?.()?.isStartupBlocked;
-
-            return startupReleasedMarkCount > 0 && startupBlocked === false;
-        },
-        undefined,
-        { timeout: 20000 }
-    );
+    });
 }
 
 /**
  * Wait until overview tiles have actual rendered canvas content.
  */
 export async function waitForOverviewTilesRendered(page: any) {
-    await page.evaluate(async () => {
-        const manager = window.glyphOverviewFilterManager;
-        if (!manager || !manager.isLoaded?.()) {
-            return;
-        }
-
-        try {
-            await manager.refreshPlugins?.({ deferCounts: false });
-        } catch {
-            // Keep waiting logic robust; waitForFunction below will enforce readiness.
-        }
-    });
-
-    await page.waitForFunction(
-        () => {
-            const glyphModelCount =
-                window.currentFontModel?.glyphs?.length || 0;
-            if (glyphModelCount === 0) {
-                return false;
-            }
-
-            const tileCount = document.querySelectorAll(
-                '#glyph-overview-container .glyph-tile'
-            ).length;
-            if (tileCount === 0) {
-                return false;
-            }
-
-            const tileCanvases = Array.from(
-                document.querySelectorAll(
-                    '#glyph-overview-container .glyph-tile canvas'
-                )
-            ) as HTMLCanvasElement[];
-
-            if (tileCanvases.length === 0) {
-                return false;
-            }
-
-            const countElements = Array.from(
-                document.querySelectorAll(
-                    '#overview-filters .glyph-filter-item-count'
-                )
-            ) as HTMLElement[];
-
-            if (countElements.length === 0) {
-                return false;
-            }
-
-            return true;
-        },
-        { timeout: 30000 }
-    );
-
-    await page.evaluate(async () => {
-        const timeoutMs = 20000;
-        const start = Date.now();
-        let lastRenderKickAt = 0;
-
-        const countPaintedTileCanvases = (): number => {
-            const canvases = Array.from(
-                document.querySelectorAll(
-                    '#glyph-overview-container .glyph-tile canvas'
-                )
-            ) as HTMLCanvasElement[];
-
-            let paintedCount = 0;
-
-            for (const canvas of canvases.slice(0, 24)) {
-                const width = canvas.width || canvas.clientWidth;
-                const height = canvas.height || canvas.clientHeight;
-
-                if (width < 2 || height < 2) {
-                    continue;
-                }
-
-                const ctx = canvas.getContext('2d', {
-                    willReadFrequently: true
-                });
-                if (!ctx) {
-                    continue;
-                }
-
-                const sampleW = Math.min(48, width);
-                const sampleH = Math.min(48, height);
-                let imageData: ImageData;
-                try {
-                    imageData = ctx.getImageData(0, 0, sampleW, sampleH);
-                } catch {
-                    continue;
-                }
-
-                const data = imageData.data;
-                let hasInk = false;
-                for (let idx = 3; idx < data.length; idx += 16) {
-                    if (data[idx] > 0) {
-                        hasInk = true;
-                        break;
-                    }
-                }
-
-                if (hasInk) {
-                    paintedCount += 1;
-                }
-            }
-
-            return paintedCount;
-        };
-
-        while (Date.now() - start < timeoutMs) {
+    return timedStep('helper:waitForOverviewTilesRendered', async () => {
+        await page.evaluate(async () => {
             const manager = window.glyphOverviewFilterManager;
             if (!manager || !manager.isLoaded?.()) {
-                await new Promise<void>((resolve) => {
-                    window.setTimeout(() => resolve(), 250);
-                });
-                continue;
-            }
-
-            const overview = (window as any).glyphOverviewInstance;
-            if (overview?.ensureTilesRendered) {
-                try {
-                    await overview.ensureTilesRendered(3);
-                } catch {
-                    // Keep looping and retry until timeout.
-                }
+                return;
             }
 
             try {
                 await manager.refreshPlugins?.({ deferCounts: false });
             } catch {
-                // Ignore transient refresh errors and keep retrying until timeout.
+                // Keep waiting logic robust; waitForFunction below will enforce readiness.
             }
+        });
 
-            const renderStatus = overview?.getRenderStatus?.();
-            const renderedTileCount = renderStatus?.renderedTileCount || 0;
-            const canvasCount = document.querySelectorAll(
-                '#glyph-overview-container .glyph-tile canvas'
-            ).length;
-
-            if (
-                overview?.renderGlyphOutlines &&
-                (renderStatus?.tileCount || 0) > 0 &&
-                renderedTileCount === 0 &&
-                Date.now() - lastRenderKickAt > 1200
-            ) {
-                try {
-                    await overview.renderGlyphOutlines();
-                    lastRenderKickAt = Date.now();
-                } catch {
-                    // Continue polling until the overview becomes renderable.
+        await page.waitForFunction(
+            () => {
+                const glyphModelCount =
+                    window.currentFontModel?.glyphs?.length || 0;
+                if (glyphModelCount === 0) {
+                    return false;
                 }
+
+                const tileCount = document.querySelectorAll(
+                    '#glyph-overview-container .glyph-tile'
+                ).length;
+                if (tileCount === 0) {
+                    return false;
+                }
+
+                const tileCanvases = Array.from(
+                    document.querySelectorAll(
+                        '#glyph-overview-container .glyph-tile canvas'
+                    )
+                ) as HTMLCanvasElement[];
+
+                if (tileCanvases.length === 0) {
+                    return false;
+                }
+
+                const countElements = Array.from(
+                    document.querySelectorAll(
+                        '#overview-filters .glyph-filter-item-count'
+                    )
+                ) as HTMLElement[];
+
+                if (countElements.length === 0) {
+                    return false;
+                }
+
+                return true;
+            },
+            { timeout: 30000 }
+        );
+
+        await page.evaluate(async () => {
+            const timeoutMs = 20000;
+            const start = Date.now();
+            let lastRenderKickAt = 0;
+
+            const countPaintedTileCanvases = (): number => {
+                const canvases = Array.from(
+                    document.querySelectorAll(
+                        '#glyph-overview-container .glyph-tile canvas'
+                    )
+                ) as HTMLCanvasElement[];
+
+                let paintedCount = 0;
+
+                for (const canvas of canvases.slice(0, 24)) {
+                    const width = canvas.width || canvas.clientWidth;
+                    const height = canvas.height || canvas.clientHeight;
+
+                    if (width < 2 || height < 2) {
+                        continue;
+                    }
+
+                    const ctx = canvas.getContext('2d', {
+                        willReadFrequently: true
+                    });
+                    if (!ctx) {
+                        continue;
+                    }
+
+                    const sampleW = Math.min(48, width);
+                    const sampleH = Math.min(48, height);
+                    let imageData: ImageData;
+                    try {
+                        imageData = ctx.getImageData(0, 0, sampleW, sampleH);
+                    } catch {
+                        continue;
+                    }
+
+                    const data = imageData.data;
+                    let hasInk = false;
+                    for (let idx = 3; idx < data.length; idx += 16) {
+                        if (data[idx] > 0) {
+                            hasInk = true;
+                            break;
+                        }
+                    }
+
+                    if (hasInk) {
+                        paintedCount += 1;
+                    }
+                }
+
+                return paintedCount;
+            };
+
+            while (Date.now() - start < timeoutMs) {
+                const manager = window.glyphOverviewFilterManager;
+                if (!manager || !manager.isLoaded?.()) {
+                    await new Promise<void>((resolve) => {
+                        window.setTimeout(() => resolve(), 250);
+                    });
+                    continue;
+                }
+
+                const overview = (window as any).glyphOverviewInstance;
+                if (overview?.ensureTilesRendered) {
+                    try {
+                        await overview.ensureTilesRendered(3);
+                    } catch {
+                        // Keep looping and retry until timeout.
+                    }
+                }
+
+                try {
+                    await manager.refreshPlugins?.({ deferCounts: false });
+                } catch {
+                    // Ignore transient refresh errors and keep retrying until timeout.
+                }
+
+                const renderStatus = overview?.getRenderStatus?.();
+                const renderedTileCount = renderStatus?.renderedTileCount || 0;
+                const canvasCount = document.querySelectorAll(
+                    '#glyph-overview-container .glyph-tile canvas'
+                ).length;
+
+                if (
+                    overview?.renderGlyphOutlines &&
+                    (renderStatus?.tileCount || 0) > 0 &&
+                    renderedTileCount === 0 &&
+                    Date.now() - lastRenderKickAt > 1200
+                ) {
+                    try {
+                        await overview.renderGlyphOutlines();
+                        lastRenderKickAt = Date.now();
+                    } catch {
+                        // Continue polling until the overview becomes renderable.
+                    }
+                }
+
+                const hasRenderedTiles =
+                    renderedTileCount >= 3 || canvasCount >= 3;
+                const paintedTileCount = countPaintedTileCanvases();
+                const hasPaintedTiles = paintedTileCount >= 3;
+
+                const unresolvedDomCounts = Array.from(
+                    document.querySelectorAll(
+                        '#overview-filters .glyph-filter-item[data-plugin-keyword] .glyph-filter-item-count'
+                    )
+                )
+                    .map((el) => (el.textContent || '').trim())
+                    .filter((text) => text === '—');
+
+                if (!hasRenderedTiles) {
+                    await new Promise<void>((resolve) => {
+                        window.setTimeout(() => resolve(), 250);
+                    });
+                    continue;
+                }
+
+                if (!hasPaintedTiles) {
+                    await new Promise<void>((resolve) => {
+                        window.setTimeout(() => resolve(), 250);
+                    });
+                    continue;
+                }
+
+                if (
+                    unresolvedDomCounts.length === 0 ||
+                    Date.now() - start >= 8000 ||
+                    manager.areAllLoadedPluginCountsResolved?.()
+                ) {
+                    return;
+                }
+
+                await new Promise<void>((resolve) => {
+                    window.setTimeout(() => resolve(), 250);
+                });
             }
 
-            const hasRenderedTiles = renderedTileCount >= 3 || canvasCount >= 3;
-            const paintedTileCount = countPaintedTileCanvases();
-            const hasPaintedTiles = paintedTileCount >= 3;
-
-            const unresolvedDomCounts = Array.from(
+            const manager = window.glyphOverviewFilterManager;
+            const status = manager?.getPluginCountResolutionStatus?.();
+            const renderStatus = (
+                window as any
+            ).glyphOverviewInstance?.getRenderStatus?.();
+            const domCounts = Array.from(
                 document.querySelectorAll(
                     '#overview-filters .glyph-filter-item[data-plugin-keyword] .glyph-filter-item-count'
                 )
-            )
-                .map((el) => (el.textContent || '').trim())
-                .filter((text) => text === '—');
+            ).map((el) => (el.textContent || '').trim());
+            throw new Error(
+                `Timeout waiting for painted overview tiles and all loaded filter plugin counts: ${JSON.stringify({ status, renderStatus, domCounts, paintedTileCount: countPaintedTileCanvases() })}`
+            );
+        });
 
-            if (!hasRenderedTiles) {
-                await new Promise<void>((resolve) => {
-                    window.setTimeout(() => resolve(), 250);
-                });
-                continue;
-            }
+        await page.evaluate(async () => {
+            await new Promise<void>((resolve) =>
+                requestAnimationFrame(() => resolve())
+            );
+            await new Promise<void>((resolve) =>
+                requestAnimationFrame(() => resolve())
+            );
+        });
 
-            if (!hasPaintedTiles) {
-                await new Promise<void>((resolve) => {
-                    window.setTimeout(() => resolve(), 250);
-                });
-                continue;
-            }
-
-            if (
-                unresolvedDomCounts.length === 0 ||
-                Date.now() - start >= 8000 ||
-                manager.areAllLoadedPluginCountsResolved?.()
-            ) {
-                return;
-            }
-
-            await new Promise<void>((resolve) => {
-                window.setTimeout(() => resolve(), 250);
-            });
-        }
-
-        const manager = window.glyphOverviewFilterManager;
-        const status = manager?.getPluginCountResolutionStatus?.();
-        const renderStatus = (
-            window as any
-        ).glyphOverviewInstance?.getRenderStatus?.();
-        const domCounts = Array.from(
-            document.querySelectorAll(
-                '#overview-filters .glyph-filter-item[data-plugin-keyword] .glyph-filter-item-count'
-            )
-        ).map((el) => (el.textContent || '').trim());
-        throw new Error(
-            `Timeout waiting for painted overview tiles and all loaded filter plugin counts: ${JSON.stringify({ status, renderStatus, domCounts, paintedTileCount: countPaintedTileCanvases() })}`
-        );
+        await page.waitForTimeout(150);
     });
-
-    await page.evaluate(async () => {
-        await new Promise<void>((resolve) =>
-            requestAnimationFrame(() => resolve())
-        );
-        await new Promise<void>((resolve) =>
-            requestAnimationFrame(() => resolve())
-        );
-    });
-
-    await page.waitForTimeout(150);
 }
 
 async function waitForEditorModeActivation(page: any) {
@@ -1134,34 +1214,36 @@ export async function waitForFeatureCompilationError(
     page: any,
     options?: { timeout?: number }
 ) {
-    const timeout = options?.timeout ?? 7000;
+    return timedStep('helper:waitForFeatureCompilationError', async () => {
+        const timeout = options?.timeout ?? 7000;
 
-    await page.waitForFunction(
-        () => {
-            const errorDisplay = document.getElementById(
-                'sidebar-error-display'
-            ) as HTMLElement | null;
+        await page.waitForFunction(
+            () => {
+                const errorDisplay = document.getElementById(
+                    'sidebar-error-display'
+                ) as HTMLElement | null;
 
-            const sidebarVisible =
-                !!errorDisplay &&
-                errorDisplay.style.display !== 'none' &&
-                !!errorDisplay.textContent?.trim();
+                const sidebarVisible =
+                    !!errorDisplay &&
+                    errorDisplay.style.display !== 'none' &&
+                    !!errorDisplay.textContent?.trim();
 
-            return sidebarVisible;
-        },
-        { timeout }
-    );
-
-    await page.evaluate(async () => {
-        await new Promise<void>((resolve) =>
-            requestAnimationFrame(() => resolve())
+                return sidebarVisible;
+            },
+            { timeout }
         );
-        await new Promise<void>((resolve) =>
-            requestAnimationFrame(() => resolve())
-        );
+
+        await page.evaluate(async () => {
+            await new Promise<void>((resolve) =>
+                requestAnimationFrame(() => resolve())
+            );
+            await new Promise<void>((resolve) =>
+                requestAnimationFrame(() => resolve())
+            );
+        });
+
+        await page.waitForTimeout(100);
     });
-
-    await page.waitForTimeout(100);
 }
 
 /**
@@ -1175,25 +1257,36 @@ export async function takeSnapshot(
     expect: any,
     maxDiffPixelRatio: number = 0.02
 ): Promise<any> {
-    await waitForEditorModeActivation(page);
-    await page.waitForTimeout(50);
+    return timedStep(`helper:takeSnapshot:${snapshotNumber}`, async () => {
+        await waitForEditorModeActivation(page);
+        await page.waitForTimeout(50);
 
-    // Capture state snapshot
-    const snapshot = await captureSnapshot(page, label);
+        const snapshot = await captureSnapshot(page, label);
 
-    // Assert JSON snapshot
-    await expectJsonSnapshot(
-        snapshot,
-        `${snapshotNumber}-${label}.json`,
-        expect
-    );
+        await timedStep(
+            `helper:takeSnapshot:json:${snapshotNumber}`,
+            async () => {
+                await expectJsonSnapshot(
+                    snapshot,
+                    `${snapshotNumber}-${label}.json`,
+                    expect
+                );
+            }
+        );
 
-    // Assert PNG screenshot with optional threshold
-    const screenshotOptions = { maxDiffPixelRatio };
+        await timedStep(
+            `helper:takeSnapshot:png:${snapshotNumber}`,
+            async () => {
+                const screenshotOptions = { maxDiffPixelRatio };
+                await expect(
+                    page.locator('#glyph-canvas-container canvas')
+                ).toHaveScreenshot(
+                    `${snapshotNumber}-${label}.png`,
+                    screenshotOptions
+                );
+            }
+        );
 
-    await expect(
-        page.locator('#glyph-canvas-container canvas')
-    ).toHaveScreenshot(`${snapshotNumber}-${label}.png`, screenshotOptions);
-
-    return snapshot;
+        return snapshot;
+    });
 }

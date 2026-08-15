@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { waitForCanvasReady } from './helpers/snapshot-helper';
 
 test('Help documentation opens the docs column', async ({ page }) => {

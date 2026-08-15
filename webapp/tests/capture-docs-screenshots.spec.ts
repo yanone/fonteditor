@@ -1,6 +1,7 @@
 import { mkdir } from 'fs/promises';
 import { dirname, resolve } from 'path';
-import { test, type Locator, type Page } from '@playwright/test';
+import { test } from './fixtures';
+import { type Locator, type Page } from '@playwright/test';
 import { focusView, waitForCanvasReady } from './helpers/snapshot-helper';
 
 const capture = !!process.env.CAPTURE_DOCS_SCREENSHOTS;
