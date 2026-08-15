@@ -56,9 +56,7 @@
             "description": "Only reviewed forwarding and recovery owners may send raw incremental Yjs updates to the worker.",
             "query": "MATCH (caller)-[:CodeRelation {type:'CALLS'}]->(sink:Method {name:'sendWorkerYjsUpdate'}) WHERE sink.filePath = 'webapp/js/font-manager.ts' AND NOT caller.filePath STARTS WITH 'webapp/tests/' RETURN caller.name AS caller_name, caller.filePath AS caller_path",
             "allowedCallers": [
-                "webapp/js/font-manager.ts::forceFullWorkerCacheUpdate",
-                "webapp/js/font-manager.ts::forwardWorkerYjsUpdateInternal",
-                "webapp/js/font-manager.ts::submitLayerUpdatesToWorkerCache"
+                "webapp/js/font-manager.ts::forwardWorkerYjsUpdateInternal"
             ]
         }
     ],

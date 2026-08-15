@@ -9586,7 +9586,6 @@ export class OutlineEditor {
         options: {
             scheduleCompile?: boolean;
             dispatchGlyphChanged?: boolean;
-            refreshWorkerCache?: 'full';
         } = {}
     ): Promise<void> {
         const currentFont = fontManager.currentFont;
@@ -9595,9 +9594,6 @@ export class OutlineEditor {
         }
 
         currentFont.markDirty(changeSource);
-        if (options.refreshWorkerCache === 'full') {
-            void fontManager.forceFullWorkerCacheUpdate?.();
-        }
         await fontManager.updateDirtyIndicator();
 
         if (options.scheduleCompile !== false) {

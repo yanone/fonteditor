@@ -1705,9 +1705,6 @@ export class CloudAdapter implements FileSystemAdapter {
             | (typeof window.fontManager & {
                   buildWorkerSeedYjsState?: () => Uint8Array | null;
                   recordFullFontCrossing?: () => void;
-                  replaceWorkerYjsMirrorFromState?: (
-                      state: Uint8Array | ArrayBufferLike | null | undefined
-                  ) => void;
               })
             | undefined;
         const seedState =
@@ -1726,7 +1723,6 @@ export class CloudAdapter implements FileSystemAdapter {
         }
 
         fontManager?.recordFullFontCrossing?.();
-        fontManager?.replaceWorkerYjsMirrorFromState?.(seedState);
 
         const syncPromise = (async () => {
             if (typeof fontCompilation.seedWorkerYDocFromState === 'function') {

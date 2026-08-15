@@ -5389,7 +5389,6 @@ describe('WindowSync', () => {
         const buildWorkerSeedYjsState = jest.fn(
             () => new Uint8Array([1, 2, 3])
         );
-        const replaceWorkerYjsMirrorFromState = jest.fn();
         const syncBabelfontJsonFromCurrentModel = jest.fn(() => {
             window.fontManager.currentFont.babelfontJson =
                 '{"glyphs":[{"name":"A","layers":[{"id":"layer-1","width":999}]}]}';
@@ -5424,7 +5423,6 @@ describe('WindowSync', () => {
                     '{"glyphs":[{"name":"A","layers":[{"id":"layer-1","width":600}]}]}'
             },
             buildWorkerSeedYjsState,
-            replaceWorkerYjsMirrorFromState,
             syncBabelfontJsonFromCurrentModel,
             recordFullFontCrossing
         };
@@ -5480,7 +5478,6 @@ describe('WindowSync', () => {
         });
 
         expect(initialize).toHaveBeenCalledTimes(1);
-        expect(replaceWorkerYjsMirrorFromState).toHaveBeenCalledTimes(1);
         expect(buildWorkerSeedYjsState).toHaveBeenCalledTimes(1);
         expect(recordFullFontCrossing).toHaveBeenCalledTimes(1);
         // syncBabelfontJsonFromCurrentModel is no longer called — the worker's
@@ -5534,7 +5531,6 @@ describe('WindowSync', () => {
                     '{"glyphs":[{"name":"A","layers":[{"id":"layer-1","width":600}]}]}'
             },
             buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
-            replaceWorkerYjsMirrorFromState: jest.fn(),
             recordFullFontCrossing: jest.fn()
         };
 
@@ -5673,7 +5669,6 @@ describe('WindowSync', () => {
                     '{"glyphs":[{"name":"A","layers":[{"id":"layer-1","width":600}]}]}'
             },
             buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
-            replaceWorkerYjsMirrorFromState: jest.fn(),
             recordFullFontCrossing: jest.fn()
         };
 

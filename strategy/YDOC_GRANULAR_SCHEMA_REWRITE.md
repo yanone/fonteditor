@@ -318,15 +318,13 @@ accumulation from churn. Two levers:
    it; if any peer-sync edge appears, fall back to `gc:false`-live +
    compacted-checkpoints.
 
-## Worker cache — fold into the single funnel
+## Worker cache — single funnel (done / required)
 
-`buildWorkerYjsLayerUpdateForDoc` / `submitLayerUpdatesToWorkerCache` (the
-separate whole-layer-replace `workerCacheYDoc` path) is the one path that would
-resend full `format_specific`/shapes on every edit. Per policy §26 (single
-funnel), fold it away: the worker receives the same authoritative PatchSyncEngine
-delta via `forwardWorkerYjsUpdate`. The narrow exceptions (undo/redo refresh
-§19, receiver refresh, bootstrap/reseed §28) keep a re-serialization path,
-updated to the new schema.
+Do not keep a second long-lived JS `Y.Doc` (`workerCacheYDoc`) or whole-layer
+encode path (`buildWorkerYjsLayerUpdate*` / `submitLayerUpdatesToWorkerCache`).
+The worker receives only authoritative `PatchSyncEngine` deltas via
+`forwardWorkerYjsUpdate`. Bootstrap and quarantine recovery reseed Rust from
+`encodeBridgeState()` only.
 
 ## Implementation phases
 
@@ -378,8 +376,8 @@ updated to the new schema.
   JSON shape.
 - **Delete the `yrs_map_to_json` numeric-key heuristic** (`lib.rs:1612`, test
   `:4320`) — no longer load-bearing.
-- Fold worker-cache steady-state into `forwardWorkerYjsUpdate` (single funnel);
-  keep `submitLayerUpdatesToWorkerCache` only for §19/§28 exceptions, new schema.
+- Worker-cache steady-state is `forwardWorkerYjsUpdate` only (single funnel);
+  no JS worker-mirror `Y.Doc` and no whole-layer encode exceptions.
 
 ### Phase 5 — LCS diffing for remaining `Y.Array`s
 

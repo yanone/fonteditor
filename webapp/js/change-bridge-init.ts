@@ -1667,76 +1667,25 @@ function getActiveEditedGlyphName(): string | null {
 }
 
 /**
- * Update the Rust FONT_CACHE with the current layer data and
- * refresh the outline editor canvas. Call after undo/redo/remote
- * changes so the Rust interpolation reads up-to-date layer data.
+ * Wait for the already-forwarded authoritative worker Yjs update to settle.
+ * Does not encode or submit whole-layer repair traffic — the bridge packet is
+ * the only steady-state worker mutation (COMPILATION_EDIT_POLICY §19).
  */
 async function refreshRustWorkerCache(
-    rootGlyphName?: string,
-    editedGlyphName?: string,
-    options?: {
+    _rootGlyphName?: string,
+    _editedGlyphName?: string,
+    _options?: {
         workerReplayTargets?: WorkerReplayTarget[];
         allowSelectedLayerFallback?: boolean;
     }
 ): Promise<void> {
-    const gc = window.glyphCanvas;
-    const oe = gc?.outlineEditor;
-    const parsedStack = oe?.parseGlyphStack?.() || [];
-    const refreshRootGlyphName =
-        rootGlyphName ?? parsedStack[0]?.glyphName ?? undefined;
-    const selectedLayerId =
-        parsedStack[parsedStack.length - 1]?.layerId ??
-        oe?.selectedLayerId ??
-        undefined;
-
-    const currentFont = window.fontManager?.currentFont;
-    if (!currentFont || !fontCompilation?.isInitialized) {
+    if (!window.fontManager?.currentFont || !fontCompilation?.isInitialized) {
         return;
     }
 
     try {
-        let didStoreLayer = false;
-        const replayTargets = normalizeWorkerReplayTargets(
-            options?.workerReplayTargets
-        );
-        const allowSelectedLayerFallback =
-            options?.allowSelectedLayerFallback !== false;
-        if (
-            replayTargets.length > 0 &&
-            typeof window.fontManager?.refreshWorkerCacheForReplayTargets ===
-                'function'
-        ) {
-            didStoreLayer =
-                (await window.fontManager.refreshWorkerCacheForReplayTargets(
-                    replayTargets
-                )) === true;
-        }
-        if (!didStoreLayer && selectedLayerId && allowSelectedLayerFallback) {
-            const cacheTargets = new Set<string>();
-            if (refreshRootGlyphName) {
-                cacheTargets.add(refreshRootGlyphName);
-            }
-            if (editedGlyphName) {
-                cacheTargets.add(editedGlyphName);
-            }
-
-            if (cacheTargets.size > 0) {
-                didStoreLayer = true;
-                for (const glyphName of cacheTargets) {
-                    const stored =
-                        (await window.fontManager?.submitLayerToWorkerCache?.(
-                            glyphName,
-                            selectedLayerId
-                        )) === true;
-                    if (!stored) {
-                        didStoreLayer = false;
-                        break;
-                    }
-                }
-            }
-        }
-
         await fontCompilation.awaitWorkerDocumentSync();
+        await window.fontManager.awaitWorkerCacheUpdate?.();
     } catch {
         // Non-fatal — the scheduled compile will update the cache later
     }
@@ -3205,7 +3154,6 @@ function initializeBridge(detail: {
     // Seed the Rust Y.Doc immediately after bridge initialisation so that the
     // YJS_ONLY: Binary Yjs state sent to worker for seedYdoc (N3).
     if (!window.windowRole?.isLinkedWindow?.()) {
-        const fontManager = window.fontManager;
         // The worker must inherit this exact CRDT graph. A fresh Y.Doc rebuilt
         // from the same JSON has different item identities, so later bridge
         // deltas can remain pending or fail to update nested arrays.
@@ -3216,7 +3164,6 @@ function initializeBridge(detail: {
             );
             fontCompilation.setWorkerCacheDocumentReady(false);
         } else {
-            fontManager?.replaceWorkerYjsMirrorFromState?.(state);
             void fontCompilation
                 .trackWorkerDocumentSync(
                     fontCompilation.seedWorkerYDocFromState(state)

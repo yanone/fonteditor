@@ -24,14 +24,7 @@ import {
     withSuppressedModelRecording
 } from './babelfont-model';
 import { canonicalizeImportedFontJson } from './font-import-canonicalization';
-import {
-    jsonToYDoc,
-    deleteYPath,
-    setYPath,
-    applyLayerDelta,
-    fromYType,
-    getYPath
-} from './change-bridge-ydoc';
+import { jsonToYDoc, fromYType, getYPath } from './change-bridge-ydoc';
 import { sidebarErrorDisplay } from './sidebar-error-display';
 import type { FilesystemPlugin } from './filesystem-plugins';
 import { Logger } from './logger';
@@ -163,7 +156,7 @@ type ExplicitLayerCacheInput = LayerCacheUpdate;
  * deltas of these counters per edit/cascade/undo/remote operation.
  */
 export type BoundaryCrossingStats = {
-    /** Number of `submitLayerUpdatesToWorkerCache` calls (1 per batch). */
+    /** Number of `forwardWorkerYjsUpdate` batches (1 per batch). */
     submitBatchCalls: number;
     /** Total number of layer entries crossed in batches. */
     layersTransmitted: number;
@@ -577,18 +570,12 @@ class FontManager {
     lastWorkerDocumentEpoch: number;
     lastWorkerFilterEpoch: number;
     lastWorkerFontCacheEpoch: number;
+    /** True while the worker document is quarantined after a failed sync. */
     private workerMirrorQuarantined: boolean;
     private editingCompileContextsByRevision: Map<
         string,
         EditingCompileContext
     >;
-    private workerCacheYDoc: Y.Doc | null;
-    private pendingWorkerLayerUpdate: {
-        update: Uint8Array;
-        changedGlyphs: string[];
-        invalidateLayoutClosure: boolean;
-        layerTargets: WorkerReplayTarget[];
-    } | null;
     private workerYjsSendQueue: Promise<unknown>;
     private pendingCloudBadgeVisibleAtByAssetId: Map<string, number>;
     private pendingCloudBadgeDelayTimer: ReturnType<typeof setTimeout> | null;
@@ -656,8 +643,6 @@ class FontManager {
         this.lastWorkerFontCacheEpoch = 0;
         this.workerMirrorQuarantined = false;
         this.editingCompileContextsByRevision = new Map();
-        this.workerCacheYDoc = null;
-        this.pendingWorkerLayerUpdate = null;
         this.workerYjsSendQueue = Promise.resolve();
         this.pendingCloudBadgeVisibleAtByAssetId = new Map();
         this.pendingCloudBadgeDelayTimer = null;
@@ -1799,7 +1784,6 @@ class FontManager {
                 );
                 this.openedFonts.set(previousFontId, reloadedFont);
                 this.currentFontId = previousFontId;
-                this.bootstrapWorkerYjsMirrorFromCurrentFont();
             }
 
             this.editingFont = null;
@@ -2103,7 +2087,6 @@ class FontManager {
                 window.patchSyncEngine = undefined;
                 window.changeBridge = undefined;
             }
-            this.workerCacheYDoc = null;
             this.currentText = '';
             try {
                 localStorage.removeItem('glyphCanvasTextBuffer');
@@ -4233,7 +4216,7 @@ class FontManager {
      * it is cleared whenever the worker cache is fully reseeded
      * (`storeFontJson`/`forceFullWorkerCacheUpdate` via
      * {@link recordFullFontCrossing}) and updated on every successful
-     * `submitLayerUpdatesToWorkerCache`. Returning an empty Map here
+     * `forwardWorkerYjsUpdate` batch. Returning an empty Map here
      * keeps the logic correct (a missing fingerprint forces the layer
      * to be included in the next batch — the safe fallback) while
      * removing the per-commit JSON.parse from the hot path entirely.
@@ -4298,224 +4281,14 @@ class FontManager {
         }
     }
 
-    private bootstrapWorkerYjsMirrorFromCurrentFont(): boolean {
-        const state = this.buildWorkerYjsStateFromCurrentFont();
-        if (!state?.length) {
-            return false;
-        }
-
-        this.replaceWorkerYjsMirrorFromState(state);
-        return true;
-    }
-
-    replaceWorkerYjsMirrorFromState(
-        state: Uint8Array | ArrayBufferLike | null | undefined
-    ): void {
-        // YJS_ONLY: Binary Yjs state applied to JS-side worker mirror.
-        // No JSON crossing — Y.applyUpdate takes a binary Uint8Array.
-        if (!state) {
-            this.workerCacheYDoc = null;
-            this.pendingWorkerLayerUpdate = null;
-            return;
-        }
-
-        const yDoc = new Y.Doc();
-        Y.applyUpdate(
-            yDoc,
-            state instanceof Uint8Array ? state : new Uint8Array(state)
-        );
-        this.workerCacheYDoc = yDoc;
-        this.pendingWorkerLayerUpdate = null;
-        this.workerMirrorQuarantined = false;
-    }
-
-    applyWorkerYjsUpdateToMirror(
-        update: Uint8Array | ArrayBufferLike | null | undefined
-    ): void {
-        // YJS_ONLY: Incremental binary Yjs update applied to JS-side
-        // worker mirror — the correct incremental path.
-        if (!update) {
-            return;
-        }
-
-        if (
-            !this.workerCacheYDoc &&
-            !this.bootstrapWorkerYjsMirrorFromCurrentFont()
-        ) {
-            return;
-        }
-
-        if (!this.workerCacheYDoc) {
-            return;
-        }
-
-        Y.applyUpdate(
-            this.workerCacheYDoc,
-            update instanceof Uint8Array ? update : new Uint8Array(update)
-        );
-    }
-
-    /** Discard JS state that must remain identical to the worker's Y.Doc. */
+    /** Discard JS fingerprint/epoch state that must stay coherent with the worker document. */
     private invalidateWorkerCacheMirror(): void {
-        this.workerCacheYDoc = null;
-        this.pendingWorkerLayerUpdate = null;
         this.workerLayerFingerprintCache.clear();
         this.lastWorkerDocumentEpoch = 0;
         this.lastWorkerFilterEpoch = 0;
         this.lastWorkerFontCacheEpoch = 0;
         this.workerMirrorQuarantined = true;
         fontCompilation?.setWorkerCacheDocumentReady(false);
-    }
-
-    private buildWorkerYjsLayerUpdate(
-        updates: Array<{
-            glyphName: string;
-            layerId: string;
-            normalized: Babelfont.Layer;
-        }>
-    ): { update: Uint8Array; changedGlyphs: string[] } | null {
-        const workerMirror = this.workerCacheYDoc;
-        if (!workerMirror) {
-            return null;
-        }
-
-        return this.buildWorkerYjsLayerUpdateForDoc(workerMirror, updates);
-    }
-
-    private buildWorkerYjsLayerUpdateForDoc(
-        yDoc: Y.Doc,
-        updates: Array<{
-            glyphName: string;
-            layerId: string;
-            normalized: Babelfont.Layer;
-        }>
-    ): { update: Uint8Array; changedGlyphs: string[] } | null {
-        if (!yDoc) {
-            return null;
-        }
-
-        const fontMap = yDoc.getMap('font');
-        const previousStateVector = Y.encodeStateVector(yDoc);
-
-        yDoc.transact(() => {
-            for (const update of updates) {
-                deleteYPath(fontMap, [
-                    'glyphs',
-                    update.glyphName,
-                    'layers',
-                    update.layerId
-                ]);
-                applyLayerDelta(
-                    fontMap,
-                    update.glyphName,
-                    update.layerId,
-                    update.normalized as unknown as Record<string, unknown>
-                );
-            }
-        });
-
-        return {
-            update: Y.encodeStateAsUpdate(yDoc, previousStateVector),
-            changedGlyphs: Array.from(
-                new Set(updates.map((update) => update.glyphName))
-            )
-        };
-    }
-
-    private buildWorkerYjsExhaustiveUpdate(
-        updates: Array<{
-            glyphName: string;
-            layerId: string;
-            normalized: Babelfont.Layer;
-        }>
-    ): { update: Uint8Array; changedGlyphs: string[] } | null {
-        // YJS_ONLY: Incremental layer batch encoded as binary Yjs diff
-        // against the JS-side worker mirror Y.Doc.
-        if (!this.workerCacheYDoc || !this.currentFont) {
-            return null;
-        }
-
-        const fontMap = this.workerCacheYDoc.getMap('font');
-        const previousStateVector = Y.encodeStateVector(this.workerCacheYDoc);
-        const changedGlyphs = new Set<string>();
-        const currentLayerIdsByGlyph = new Map<string, Set<string>>();
-
-        for (const glyph of this.currentFont.fontModel?.glyphs || []) {
-            const glyphName = glyph?.name;
-            if (typeof glyphName !== 'string' || !glyphName.length) {
-                continue;
-            }
-
-            const layerIds = new Set<string>();
-            for (const layer of glyph.layers || []) {
-                const layerId = layer?.id;
-                if (typeof layerId === 'string' && layerId.length) {
-                    layerIds.add(layerId);
-                }
-            }
-            currentLayerIdsByGlyph.set(glyphName, layerIds);
-        }
-
-        this.workerCacheYDoc.transact(() => {
-            const workerGlyphs = fontMap.get('glyphs');
-            if (workerGlyphs instanceof Y.Map) {
-                workerGlyphs.forEach(
-                    (glyphValue: unknown, glyphName: string) => {
-                        if (!currentLayerIdsByGlyph.has(glyphName)) {
-                            deleteYPath(fontMap, ['glyphs', glyphName]);
-                            changedGlyphs.add(glyphName);
-                            return;
-                        }
-
-                        const currentLayerIds =
-                            currentLayerIdsByGlyph.get(glyphName) ||
-                            new Set<string>();
-                        const workerLayers =
-                            glyphValue instanceof Y.Map
-                                ? glyphValue.get('layers')
-                                : null;
-
-                        if (!(workerLayers instanceof Y.Map)) {
-                            return;
-                        }
-
-                        workerLayers.forEach(
-                            (_layerValue: unknown, layerId: string) => {
-                                if (currentLayerIds.has(layerId)) {
-                                    return;
-                                }
-
-                                deleteYPath(fontMap, [
-                                    'glyphs',
-                                    glyphName,
-                                    'layers',
-                                    layerId
-                                ]);
-                                changedGlyphs.add(glyphName);
-                            }
-                        );
-                    }
-                );
-            }
-
-            for (const update of updates) {
-                applyLayerDelta(
-                    fontMap,
-                    update.glyphName,
-                    update.layerId,
-                    update.normalized as unknown as Record<string, unknown>
-                );
-                changedGlyphs.add(update.glyphName);
-            }
-        });
-
-        return {
-            update: Y.encodeStateAsUpdate(
-                this.workerCacheYDoc,
-                previousStateVector
-            ),
-            changedGlyphs: Array.from(changedGlyphs)
-        };
     }
 
     private async sendWorkerYjsUpdate(
@@ -4718,7 +4491,7 @@ class FontManager {
     ): Promise<boolean> {
         const bridgeState = window.patchSyncEngine?.encodeBridgeState?.();
         if (!bridgeState?.length || !fontCompilation) {
-            this.workerCacheYDoc = null;
+            this.workerMirrorQuarantined = true;
             fontCompilation?.setWorkerCacheDocumentReady(false);
             console.error(
                 '[FontManager] Cannot recover worker cache without bridge state:',
@@ -4731,8 +4504,8 @@ class FontManager {
             const recovery =
                 fontCompilation.seedWorkerYDocFromState(bridgeState);
             await fontCompilation.trackWorkerDocumentSync(recovery);
-            this.replaceWorkerYjsMirrorFromState(bridgeState);
             this.workerLayerFingerprintCache.clear();
+            this.workerMirrorQuarantined = false;
             fontCompilation.setWorkerCacheDocumentReady(true);
             console.warn(
                 '[FontManager] Re-seeded worker cache from authoritative bridge state:',
@@ -4740,7 +4513,7 @@ class FontManager {
             );
             return true;
         } catch (error) {
-            this.workerCacheYDoc = null;
+            this.workerMirrorQuarantined = true;
             fontCompilation.setWorkerCacheDocumentReady(false);
             console.error(
                 '[FontManager] Failed to recover worker cache from bridge state:',
@@ -5000,15 +4773,6 @@ class FontManager {
         const removedFingerprintKeys =
             targetLayerUpdates?.removedFingerprintKeys || [];
 
-        // After a fresh load or any full worker-cache crossing, the
-        // fingerprint baseline is intentionally empty. Re-seed the JS-side
-        // worker mirror from the authoritative bridge/font state before the
-        // first incremental update so the first delta does not apply against a
-        // stale structural baseline.
-        if (this.workerLayerFingerprintCache.size === 0) {
-            this.bootstrapWorkerYjsMirrorFromCurrentFont();
-        }
-
         const sent = await this.sendWorkerYjsUpdate(
             update,
             normalizedChangedGlyphs,
@@ -5022,8 +4786,6 @@ class FontManager {
             this.workerLayerFingerprintCache.clear();
             return false;
         }
-
-        this.applyWorkerYjsUpdateToMirror(update);
 
         for (const fingerprintKey of removedFingerprintKeys) {
             this.workerLayerFingerprintCache.delete(fingerprintKey);
@@ -5301,131 +5063,6 @@ class FontManager {
         return updates;
     }
 
-    private async submitLayerUpdatesToWorkerCache(
-        updates: LayerCacheUpdate[],
-        options?: { invalidateLayoutClosure?: boolean }
-    ): Promise<boolean> {
-        if (!this.currentFont || !fontCompilation?.isInitialized) {
-            return false;
-        }
-
-        if (!updates.length) {
-            // Nothing to cross the boundary for.
-            return true;
-        }
-
-        try {
-            // Normalize once per layer and reuse for both postMessage and fingerprint
-            const normalizedUpdates = updates.map((update) => {
-                const normalized = this.normalizeLayerForRust(update.layerData);
-                return {
-                    glyphName: update.glyphName,
-                    layerId: update.layerId,
-                    normalized
-                };
-            });
-
-            const updatesRequiringMirrorWrite = normalizedUpdates.filter(
-                ({ glyphName, layerId, normalized }) => {
-                    const workerFontMap = this.workerCacheYDoc?.getMap('font');
-                    if (!workerFontMap) {
-                        return true;
-                    }
-                    const existingLayer = getYPath(workerFontMap, [
-                        'glyphs',
-                        glyphName,
-                        'layers',
-                        layerId
-                    ]);
-                    if (!existingLayer) {
-                        return true;
-                    }
-
-                    try {
-                        return (
-                            this.getLayerWorkerFingerprint(
-                                fromYType(existingLayer) as Babelfont.Layer
-                            ) !== this.getLayerWorkerFingerprint(normalized)
-                        );
-                    } catch (_error) {
-                        return true;
-                    }
-                }
-            );
-
-            const workerUpdate = updatesRequiringMirrorWrite.length
-                ? this.buildWorkerYjsLayerUpdate(updatesRequiringMirrorWrite)
-                : {
-                      update: NO_OP_YJS_UPDATE,
-                      changedGlyphs: Array.from(
-                          new Set(
-                              normalizedUpdates.map(
-                                  ({ glyphName }) => glyphName
-                              )
-                          )
-                      )
-                  };
-            if (!workerUpdate) {
-                throw new Error(
-                    'Worker Yjs mirror not ready for incremental layer update'
-                );
-            }
-
-            const sent = await this.sendWorkerYjsUpdate(
-                workerUpdate.update,
-                workerUpdate.changedGlyphs,
-                options?.invalidateLayoutClosure ?? false,
-                [],
-                normalizedUpdates.map(({ glyphName, layerId }) => ({
-                    glyphName,
-                    layerId
-                }))
-            );
-            if (!sent) {
-                this.pendingWorkerLayerUpdate = {
-                    update: workerUpdate.update,
-                    changedGlyphs: workerUpdate.changedGlyphs,
-                    invalidateLayoutClosure:
-                        options?.invalidateLayoutClosure ?? false,
-                    layerTargets: normalizedUpdates.map(
-                        ({ glyphName, layerId }) => ({ glyphName, layerId })
-                    )
-                };
-                this.workerCacheYDoc = null;
-                fontCompilation.setWorkerCacheDocumentReady(false);
-                return false;
-            }
-
-            this.applyWorkerYjsUpdateToMirror(workerUpdate.update);
-            fontCompilation.setWorkerCacheDocumentReady(true);
-
-            // Update fingerprint baseline cache + boundary-crossing stats.
-            this._boundaryCrossingStats.submitBatchCalls++;
-            this._boundaryCrossingStats.layersTransmitted +=
-                normalizedUpdates.length;
-            for (const u of normalizedUpdates) {
-                this.workerLayerFingerprintCache.set(
-                    this.getWorkerLayerFingerprintKey(u.glyphName, u.layerId),
-                    JSON.stringify(u.normalized)
-                );
-                this._boundaryCrossingStats.transmittedGlyphs.add(u.glyphName);
-            }
-            return true;
-        } catch (error) {
-            console.warn(
-                '[FontManager] Failed to submit incremental Yjs layer batch to worker cache:',
-                updates.map(({ glyphName, layerId }) => ({
-                    glyphName,
-                    layerId
-                })),
-                error
-            );
-            this.workerCacheYDoc = null;
-            fontCompilation.setWorkerCacheDocumentReady(false);
-            return false;
-        }
-    }
-
     private async submitLayerUpdatesToWorkerPreview(
         updates: LayerCacheUpdate[],
         options?: { invalidateLayoutClosure?: boolean }
@@ -5507,16 +5144,15 @@ class FontManager {
      * `babelfontJson` and the previous incremental fingerprints become
      * a stale baseline (they refer to a state that may not match what
      * Rust now has). Clearing the cache forces the next batch to
-     * include every touched layer \u2014 the safe direction \u2014 and the
+     * include every touched layer — the safe direction — and the
      * cache is then incrementally rebuilt by subsequent successful
-     * `submitLayerUpdatesToWorkerCache` calls. This keeps the
+     * `forwardWorkerYjsUpdate` batches. This keeps the
      * fingerprint cache as the documented single source of truth (see
-     * COMPILATION_EDIT_POLICY.md \u00a711).
+     * COMPILATION_EDIT_POLICY.md §11).
      */
     recordFullFontCrossing(): void {
         this._boundaryCrossingStats.fullFontCrossings++;
         this.workerLayerFingerprintCache.clear();
-        this.workerCacheYDoc = null;
     }
 
     async refreshWorkerCacheForReplayTargets(
@@ -5524,7 +5160,7 @@ class FontManager {
     ): Promise<boolean> {
         const refreshPromise = (async () => {
             const currentFont = this.currentFont;
-            if (!currentFont) {
+            if (!currentFont || !fontCompilation?.isInitialized) {
                 return false;
             }
 
@@ -5533,40 +5169,39 @@ class FontManager {
                 return false;
             }
 
-            if (!this.workerCacheYDoc) {
-                return false;
-            }
-
+            // Fingerprint bookkeeping only — worker mutation arrives via
+            // forwarded bridge Yjs updates, not whole-layer encode.
             const targetLayerUpdates =
                 this.collectLayerUpdatesForTargetsFromBridge(
                     normalizedTargets
                 ) ||
                 this.collectLayerUpdatesForTargetsFromModel(normalizedTargets);
-            if (!targetLayerUpdates) {
-                return false;
-            }
 
-            for (const fingerprintKey of targetLayerUpdates.removedFingerprintKeys) {
-                this.workerLayerFingerprintCache.delete(fingerprintKey);
-            }
-
-            const updates = targetLayerUpdates.updates;
-
-            if (!updates.length) {
-                return false;
-            }
-
-            for (const { glyphName, layerId, layerData } of updates) {
-                if (
-                    !this.updateStoredLayerData(glyphName, layerId, layerData)
-                ) {
-                    return false;
+            if (targetLayerUpdates) {
+                for (const fingerprintKey of targetLayerUpdates.removedFingerprintKeys) {
+                    this.workerLayerFingerprintCache.delete(fingerprintKey);
+                }
+                for (const update of targetLayerUpdates.updates) {
+                    const normalized = this.normalizeLayerForRust(
+                        update.layerData
+                    );
+                    this.workerLayerFingerprintCache.set(
+                        this.getWorkerLayerFingerprintKey(
+                            update.glyphName,
+                            update.layerId
+                        ),
+                        JSON.stringify(normalized)
+                    );
                 }
             }
 
-            const updatedIncrementally =
-                await this.submitLayerUpdatesToWorkerCache(updates);
-            return updatedIncrementally;
+            try {
+                await fontCompilation.awaitWorkerDocumentSync();
+            } catch {
+                return false;
+            }
+
+            return true;
         })();
 
         const cacheUpdatePromise = refreshPromise.then(() => undefined);
@@ -5789,37 +5424,6 @@ class FontManager {
             this.currentFont!.markDirty(changeSource);
         }
         await this.updateDirtyIndicator();
-
-        // Update worker's font cache incrementally so glyph overview renders
-        // correctly without any full-document resend.
-        if (!isInteractiveEdit) {
-            try {
-                const updatedIncrementally =
-                    await this.submitLayerUpdatesToWorkerCache(
-                        [
-                            {
-                                glyphName,
-                                layerId,
-                                layerData: layerDataCopy
-                            }
-                        ],
-                        {
-                            invalidateLayoutClosure: true
-                        }
-                    );
-                if (!updatedIncrementally) {
-                    throw new Error(
-                        'Incremental worker Yjs sync failed while saving layer data'
-                    );
-                }
-            } catch (error) {
-                console.error(
-                    '[FontManager] Error updating worker font cache:',
-                    error
-                );
-                throw error;
-            }
-        }
     }
 
     /** Wait for the authoritative bridge Yjs update already sent to Rust. */
@@ -5851,9 +5455,8 @@ class FontManager {
     }
 
     /**
-     * Force an exhaustive incremental Yjs refresh into the Rust worker cache.
-     * This sends all current layers as one Yjs delta against the existing
-     * worker mirror; it must not fall back to any full-document resend.
+     * Re-seed the Rust worker document from the authoritative bridge state.
+     * Kept for API compatibility; does not encode whole layers into Yjs.
      */
     async forceFullWorkerCacheUpdate(): Promise<void> {
         if (!this.currentFont || !fontCompilation?.isInitialized) {
@@ -5862,113 +5465,9 @@ class FontManager {
 
         const cacheUpdatePromise = (async () => {
             this.pendingBabelfontJsonSyncAfterDrag = false;
-            try {
-                if (!this.workerCacheYDoc) {
-                    throw new Error(
-                        'Worker Yjs mirror missing during exhaustive incremental cache refresh'
-                    );
-                }
-
-                const glyphNames =
-                    this.currentFont?.fontModel?.glyphs
-                        ?.map((glyph: any) => glyph?.name)
-                        .filter(
-                            (glyphName: unknown): glyphName is string =>
-                                typeof glyphName === 'string' &&
-                                glyphName.length > 0
-                        ) || [];
-
-                const pendingLayerUpdates =
-                    this.collectChangedLayerUpdatesFromModel(glyphNames, null, {
-                        skipFingerprintBaseline: true,
-                        compileFacing: false
-                    });
-
-                if (!pendingLayerUpdates) {
-                    throw new Error(
-                        'Failed to collect exhaustive incremental layer updates'
-                    );
-                }
-
-                if (pendingLayerUpdates.length === 0) {
-                    const workerUpdate = this.buildWorkerYjsExhaustiveUpdate(
-                        []
-                    );
-                    if (!workerUpdate?.update.length) {
-                        return;
-                    }
-
-                    const sent = await this.sendWorkerYjsUpdate(
-                        workerUpdate.update,
-                        workerUpdate.changedGlyphs,
-                        true
-                    );
-                    if (!sent) {
-                        throw new Error(
-                            'Exhaustive incremental worker-cache deletion refresh failed'
-                        );
-                    }
-
-                    this._boundaryCrossingStats.submitBatchCalls++;
-                    for (const glyphName of workerUpdate.changedGlyphs) {
-                        this._boundaryCrossingStats.transmittedGlyphs.add(
-                            glyphName
-                        );
-                    }
-                    this.workerLayerFingerprintCache.clear();
-                    return;
-                }
-
-                const normalizedUpdates = pendingLayerUpdates.map((update) => ({
-                    glyphName: update.glyphName,
-                    layerId: update.layerId,
-                    normalized: this.normalizeLayerForRust(update.layerData)
-                }));
-                const workerUpdate =
-                    this.buildWorkerYjsExhaustiveUpdate(normalizedUpdates);
-                if (!workerUpdate) {
-                    throw new Error(
-                        'Worker Yjs mirror not ready for exhaustive incremental cache refresh'
-                    );
-                }
-
-                const updated = await this.sendWorkerYjsUpdate(
-                    workerUpdate.update,
-                    workerUpdate.changedGlyphs,
-                    true
-                );
-
-                if (!updated) {
-                    throw new Error(
-                        'Exhaustive incremental worker-cache refresh failed'
-                    );
-                }
-
-                this._boundaryCrossingStats.submitBatchCalls++;
-                this._boundaryCrossingStats.layersTransmitted +=
-                    normalizedUpdates.length;
-                this.workerLayerFingerprintCache.clear();
-                for (const update of normalizedUpdates) {
-                    this.workerLayerFingerprintCache.set(
-                        this.getWorkerLayerFingerprintKey(
-                            update.glyphName,
-                            update.layerId
-                        ),
-                        JSON.stringify(update.normalized)
-                    );
-                }
-                for (const glyphName of workerUpdate.changedGlyphs) {
-                    this._boundaryCrossingStats.transmittedGlyphs.add(
-                        glyphName
-                    );
-                }
-            } catch (error) {
-                console.error(
-                    '[FontManager] forceFullWorkerCacheUpdate: incremental cache refresh failed:',
-                    error
-                );
-                fontCompilation.setWorkerCacheDocumentReady(false);
-            }
+            await this.recoverWorkerCacheFromAuthoritativeState(
+                'forceFullWorkerCacheUpdate'
+            );
         })();
 
         this.workerCacheUpdatePromise = cacheUpdatePromise;
@@ -6017,42 +5516,9 @@ class FontManager {
                 return;
             }
 
-            const pendingLayerUpdates =
-                this.collectChangedLayerUpdatesFromModel(
-                    uniqueGlyphNames,
-                    layerId,
-                    options?.skipFingerprintBaseline ||
-                        options?.explicitLayerData
-                        ? {
-                              ...(options?.skipFingerprintBaseline
-                                  ? { skipFingerprintBaseline: true }
-                                  : undefined),
-                              ...(options?.explicitLayerData
-                                  ? {
-                                        explicitLayerData:
-                                            options.explicitLayerData
-                                    }
-                                  : undefined)
-                          }
-                        : undefined
-                );
-
-            let updatedIncrementally = false;
-            if (pendingLayerUpdates && pendingLayerUpdates.length > 0) {
-                updatedIncrementally =
-                    await this.submitLayerUpdatesToWorkerCache(
-                        pendingLayerUpdates
-                    );
-            } else if (pendingLayerUpdates) {
-                updatedIncrementally = true;
-            }
-
-            if (!updatedIncrementally) {
-                throw new Error(
-                    'Incremental worker Yjs sync failed during editing batch refresh'
-                );
-            }
-
+            // With PatchSyncEngine, worker mutation already flows through
+            // forwardWorkerYjsUpdate; do not whole-layer encode.
+            // Without a bridge, still avoid deleted submit paths — dispatch only.
             if (options?.dispatchGlyphChanged === false) {
                 return;
             }
@@ -6268,12 +5734,18 @@ class FontManager {
             return false;
         }
 
-        // Route through the batched single-call path so the boundary-crossing
-        // counters and `workerLayerFingerprintCache` are updated uniformly.
-        // See COMPILATION_EDIT_POLICY.md \u00a711.
-        return this.submitLayerUpdatesToWorkerCache([
-            { glyphName, layerId, layerData: serializedLayer }
-        ]);
+        try {
+            await fontCompilation.awaitWorkerDocumentSync();
+        } catch {
+            return false;
+        }
+
+        const normalized = this.normalizeLayerForRust(serializedLayer);
+        this.workerLayerFingerprintCache.set(
+            this.getWorkerLayerFingerprintKey(glyphName, layerId),
+            JSON.stringify(normalized)
+        );
+        return true;
     }
 }
 

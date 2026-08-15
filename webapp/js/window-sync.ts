@@ -497,14 +497,11 @@ export class WindowSync {
                         }
 
                         fontManager.recordFullFontCrossing?.();
-                        fontManager.replaceWorkerYjsMirrorFromState?.(
-                            seedState
-                        );
                         // YJS_ONLY (N3): Binary Yjs seed for the worker
                         // Y.Doc — the CRDT baseline, not a JSON crossing.
                         // seedYdoc (init_ydoc_from_state) populates all Rust
                         // caches from the binary Yjs state, so no storeFontJson
-                        // is needed.
+                        // is needed. No second JS worker-mirror Y.Doc.
                         await fontCompilation.sendMessage({
                             type: 'seedYdoc',
                             state: seedState

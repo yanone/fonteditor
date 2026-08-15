@@ -57,38 +57,6 @@ function expectPlainShapeStructure(shapes, context) {
     }
 }
 
-function expectWorkerMirrorLayer(
-    fontManagerInstance,
-    glyphName,
-    layerId,
-    step
-) {
-    const workerDoc = fontManagerInstance.workerCacheYDoc;
-    expect(workerDoc).toBeTruthy();
-
-    const workerJson = yDocToJson(workerDoc.getMap('font'));
-    const glyphs = Array.isArray(workerJson?.glyphs) ? workerJson.glyphs : [];
-    const workerGlyph = glyphs.find((glyph) => glyph?.name === glyphName);
-    expect(workerGlyph).toBeTruthy();
-
-    const availableLayerIds = Array.isArray(workerGlyph?.layers)
-        ? workerGlyph.layers.map((layer) => layer?.id).filter(Boolean)
-        : [];
-    const workerLayer = Array.isArray(workerGlyph?.layers)
-        ? workerGlyph.layers.find((layer) => layer?.id === layerId)
-        : null;
-    if (!workerLayer) {
-        throw new Error(
-            `worker mirror missing ${glyphName}/${layerId} after move ${step}; available layers: ${availableLayerIds.join(', ')}`
-        );
-    }
-
-    expectPlainShapeStructure(
-        workerLayer.shapes,
-        `worker mirror ${glyphName}/${layerId} after move ${step}`
-    );
-}
-
 function getMatchingLayerTargets(
     fontModel,
     sourceGlyphName,
@@ -148,9 +116,6 @@ describe('Fustat anchor drag component serialization', () => {
                 success: true,
                 workerCacheStatus: makeWorkerCacheStatus()
             });
-
-        const initialWorkerState = fontManager.buildWorkerSeedYjsState();
-        fontManager.replaceWorkerYjsMirrorFromState(initialWorkerState);
     });
 
     afterEach(() => {
@@ -210,8 +175,6 @@ describe('Fustat anchor drag component serialization', () => {
                     skipFingerprintBaseline: true
                 })
             ).resolves.toBeUndefined();
-
-            expectWorkerMirrorLayer(fontManager, 'o', layerO.id, moveIndex + 1);
         }
     });
 

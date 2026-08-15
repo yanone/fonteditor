@@ -1039,17 +1039,8 @@ async function getWorkerLayerShapeCounts(
         const dump = response?.dumpJson ? JSON.parse(response.dumpJson) : null;
         const targets = Array.isArray(dump?.targets) ? dump.targets : [];
         const bridgeFontMap = (window as any).patchSyncEngine?.fontMap;
-        const workerMirrorFontMap = (
-            window as any
-        ).fontManager?.workerCacheYDoc?.getMap?.('font');
         const getBridgeLayer = (glyphName: string, layerId: string) => {
             const glyphsMap = bridgeFontMap?.get?.('glyphs');
-            const glyphMap = glyphsMap?.get?.(glyphName);
-            const layersMap = glyphMap?.get?.('layers');
-            return layersMap?.get?.(layerId) ?? null;
-        };
-        const getWorkerMirrorLayer = (glyphName: string, layerId: string) => {
-            const glyphsMap = workerMirrorFontMap?.get?.('glyphs');
             const glyphMap = glyphsMap?.get?.(glyphName);
             const layersMap = glyphMap?.get?.('layers');
             return layersMap?.get?.(layerId) ?? null;
@@ -1148,9 +1139,6 @@ async function getWorkerLayerShapeCounts(
         );
         return {
             aBridgeShapes: countBridgeShapes(getBridgeLayer('a', aLayerId)),
-            aWorkerMirrorShapes: countBridgeShapes(
-                getWorkerMirrorLayer('a', aLayerId)
-            ),
             aYDocShapes: countShapes(byName.get('a')?.ydocLayer),
             aCanonicalShapes: countShapes(byName.get('a')?.canonicalLayer),
             aSubsetShapes: countShapes(byName.get('a')?.subsetLayer),
@@ -1163,9 +1151,6 @@ async function getWorkerLayerShapeCounts(
             aSubsetMismatch: aSubset.matches ? null : aSubset,
             adieresisBridgeShapes: countBridgeShapes(
                 getBridgeLayer('adieresis', adieresisLayerId)
-            ),
-            adieresisWorkerMirrorShapes: countBridgeShapes(
-                getWorkerMirrorLayer('adieresis', adieresisLayerId)
             ),
             adieresisYDocShapes: countShapes(
                 byName.get('adieresis')?.ydocLayer

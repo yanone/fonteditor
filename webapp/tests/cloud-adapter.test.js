@@ -458,8 +458,7 @@ describe('CloudAdapter outbound updates', () => {
                 hasWorkerCacheDocument: jest.fn(() => false)
             };
             window.fontManager = {
-                recordFullFontCrossing: jest.fn(),
-                replaceWorkerYjsMirrorFromState: jest.fn()
+                recordFullFontCrossing: jest.fn()
             };
 
             const bridge = {
@@ -490,9 +489,6 @@ describe('CloudAdapter outbound updates', () => {
             expect(
                 window.fontManager.recordFullFontCrossing
             ).toHaveBeenCalledTimes(1);
-            expect(
-                window.fontManager.replaceWorkerYjsMirrorFromState
-            ).toHaveBeenCalledWith(workerSeedState);
             expect(
                 window.fontCompilation.seedWorkerYDocFromState
             ).toHaveBeenCalledWith(workerSeedState);
@@ -541,8 +537,7 @@ describe('CloudAdapter outbound updates', () => {
                 hasWorkerCacheDocument: jest.fn(() => false)
             };
             window.fontManager = {
-                recordFullFontCrossing: jest.fn(),
-                replaceWorkerYjsMirrorFromState: jest.fn()
+                recordFullFontCrossing: jest.fn()
             };
 
             const bridge = {
@@ -628,8 +623,7 @@ describe('CloudAdapter outbound updates', () => {
                 hasWorkerCacheDocument: jest.fn(() => false)
             };
             window.fontManager = {
-                recordFullFontCrossing: jest.fn(),
-                replaceWorkerYjsMirrorFromState: jest.fn()
+                recordFullFontCrossing: jest.fn()
             };
 
             const bridge = {
@@ -736,8 +730,7 @@ describe('CloudAdapter outbound updates', () => {
                 hasWorkerCacheDocument: jest.fn(() => workerCacheReady)
             };
             window.fontManager = {
-                recordFullFontCrossing: jest.fn(),
-                replaceWorkerYjsMirrorFromState: jest.fn()
+                recordFullFontCrossing: jest.fn()
             };
 
             const bridge = {

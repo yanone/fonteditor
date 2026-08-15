@@ -3081,7 +3081,6 @@ describe('bridge Yjs worker callback', () => {
         window.saveButton = { updateButtonState };
         window.fontManager = {
             buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
-            replaceWorkerYjsMirrorFromState: jest.fn(),
             clearEditingCompileContext: jest.fn(),
             pendingBabelfontJsonSyncAfterDrag: false,
             updateDirtyIndicator,
@@ -3113,7 +3112,6 @@ describe('bridge Yjs worker callback', () => {
     });
 
     test('seeds the worker from the authoritative bridge Y.Doc', async () => {
-        const replaceWorkerYjsMirrorFromState = jest.fn();
         const workerSeedSpy = jest
             .spyOn(fontCompilation, 'seedWorkerYDocFromState')
             .mockResolvedValue();
@@ -3126,7 +3124,7 @@ describe('bridge Yjs worker callback', () => {
         window.windowRole = {
             isLinkedWindow: () => false
         };
-        window.fontManager = { replaceWorkerYjsMirrorFromState };
+        window.fontManager = {};
 
         const bridge = initializeBridgeHarness();
         await Promise.resolve();
@@ -3136,7 +3134,6 @@ describe('bridge Yjs worker callback', () => {
         expect(Array.from(seedState)).toEqual(
             Array.from(bridge.encodeBridgeState())
         );
-        expect(replaceWorkerYjsMirrorFromState).toHaveBeenCalledWith(seedState);
         expect(trackWorkerDocumentSyncSpy).toHaveBeenCalledWith(
             expect.any(Promise)
         );
@@ -3161,7 +3158,6 @@ describe('bridge Yjs worker callback', () => {
         };
         window.fontManager = {
             buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
-            replaceWorkerYjsMirrorFromState: jest.fn(),
             forwardWorkerYjsUpdate
         };
 
@@ -3210,7 +3206,6 @@ describe('bridge Yjs worker callback', () => {
         };
         window.fontManager = {
             buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
-            replaceWorkerYjsMirrorFromState: jest.fn(),
             forwardWorkerYjsUpdate
         };
 
@@ -3252,7 +3247,6 @@ describe('bridge Yjs worker callback', () => {
         };
         window.fontManager = {
             buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
-            replaceWorkerYjsMirrorFromState: jest.fn(),
             forwardWorkerYjsUpdate
         };
 
@@ -3308,7 +3302,6 @@ describe('bridge Yjs worker callback', () => {
         };
         window.fontManager = {
             buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
-            replaceWorkerYjsMirrorFromState: jest.fn(),
             forwardWorkerYjsUpdate
         };
 
@@ -3357,7 +3350,6 @@ describe('bridge Yjs worker callback', () => {
         };
         window.fontManager = {
             buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
-            replaceWorkerYjsMirrorFromState: jest.fn(),
             forwardWorkerYjsUpdate
         };
 
@@ -3429,7 +3421,6 @@ describe('bridge Yjs worker callback', () => {
         };
         window.fontManager = {
             buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
-            replaceWorkerYjsMirrorFromState: jest.fn(),
             forwardWorkerYjsUpdate
         };
 
@@ -3482,7 +3473,6 @@ describe('bridge Yjs worker callback', () => {
         window.fontManager = {
             buildWorkerYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
             buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
-            replaceWorkerYjsMirrorFromState: jest.fn(),
             forwardWorkerYjsUpdate
         };
 
@@ -3520,7 +3510,6 @@ describe('bridge Yjs worker callback', () => {
         };
         window.fontManager = {
             buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
-            replaceWorkerYjsMirrorFromState: jest.fn(),
             forwardWorkerYjsUpdate
         };
 
@@ -3561,7 +3550,6 @@ describe('bridge Yjs worker callback', () => {
         };
         window.fontManager = {
             buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
-            replaceWorkerYjsMirrorFromState: jest.fn(),
             forwardWorkerYjsUpdate
         };
 
@@ -3603,7 +3591,6 @@ describe('bridge Yjs worker callback', () => {
         };
         window.fontManager = {
             buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
-            replaceWorkerYjsMirrorFromState: jest.fn(),
             forwardWorkerYjsUpdate
         };
 
@@ -3660,7 +3647,6 @@ describe('bridge Yjs worker callback', () => {
         };
         window.fontManager = {
             buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
-            replaceWorkerYjsMirrorFromState: jest.fn(),
             forwardWorkerYjsUpdate
         };
 
@@ -3713,7 +3699,6 @@ describe('bridge Yjs worker callback', () => {
         };
         window.fontManager = {
             buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
-            replaceWorkerYjsMirrorFromState: jest.fn(),
             forwardWorkerYjsUpdate
         };
 
@@ -3752,7 +3737,6 @@ describe('bridge Yjs worker callback', () => {
         };
         window.fontManager = {
             buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
-            replaceWorkerYjsMirrorFromState: jest.fn(),
             forwardWorkerYjsUpdate
         };
 
@@ -4672,13 +4656,14 @@ describe('syncRustCacheAndRefreshCanvas', () => {
         expect(refreshGlyphAdvancesLive).not.toHaveBeenCalled();
     });
 
-    test('waits for worker Yjs sync even when replay-target refresh succeeds', async () => {
+    test('waits for worker Yjs sync and pending cache updates without whole-layer encode', async () => {
         const awaitWorkerDocumentSync = jest
             .spyOn(fontCompilation, 'awaitWorkerDocumentSync')
             .mockResolvedValue();
         const refreshWorkerCacheForReplayTargets = jest
             .fn()
             .mockResolvedValue(true);
+        const awaitWorkerCacheUpdate = jest.fn(async () => {});
 
         fontCompilation.isInitialized = true;
         window.fontManager = {
@@ -4690,7 +4675,7 @@ describe('syncRustCacheAndRefreshCanvas', () => {
             },
             refreshWorkerCacheForReplayTargets,
             submitLayerToWorkerCache: jest.fn(),
-            awaitWorkerCacheUpdate: jest.fn(async () => {})
+            awaitWorkerCacheUpdate
         };
         window.glyphCanvas = {
             textRunEditor: {
@@ -4708,23 +4693,30 @@ describe('syncRustCacheAndRefreshCanvas', () => {
             }
         };
 
-        await syncRustCacheAndRefreshCanvas(undefined, 'l', {
-            skipDeferredCanvasRepaint: true,
-            workerReplayTargets: [{ glyphName: 'l', layerId: 'master-regular' }]
-        });
+        try {
+            await syncRustCacheAndRefreshCanvas(undefined, 'l', {
+                skipDeferredCanvasRepaint: true,
+                workerReplayTargets: [
+                    { glyphName: 'l', layerId: 'master-regular' }
+                ]
+            });
 
-        expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledWith([
-            { glyphName: 'l', layerId: 'master-regular' }
-        ]);
-        expect(awaitWorkerDocumentSync).toHaveBeenCalledTimes(1);
-
-        awaitWorkerDocumentSync.mockRestore();
+            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
+            expect(
+                window.fontManager.submitLayerToWorkerCache
+            ).not.toHaveBeenCalled();
+            expect(awaitWorkerDocumentSync).toHaveBeenCalledTimes(1);
+            expect(awaitWorkerCacheUpdate).toHaveBeenCalledTimes(1);
+        } finally {
+            awaitWorkerDocumentSync.mockRestore();
+        }
     });
 
     test('skips selected-layer fallback when explicitly disabled', async () => {
         const awaitWorkerDocumentSync = jest
             .spyOn(fontCompilation, 'awaitWorkerDocumentSync')
             .mockResolvedValue();
+        const awaitWorkerCacheUpdate = jest.fn(async () => {});
 
         fontCompilation.isInitialized = true;
         window.fontManager = {
@@ -4736,7 +4728,7 @@ describe('syncRustCacheAndRefreshCanvas', () => {
             },
             refreshWorkerCacheForReplayTargets: jest.fn(),
             submitLayerToWorkerCache: jest.fn(),
-            awaitWorkerCacheUpdate: jest.fn(async () => {})
+            awaitWorkerCacheUpdate
         };
         window.glyphCanvas = {
             textRunEditor: {
@@ -4754,24 +4746,28 @@ describe('syncRustCacheAndRefreshCanvas', () => {
             }
         };
 
-        await syncRustCacheAndRefreshCanvas(undefined, undefined, {
-            skipDeferredCanvasRepaint: true,
-            allowSelectedLayerFallback: false
-        });
+        try {
+            await syncRustCacheAndRefreshCanvas(undefined, undefined, {
+                skipDeferredCanvasRepaint: true,
+                allowSelectedLayerFallback: false
+            });
 
-        expect(
-            window.fontManager.submitLayerToWorkerCache
-        ).not.toHaveBeenCalled();
-        expect(awaitWorkerDocumentSync).toHaveBeenCalledTimes(1);
-
-        awaitWorkerDocumentSync.mockRestore();
+            expect(
+                window.fontManager.submitLayerToWorkerCache
+            ).not.toHaveBeenCalled();
+            expect(awaitWorkerDocumentSync).toHaveBeenCalledTimes(1);
+            expect(awaitWorkerCacheUpdate).toHaveBeenCalledTimes(1);
+        } finally {
+            awaitWorkerDocumentSync.mockRestore();
+        }
     });
 
-    test('uses the active stack layer for worker-cache fallback', async () => {
+    test('no longer falls back to submitLayerToWorkerCache for stack layers', async () => {
         const awaitWorkerDocumentSync = jest
             .spyOn(fontCompilation, 'awaitWorkerDocumentSync')
             .mockResolvedValue();
         const submitLayerToWorkerCache = jest.fn().mockResolvedValue(true);
+        const awaitWorkerCacheUpdate = jest.fn(async () => {});
 
         fontCompilation.isInitialized = true;
         window.fontManager = {
@@ -4783,7 +4779,7 @@ describe('syncRustCacheAndRefreshCanvas', () => {
             },
             refreshWorkerCacheForReplayTargets: jest.fn(),
             submitLayerToWorkerCache,
-            awaitWorkerCacheUpdate: jest.fn(async () => {})
+            awaitWorkerCacheUpdate
         };
         window.glyphCanvas = {
             textRunEditor: {
@@ -4803,17 +4799,17 @@ describe('syncRustCacheAndRefreshCanvas', () => {
             }
         };
 
-        await syncRustCacheAndRefreshCanvas(undefined, 'A', {
-            skipDeferredCanvasRepaint: true
-        });
+        try {
+            await syncRustCacheAndRefreshCanvas(undefined, 'A', {
+                skipDeferredCanvasRepaint: true
+            });
 
-        expect(submitLayerToWorkerCache).toHaveBeenCalledWith(
-            'A',
-            'background-layer'
-        );
-        expect(awaitWorkerDocumentSync).toHaveBeenCalledTimes(1);
-
-        awaitWorkerDocumentSync.mockRestore();
+            expect(submitLayerToWorkerCache).not.toHaveBeenCalled();
+            expect(awaitWorkerDocumentSync).toHaveBeenCalledTimes(1);
+            expect(awaitWorkerCacheUpdate).toHaveBeenCalledTimes(1);
+        } finally {
+            awaitWorkerDocumentSync.mockRestore();
+        }
     });
 });
 
