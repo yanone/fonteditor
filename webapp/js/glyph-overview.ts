@@ -3138,24 +3138,29 @@ class GlyphOverview {
         tileCount: number;
         paintedCount: number;
         canvasBytes: number;
+        cachedOutlines: unknown[];
     } {
         let canvasBytes = 0;
         let paintedCount = 0;
+        const cachedOutlines: unknown[] = [];
         for (const tile of this.tiles.values()) {
             const canvas = tile.canvas;
-            if (!canvas) {
-                continue;
+            if (canvas) {
+                const bytes = overviewTileCanvasBackingBytes(canvas);
+                if (bytes > 0) {
+                    paintedCount += 1;
+                    canvasBytes += bytes;
+                }
             }
-            const bytes = overviewTileCanvasBackingBytes(canvas);
-            if (bytes > 0) {
-                paintedCount += 1;
-                canvasBytes += bytes;
+            if (tile.cachedData) {
+                cachedOutlines.push(tile.cachedData);
             }
         }
         return {
             tileCount: this.tiles.size,
             paintedCount,
-            canvasBytes
+            canvasBytes,
+            cachedOutlines
         };
     }
 

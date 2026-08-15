@@ -394,6 +394,21 @@ function collectMainJsDomain(): MemoryDomain {
             inSum: true,
             note: `${overviewSnapshot.paintedCount} painted of ${overviewSnapshot.tileCount} · width × height × 4`
         });
+        const cachedOutlines = overviewSnapshot.cachedOutlines ?? [];
+        const outlineSeen = new WeakSet<object>();
+        const cachedOutlineBytes = cachedOutlines.reduce(
+            (sum: number, value: unknown) =>
+                sum + estimateJsValueBytes(value, outlineSeen),
+            0
+        );
+        rows.push({
+            id: 'overview-tile-outlines',
+            label: 'Glyph overview outline JSON',
+            bytes: cachedOutlineBytes,
+            method: 'est.',
+            inSum: true,
+            note: `${cachedOutlines.length} tiles · kept for resize`
+        });
     }
 
     const pythonSnapshot =
