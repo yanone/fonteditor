@@ -6,10 +6,10 @@ Counterpunch is built in conversation with a long history of type design tools, 
 
 These projects are foundational to Counterpunch’s implementation:
 
-- `fontc` — modern font compilation infrastructure from the Google Fonts ecosystem.
 - `babelfont-rs` — a key model and conversion layer for font source data.
-- `Pyodide` — in-browser Python runtime that enables scripting workflows without local installs.
+- `fontc` — modern font compilation infrastructure from the Google Fonts ecosystem.
 - `HarfBuzz.js` (from HarfBuzz) — shaping technology used for text shaping and preview behavior.
+- `Pyodide` — in-browser Python runtime that enables scripting workflows without local installs.
 
 These projects represent substantial engineering work by their maintainers and contributors. Counterpunch benefits directly from their quality, openness, and long-term ecosystem investment.
 
@@ -17,7 +17,7 @@ These projects represent substantial engineering work by their maintainers and c
 
 Counterpunch also acknowledges the influence of established type design software and workflows that defined practical expectations in the field. Decades of tool design have shaped how type designers think about glyph editing, interpolation, scripting, export pipelines, and production reliability.
 
-Whether users come from commercial or open-source tools, many interaction patterns in modern editors reflect shared industry learning. Counterpunch aims to participate in that tradition respectfully while offering a browser-native implementation.
+Whether users come from commercial or open-source tools, many interaction patterns in modern editors reflect shared industry learning. Counterpunch aims to participate in that tradition respectfully while offering a browser-native implementation loaded with workflow innovations.
 
 ## Standards and interoperability culture
 
@@ -25,7 +25,7 @@ The type industry’s standards culture is essential for collaboration across to
 
 - OpenType-based production expectations.
 - Unicode character model and text interoperability.
-- Source format practices around UFO/designspace and related workflows.
+- Source format practices and related workflows.
 - Web platform standards that make browser-native editing possible.
 
 ## Community appreciation

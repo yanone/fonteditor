@@ -6,14 +6,22 @@ Counterpunch edits kerning in text mode, with the caret between two glyphs, so p
 
 Switch the Editor to text mode and put the caret between two glyphs. The property panel shows:
 
-- **First (RKG)** for the glyph before the caret (First (LKG) in RTL)
-- **Second (LKG)** for the glyph after the caret (Second (RKG) in RTL)
+- **First (RKG)** for the first glyph in a kerning pair, and a hint that that glyph’s right kerning group (RKG) is used here. (LKG for RTL text)
+- **Second (LKG)** for the second glyph in a kerning pair, and a hint that that glyph’s left kerning group (LKG) is used here. (RKG for RTL text)
 - an inline kerning value in the center
-- chips for the base glyph and any kerning group on each side, stacked in the same vertical space; a placeholder `+` chip stands in when that side has no group
+- chips for the base glyph and any kerning group on each side; a placeholder `+` chip stands in when that side has no group
 
-The same chips appear in outline edit view for the current glyph's LKG and RKG (LSB orange, RSB blue), not the pair at the caret. Edit view shows only the group chip, not the glyph name. In RTL text, First/Second colors swap so First stays LSB orange.
+The same kerning groups appear in edit mode for the current glyph's LKG and RKG. In RTL text, First/Second colors swap so First stays LSB orange.
 
 Without an exact master the operands still show, but kerning is read-only until you choose a real master.
+
+## Property Panel for LTR and RTL kerning
+
+The property panel shows a preview of how a kerning pair would be defined in the OpenType features in the end.
+
+LTR text is naturally defined as left glyph first, right glyph second.
+
+Kerning for RTL text is also defined as first glyph -> second glyph in logical order, which means that the first glyph is the visually right glyph and the second glyph is the visually left glyph of the kerning pair, while the property panel still defined them as first on the left, second on the right, as defined in the data.
 
 **Font → Kerning Editor…** opens a table of all defined pairs (LTR or RTL) with values per master. Opening it from text mode selects the active First/Second chips from the panel and scrolls that row into view. Select a row to delete it from every master, or edit individual cells. Undo restores previous values and the table UI state.
 
@@ -23,18 +31,18 @@ Counterpunch prefers an existing glyph-to-glyph or glyph-to-group pair when one 
 
 A glyph may belong to one kerning group per side. Click the placeholder `+` to add the current glyph to a group on that side; `x` removes it. The placeholder is gone once that side has a group.
 
+The group definition UI with the chips and the plus/remove buttons is in preparation of a future extension that allows to define multiple kerning groups per glyph.
+
 ## Values and shortcuts
 
 Type a number in the inline field. Negative values tighten, positive values open, an empty field clears the pair. The overlay updates from the active pair.
 
-For LTR, the caret stays at the between-glyph edge: left of the overlay when the value is negative, right when positive. The canvas stays anchored on the glyph left of the pair. RTL is the mirror: the canvas stays anchored on the glyph right of the caret.
-
-Arrow nudges and field arrows update the active pair immediately, then commit after a short idle (same delay as keyboard outline edits). Other matching pairs in the proof string refresh after compile.
+Arrow nudges and field arrows update the active pair immediately, then commit after a short idle (same delay as keyboard outline edits). Other matching pairs in the text refresh after compile.
 
 - `Alt/Option+Left` / `Alt/Option+Right` change the value by 1
-- add Shift for 10
+- add `Shift` for 10
 - add `Cmd/Ctrl` with Shift for 100
 
-A practical loop: type a short proof, put the caret in the pair, check whether it is a glyph or group pair, switch chips if needed, nudge with Alt/Option+Arrow, and add a group only when that side has none yet.
+A practical loop: type a short proof, put the caret in the pair, check whether it is a glyph or group pair, switch chips if needed, nudge with `Alt/Option+Arrow`, and add a group only when that side has none yet.
 
 Related: [Glyph editor](01-glyph-editor.md), [Sidebearing arithmetics](04-sidebearing-arithmetics.md), [Keyboard shortcuts](../reference/keyboard-shortcuts.md).

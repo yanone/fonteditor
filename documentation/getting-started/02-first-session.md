@@ -6,7 +6,7 @@ Use Chrome if you can. See [Before you begin](00-before-you-begin.md) for browse
 
 Have a sample `.glyphs` or `.babelfont` file ready if you want to save back to the same format. Counterpunch can also open `.glyphspackage`, `.ufo`, `.designspace`, `.vfj`, and `.sfd`; those open for editing, but only `.babelfont` and `.glyphs` currently save in place.
 
-1. Open Counterpunch and go to **Files**.
+1. Open Counterpunch and go to **Files**. For work you want to keep, use **Disk** and pick a [project folder](04-project-and-settings-folders.md).
 2. Open a source. When the font loads, switch to the **Editor** with `Cmd/Ctrl+Shift+E`.
 3. Pick a simple glyph such as H. Move one point a little and confirm the outline updates.
 4. Save with `Cmd/Ctrl+S`. The font name in the toolbar shows a dot when there are unsaved changes.

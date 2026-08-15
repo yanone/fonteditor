@@ -7,5 +7,3 @@ Write substitutions, positioning rules, class definitions, prefixes, and feature
 The sidebar shaper control chooses an engine such as HarfBuzz and shows the order that engine will apply features. Different shapers can order features differently. Use that list when text does not look the same across environments, or when you suspect a feature-order conflict.
 
 A debugging loop that works: search the problematic glyph, check the active shaper and feature order, verify classes, then try another shaper if the issue looks platform-specific. If a compile error appears, the message usually names a line. Fix that line, compile again, then search the glyph you were shaping.
-
-Undo for feature code follows the Features undo surface in [Undo and history](../reference/undo-and-history-scopes.md). Overview is in [Glyph overview](../overview/01-glyph-overview-basics.md).

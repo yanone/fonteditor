@@ -31,7 +31,7 @@ Even though now locally installed, the editor’s Python environment will not be
 
 ## First launch and updates
 
-On first visit the browser may ask about folder access, and after a browser restart you may have to repeat giving those permissions once. This is a result of the editor not being a native OS app.
+On first visit the browser may ask about folder access, and after a browser restart you may have to repeat giving those permissions once. This is a result of the editor not being a native OS app. The two folders you pick are in [Project and settings folders](04-project-and-settings-folders.md).
 
 Reloading the page does not load a new version, because the app is cached on purpose. When an update is ready, an Update control appears in the title bar (File menu). Click it to switch. That behaviour is the same online and in the installed app.
 

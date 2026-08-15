@@ -17,9 +17,13 @@ Enable editing only when you want those actions. Save the font first if the chan
 
 Ask in plain language. For a **reusable script** or **Overview filter**, the assistant drafts into the Script Editor (`Counterpunch/Scripts` vs `Counterpunch/Filters`). You review the buffer, then Save or Run yourself.
 
-For a one-off font change with editing on, it may execute Python immediately instead of leaving a file. Keep a request to one operation with named glyphs, layers, or ranges.
+For a one-off font change with editing on, it may execute Python immediately instead of creating a Python file for that. Keep a request to one operation with named glyphs, layers, or ranges.
 
-Conversations can be saved with titles and keywords so later sessions remember preferences.
+Conversations are currently not yet saved. If you click on the + symbol, a new conversation starts and the old one is lost. (Subject to change)
+
+## Required subscription
+
+With a free user account you get €0.50 of free assistant credits every month to get you started. Once you run out, you may upgrade for a paid subscription that offers additional credits and additional features in the future.
 
 ![Assistant view with prompt field](images/assistant.png)
 

@@ -10,4 +10,4 @@ It is meant for first edits as well as production work. Beginners can make a con
 
 ![Counterpunch workspace after a font is open](images/workspace.png)
 
-Start a session with [Your first session](02-first-session.md). The [Workspace tour](03-workspace-tour.md) names each view. Browser setup is in [Before you begin](00-before-you-begin.md).
+The two local folders are in [Project and settings folders](04-project-and-settings-folders.md). Start a session with [Your first session](02-first-session.md). The [Workspace tour](03-workspace-tour.md) names each view. Browser setup is in [Before you begin](00-before-you-begin.md).

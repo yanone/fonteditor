@@ -6,4 +6,4 @@ Use it to print one property, try a small transform, or verify an assumption abo
 
 `Cmd/Ctrl+K` clears Konsole output. Font undo from this view uses the automation undo surface, same as Scripts.
 
-Move a command that worked into [Script editor](02-script-editor-workflow.md) when you want to keep it. If a command fails, [Common problems](../troubleshooting/common-problems.md) has a short recovery path.
+Move a command that worked into [Script editor](02-script-editor-workflow.md) when you want to keep it. Session-only packages use `await micropip.install(...)`; lasting plugin wheels are in [Installing plugins and packages](07-installing-plugins-and-packages.md). If a command fails, [Common problems](../troubleshooting/common-problems.md) has a short recovery path.

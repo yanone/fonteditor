@@ -35,7 +35,23 @@ def classify_glyph(glyph):
 
 `EVENT_TYPES` lists only glyph-content changes that can change this filter's answer. The app reclassifies the affected glyph after a matching committed edit. Do not subscribe to `glyph.created`, `glyph.deleted`, `glyph.renamed`, or `font.masters.changed`. The app always manages those. It also emits `glyph.compatibility.changed` only when a glyph's compatibility actually changes, so compatibility filters should subscribe to that targeted event.
 
-Do not use `filter_glyphs`, `apply_changes`, `GROUPS`, `glyph_name`, or cache management. The app owns complete scans, incremental updates, group cleanup, and result cache keys.
+Supported event types:
+
+- `glyph.unicode.changed` — Unicode assignment changed.
+- `glyph.category.changed` — Category assignment changed.
+- `glyph.export.changed` — Export flag changed.
+- `glyph.production-name.changed` — Production name changed.
+- `glyph.paths.changed` — Path geometry or structure changed on one or more layers.
+- `glyph.components.changed` — Component membership changed (add, remove, or replace).
+- `glyph.component.reference.changed` — A component changed which glyph it references.
+- `glyph.component.transform.changed` — A component transform changed.
+- `glyph.anchors.changed` — Anchors changed on one or more layers.
+- `glyph.guides.changed` — Guides changed on one or more layers.
+- `glyph.layers.changed` — A layer was added, removed, or otherwise structurally changed.
+- `glyph.layer.location.changed` — An intermediate layer location changed.
+- `glyph.metrics.changed` — Layer metrics such as advance width or sidebearings changed.
+- `glyph.metrics-key.changed` — A glyph- or layer-level metrics key (LSB/RSB formula) changed.
+- `glyph.compatibility.changed` — `Glyph.isCompatible` toggled.
 
 The app scans all glyphs when a filter first loads, reloads, or is explicitly refreshed. After that, it updates only changed glyphs. Filters run read-only; they must not edit the font. Keep both functions small. Expensive whole-font searches, I/O, and asynchronous work do not belong here.
 

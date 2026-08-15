@@ -30,6 +30,12 @@
                     "title": "Workspace tour",
                     "kind": "page",
                     "path": "getting-started/03-workspace-tour.md"
+                },
+                {
+                    "id": "getting-started/project-and-settings-folders",
+                    "title": "Project and settings folders",
+                    "kind": "page",
+                    "path": "getting-started/04-project-and-settings-folders.md"
                 }
             ]
         },
@@ -133,7 +139,7 @@
                 },
                 {
                     "id": "overview/code-driven-filters",
-                    "title": "Code-driven filters",
+                    "title": "Code-driven user filters",
                     "kind": "page",
                     "path": "overview/02-code-driven-filters.md"
                 }
@@ -179,6 +185,12 @@
                     "title": "Python API",
                     "kind": "page",
                     "path": "python/06-python-api.md"
+                },
+                {
+                    "id": "python/installing-plugins-and-packages",
+                    "title": "Installing plugins and packages",
+                    "kind": "page",
+                    "path": "python/07-installing-plugins-and-packages.md"
                 }
             ]
         },
