@@ -301,16 +301,20 @@
                                 versionSpan.dataset.version = version;
                                 versionSpan.dataset.displayVersion =
                                     displayVersion;
-                                if (
-                                    displayVersion.startsWith('preview-build-')
-                                ) {
-                                    versionSpan.textContent = displayVersion;
-                                    versionSpan.title = version;
-                                } else if (isPreview) {
+                                const stageLabel =
+                                    document.getElementById('app-stage-label');
+                                if (isPreview) {
+                                    if (stageLabel) {
+                                        stageLabel.hidden = true;
+                                    }
                                     versionSpan.textContent = 'Preview';
-                                    versionSpan.title = displayVersion;
+                                    versionSpan.removeAttribute('title');
                                 } else {
+                                    if (stageLabel) {
+                                        stageLabel.hidden = false;
+                                    }
                                     versionSpan.textContent = version;
+                                    versionSpan.removeAttribute('title');
                                 }
                             }
                         }
@@ -397,7 +401,8 @@
                 <h1 class="app-name">
                     Counterpunch
                     <span style="opacity: 0.4"
-                        >Alpha <span id="app-version"></span
+                        ><span id="app-stage-label">Alpha </span
+                        ><span id="app-version"></span
                     ></span>
                 </h1>
                 <div class="toolbar-menu-bar" id="toolbar-menu-bar">
