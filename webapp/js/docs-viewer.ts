@@ -1,4 +1,5 @@
 import { Logger } from './logger';
+import { buildDocsHref } from './link-navigation';
 import { hasVisibleTippyMenus } from './tippy-utils';
 
 const console = new Logger('DocsViewer');
@@ -528,7 +529,10 @@ export class DocsViewer {
                 return;
             }
             if (resolved.kind === 'page') {
-                anchor.setAttribute('href', `#docs=${resolved.id}`);
+                anchor.setAttribute(
+                    'href',
+                    buildDocsHref(resolved.id, resolved.heading)
+                );
                 anchor.dataset.docsId = resolved.id;
                 if (resolved.heading) {
                     anchor.dataset.docsHeading = resolved.heading;

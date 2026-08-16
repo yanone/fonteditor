@@ -491,6 +491,8 @@ if (document.readyState === 'loading') {
 }
 
 import './auth-manager'; // Authentication with fonteditorwebsite
+import { initLinkNavigationGuard } from './link-navigation';
+initLinkNavigationGuard();
 import './ai-assistant';
 import './auto-compile-manager';
 import './cache-manager';

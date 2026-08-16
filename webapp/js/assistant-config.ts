@@ -76,7 +76,7 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
         function: {
             name: 'handbook_toc',
             description:
-                'Get the full table of contents of the Counterpunch user handbook. This lists all available documentation topics organized by section. Use this first to discover what handbook topics are available.',
+                'Get the full table of contents of the Counterpunch user handbook. This lists all available documentation topics organized by section. Each page includes a docs:// link token (for example docs://editor/outline-drawing). Use this first to discover what handbook topics are available. When citing a handbook page for the user in markdown, link with that docs:// token so the in-app docs viewer opens.',
             parameters: {
                 type: 'object',
                 properties: {},
@@ -96,7 +96,7 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
                     topic: {
                         type: 'string',
                         description:
-                            'Handbook page id or path, e.g. "getting-started/before-you-begin" or "python/04-writing-general-scripts.md"'
+                            'Handbook page id, docs:// link, or path, e.g. "getting-started/before-you-begin", "docs://getting-started/before-you-begin", or "python/04-writing-general-scripts.md"'
                     }
                 },
                 required: ['topic']
@@ -750,6 +750,8 @@ At the beginning of every prompt, call set_prompt_history_summary with a concise
 Every request includes the current editor state and whether Assistant editing is allowed. Treat that permission as authoritative. When Assistant editing is disabled, you may still inspect the font, including with execute_python_code, and adjust editor UI state. Do not use Python or any other tool to modify font data. If you decline an edit because of this permission, tell the user that they can enable editing with the pen button in the Assistant title bar before sending a new prompt. You cannot change the permission yourself, and it remains frozen for the current prompt.
 
 Use execute_python_code to inspect or modify the current font model. Call python_api_docs before using unfamiliar model APIs.
+
+When linking users to handbook topics in markdown, use the docs:// tokens from handbook_toc (for example [Outline drawing](docs://editor/outline-drawing)). Do not link raw .md file paths.
 
 IMPORTANT TERMINOLOGY: When the user says "create a Python script" or "write a Python script", they are most likely asking you to create a script file in the Script Editor (as a reusable file), not to run code inline. Follow the Python authoring workflow below. You may still use execute_python_code to answer exploration or inspection questions about the font, but the phrase "Python script" signals the Script Editor.
 

@@ -53,6 +53,7 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     HistoryView: false,
     KerningEditorDialog: false,
     LayerDataNormalizer: false,
+    LinkNavigation: false,
     Locations: false,
     MeasurementTool: false,
     MemoryMonitor: false,

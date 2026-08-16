@@ -5,6 +5,7 @@
 
 import { resolveWebsiteURL } from './website-url';
 import { Logger } from './logger';
+import { rewriteHtmlAnchorsForDocs } from './link-navigation';
 import {
     ASSISTANT_TOOLS,
     ASSISTANT_TOOL_CATEGORIES,
@@ -56,21 +57,32 @@ function formatHandbookToc(nodes: HandbookManifestNode[], indent = ''): string {
                 );
                 return `${indent}${node.title}/\n${nested}`;
             }
-            return `${indent}${node.id} — ${node.title} (${node.path})`;
+            return `${indent}${node.id} — ${node.title} (docs://${node.id})`;
         })
         .join('\n');
+}
+
+function normalizeHandbookTopic(topic: string): string {
+    return topic
+        .replace(/^docs:\/\//i, '')
+        .replace(/^#docs=/i, '')
+        .replace(/\.\.\//g, '')
+        .replace(/^\/+/, '')
+        .replace(/#.*$/, '')
+        .trim();
 }
 
 function findHandbookPath(
     nodes: HandbookManifestNode[],
     topic: string
 ): string | null {
+    const clean = normalizeHandbookTopic(topic);
     for (const node of nodes) {
-        if (node.path && (node.id === topic || node.path === topic)) {
+        if (node.path && (node.id === clean || node.path === clean)) {
             return node.path;
         }
         if (node.children) {
-            const nested = findHandbookPath(node.children, topic);
+            const nested = findHandbookPath(node.children, clean);
             if (nested) {
                 return nested;
             }
@@ -2576,7 +2588,7 @@ class AIAssistant {
             const shell = this.createAssistantMessageShell();
             shell.body.innerHTML =
                 typeof marked !== 'undefined'
-                    ? marked.parse(content)
+                    ? rewriteHtmlAnchorsForDocs(marked.parse(content))
                     : this.escapeHtml(content);
             this.messagesContainer.appendChild(shell.messageDiv);
             this.messagesContainer.scrollTop =
@@ -2792,7 +2804,7 @@ __counterpunch_assistant_validate_syntax(${sourceKey})`
                 const topic = args.topic;
                 if (!topic)
                     throw new Error('Missing required parameter: topic');
-                const clean = topic.replace(/\.\.\//g, '').replace(/^\/+/, '');
+                const clean = normalizeHandbookTopic(String(topic));
                 let path = clean.endsWith('.md') ? clean : null;
                 if (!path) {
                     const manifestText = await this.fetchText(
@@ -4208,8 +4220,8 @@ if '_assistant_original_stdout' in dir():
                             bd.appendChild(textContainer);
                         }
                         if (typeof marked !== 'undefined') {
-                            textContainer.innerHTML = marked.parse(
-                                roundTexts[currentRoundIndex]
+                            textContainer.innerHTML = rewriteHtmlAnchorsForDocs(
+                                marked.parse(roundTexts[currentRoundIndex])
                             );
                         } else {
                             textContainer.textContent =
