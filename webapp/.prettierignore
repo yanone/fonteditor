@@ -1,5 +1,6 @@
 *.md
 *.json
+!tests/**/*-snapshots/**/*.json
 *.html
 *.css
 # Ignore compiled wasm and python wheels

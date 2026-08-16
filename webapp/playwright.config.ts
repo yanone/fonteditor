@@ -17,6 +17,8 @@ export default defineConfig({
     // Only run Playwright spec files, not Jest test files
     testMatch: '**/*.spec.ts',
 
+    globalTeardown: './scripts/format-snapshot-json.mjs',
+
     // The app under test keeps mutable browser-side state in memory, so
     // browser specs must not run concurrently across workers.
     workers: 1,

@@ -131,6 +131,34 @@ async function readSnapshotFile(path: string): Promise<string> {
     return fsPromises.readFile(path, 'utf8');
 }
 
+async function writeFormattedJsonSnapshot(
+    snapshotPath: string,
+    snapshotText: string
+): Promise<void> {
+    const loadModule = new Function(
+        'modulePath',
+        'return import(modulePath);'
+    ) as (modulePath: string) => Promise<any>;
+
+    const [fsPromises, pathModule, prettier] = await Promise.all([
+        loadModule('fs/promises'),
+        loadModule('path'),
+        loadModule('prettier')
+    ]);
+
+    const prettierOptions = (await prettier.resolveConfig(snapshotPath)) || {};
+    const formatted = await prettier.format(snapshotText, {
+        ...prettierOptions,
+        filepath: snapshotPath,
+        parser: 'json'
+    });
+
+    await fsPromises.mkdir(pathModule.dirname(snapshotPath), {
+        recursive: true
+    });
+    await fsPromises.writeFile(snapshotPath, formatted, 'utf8');
+}
+
 /**
  * Prepare snapshot for comparison with stable key ordering.
  */
@@ -152,7 +180,10 @@ export async function expectJsonSnapshot(
         testInfo.config.updateSnapshots === 'all' ||
         testInfo.config.updateSnapshots === 'changed'
     ) {
-        expect(snapshotText).toMatchSnapshot(snapshotName);
+        // Write Prettier-formatted JSON ourselves. Playwright's snapshot
+        // writer omits the trailing newline and expands short arrays, which
+        // pre-commit Prettier then rewrites as noisy formatting-only diffs.
+        await writeFormattedJsonSnapshot(snapshotPath, snapshotText);
         return;
     }
 
@@ -175,7 +206,7 @@ export async function expectJsonSnapshot(
             throw error;
         }
 
-        expect(snapshotText).toMatchSnapshot(snapshotName);
+        await writeFormattedJsonSnapshot(snapshotPath, snapshotText);
     }
 }
 
