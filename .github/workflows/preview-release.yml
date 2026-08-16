@@ -1,16 +1,14 @@
 name: Preview Release
 
 on:
-    push:
-        tags:
-            - "v0.0.0-preview-*"
+    workflow_dispatch:
 
 concurrency:
     group: preview-release
     cancel-in-progress: false
 
 permissions:
-    contents: read
+    contents: write
     deployments: write
 
 jobs:
@@ -26,29 +24,7 @@ jobs:
               id: version
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              run: |
-                  TAG="${GITHUB_REF#refs/tags/}"
-                  COMMIT_SHA=$(git rev-list -n 1 "$TAG")
-                  COMMIT_SHORT=$(git rev-parse --short "$COMMIT_SHA")
-                  DISPLAY_VERSION=""
-                  for attempt in 1 2 3 4 5; do
-                      DISPLAY_VERSION=$(gh release view "$TAG" --json name --jq .name || true)
-                      if [ -n "$DISPLAY_VERSION" ]; then
-                          break
-                      fi
-                      echo "Release not visible yet (attempt $attempt), retrying..."
-                      sleep 3
-                  done
-                  if [ -z "$DISPLAY_VERSION" ]; then
-                      echo "Error: could not read GitHub prerelease title for $TAG"
-                      exit 1
-                  fi
-                  echo "TAG=$TAG" >> $GITHUB_OUTPUT
-                  echo "DISPLAY_VERSION=$DISPLAY_VERSION" >> $GITHUB_OUTPUT
-                  echo "COMMIT_SHA=$COMMIT_SHA" >> $GITHUB_OUTPUT
-                  echo "COMMIT_SHORT=$COMMIT_SHORT" >> $GITHUB_OUTPUT
-                  echo "Preview tag: $TAG"
-                  echo "Display version: $DISPLAY_VERSION"
+              run: bash scripts/resolve-preview-release.sh
 
             - name: Inject preview versions
               run: |
@@ -98,6 +74,16 @@ jobs:
 
             - name: Run Rust WASM cache tests
               run: cd babelfont-fontc-build && rustup run nightly wasm-pack test --node
+
+            - name: Publish GitHub prerelease
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  gh release create "${{ steps.version.outputs.TAG }}" \
+                      --target "${{ steps.version.outputs.COMMIT_SHA }}" \
+                      --title "${{ steps.version.outputs.DISPLAY_VERSION }}" \
+                      --notes-file release-notes.md \
+                      --prerelease
 
             - name: Deploy preview to Cloudflare Pages
               uses: cloudflare/pages-action@v1
