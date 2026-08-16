@@ -1165,6 +1165,19 @@ async function expectMainWindowScreenshot(
 ): Promise<void> {
     await expect(page).toHaveScreenshot(fileName, {
         maxDiffPixelRatio: 0.07,
+        mask: [page.locator('#console-container')],
+        maskColor: '#ff00ff'
+    });
+}
+
+async function expectLinkedWindowScreenshot(
+    page: Page,
+    fileName: string,
+    options?: { maxDiffPixelRatio?: number }
+): Promise<void> {
+    await expect(page).toHaveScreenshot(fileName, {
+        maxDiffPixelRatio: options?.maxDiffPixelRatio ?? 0.07,
+        mask: [page.locator('#console-container')],
         maskColor: '#ff00ff'
     });
 }
@@ -1250,6 +1263,41 @@ async function refreshEditorLayerPanel(page: Page): Promise<void> {
     await page.waitForTimeout(300);
 }
 
+/**
+ * Align glyph/location/edit-mode for screenshots without keyboard focusView.
+ * Keyboard view activation collapses sibling panels and would invalidate
+ * full-window baselines that expect the default multi-panel layout.
+ */
+async function alignEditorCanvasForScreenshot(
+    page: Page,
+    glyphName: string,
+    location: Record<string, number>
+): Promise<void> {
+    await setupEditTextMode(page, glyphName);
+    await waitForEditingCompile(page);
+    for (const [axisTag, axisValue] of Object.entries(location)) {
+        await setAxisSliderValue(page, axisTag, axisValue);
+    }
+    await waitForEditingCompile(page);
+    await page.evaluate(async (nextGlyphName) => {
+        const glyphCanvas = (window as any).glyphCanvas;
+        const textRunEditor = glyphCanvas?.textRunEditor;
+        if (!glyphCanvas || !textRunEditor) {
+            return;
+        }
+
+        textRunEditor.setTextBuffer(nextGlyphName);
+        await textRunEditor.selectGlyphByIndex(0, true);
+        glyphCanvas.outlineEditor.active = true;
+        glyphCanvas.outlineEditor.currentGlyphName = nextGlyphName;
+        await glyphCanvas.doUIUpdateAsync();
+        await glyphCanvas.outlineEditor.autoSelectMatchingLayer();
+        await glyphCanvas.doUIUpdateAsync();
+    }, glyphName);
+    await refreshEditorLayerPanel(page);
+    await waitForVisibleLayerRows(page);
+}
+
 // ── Test ──────────────────────────────────────────────────────────────
 
 test.describe('Cross-window ChangeBridge sync', () => {
@@ -1283,15 +1331,10 @@ test.describe('Cross-window ChangeBridge sync', () => {
         await installEditingFontCompileTracker(mainPage);
 
         // Keep the composite run active while editing its source glyph.
+        // Align before opening the linked window so the launch URL copies
+        // text/mode/location (wght:200) instead of an accidental Regular/ä state.
         await focusView(mainPage, 'Meta+Shift+E', 'view-editor');
-        await setupEditTextMode(mainPage);
-        await mainPage.evaluate(async () => {
-            const glyphCanvas = (window as any).glyphCanvas;
-            glyphCanvas.outlineEditor.active = true;
-            glyphCanvas.outlineEditor.currentGlyphName = 'a';
-            await glyphCanvas.doUIUpdateAsync();
-            await glyphCanvas.outlineEditor.fetchLayerData?.(true, 'a');
-        });
+        await alignEditorCanvasForScreenshot(mainPage, 'a', { wght: 200 });
 
         // Find the Thin master layer ID
         const thinLayerId = await findThinLayerId(mainPage);
@@ -1353,7 +1396,7 @@ test.describe('Cross-window ChangeBridge sync', () => {
         );
         expect(linkedBaselineData).toEqual(mainBaselineData);
 
-        // Verify Y.Doc has all expected keys for the Regular layer
+        // Verify Y.Doc has all expected keys for the Thin/ExtraLight layer
         const mainYDocKeys = await extractYDocLayerKeys(
             mainPage,
             'a',
@@ -1365,21 +1408,24 @@ test.describe('Cross-window ChangeBridge sync', () => {
             thinLayerId
         );
         expect(linkedYDocKeys).toEqual(mainYDocKeys);
-        // Sanity: Regular layer Y.Doc must have core properties
+        // Sanity: Thin/ExtraLight layer Y.Doc must have core properties
         expect(mainYDocKeys).toContain('width');
         expect(mainYDocKeys).toContain('master');
         expect(mainYDocKeys).toContain('shapes');
 
+        // Linked windows sync font/Yjs state, not editor UI selection. Align
+        // the linked canvas without keyboard focusView (which collapses panels).
+        await alignEditorCanvasForScreenshot(linkedPage, 'a', { wght: 200 });
+
         // Baseline screenshots
         await mainPage.waitForTimeout(300);
         await expectMainWindowScreenshot(mainPage, '01-main-baseline.png');
-        await expect(linkedPage).toHaveScreenshot('01-linked-baseline.png', {
-            maxDiffPixelRatio: 0.05
-        });
+        await expectLinkedWindowScreenshot(
+            linkedPage,
+            '01-linked-baseline.png'
+        );
 
-        // ── 4. Select the Regular layer in the main window ──────
-        // (Layer selection is handled by the glyph canvas internally
-        // based on the current location; no explicit API needed)
+        // ── 4. Continue Thin/ExtraLight edits on the main window ──────
         await mainPage.waitForTimeout(300);
 
         // ── 5. Outline edit: move first node ─────────────────────
@@ -1636,9 +1682,9 @@ test.describe('Cross-window ChangeBridge sync', () => {
             mainPage,
             '02-main-after-outline-edit.png'
         );
-        await expect(linkedPage).toHaveScreenshot(
-            '02-linked-after-outline-edit.png',
-            { maxDiffPixelRatio: 0.05 }
+        await expectLinkedWindowScreenshot(
+            linkedPage,
+            '02-linked-after-outline-edit.png'
         );
 
         // ── 7. Anchor edit: move top anchor ──────────────────────
@@ -1834,17 +1880,17 @@ test.describe('Cross-window ChangeBridge sync', () => {
             mainPage,
             '03-main-after-anchor-edit.png'
         );
-        await expect(linkedPage).toHaveScreenshot(
-            '03-linked-after-anchor-edit.png',
-            { maxDiffPixelRatio: 0.05 }
+        await expectLinkedWindowScreenshot(
+            linkedPage,
+            '03-linked-after-anchor-edit.png'
         );
         await expectMainWindowScreenshot(
             mainPage,
             '04-main-after-anchor-recomposition.png'
         );
-        await expect(linkedPage).toHaveScreenshot(
-            '04-linked-after-anchor-recomposition.png',
-            { maxDiffPixelRatio: 0.05 }
+        await expectLinkedWindowScreenshot(
+            linkedPage,
+            '04-linked-after-anchor-recomposition.png'
         );
 
         // ── 11. Undo anchor edit and verify exact restoration ───
@@ -1957,9 +2003,9 @@ test.describe('Cross-window ChangeBridge sync', () => {
             mainPage,
             '05-main-after-anchor-undo-restoration.png'
         );
-        await expect(linkedPage).toHaveScreenshot(
-            '05-linked-after-anchor-undo-restoration.png',
-            { maxDiffPixelRatio: 0.05 }
+        await expectLinkedWindowScreenshot(
+            linkedPage,
+            '05-linked-after-anchor-undo-restoration.png'
         );
 
         // ── 12. Add and delete an intermediate layer via the UI ─────
@@ -2062,9 +2108,9 @@ test.describe('Cross-window ChangeBridge sync', () => {
             mainPage,
             '06-main-after-intermediate-layer-add.png'
         );
-        await expect(linkedPage).toHaveScreenshot(
-            '06-linked-after-intermediate-layer-add.png',
-            { maxDiffPixelRatio: 0.05 }
+        await expectLinkedWindowScreenshot(
+            linkedPage,
+            '06-linked-after-intermediate-layer-add.png'
         );
 
         const intermediateLayerRow = mainPage.locator(

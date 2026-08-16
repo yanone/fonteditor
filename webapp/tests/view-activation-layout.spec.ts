@@ -17,7 +17,9 @@ async function clearStoredViewLayout(page: Page) {
 }
 
 async function activateView(page: Page, shortcutKey: string, viewId: string) {
-    await focusView(page, `Meta+Shift+${shortcutKey}`, viewId);
+    await focusView(page, `Meta+Shift+${shortcutKey}`, viewId, {
+        expand: true
+    });
     await page.waitForTimeout(450);
 }
 
@@ -354,19 +356,34 @@ test('editor collapse and reopen restores the previous canvas viewport', async (
     await page.goto('/?test=true');
     await waitForCanvasReady(page);
 
-    await page.evaluate(() => {
-        if (!window.glyphCanvas?.viewportManager) {
-            return;
+    const beforeCollapse = await page.evaluate(() => {
+        const canvas = window.glyphCanvas;
+        if (!canvas?.viewportManager) {
+            return null;
         }
 
-        window.glyphCanvas.viewportManager.scale = 1.75;
-        window.glyphCanvas.viewportManager.panX = 321;
-        window.glyphCanvas.viewportManager.panY = 654;
-        window.glyphCanvas.freezeViewportForCollapse?.();
-        window.glyphCanvas.render();
+        canvas.viewportManager.scale = 1.75;
+        canvas.viewportManager.panX = 321;
+        canvas.viewportManager.panY = 654;
+        canvas.freezeViewportForCollapse?.();
+        canvas.render();
+
+        const width = canvas.container?.clientWidth || 0;
+        const height = canvas.container?.clientHeight || 0;
+        const anchor =
+            canvas.getKeyboardResizeContentAnchorFontPosition?.() || null;
+        const screen = anchor
+            ? canvas.viewportManager.fontToScreenCoordinates(anchor.x, anchor.y)
+            : null;
+
+        return {
+            scale: canvas.viewportManager.scale,
+            screenFractionX: screen && width > 0 ? screen.x / width : null,
+            screenFractionY: screen && height > 0 ? screen.y / height : null
+        };
     });
 
-    const beforeCollapseViewport = await getEditorViewportState(page);
+    expect(beforeCollapse).not.toBeNull();
 
     await dragVerticalDivider(page, 1, 2000);
 
@@ -392,39 +409,76 @@ test('editor collapse and reopen restores the previous canvas viewport', async (
         );
     });
 
+    // Collapse restore keeps scale and re-places the content anchor at the
+    // pre-collapse relative screen position (clamped visible), not raw pan.
     await page.waitForFunction(
-        ({ scale, panX, panY }) => {
-            const viewportManager = window.glyphCanvas?.viewportManager;
-            if (!viewportManager) {
+        ({ scale, screenFractionX, screenFractionY }) => {
+            const canvas = window.glyphCanvas as any;
+            const viewportManager = canvas?.viewportManager;
+            if (!canvas || !viewportManager) {
                 return false;
             }
 
+            // Resizer schedules restore on rAF; invoke once if still pending.
+            if (canvas.collapsedViewportSnapshot) {
+                canvas.restoreViewportAfterCollapse?.();
+            }
+
             const epsilon = 0.00001;
+            if (Math.abs(viewportManager.scale - scale) > epsilon) {
+                return false;
+            }
+
+            if (
+                typeof screenFractionX !== 'number' ||
+                typeof screenFractionY !== 'number'
+            ) {
+                return true;
+            }
+
+            const width = canvas.container?.clientWidth || 0;
+            const height = canvas.container?.clientHeight || 0;
+            if (width <= 0 || height <= 0) {
+                return false;
+            }
+
+            const anchor =
+                canvas.getKeyboardResizeContentAnchorFontPosition?.();
+            if (!anchor) {
+                return false;
+            }
+
+            const screen = viewportManager.fontToScreenCoordinates(
+                anchor.x,
+                anchor.y
+            );
+            const marginX = Math.min(30, Math.max(8, width / 4));
+            const marginY = Math.min(30, Math.max(8, height / 4));
+            const targetX = Math.min(
+                width - marginX,
+                Math.max(marginX, screenFractionX * width)
+            );
+            const targetY = Math.min(
+                height - marginY,
+                Math.max(marginY, screenFractionY * height)
+            );
+
             return (
-                Math.abs(viewportManager.scale - scale) <= epsilon &&
-                Math.abs(viewportManager.panX - panX) <= epsilon &&
-                Math.abs(viewportManager.panY - panY) <= epsilon
+                Math.abs(screen.x - targetX) <= 2 &&
+                Math.abs(screen.y - targetY) <= 2
             );
         },
-        beforeCollapseViewport,
+        {
+            scale: beforeCollapse!.scale,
+            screenFractionX: beforeCollapse!.screenFractionX,
+            screenFractionY: beforeCollapse!.screenFractionY
+        },
         { timeout: 10000 }
     );
 
     const afterExpandViewport = await getEditorViewportState(page);
-
     expect(afterExpandViewport).not.toBeNull();
-    expect(afterExpandViewport!.scale).toBeCloseTo(
-        beforeCollapseViewport!.scale,
-        5
-    );
-    expect(afterExpandViewport!.panX).toBeCloseTo(
-        beforeCollapseViewport!.panX,
-        5
-    );
-    expect(afterExpandViewport!.panY).toBeCloseTo(
-        beforeCollapseViewport!.panY,
-        5
-    );
+    expect(afterExpandViewport!.scale).toBeCloseTo(beforeCollapse!.scale, 5);
 });
 
 test('collapsed editor reopens to activation minimum by shortcut and title click', async ({

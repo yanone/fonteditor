@@ -618,9 +618,17 @@ class GlyphCanvas {
 
     freezeViewportForCollapse(
         referenceWidth?: number,
-        referenceHeight?: number
+        referenceHeight?: number,
+        options?: { force?: boolean }
     ): void {
         if (!this.viewportManager) {
+            return;
+        }
+
+        // Keep the first freeze for this collapse cycle. Resizer and onResize
+        // both call this while the panel is still shrinking; overwriting would
+        // replace the pre-collapse scale/pan with a mid-collapse fitted view.
+        if (this.collapsedViewportSnapshot && !options?.force) {
             return;
         }
 

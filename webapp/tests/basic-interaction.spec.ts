@@ -802,7 +802,9 @@ test.describe('Font Editor Basic Workflow', () => {
             const isAnimating = !!glyphCanvas?.axesManager?.isAnimating;
             return !isAnimating && inputValue === '400';
         }, firstAxisTag);
-        await waitForStableEditorMetrics(page);
+        // Axis edits can trail an outline-only compile with a deferred full
+        // compile that nudges advances by 1uu; wait for a quieter settle.
+        await waitForStableEditorMetrics(page, { idleMs: 800, timeout: 30000 });
         await page.waitForTimeout(100);
 
         // SNAPSHOT POINT 18: Variation set to 400

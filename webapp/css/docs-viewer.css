@@ -36,10 +36,20 @@
     --view-title-color: var(--docs-link-color);
 }
 
+/* Closed docs must keep border-width: 0 even if the panel stays .focused,
+   otherwise the global focused 3px chrome leaves a visible strip. */
+.app-shell > .view-docs.focused {
+    border-width: 0;
+}
+
 .app-shell.docs-open > .view-docs {
     margin: 0 0 5px 5px;
-    border-width: 3px;
+    border-width: 2px;
     pointer-events: auto;
+}
+
+.app-shell.docs-open > .view-docs.focused {
+    border-width: 3px;
 }
 
 .view-docs .view-title-name {

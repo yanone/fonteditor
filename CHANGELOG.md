@@ -1,5 +1,9 @@
 # Unreleased
 
+- **Panel focus**: 3px wide focussed panel border
+- **Property panels**: Preserve text field focus in active views
+- **Canvas**: Hide HUD in production
+- **Assistant**: Links to documentation open correctly from the assistant chats
 - **Preferences Version and Updates**: Moved update checks out of the File menu into Preferences. The pane always shows the current version, a Check for updates control, and an Update button with a changelog link when a new build is ready. An orange notification appears on the Preferences gear instead of the File menu.
 - **Themed Scrollbars**: Native and custom scrollbars follow the app theme (dark by default, light when `data-theme` is light), including Ace editors. `color-scheme` drives native chrome; `--scrollbar-*` tokens paint WebKit and Firefox bars globally.
 - **Show All Metrics**: Editing View → View menu toggle (off by default) draws additional OS/2 / hhea / typo metric lines fainter than core metrics. Non-zero `TypoLineGap` / `HheaLineGap` draw under their descenders at `descender − gap`, labeled `typolinegap` / `hhealinegap`. Non-zero metric overshoots fill faint bands behind the metric lines. Font Info → Masters splits those fields (including line gaps) into an Additional metrics section; `baseline` and `italicAngle overshoot` are omitted from the panel.
