@@ -673,11 +673,15 @@ function initToolbarMenus(): void {
         getToolsMenuItems,
         () => fontDestinationPluginManager.discoverInstalledDestinations()
     );
-    createToolbarMenu(
-        'toolbar-developer-menu-btn',
-        'toolbar-developer-menu-backdrop',
-        getDeveloperMenuItems
-    );
+    if (window.isProduction?.()) {
+        document.getElementById('toolbar-developer-menu-btn')?.remove();
+    } else {
+        createToolbarMenu(
+            'toolbar-developer-menu-btn',
+            'toolbar-developer-menu-backdrop',
+            getDeveloperMenuItems
+        );
+    }
     createToolbarMenu(
         'toolbar-help-menu-btn',
         'toolbar-help-menu-backdrop',
