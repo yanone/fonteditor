@@ -12,7 +12,6 @@ import {
     triggerRedo,
     triggerUndo
 } from './window-buttons';
-import { getPendingUpdate } from './update-manager';
 import { exportBinaryFont, exportBinaryFontAs } from './binary-font-export';
 import { fontDestinationPluginManager } from './font-destination-plugin-manager';
 import { showFontDestinationPluginManager } from './font-destination-plugin-ui';
@@ -64,14 +63,7 @@ function createMenuHtml(items: ToolbarMenuItem[], prefix = ''): string {
                 ? `<div class="toolbar-menu-submenu">${createMenuHtml(item.children, `${menuId}.`)}</div><span class="material-symbols-outlined toolbar-menu-chevron">chevron_right</span>`
                 : '';
 
-            // The update item gets a dot indicator instead of a material icon
-            let iconHtml: string;
-            if (item.icon === 'update-dot') {
-                iconHtml =
-                    '<span class="material-symbols-outlined menu-update-dot-indicator"></span>';
-            } else {
-                iconHtml = `<span class="material-symbols-outlined">${escapeHtml(item.icon)}</span>`;
-            }
+            const iconHtml = `<span class="material-symbols-outlined">${escapeHtml(item.icon)}</span>`;
 
             const submenuAria = item.children ? ' aria-expanded="false"' : '';
             return `
@@ -113,40 +105,9 @@ function bindToolbarMenuKeyboardNav(instance: TippyInstance): void {
 
 function getFileMenuItems(): ToolbarMenuItem[] {
     const saveButton = window.saveButton;
-    const pending = getPendingUpdate();
     const hasFontOpen = !!window.fontManager?.currentFont;
 
     const items: ToolbarMenuItem[] = [];
-
-    if (pending) {
-        items.push({
-            label: `Update to ${pending.version}`,
-            icon: 'update-dot',
-            action: async () => {
-                window.location.reload();
-            }
-        });
-
-        items.push({
-            label: 'Changelog',
-            icon: 'open_in_new',
-            action: async () => {
-                const releaseTag = pending.tag || pending.version;
-                window.open(
-                    `https://github.com/counterpunchspace/editor/releases/tag/${releaseTag}`,
-                    '_blank'
-                );
-            }
-        });
-
-        // Separator between update items and regular file items
-        items.push({
-            label: '',
-            icon: '',
-            separator: true,
-            action: async () => {}
-        });
-    }
 
     items.push(
         {
@@ -692,25 +653,6 @@ function initToolbarMenus(): void {
 
     setupPrivacyPolicyModal();
     installGlobalShortcuts();
-
-    // Listen for update-available events to toggle orange dot on File button
-    document.addEventListener('counterpunch:update-available', () => {
-        const fileBtn = document.getElementById('toolbar-file-menu-btn');
-        if (!fileBtn) {
-            return;
-        }
-        if (getPendingUpdate()) {
-            fileBtn.classList.add('has-update');
-        } else {
-            fileBtn.classList.remove('has-update');
-        }
-    });
-
-    // Check on init in case update was set before this module loaded
-    const fileBtn = document.getElementById('toolbar-file-menu-btn');
-    if (fileBtn && getPendingUpdate()) {
-        fileBtn.classList.add('has-update');
-    }
 
     console.log('[ToolbarMenus] Toolbar menus initialized');
 }

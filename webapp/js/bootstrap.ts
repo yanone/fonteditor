@@ -528,6 +528,7 @@ import './run-python-script-dialog';
 import './share-button';
 import './theme-switcher';
 import './toolbar-menus';
+import './update-manager';
 import './window-buttons';
 import { initViewTitleButtons } from './view-title-buttons';
 import { CloudPlugin } from './cloud-plugin';

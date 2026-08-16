@@ -2202,6 +2202,48 @@
                             zoom instead.
                         </div>
                     </div>
+                    <div class="settings-item" id="settings-version-item">
+                        <label class="settings-item-label">Version</label>
+                        <div
+                            id="settings-current-version"
+                            class="settings-version-number"
+                        ></div>
+                        <div
+                            id="settings-update-available"
+                            class="settings-update-available"
+                            hidden
+                        >
+                            <span id="settings-update-available-label"></span>
+                            <a
+                                id="settings-changelog-link"
+                                href="#"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                >Changelog</a
+                            >
+                        </div>
+                        <div class="settings-version-actions">
+                            <button
+                                type="button"
+                                id="settings-check-updates-btn"
+                                class="settings-folder-action"
+                            >
+                                Check for updates
+                            </button>
+                            <button
+                                type="button"
+                                id="settings-apply-update-btn"
+                                class="settings-folder-action"
+                                hidden
+                            >
+                                Update
+                            </button>
+                        </div>
+                        <div
+                            id="settings-update-status"
+                            class="settings-item-description"
+                        ></div>
+                    </div>
 
                     <!-- Memory Info Popup -->
                     <div

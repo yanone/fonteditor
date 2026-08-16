@@ -33,6 +33,6 @@ Even though now locally installed, the editor’s Python environment will not be
 
 On first visit the browser may ask about folder access, and after a browser restart you may have to repeat giving those permissions once. This is a result of the editor not being a native OS app. The two folders you pick are in [Project and settings folders](04-project-and-settings-folders.md).
 
-Reloading the page does not load a new version, because the app is cached on purpose. When an update is ready, an Update control appears in the title bar (File menu). Click it to switch. That behaviour is the same online and in the installed app.
+Reloading the page does not load a new version, because the app is cached on purpose. When an update is ready, Preferences (the gear, or `Cmd/Ctrl+,`) shows an orange notification. Open it to read the version, check for updates, and use Update plus the changelog link. That behaviour is the same online and in the installed app.
 
 Continue with [What is Counterpunch?](01-what-is-counterpunch.md).

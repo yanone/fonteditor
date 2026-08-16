@@ -1132,43 +1132,6 @@ kbd + kbd {
     cursor: not-allowed;
 }
 
-/* Update indicator — orange dot on File menu trigger when update available */
-.toolbar-menu-trigger.has-update {
-    position: relative;
-}
-
-.toolbar-menu-trigger.has-update::after {
-    content: '';
-    position: absolute;
-    top: 3px;
-    right: 3px;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background-color: var(--accent-orange);
-    pointer-events: none;
-}
-
-/* Orange dot in the update menu item (replaces material icon) */
-.menu-update-dot-indicator {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 16px;
-    min-width: 16px;
-    height: 16px;
-}
-
-.menu-update-dot-indicator::before {
-    content: '';
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background-color: var(--accent-orange);
-    display: block;
-}
-
-/* Menu separator between update items and regular items */
 .plugin-menu-separator {
     height: 1px;
     margin: 4px 8px;
@@ -5291,6 +5254,18 @@ kbd + kbd {
     color: var(--text-primary);
 }
 
+.settings-button.has-update::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background-color: var(--accent-orange);
+    pointer-events: none;
+}
+
 .settings-button .material-symbols-outlined {
     font-size: 24px;
 }
@@ -5377,6 +5352,38 @@ kbd + kbd {
     color: var(--text-secondary);
     margin-top: 4px;
     line-height: 1.5;
+}
+
+.settings-version-number {
+    font-family: var(--font-families-mono);
+    font-size: 13px;
+    color: var(--text-primary);
+    line-height: 1.4;
+}
+
+.settings-update-available {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--text-primary);
+}
+
+.settings-update-available[hidden] {
+    display: none;
+}
+
+.settings-update-available a {
+    color: var(--text-secondary);
+}
+
+.settings-version-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
 }
 
 /* Theme Switcher */

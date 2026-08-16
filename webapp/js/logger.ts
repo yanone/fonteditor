@@ -75,6 +75,7 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     TextRun: false,
     TippyUtils: false,
     UndoManager: false,
+    UpdateManager: false,
     URLState: false,
     Variations: false,
     ViewTitleButtons: false,
