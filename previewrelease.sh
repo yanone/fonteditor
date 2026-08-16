@@ -44,8 +44,8 @@ gh workflow run preview-release.yml --ref main
 
 echo ""
 echo "✅ Preview release workflow started."
-echo "   The GitHub tag and prerelease are created only if build, tests, and"
-echo "   deploy succeed."
+echo "   It waits for a green CI run on this commit, then builds the preview"
+echo "   version, creates the GitHub prerelease, and deploys."
 echo ""
 echo "Watch progress: gh run watch --workflow=preview-release.yml"
 echo "Or: https://github.com/counterpunchspace/editor/actions/workflows/preview-release.yml"

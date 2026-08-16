@@ -8,17 +8,23 @@ concurrency:
     cancel-in-progress: false
 
 permissions:
+    actions: read
     contents: write
     deployments: write
 
 jobs:
     preview-release:
-        runs-on: macos-latest
+        runs-on: ubuntu-latest
         steps:
             - name: Checkout
               uses: actions/checkout@v4
               with:
                   fetch-depth: 0
+
+            - name: Wait for green CI
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: bash scripts/wait-for-green-ci.sh
 
             - name: Resolve preview version
               id: version
@@ -39,17 +45,8 @@ jobs:
               with:
                   node-version: "20"
 
-            - name: Install graph tooling
-              run: npm ci --ignore-scripts
-
-            - name: Install LadybugDB native binding
-              run: npm rebuild @ladybugdb/core --foreground-scripts
-
             - name: Install webapp dependencies
               run: npm install --prefix webapp
-
-            - name: Install Playwright Chromium
-              run: npx --prefix webapp playwright install chromium
 
             - name: Build webapp with webpack
               run: npm run build --prefix webapp
@@ -57,23 +54,6 @@ jobs:
                   EDITOR_VERSION: ${{ steps.version.outputs.DISPLAY_VERSION }}
                   BUILD_HASH_FULL: ${{ steps.version.outputs.COMMIT_SHA }}
                   BUILD_HASH_SHORT: ${{ steps.version.outputs.COMMIT_SHORT }}
-
-            - name: Run full preview test suite
-              run: npm test --prefix webapp
-
-            - name: Set up Rust nightly with the WASM target
-              uses: dtolnay/rust-toolchain@nightly
-              with:
-                  targets: wasm32-unknown-unknown
-
-            - name: Set up wasm-pack
-              uses: jetli/wasm-pack-action@v0.4.0
-
-            - name: Generate Rust WASM test fixture
-              run: node webapp/compilation-test/compile-test.mjs webapp/examples/Fustat.glyphs
-
-            - name: Run Rust WASM cache tests
-              run: cd babelfont-fontc-build && rustup run nightly wasm-pack test --node
 
             - name: Publish GitHub prerelease
               env:

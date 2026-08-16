@@ -188,7 +188,7 @@ Cut a preview release (GitHub prerelease + deploy to preview.editor.counterpunch
 ./previewrelease.sh
 ```
 
-That script starts the Preview Release workflow. The `v0.0.0-preview-DATE-SHA` tag and `preview-build-N-on-DATE` prerelease are created only after build and tests succeed. Notes are the Unreleased changelog diff since the previous preview. It does not rewrite `CHANGELOG.md`.
+That script starts the Preview Release workflow. The workflow waits for a green CI run on that commit, then builds with `preview-build-N-on-DATE` and creates the `v0.0.0-preview-DATE-SHA` tag and prerelease. Notes are the Unreleased changelog diff since the previous preview. It does not rewrite `CHANGELOG.md` or re-run the test suite.
 
 Users will see an orange notification on the Preferences gear within about 10 minutes. Preferences shows the current version, Check for updates, and an Update control with a changelog link when a new build is ready.
 

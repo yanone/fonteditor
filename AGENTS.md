@@ -125,7 +125,7 @@ npm run test:update-snapshots
 - For automated development workflows, run Playwright non-interactively by default (headless CLI execution), so reports don't get stuck and require user to press Ctrl+C. The user might not be present to do that.
 - The project must enforce this by default: keep Playwright configured with `use.headless = true` and HTML reporter `open: 'never'` so `npm run test` stays machine-processable after failures without opening interactive UI.
 - Do not use Playwright UI/debug/record modes unless explicitly requested for manual investigation.
-- For narrow local work, run the affected headless Playwright spec or test title. CI (`.github/workflows/ci.yml`), release (`.github/workflows/release.yml`), and preview-release (`.github/workflows/preview-release.yml`) run `npm test` in `webapp`, which includes Playwright after `test:checks`. Prefer focused local runs while iterating; run the full suite before release when touching cross-window, compile-pipeline, or broadly shared UI code.
+- For narrow local work, run the affected headless Playwright spec or test title. CI (`.github/workflows/ci.yml`) and release (`.github/workflows/release.yml`) run `npm test` in `webapp`, which includes Playwright after `test:checks`. Preview-release waits for a green CI run on that commit and does not re-run the suite. Prefer focused local runs while iterating; run the full suite before release when touching cross-window, compile-pipeline, or broadly shared UI code.
 
 ### Release Process
 
@@ -145,7 +145,7 @@ npm run test:update-snapshots
 4. Creates and pushes git tag
 5. Triggers GitHub Actions to create release and deploy to Cloudflare Pages
 
-`previewrelease.sh` pushes unpushed `main` commits and starts the Preview Release workflow. That workflow builds and tests first, then creates the `v0.0.0-preview-DATE-SHA` tag and `preview-build-N-on-DATE` prerelease only if those steps succeed, and deploys to preview.editor.counterpunch.space. It does not rewrite `CHANGELOG.md`.
+`previewrelease.sh` pushes unpushed `main` commits and starts the Preview Release workflow. That workflow waits for a green `ci.yml` run on that commit, builds with `preview-build-N-on-DATE`, then creates the `v0.0.0-preview-DATE-SHA` tag and prerelease and deploys to preview.editor.counterpunch.space. It does not rewrite `CHANGELOG.md` or re-run the test suite.
 
 ## Code Style Guidelines
 
