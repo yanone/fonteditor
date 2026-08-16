@@ -432,6 +432,28 @@ function getHelpMenuItems(): ToolbarMenuItem[] {
     ];
 }
 
+type ToolbarMenuEntry = {
+    button: HTMLElement;
+    instance: TippyInstance;
+};
+
+const toolbarMenus: ToolbarMenuEntry[] = [];
+
+function isAnyToolbarMenuOpen(): boolean {
+    return toolbarMenus.some((entry) => entry.instance.state.isVisible);
+}
+
+function showToolbarMenu(target: ToolbarMenuEntry): void {
+    for (const entry of toolbarMenus) {
+        if (entry !== target && entry.instance.state.isVisible) {
+            entry.instance.hide();
+        }
+    }
+    if (!target.instance.state.isVisible) {
+        target.instance.show();
+    }
+}
+
 function createToolbarMenu(
     buttonId: string,
     backdropClassName: string,
@@ -442,6 +464,7 @@ function createToolbarMenu(
     if (!button) {
         return;
     }
+    button.removeAttribute('title');
 
     const backdrop = getOrCreateBackdrop(backdropClassName);
     // Latest items for delegated clicks — updated every time the menu opens.
@@ -520,6 +543,9 @@ function createToolbarMenu(
         activeClass: 'menu-active'
     });
 
+    const entry: ToolbarMenuEntry = { button, instance };
+    toolbarMenus.push(entry);
+
     button.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -527,8 +553,15 @@ function createToolbarMenu(
         if (instance.state.isVisible) {
             instance.hide();
         } else {
-            instance.show();
+            showToolbarMenu(entry);
         }
+    });
+
+    button.addEventListener('mouseenter', () => {
+        if (!isAnyToolbarMenuOpen() || instance.state.isVisible) {
+            return;
+        }
+        showToolbarMenu(entry);
     });
 }
 

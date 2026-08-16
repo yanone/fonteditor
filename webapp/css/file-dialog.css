@@ -3,6 +3,9 @@
     align-items: center;
     gap: 1px;
     margin-left: 12px;
+    /* Above menu backdrops so sibling titles stay hoverable while a menu is open. */
+    position: relative;
+    z-index: 10000;
 }
 
 .toolbar-menu-trigger {
