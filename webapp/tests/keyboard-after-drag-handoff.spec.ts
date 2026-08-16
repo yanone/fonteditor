@@ -233,6 +233,14 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
         await focusView(page, 'Meta+Shift+E', 'view-editor');
         await page.waitForTimeout(200);
 
+        // Suite load can leave a non-default dock layout; Cmd+0 framing is
+        // derived from the canvas CSS box, so normalize before any screenshots.
+        await page.evaluate(() => {
+            (window as any).resizableViews?.applyDefaultLayout?.();
+        });
+        await waitForStableCanvasBox(page, { idleMs: 400, timeout: 15000 });
+        await page.waitForTimeout(100);
+
         // ── 2. Set text buffer to "aä" with cursor at 0 ───────────────────
         console.log('[Test] Setting text buffer to aä');
         await page.evaluate(() => {
@@ -313,24 +321,6 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
         await page.mouse.move(-100, -100);
         await page.waitForTimeout(100);
 
-        // Frame via API (same as Cmd+0) and wait for the zoom/pan animation
-        // to finish — a canvas-box wait alone returns before pan/scale settle.
-        console.log('[Test] Framing glyph with Cmd+0');
-        await page.evaluate(() => {
-            (window as any).glyphCanvas?.frameCurrentGlyph?.();
-        });
-        await waitForStableViewport(page, { idleMs: 250, timeout: 10000 });
-
-        // Zoom out
-        console.log('[Test] Zooming out');
-        await page.evaluate(() => {
-            const gc = (window as any).glyphCanvas;
-            if (gc?.viewportManager) gc.viewportManager.scale *= 0.7;
-            if (gc) gc.render();
-        });
-        await waitForStableViewport(page, { idleMs: 150, timeout: 5000 });
-        await stabiliseCanvas(page);
-
         const canvasLocator = page.locator('#glyph-canvas-container canvas');
 
         let framedViewport: {
@@ -370,6 +360,32 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
             });
         };
 
+        // Settle the property panel / canvas box BEFORE framing. Framing against
+        // a transient box (common under suite load) then rebuilding the panel
+        // shifts pan/scale by ~20px and flakes kbd-01-baseline.
+        await page.mouse.move(-100, -100);
+        await clearOutlineSelection();
+        await waitForStableCanvasBox(page, { idleMs: 500, timeout: 15000 });
+
+        // Apply Cmd+0 target synchronously (no animation), then zoom out.
+        // frameCurrentGlyph animates over ~10 frames and still depends on the
+        // live canvas rect — both flake under suite load.
+        console.log('[Test] Framing glyph (sync Cmd+0 target)');
+        await page.evaluate(() => {
+            const gc = (window as any).glyphCanvas;
+            const vm = gc?.viewportManager;
+            const target = gc?.getCmdZeroViewportTarget?.();
+            if (!vm || !target) {
+                throw new Error('Missing viewport target for framing');
+            }
+            vm.panX = target.panX;
+            vm.panY = target.panY;
+            vm.scale = target.scale * 0.7;
+            gc.render();
+        });
+        await waitForStableViewport(page, { idleMs: 200, timeout: 5000 });
+        await stabiliseCanvas(page);
+
         // Property-panel chrome can change the canvas box by a few pixels under
         // suite load. Clip every canvas screenshot to the baseline box so
         // Playwright size checks stay deterministic.
@@ -406,9 +422,6 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
             });
         };
 
-        // Match final capture: no selection + settled property panel.
-        await page.mouse.move(-100, -100);
-        await clearOutlineSelection();
         framedViewport = await page.evaluate(() => {
             const vm = (window as any).glyphCanvas?.viewportManager;
             return vm

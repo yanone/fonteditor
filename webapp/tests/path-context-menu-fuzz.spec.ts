@@ -29,29 +29,163 @@ async function waitForBridgeReady(page: Page): Promise<void> {
 }
 
 async function navigateToGlyphN(page: Page): Promise<void> {
+    await focusView(page, 'Meta+Shift+E', 'view-editor');
+
+    // Font open can async-load display_string ("Hamburgevons") after model
+    // ready and overwrite an early setTextBuffer('n'). Retry until it sticks.
+    for (let attempt = 0; attempt < 8; attempt++) {
+        await page.evaluate(() => {
+            return new Promise<void>((resolve) => {
+                const gc = (window as any).glyphCanvas;
+                const tre = gc?.textRunEditor;
+                if (!gc || !tre) {
+                    resolve();
+                    return;
+                }
+                if (gc.outlineEditor?.active) {
+                    gc.exitGlyphEditMode();
+                }
+
+                let done = false;
+                const finish = () => {
+                    if (done) return;
+                    done = true;
+                    resolve();
+                };
+                window.addEventListener('editingFontCompiled', finish, {
+                    once: true
+                });
+                tre.setTextBuffer('n');
+                tre.cursorPosition = 0;
+                setTimeout(finish, 5000);
+            });
+        });
+
+        const stuck = await page.evaluate(() => {
+            const tre = (window as any).glyphCanvas?.textRunEditor;
+            return (
+                tre?.textBuffer === 'n' &&
+                Array.isArray(tre?.shapedGlyphs) &&
+                tre.shapedGlyphs.length >= 1
+            );
+        });
+        if (stuck) {
+            // Confirm a late display_string restore does not clobber us.
+            await page.waitForTimeout(300);
+            const still = await page.evaluate(
+                () =>
+                    (window as any).glyphCanvas?.textRunEditor?.textBuffer ===
+                    'n'
+            );
+            if (still) {
+                break;
+            }
+        }
+        await page.waitForTimeout(200);
+    }
+
+    await page.waitForFunction(
+        () => {
+            const tre = (window as any).glyphCanvas?.textRunEditor;
+            return (
+                tre?.textBuffer === 'n' &&
+                Array.isArray(tre?.shapedGlyphs) &&
+                tre.shapedGlyphs.length >= 1
+            );
+        },
+        undefined,
+        { timeout: 20000 }
+    );
+
     await page.evaluate(async () => {
-        const gc = (window as any).glyphCanvas;
-        gc.textRunEditor.setTextBuffer('n');
-        await gc.textRunEditor.selectGlyphByIndex(0, true);
+        const tre = (window as any).glyphCanvas?.textRunEditor;
+        if (!tre) {
+            throw new Error('textRunEditor missing');
+        }
+        await tre.selectGlyphByIndex(0, true);
     });
-    await page.waitForTimeout(500);
-    await page.keyboard.press('Meta+0');
-    await page.waitForTimeout(400);
+
+    await page.waitForFunction(
+        () => {
+            const gc = (window as any).glyphCanvas;
+            const oe = gc?.outlineEditor;
+            const tre = gc?.textRunEditor;
+            return (
+                !!oe?.active &&
+                (tre?.selectedGlyphIndex ?? -1) === 0 &&
+                tre?.textBuffer === 'n' &&
+                oe?.getCurrentGlyphModel?.()?.name === 'n'
+            );
+        },
+        undefined,
+        { timeout: 20000 }
+    );
+
+    await page.evaluate(() => {
+        (window as any).glyphCanvas?.frameCurrentGlyph?.();
+    });
+    await page.waitForFunction(
+        () => {
+            const vm = (window as any).glyphCanvas?.viewportManager;
+            if (!vm) {
+                return false;
+            }
+            const signature = [vm.scale, vm.panX, vm.panY]
+                .map((value: number) => Number(value).toFixed(4))
+                .join('|');
+            const win = window as any;
+            const previous = win.__pwFuzzStableViewport as
+                { signature: string; since: number } | undefined;
+            if (!previous || previous.signature !== signature) {
+                win.__pwFuzzStableViewport = {
+                    signature,
+                    since: Date.now()
+                };
+                return false;
+            }
+            return Date.now() - previous.since >= 200;
+        },
+        undefined,
+        { timeout: 10000, polling: 50 }
+    );
 }
 
 async function selectFirstMasterLayer(page: Page): Promise<void> {
     await page.evaluate(async () => {
-        const oe = (window as any).glyphCanvas.outlineEditor;
-        if (!oe.selectedLayerId || !oe.getCurrentLayerModel?.()) {
-            const sortedLayers = (window as any).glyphCanvas.getSortedLayers();
-            const firstLayer = sortedLayers?.[0] || null;
-            if (firstLayer) {
-                await oe.selectLayer(firstLayer);
+        const gc = (window as any).glyphCanvas;
+        const oe = gc.outlineEditor;
+        const hasLinked = () => {
+            const layer = oe.getCurrentLayerModel?.();
+            return (layer?._getLinkedLayers?.() || []).length > 0;
+        };
+
+        if (
+            !oe.selectedLayerId ||
+            !oe.getCurrentLayerModel?.() ||
+            !hasLinked()
+        ) {
+            const sortedLayers = gc.getSortedLayers() || [];
+            for (const candidate of sortedLayers) {
+                await oe.selectLayer(candidate);
+                if (hasLinked()) {
+                    break;
+                }
             }
         }
-        (window as any).glyphCanvas.render();
+        gc.render();
     });
-    await page.waitForTimeout(250);
+    await page.waitForFunction(
+        () => {
+            const oe = (window as any).glyphCanvas?.outlineEditor;
+            const layer = oe?.getCurrentLayerModel?.();
+            if (!layer || layer.is_background) {
+                return false;
+            }
+            return (layer._getLinkedLayers?.() || []).length > 0;
+        },
+        undefined,
+        { timeout: 20000 }
+    );
 }
 
 async function glyphToPage(
@@ -62,20 +196,14 @@ async function glyphToPage(
     return page.evaluate(
         ({ gx, gy }) => {
             const gc = (window as any).glyphCanvas;
+            const tre = gc.textRunEditor;
             const vm = gc.viewportManager;
             const canvas = gc.canvas as HTMLCanvasElement;
             const rect = canvas.getBoundingClientRect();
-
-            const shaped = gc.textRunEditor.shapedGlyphs;
-            const selIdx = gc.textRunEditor.selectedGlyphIndex;
-            let xOff = 0;
-            for (let i = 0; i < selIdx; i++) {
-                xOff += shaped[i].ax || 0;
-            }
-            const g = shaped[selIdx];
-            const fontX = gx + xOff + (g?.dx || 0);
-            const fontY = gy + (g?.dy || 0);
-            const screen = vm.fontToScreenCoordinates(fontX, fontY);
+            const gp = tre._getGlyphPosition(tre.selectedGlyphIndex);
+            const wx = gp.xPosition + gp.xOffset + gx;
+            const wy = gp.yOffset + gy;
+            const screen = vm.fontToScreenCoordinates(wx, wy);
             return { x: rect.left + screen.x, y: rect.top + screen.y };
         },
         { gx: glyphX, gy: glyphY }
