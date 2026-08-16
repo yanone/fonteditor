@@ -83,6 +83,43 @@ describe('keyboard navigation focusView DOM transfer', () => {
         );
     });
 
+    it('keeps property-panel text fields focused when restoring the editor view', () => {
+        const editorView = document.getElementById('view-editor');
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'glyph-property-input';
+        editorView.appendChild(input);
+
+        window.focusView('view-editor', true);
+        jest.advanceTimersByTime(250);
+        input.focus();
+        expect(document.activeElement).toBe(input);
+
+        window.restoreFocusedViewDomFocus();
+        jest.advanceTimersByTime(150);
+
+        expect(document.activeElement).toBe(input);
+        expect(document.activeElement).not.toBe(window.glyphCanvas.canvas);
+    });
+
+    it('keeps overview property-panel fields focused when restoring overview', () => {
+        const overview = document.getElementById('view-overview');
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'glyph-property-input';
+        overview.appendChild(input);
+
+        window.focusView('view-overview', true);
+        jest.advanceTimersByTime(250);
+        input.focus();
+        expect(document.activeElement).toBe(input);
+
+        window.restoreFocusedViewDomFocus();
+
+        expect(document.activeElement).toBe(input);
+        expect(document.activeElement).not.toBe(overview);
+    });
+
     it('blurs the editor canvas when activating font info', () => {
         const canvas = window.glyphCanvas.canvas;
         expect(document.activeElement).toBe(canvas);

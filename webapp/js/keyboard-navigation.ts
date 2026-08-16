@@ -1139,11 +1139,20 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
         if (viewId === 'view-editor') {
             if (pendingEditorCanvasFocusTimer !== null) {
                 clearTimeout(pendingEditorCanvasFocusTimer);
+                pendingEditorCanvasFocusTimer = null;
+            }
+            // Clicks on property-panel fields bubble to the view and call
+            // restoreFocusedViewDomFocus; keep the field focused for typing.
+            if (shouldPreserveActiveEditableInView(viewId)) {
+                return;
             }
             pendingEditorCanvasFocusTimer = setTimeout(() => {
                 pendingEditorCanvasFocusTimer = null;
                 const editorView = document.getElementById('view-editor');
                 if (!editorView?.classList.contains('focused')) {
+                    return;
+                }
+                if (shouldPreserveActiveEditableInView('view-editor')) {
                     return;
                 }
                 if (window.glyphCanvas && window.glyphCanvas.canvas) {
@@ -1160,7 +1169,11 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
 
         if (viewId === 'view-overview' || viewId === 'view-fontinfo') {
             // Always take DOM focus when activating these views so keyboard
-            // shortcuts and typeahead do not keep hitting the previous control.
+            // shortcuts and typeahead do not keep hitting the previous control,
+            // unless a field inside the view already holds focus (property panel).
+            if (shouldPreserveActiveEditableInView(viewId)) {
+                return;
+            }
             focusViewShell(viewId);
         }
     }
@@ -1435,6 +1448,29 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
         }
 
         return false;
+    }
+
+    /**
+     * Property-panel fields and other view-local edits must keep DOM focus.
+     * Clicks bubble to the view and would otherwise re-focus the canvas/shell.
+     */
+    function isEditableFieldElement(element: HTMLElement | null) {
+        if (!element) {
+            return false;
+        }
+        if (isTextInputElement(element)) {
+            return true;
+        }
+        return element.tagName?.toLowerCase() === 'select';
+    }
+
+    function shouldPreserveActiveEditableInView(viewId: string) {
+        const active = document.activeElement as HTMLElement | null;
+        if (!isEditableFieldElement(active)) {
+            return false;
+        }
+        const view = document.getElementById(viewId);
+        return !!view?.contains(active);
     }
 
     function isAxisMapInputElement(element: HTMLElement | null) {
