@@ -1,0 +1,116 @@
+name: Preview Release
+
+on:
+    push:
+        tags:
+            - "v0.0.0-preview-*"
+
+concurrency:
+    group: preview-release
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+    deployments: write
+
+jobs:
+    preview-release:
+        runs-on: macos-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - name: Resolve preview version
+              id: version
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  TAG="${GITHUB_REF#refs/tags/}"
+                  COMMIT_SHA=$(git rev-list -n 1 "$TAG")
+                  COMMIT_SHORT=$(git rev-parse --short "$COMMIT_SHA")
+                  DISPLAY_VERSION=""
+                  for attempt in 1 2 3 4 5; do
+                      DISPLAY_VERSION=$(gh release view "$TAG" --json name --jq .name || true)
+                      if [ -n "$DISPLAY_VERSION" ]; then
+                          break
+                      fi
+                      echo "Release not visible yet (attempt $attempt), retrying..."
+                      sleep 3
+                  done
+                  if [ -z "$DISPLAY_VERSION" ]; then
+                      echo "Error: could not read GitHub prerelease title for $TAG"
+                      exit 1
+                  fi
+                  echo "TAG=$TAG" >> $GITHUB_OUTPUT
+                  echo "DISPLAY_VERSION=$DISPLAY_VERSION" >> $GITHUB_OUTPUT
+                  echo "COMMIT_SHA=$COMMIT_SHA" >> $GITHUB_OUTPUT
+                  echo "COMMIT_SHORT=$COMMIT_SHORT" >> $GITHUB_OUTPUT
+                  echo "Preview tag: $TAG"
+                  echo "Display version: $DISPLAY_VERSION"
+
+            - name: Inject preview versions
+              run: |
+                  TAG="${{ steps.version.outputs.TAG }}"
+                  DISPLAY_VERSION="${{ steps.version.outputs.DISPLAY_VERSION }}"
+                  sed -i.bak "s/const VERSION = '[^']*'/const VERSION = '${TAG}'/" webapp/coi-serviceworker.js
+                  sed -i.bak "s/const DISPLAY_VERSION = '[^']*'/const DISPLAY_VERSION = '${DISPLAY_VERSION}'/" webapp/coi-serviceworker.js
+                  rm webapp/coi-serviceworker.js.bak
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "20"
+
+            - name: Install graph tooling
+              run: npm ci --ignore-scripts
+
+            - name: Install LadybugDB native binding
+              run: npm rebuild @ladybugdb/core --foreground-scripts
+
+            - name: Install webapp dependencies
+              run: npm install --prefix webapp
+
+            - name: Install Playwright Chromium
+              run: npx --prefix webapp playwright install chromium
+
+            - name: Build webapp with webpack
+              run: npm run build --prefix webapp
+              env:
+                  EDITOR_VERSION: ${{ steps.version.outputs.DISPLAY_VERSION }}
+                  BUILD_HASH_FULL: ${{ steps.version.outputs.COMMIT_SHA }}
+                  BUILD_HASH_SHORT: ${{ steps.version.outputs.COMMIT_SHORT }}
+
+            - name: Run full preview test suite
+              run: npm test --prefix webapp
+
+            - name: Set up Rust nightly with the WASM target
+              uses: dtolnay/rust-toolchain@nightly
+              with:
+                  targets: wasm32-unknown-unknown
+
+            - name: Set up wasm-pack
+              uses: jetli/wasm-pack-action@v0.4.0
+
+            - name: Generate Rust WASM test fixture
+              run: node webapp/compilation-test/compile-test.mjs webapp/examples/Fustat.glyphs
+
+            - name: Run Rust WASM cache tests
+              run: cd babelfont-fontc-build && rustup run nightly wasm-pack test --node
+
+            - name: Deploy preview to Cloudflare Pages
+              uses: cloudflare/pages-action@v1
+              with:
+                  apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+                  projectName: editorpreview
+                  directory: ./webapp/build
+                  gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+                  branch: main
+
+            - name: Deployment summary
+              run: |
+                  echo "✅ Preview ${{ steps.version.outputs.DISPLAY_VERSION }} deployed successfully!"
+                  echo "📦 GitHub prerelease ${{ steps.version.outputs.TAG }}"
+                  echo "🚀 Deployed to https://preview.editor.counterpunch.space"

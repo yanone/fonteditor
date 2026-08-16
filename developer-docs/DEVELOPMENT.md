@@ -182,6 +182,14 @@ The script:
 - Creates and pushes a git tag
 - Triggers GitHub Actions to create a release and deploy to Cloudflare Pages
 
+Cut a preview release (GitHub prerelease + deploy to preview.editor.counterpunch.space) with:
+
+```bash
+./previewrelease.sh
+```
+
+That script tags `v0.0.0-preview-DATE-SHA`, titles the prerelease `preview-build-N-on-DATE`, and computes notes from the Unreleased changelog diff since the previous preview. It does not rewrite `CHANGELOG.md`.
+
 Users will see an orange update notification button in the title bar within about 10 minutes and can reload to get the latest version without manually clearing cache.
 
 ## Related Developer Docs

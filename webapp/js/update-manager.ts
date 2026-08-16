@@ -8,6 +8,7 @@
 
 export type PendingUpdate = {
     version: string;
+    tag?: string;
     isPreview: boolean;
 };
 

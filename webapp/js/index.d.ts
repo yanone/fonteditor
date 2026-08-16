@@ -151,6 +151,7 @@ declare global {
         EDITOR_VERSION: string | null;
         __pendingUpdate: {
             version: string;
+            tag?: string;
             isPreview: boolean;
         } | null;
         BUILD_HASH_FULL: string | null;

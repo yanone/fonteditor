@@ -4,6 +4,7 @@ let coepCredentialless = false;
 
 // PWA Cache configuration
 const VERSION = 'v0.2.1';
+const DISPLAY_VERSION = 'v0.2.1';
 const CACHE_NAME = 'counterpunch-pwa-' + VERSION;
 const CDN_CACHE_NAME = 'counterpunch-cdn-cache-' + VERSION;
 const OFFLINE_URL = '/index.html';
@@ -233,7 +234,8 @@ if (typeof window === 'undefined') {
                             client.postMessage({
                                 type: 'SW_UPDATED',
                                 cacheName: CACHE_NAME,
-                                version: VERSION
+                                version: VERSION,
+                                displayVersion: DISPLAY_VERSION
                             });
                         });
                     });

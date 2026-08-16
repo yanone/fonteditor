@@ -44,13 +44,15 @@ CURRENT_VERSION=$(grep "const VERSION = " "$SERVICE_WORKER_FILE" | sed -E "s/.*'
 echo "  Current version: $CURRENT_VERSION"
 echo "  New version: $VERSION_TAG"
 
-# Use sed to replace the VERSION constant
+# Use sed to replace the VERSION and DISPLAY_VERSION constants
 if [[ "$OSTYPE" == "darwin"* ]]; then
     # macOS
     sed -i '' "s/const VERSION = '[^']*'/const VERSION = '$VERSION_TAG'/" "$SERVICE_WORKER_FILE"
+    sed -i '' "s/const DISPLAY_VERSION = '[^']*'/const DISPLAY_VERSION = '$VERSION_TAG'/" "$SERVICE_WORKER_FILE"
 else
     # Linux
     sed -i "s/const VERSION = '[^']*'/const VERSION = '$VERSION_TAG'/" "$SERVICE_WORKER_FILE"
+    sed -i "s/const DISPLAY_VERSION = '[^']*'/const DISPLAY_VERSION = '$VERSION_TAG'/" "$SERVICE_WORKER_FILE"
 fi
 
 echo "✅ Version updated in $SERVICE_WORKER_FILE"
@@ -191,7 +193,7 @@ echo "   - Create a GitHub Release with changelog"
 echo "   - Deploy to Cloudflare Pages"
 echo "   - Users will see update notification within 10 minutes"
 echo ""
-echo "View your release at: https://github.com/yanone/context/releases/tag/$VERSION_TAG"
+echo "View your release at: https://github.com/counterpunchspace/editor/releases/tag/$VERSION_TAG"
 
 # Clean up release notes file
 rm -f "$RELEASE_NOTES_FILE"

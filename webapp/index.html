@@ -281,21 +281,34 @@
                 fetch('coi-serviceworker.js')
                     .then((response) => response.text())
                     .then((text) => {
-                        // Extract version from VERSION constant
-                        const match = text.match(
+                        const versionMatch = text.match(
                             /const\s+VERSION\s*=\s*['"](v[^\s'"]+)['"]/
                         );
-                        if (match && match[1]) {
+                        const displayMatch = text.match(
+                            /const\s+DISPLAY_VERSION\s*=\s*['"]([^'"]+)['"]/
+                        );
+                        if (versionMatch && versionMatch[1]) {
                             const versionSpan =
                                 document.getElementById('app-version');
                             if (versionSpan) {
-                                const version = match[1];
-                                const isPreview = version.includes('preview');
-                                // Store full version in data attribute
+                                const version = versionMatch[1];
+                                const displayVersion =
+                                    (displayMatch && displayMatch[1]) ||
+                                    version;
+                                const isPreview =
+                                    version.includes('preview') ||
+                                    displayVersion.includes('preview');
                                 versionSpan.dataset.version = version;
-                                if (isPreview) {
-                                    versionSpan.textContent = 'Preview';
+                                versionSpan.dataset.displayVersion =
+                                    displayVersion;
+                                if (
+                                    displayVersion.startsWith('preview-build-')
+                                ) {
+                                    versionSpan.textContent = displayVersion;
                                     versionSpan.title = version;
+                                } else if (isPreview) {
+                                    versionSpan.textContent = 'Preview';
+                                    versionSpan.title = displayVersion;
                                 } else {
                                     versionSpan.textContent = version;
                                 }
@@ -2363,14 +2376,18 @@
                                     event.data.type === 'SW_UPDATED'
                                 ) {
                                     const newVersion = event.data.version;
+                                    const displayVersion =
+                                        event.data.displayVersion || newVersion;
                                     console.log(
                                         '[PWA] 🔄 New version available:',
-                                        newVersion
+                                        displayVersion
                                     );
                                     window.__pendingUpdate = {
-                                        version: newVersion,
+                                        version: displayVersion,
+                                        tag: newVersion,
                                         isPreview:
-                                            newVersion.includes('preview')
+                                            newVersion.includes('preview') ||
+                                            displayVersion.includes('preview')
                                     };
                                     document.dispatchEvent(
                                         new CustomEvent(
@@ -2407,12 +2424,22 @@
                                         const match = text.match(
                                             /const\s+VERSION\s*=\s*['"](v[^\s'"]+)['"]/
                                         );
+                                        const displayMatch = text.match(
+                                            /const\s+DISPLAY_VERSION\s*=\s*['"]([^'"]+)['"]/
+                                        );
                                         const version =
                                             (match && match[1]) || 'unknown';
+                                        const displayVersion =
+                                            (displayMatch && displayMatch[1]) ||
+                                            version;
                                         window.__pendingUpdate = {
-                                            version,
+                                            version: displayVersion,
+                                            tag: version,
                                             isPreview:
-                                                version.includes('preview')
+                                                version.includes('preview') ||
+                                                displayVersion.includes(
+                                                    'preview'
+                                                )
                                         };
                                         document.dispatchEvent(
                                             new CustomEvent(

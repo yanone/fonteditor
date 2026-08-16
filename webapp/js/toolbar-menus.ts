@@ -127,19 +127,17 @@ function getFileMenuItems(): ToolbarMenuItem[] {
             }
         });
 
-        // Changelog only for non-preview versions
-        if (!pending.isPreview) {
-            items.push({
-                label: 'Changelog',
-                icon: 'open_in_new',
-                action: async () => {
-                    window.open(
-                        `https://github.com/yanone/context/releases/tag/${pending.version}`,
-                        '_blank'
-                    );
-                }
-            });
-        }
+        items.push({
+            label: 'Changelog',
+            icon: 'open_in_new',
+            action: async () => {
+                const releaseTag = pending.tag || pending.version;
+                window.open(
+                    `https://github.com/counterpunchspace/editor/releases/tag/${releaseTag}`,
+                    '_blank'
+                );
+            }
+        });
 
         // Separator between update items and regular file items
         items.push({

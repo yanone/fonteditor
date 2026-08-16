@@ -10,7 +10,7 @@ See [Feature Overview](#feature-overview) for details.
 Try the editor live:
 
 - Latest official release: https://editor.counterpunch.space (rarely updated, see [releases](https://github.com/counterpunchspace/editor/releases))
-- Latest preview: https://preview.editor.counterpunch.space (updates after every successful push)
+- Latest preview: https://preview.editor.counterpunch.space (updates when a preview release is cut)
 
 ## Source File I/O
 

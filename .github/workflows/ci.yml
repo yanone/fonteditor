@@ -10,9 +10,6 @@ on:
 
 permissions:
     contents: read
-    deployments: write
-    pages: write
-    id-token: write
 
 jobs:
     build:
@@ -54,6 +51,7 @@ jobs:
                   NEW_VERSION="v0.0.0-preview-${DATE}-${COMMIT_SHORT}"
                   echo "Setting VERSION to: ${NEW_VERSION}"
                   sed -i.bak "s/const VERSION = '[^']*'/const VERSION = '${NEW_VERSION}'/" webapp/coi-serviceworker.js
+                  sed -i.bak "s/const DISPLAY_VERSION = '[^']*'/const DISPLAY_VERSION = '${NEW_VERSION}'/" webapp/coi-serviceworker.js
                   rm webapp/coi-serviceworker.js.bak
                   echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
                   echo "commit_full=${COMMIT_FULL}" >> $GITHUB_OUTPUT
@@ -85,14 +83,3 @@ jobs:
 
             - name: Check code formatting with Prettier
               run: cd webapp && npx prettier -c .
-
-            - name: Deploy preview to Cloudflare Pages
-              if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-              uses: cloudflare/pages-action@v1
-              with:
-                  apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-                  accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-                  projectName: editorpreview
-                  directory: ./webapp/build
-                  gitHubToken: ${{ secrets.GITHUB_TOKEN }}
-                  branch: main

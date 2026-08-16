@@ -125,22 +125,27 @@ npm run test:update-snapshots
 - For automated development workflows, run Playwright non-interactively by default (headless CLI execution), so reports don't get stuck and require user to press Ctrl+C. The user might not be present to do that.
 - The project must enforce this by default: keep Playwright configured with `use.headless = true` and HTML reporter `open: 'never'` so `npm run test` stays machine-processable after failures without opening interactive UI.
 - Do not use Playwright UI/debug/record modes unless explicitly requested for manual investigation.
-- For narrow local work, run the affected headless Playwright spec or test title. Both CI (`.github/workflows/ci.yml`) and release (`.github/workflows/release.yml`) run `npm test` in `webapp`, which includes Playwright after `test:checks`. Prefer focused local runs while iterating; run the full suite before release when touching cross-window, compile-pipeline, or broadly shared UI code.
+- For narrow local work, run the affected headless Playwright spec or test title. CI (`.github/workflows/ci.yml`), release (`.github/workflows/release.yml`), and preview-release (`.github/workflows/preview-release.yml`) run `npm test` in `webapp`, which includes Playwright after `test:checks`. Prefer focused local runs while iterating; run the full suite before release when touching cross-window, compile-pipeline, or broadly shared UI code.
 
 ### Release Process
 
 ```bash
 # Create and deploy a new release
 ./release.sh v1.0.0
+
+# Create and deploy a preview release
+./previewrelease.sh
 ```
 
-This script:
+`release.sh`:
 
 1. Updates version in `webapp/coi-serviceworker.js` and `API.md`
 2. Extracts release notes from `CHANGELOG.md`
 3. Commits version changes
 4. Creates and pushes git tag
 5. Triggers GitHub Actions to create release and deploy to Cloudflare Pages
+
+`previewrelease.sh` pushes unpushed `main` commits, tags `v0.0.0-preview-DATE-SHA`, creates a GitHub prerelease titled `preview-build-N-on-DATE` with an Unreleased changelog diff, and deploys to preview.editor.counterpunch.space. It does not rewrite `CHANGELOG.md`.
 
 ## Code Style Guidelines
 
@@ -436,7 +441,7 @@ Key globals exposed on `window` (see `js/index.d.ts` for full list):
 ## Deployment
 
 - **Production**: https://editor.counterpunch.space
-- **Preview**: https://preview.editor.counterpunch.space (auto-updated on push)
+- **Preview**: https://preview.editor.counterpunch.space (updated by `./previewrelease.sh`)
 - Platform: Cloudflare Pages
 - CI/CD: GitHub Actions
 
