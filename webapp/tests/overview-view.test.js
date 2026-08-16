@@ -11,6 +11,13 @@ describe('OverviewView initial active glyph sync', () => {
     let originalPerformanceMark;
     let originalPerformanceMeasure;
 
+    async function flushPendingOverviewWork() {
+        // Do not use runAllTimersAsync: leftover rAF/setTimeout(0) loops from
+        // other --runInBand files never drain and hit the 5s test timeout.
+        await jest.runOnlyPendingTimersAsync();
+        await Promise.resolve();
+    }
+
     async function flushFontReadyOverview() {
         window.dispatchEvent(
             new CustomEvent('fontReady', {
@@ -21,13 +28,15 @@ describe('OverviewView initial active glyph sync', () => {
                 }
             })
         );
-        await jest.runAllTimersAsync();
-        await Promise.resolve();
-        await Promise.resolve();
+        // fontReady → 100ms queue, then two rAF settles in renderOverviewAndEmit
+        await flushPendingOverviewWork();
+        await flushPendingOverviewWork();
+        await flushPendingOverviewWork();
     }
 
     beforeEach(() => {
         jest.useFakeTimers();
+        jest.clearAllTimers();
         jest.resetModules();
 
         global.requestAnimationFrame = (callback) => setTimeout(callback, 0);
@@ -108,8 +117,7 @@ describe('OverviewView initial active glyph sync', () => {
     test('marks the active glyph in the overview after the fontReady render', async () => {
         require('../js/overview-view');
 
-        await jest.runAllTimersAsync();
-        await Promise.resolve();
+        await flushPendingOverviewWork();
 
         expect(syncGlyphs).toHaveBeenCalledTimes(1);
         expect(renderGlyphOutlines).not.toHaveBeenCalled();
@@ -135,8 +143,7 @@ describe('OverviewView initial active glyph sync', () => {
 
     test('ignores variationLocationChanged until after fontReady overview render', async () => {
         require('../js/overview-view');
-        await jest.runAllTimersAsync();
-        await Promise.resolve();
+        await flushPendingOverviewWork();
 
         renderGlyphOutlines.mockClear();
         setOutlinePaintAllowed.mockClear();
