@@ -1336,7 +1336,7 @@ kbd + kbd {
 .view {
     --view-title-color: var(--border-focus-outline);
     background-color: var(--background-primary);
-    border: 2px solid var(--border-primary);
+    border: 3px solid var(--border-primary);
     overflow: hidden;
     min-width: 100px;
     min-height: 24px; /* Title bar height - allows secondary views to collapse */
@@ -1352,7 +1352,7 @@ kbd + kbd {
     border-radius: 6px;
 }
 
-/* Active view indicator — the view’s 2px chrome, in the title color. */
+/* Active view indicator — the view’s 3px chrome, in the title color. */
 .view.focused {
     border-color: var(--view-title-color);
 }

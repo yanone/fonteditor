@@ -38,7 +38,7 @@
 
 .app-shell.docs-open > .view-docs {
     margin: 0 0 5px 5px;
-    border-width: 2px;
+    border-width: 3px;
     pointer-events: auto;
 }
 
