@@ -65,7 +65,9 @@ test.describe('Docs viewer', () => {
             await expect(page.locator('#view-docs')).toBeVisible();
             // openDocs is async from the shortcut; Cmd+Escape only closes the
             // focused panel, so wait until Docs owns focus before escaping.
-            await expect(page.locator('#view-docs')).toHaveClass(/focused/);
+            await expect(page.locator('#view-docs')).toHaveClass(/focused/, {
+                timeout: 15000
+            });
 
             await page.keyboard.press('Meta+Escape');
             await expect(page.locator('#app-shell')).not.toHaveClass(

@@ -183,6 +183,14 @@ export class DocsViewer {
         }
         window.focusView?.('view-docs');
         await this.showPage(targetId, heading);
+        // showPage / layout work can race the focusView lock; ensure Docs ends
+        // focused after the page is on screen (Cmd+Escape and chrome depend on it).
+        if (
+            !this.view.classList.contains('focused') ||
+            window.getCurrentFocusedView?.() !== 'view-docs'
+        ) {
+            window.focusView?.('view-docs');
+        }
         this.scrollCurrentTocIntoView();
         requestAnimationFrame(() => this.scrollCurrentTocIntoView());
     }

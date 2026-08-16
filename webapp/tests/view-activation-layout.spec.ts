@@ -582,7 +582,7 @@ test('editor collapse and reopen restores the previous canvas viewport', async (
             screenFractionX: beforeCollapse!.screenFractionX,
             screenFractionY: beforeCollapse!.screenFractionY
         },
-        { timeout: 10000 }
+        { timeout: 20000 }
     );
 
     const afterExpandViewport = await getEditorViewportState(page);

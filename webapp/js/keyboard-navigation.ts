@@ -4,6 +4,14 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
 (function () {
     let currentFocusedView: string | null = null;
     let isFocusing = false; // Prevent recursive focus calls
+    // Latest focus requested while isFocusing is held (including the short
+    // post-focus lock). Dropping these caused Docs to open without .focused
+    // when openDocs raced closeDocs → focusView(editor).
+    let pendingFocus: {
+        viewId: string;
+        viaKeyboard: boolean;
+        options?: { skipExpand?: boolean };
+    } | null = null;
 
     type ResizeConfig = { width: number; height: number };
     type ViewRowKey = 'top' | 'bottom';
@@ -1374,11 +1382,14 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
             }
         }
 
-        // Prevent recursive calls
+        // Prevent recursive calls — keep the latest request and apply it when
+        // the current focus finishes (including the post-focus lock below).
         if (isFocusing) {
+            pendingFocus = { viewId, viaKeyboard, options };
             console.warn(
                 '[KeyboardNav]',
-                'focusView already in progress, skipping'
+                'focusView already in progress, queuing:',
+                viewId
             );
             return;
         }
@@ -1523,9 +1534,16 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
             window.dispatchEvent(event);
         }
 
-        // Reset the flag after a short delay
+        // Reset the flag after a short delay, then apply any focus that arrived
+        // while the lock was held (e.g. openDocs right after closeDocs).
         setTimeout(() => {
             isFocusing = false;
+            if (!pendingFocus) {
+                return;
+            }
+            const next = pendingFocus;
+            pendingFocus = null;
+            focusView(next.viewId, next.viaKeyboard, next.options);
         }, 200);
     }
 
