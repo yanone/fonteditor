@@ -808,10 +808,26 @@ export async function openFileFromFilesView(page: any, fileName: string) {
     });
 }
 
+export type WaitForFontLoadedOptions = {
+    /**
+     * Wait for OpenType feature / axis UI signals after the model is ready.
+     * Default false: feature inventory is filled after the first editing
+     * compile, so this used to burn ~8–10s on a timeout fallback on every
+     * open. Prefer waitForOpenSessionReady / waitForStableEditorMetrics when
+     * feature membership matters.
+     */
+    featuresAxes?: boolean;
+};
+
 /**
- * Wait for font to be loaded
+ * Wait for font to be loaded (model ready).
  */
-export async function waitForFontLoaded(page: any) {
+export async function waitForFontLoaded(
+    page: any,
+    options?: WaitForFontLoadedOptions
+) {
+    const featuresAxes = options?.featuresAxes === true;
+
     return timedStep('helper:waitForFontLoaded', async () => {
         console.log('[Test] Waiting for fontReady event');
         // Startup sequencing can dispatch fontReady before this helper attaches
@@ -828,26 +844,19 @@ export async function waitForFontLoaded(page: any) {
                 },
                 { timeout: 30000 }
             );
-
-            console.log('[Test] Waiting for font model to be ready');
-            await page.waitForFunction(
-                () => {
-                    const currentFont = window.fontManager?.currentFont;
-                    return (
-                        !!currentFont &&
-                        !!(window.currentFontModel || currentFont.fontModel)
-                    );
-                },
-                { timeout: 15000 }
-            );
         });
+
+        if (!featuresAxes) {
+            return;
+        }
 
         console.log(
             '[Test] Wait for features and axes to be populated with actual data'
         );
-        // Wait for features/axes signals.
-        // During open-session, URL query params can update before stateManager keys
-        // are fully propagated; use manager + URL signals with a bounded fallback.
+        // Feature sidebar state is usually filled after the first editing
+        // compile. Accept manager settings, state inventory, or URL signals;
+        // treat populated axes settings as ready (do not require state
+        // location when the manager already has values).
         await timedStep('helper:waitForFontLoaded:features-axes', async () => {
             try {
                 const waitStart = Date.now();
@@ -864,11 +873,17 @@ export async function waitForFontLoaded(page: any) {
                             !!window.currentFontModel &&
                             !!window.fontManager?.currentFont;
                         const editorFile = state.editor_file || '';
+                        const hasEditorFile =
+                            typeof editorFile === 'string' &&
+                            editorFile.length > 0;
+
+                        if (!modelReady || !hasEditorFile) {
+                            return false;
+                        }
 
                         if (!featuresManager || !axesManager) {
-                            // Bounded fallback: once core model is ready for long enough,
-                            // allow progress instead of deadlocking on manager lag.
-                            return Date.now() - startedAt > 8000 && modelReady;
+                            // Managers lag the model briefly; don't burn 8s.
+                            return Date.now() - startedAt > 1500;
                         }
 
                         const featureSettings =
@@ -889,42 +904,30 @@ export async function waitForFontLoaded(page: any) {
                         const queryFeatures = search.get('features') || '';
                         const queryLocation = search.get('location') || '';
 
-                        const hasManagerFeatures =
-                            Object.keys(featureSettings).length > 0;
-                        const hasStateFeatures =
-                            Object.keys(featuresInSubset).length > 0 ||
-                            Object.keys(featuresNotInSubset).length > 0;
                         const hasFeatureSignal =
-                            hasManagerFeatures ||
-                            hasStateFeatures ||
+                            Object.keys(featureSettings).length > 0 ||
+                            Object.keys(featuresInSubset).length > 0 ||
+                            Object.keys(featuresNotInSubset).length > 0 ||
                             queryFeatures.length > 0;
 
-                        const variationMatch =
-                            Object.keys(variationSettings).length === 0 ||
+                        // Manager settings OR state/URL location are enough.
+                        // (Previously non-empty settings without location
+                        // blocked until the 10s fallback.)
+                        const variationReady =
+                            Object.keys(variationSettings).length > 0 ||
                             Object.keys(variationLocation).length > 0 ||
                             queryLocation.length > 0;
 
-                        const hasEditorFile =
-                            typeof editorFile === 'string' &&
-                            editorFile.length > 0;
-
-                        if (
-                            hasFeatureSignal &&
-                            variationMatch &&
-                            hasEditorFile &&
-                            modelReady
-                        ) {
+                        if (hasFeatureSignal && variationReady) {
                             return true;
                         }
 
-                        return (
-                            Date.now() - startedAt > 10000 &&
-                            modelReady &&
-                            hasEditorFile
-                        );
+                        // Feature UI may stay empty until editing compile;
+                        // once the file is open, a short bound is enough.
+                        return Date.now() - startedAt > 2000;
                     },
                     waitStart,
-                    { timeout: 20000 }
+                    { timeout: 10000, polling: 100 }
                 );
             } catch (error) {
                 const debugState = await page.evaluate(() => {
