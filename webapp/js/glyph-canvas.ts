@@ -10448,7 +10448,11 @@ class GlyphCanvas {
             return;
         }
 
-        // Handle arrow keys and spacebar in outline editor
+        // Handle arrow keys and spacebar in outline editor.
+        // onKeyDown is async and not awaited: tool shortcuts such as T may
+        // exit edit mode synchronously before the first await yields, so
+        // remember whether we started in edit mode for this keystroke.
+        const wasInEditMode = this.outlineEditor.active;
         this.outlineEditor.onKeyDown(e);
 
         // Handle Cmd+Enter to enter glyph edit mode at cursor position (text editing mode only)
@@ -10488,6 +10492,12 @@ class GlyphCanvas {
             if (!e.metaKey && !e.ctrlKey) {
                 e.preventDefault();
             }
+            return;
+        }
+
+        // Edit-mode shortcuts (e.g. T → text) preventDefault and exit before
+        // the async outline handler resumes; do not also insert that key.
+        if (wasInEditMode && e.defaultPrevented) {
             return;
         }
 

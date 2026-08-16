@@ -13274,6 +13274,28 @@ describe('GlyphCanvas mode switching', () => {
         expect(canvas.outlineEditor.selectedPoints).toEqual([]);
     });
 
+    test('pressing T exits edit mode without inserting t into the text run', () => {
+        canvas.outlineEditor.active = true;
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.outlineEditor.selectedLayerId = 'layer1';
+        canvas.outlineEditor.layerData = { shapes: [], anchors: [] };
+        canvas.textRunEditor.textBuffer = 'A';
+        const insertText = jest.spyOn(canvas.textRunEditor, 'insertText');
+
+        const event = new KeyboardEvent('keydown', {
+            key: 't',
+            code: 'KeyT',
+            bubbles: true,
+            cancelable: true
+        });
+        canvas.onKeyDown(event);
+
+        expect(canvas.outlineEditor.active).toBe(false);
+        expect(event.defaultPrevented).toBe(true);
+        expect(insertText).not.toHaveBeenCalled();
+        expect(canvas.textRunEditor.textBuffer).toBe('A');
+    });
+
     test('should clear hover state when exiting glyph edit mode', () => {
         canvas.outlineEditor.active = true;
         canvas.outlineEditor.hoveredPointIndex = {
