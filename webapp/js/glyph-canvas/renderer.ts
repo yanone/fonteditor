@@ -3283,33 +3283,30 @@ export class GlyphCanvasRenderer {
 
         const rect = this.canvas.getBoundingClientRect();
 
-        // Use contrasting color based on theme
-        const isDarkTheme =
-            document.documentElement.getAttribute('data-theme') !== 'light';
-        this.ctx.fillStyle = isDarkTheme
-            ? 'rgba(255, 255, 255, 0.7)'
-            : 'rgba(0, 0, 0, 0.7)';
-        this.ctx.font = '12px monospace';
+        // Debug HUD (top left) — development only; skip in test mode for screenshot diffs
+        if (window.isDevelopment?.() && !window.isTestMode?.()) {
+            const isDarkTheme =
+                document.documentElement.getAttribute('data-theme') !== 'light';
+            this.ctx.fillStyle = isDarkTheme
+                ? 'rgba(255, 255, 255, 0.7)'
+                : 'rgba(0, 0, 0, 0.7)';
+            this.ctx.font = '12px monospace';
 
-        // Draw text buffer info (top left)
-        if (this.textRunEditor.textBuffer && !window.isTestMode?.()) {
-            const textInfo = `Text: "${this.textRunEditor.textBuffer}" (${this.textRunEditor.shapedGlyphs.length} glyphs)`;
-            this.ctx.fillText(textInfo, 10, 20);
-        }
+            if (this.textRunEditor.textBuffer) {
+                const textInfo = `Text: "${this.textRunEditor.textBuffer}" (${this.textRunEditor.shapedGlyphs.length} glyphs)`;
+                this.ctx.fillText(textInfo, 10, 20);
+            }
 
-        // Draw pan/zoom info (top left) - skip in test mode to prevent screenshot diffs
-        if (!window.isTestMode?.()) {
             const panText = `Pan: (${Math.round(this.viewportManager.panX)}, ${Math.round(this.viewportManager.panY)})`;
             this.ctx.fillText(panText, 10, 35);
 
             const zoomText = `Zoom: ${(this.viewportManager.scale * 100).toFixed(1)}%`;
             this.ctx.fillText(zoomText, 10, 50);
-        }
 
-        // Draw FPS (top left) - skip in test mode to prevent screenshot diffs
-        if (this.fps > 0 && !window.isTestMode?.()) {
-            const fpsText = `FPS: ${Math.round(this.fps)}`;
-            this.ctx.fillText(fpsText, 10, 65);
+            if (this.fps > 0) {
+                const fpsText = `FPS: ${Math.round(this.fps)}`;
+                this.ctx.fillText(fpsText, 10, 65);
+            }
         }
 
         // Draw crosshair or a user-defined line when the measurement key is pressed in editing mode
