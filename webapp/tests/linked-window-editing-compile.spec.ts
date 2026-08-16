@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { type Page } from '@playwright/test';
+import { type Browser, type BrowserContext, type Page } from '@playwright/test';
 import {
     waitForCanvasReady,
     waitForFontLoaded
@@ -420,6 +420,56 @@ async function waitForLinkedWindowReady(
             { timeout: 20000 }
         );
     }
+}
+
+async function openLinkedPageFromMain(
+    mainPage: Page,
+    context: BrowserContext,
+    linkedReadyOptions?: { dependentGlyphs?: string[] }
+): Promise<Page> {
+    const [linkedPage] = await Promise.all([
+        context.waitForEvent('page'),
+        (async () => {
+            await mainPage.locator('#toolbar-window-menu-btn').click();
+            await mainPage
+                .locator('.tippy-box:visible .plugin-menu-item', {
+                    hasText: 'Open In New Window'
+                })
+                .click();
+        })()
+    ]);
+
+    // waitForLinkedWindowReady already calls waitForCanvasReady — do not double-call
+    await waitForLinkedWindowReady(linkedPage, linkedReadyOptions);
+    await waitForLinkedPeers([mainPage, linkedPage]);
+    return linkedPage;
+}
+
+async function openLinkedEditingPair(
+    browser: Browser,
+    loadFont: (page: Page) => Promise<void>,
+    linkedReadyOptions?: { dependentGlyphs?: string[] }
+): Promise<{
+    context: BrowserContext;
+    mainPage: Page;
+    linkedPage: Page;
+}> {
+    const context = await browser.newContext();
+    const mainPage = await context.newPage();
+
+    await mainPage.goto('/?test=true');
+    await waitForCanvasReady(mainPage);
+    await loadFont(mainPage);
+    await waitForFontLoaded(mainPage);
+    await waitForBridgeReady(mainPage);
+
+    const linkedPage = await openLinkedPageFromMain(
+        mainPage,
+        context,
+        linkedReadyOptions
+    );
+
+    return { context, mainPage, linkedPage };
 }
 
 async function waitForFullStateSync(page: Page): Promise<void> {
@@ -1595,30 +1645,10 @@ test.describe('Linked window editing compile regression', () => {
         const glyphName = 'o';
         const layerId = 'L0';
 
-        const context = await browser.newContext();
-        const mainPage = await context.newPage();
-
-        await mainPage.goto('/?test=true');
-        await waitForCanvasReady(mainPage);
-        await loadTestFont(mainPage);
-        await waitForFontLoaded(mainPage);
-        await waitForBridgeReady(mainPage);
-
-        const [linkedPage] = await Promise.all([
-            context.waitForEvent('page'),
-            (async () => {
-                await mainPage.locator('#toolbar-window-menu-btn').click();
-                await mainPage
-                    .locator('.tippy-box:visible .plugin-menu-item', {
-                        hasText: 'Open In New Window'
-                    })
-                    .click();
-            })()
-        ]);
-
-        await waitForCanvasReady(linkedPage);
-        await waitForLinkedWindowReady(linkedPage);
-        await waitForLinkedPeers([mainPage, linkedPage]);
+        const { context, mainPage, linkedPage } = await openLinkedEditingPair(
+            browser,
+            loadTestFont
+        );
 
         await installEditingFontCompileTracker(mainPage);
         await installEditingFontCompileTracker(linkedPage);
@@ -1721,32 +1751,11 @@ test.describe('Linked window editing compile regression', () => {
     }) => {
         test.setTimeout(180000);
 
-        const context = await browser.newContext();
-        const mainPage = await context.newPage();
-
-        await mainPage.goto('/?test=true');
-        await waitForCanvasReady(mainPage);
-        await loadAAdieresisTestFont(mainPage);
-        await waitForFontLoaded(mainPage);
-        await waitForBridgeReady(mainPage);
-
-        const [linkedPage] = await Promise.all([
-            context.waitForEvent('page'),
-            (async () => {
-                await mainPage.locator('#toolbar-window-menu-btn').click();
-                await mainPage
-                    .locator('.tippy-box:visible .plugin-menu-item', {
-                        hasText: 'Open In New Window'
-                    })
-                    .click();
-            })()
-        ]);
-
-        await waitForCanvasReady(linkedPage);
-        await waitForLinkedWindowReady(linkedPage, {
-            dependentGlyphs: A_DEPENDENT_GLYPHS
-        });
-        await waitForLinkedPeers([mainPage, linkedPage]);
+        const { context, mainPage, linkedPage } = await openLinkedEditingPair(
+            browser,
+            loadAAdieresisTestFont,
+            { dependentGlyphs: A_DEPENDENT_GLYPHS }
+        );
 
         await installEditingFontCompileTracker(mainPage);
         await installEditingFontCompileTracker(linkedPage);
@@ -1869,32 +1878,11 @@ test.describe('Linked window editing compile regression', () => {
     }) => {
         test.setTimeout(420000);
 
-        const context = await browser.newContext();
-        const mainPage = await context.newPage();
-
-        await mainPage.goto('/?test=true');
-        await waitForCanvasReady(mainPage);
-        await loadAAdieresisTestFont(mainPage);
-        await waitForFontLoaded(mainPage);
-        await waitForBridgeReady(mainPage);
-
-        const [linkedPage] = await Promise.all([
-            context.waitForEvent('page'),
-            (async () => {
-                await mainPage.locator('#toolbar-window-menu-btn').click();
-                await mainPage
-                    .locator('.tippy-box:visible .plugin-menu-item', {
-                        hasText: 'Open In New Window'
-                    })
-                    .click();
-            })()
-        ]);
-
-        await waitForCanvasReady(linkedPage);
-        await waitForLinkedWindowReady(linkedPage, {
-            dependentGlyphs: A_DEPENDENT_GLYPHS
-        });
-        await waitForLinkedPeers([mainPage, linkedPage]);
+        const { context, mainPage, linkedPage } = await openLinkedEditingPair(
+            browser,
+            loadAAdieresisTestFont,
+            { dependentGlyphs: A_DEPENDENT_GLYPHS }
+        );
 
         await installEditingFontCompileTracker(mainPage);
         await installEditingFontCompileTracker(linkedPage);
@@ -2080,36 +2068,13 @@ test.describe('Linked window editing compile regression', () => {
     }) => {
         test.setTimeout(420000);
 
-        const context = await browser.newContext();
-        const mainPage = await context.newPage();
-
+        const { context, mainPage, linkedPage } = await openLinkedEditingPair(
+            browser,
+            loadAAdieresisTestFont,
+            { dependentGlyphs: A_DEPENDENT_GLYPHS }
+        );
         failOnEditingCompileReadinessError(mainPage, 'sender');
-
-        await mainPage.goto('/?test=true');
-        await waitForCanvasReady(mainPage);
-        await loadAAdieresisTestFont(mainPage);
-        await waitForFontLoaded(mainPage);
-        await waitForBridgeReady(mainPage);
-
-        const [linkedPage] = await Promise.all([
-            context.waitForEvent('page'),
-            (async () => {
-                await mainPage.locator('#toolbar-window-menu-btn').click();
-                await mainPage
-                    .locator('.tippy-box:visible .plugin-menu-item', {
-                        hasText: 'Open In New Window'
-                    })
-                    .click();
-            })()
-        ]);
-
         failOnEditingCompileReadinessError(linkedPage, 'receiver');
-
-        await waitForCanvasReady(linkedPage);
-        await waitForLinkedWindowReady(linkedPage, {
-            dependentGlyphs: A_DEPENDENT_GLYPHS
-        });
-        await waitForLinkedPeers([mainPage, linkedPage]);
 
         await installEditingFontCompileTracker(mainPage);
         await installEditingFontCompileTracker(linkedPage);

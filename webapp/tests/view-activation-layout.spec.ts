@@ -16,6 +16,31 @@ async function clearStoredViewLayout(page: Page) {
     }, layoutClearToken);
 }
 
+async function resetViewLayoutInPage(page: Page) {
+    await page.evaluate(() => {
+        localStorage.removeItem('viewLayout');
+        localStorage.removeItem('last_active_view');
+        const canvas = window.glyphCanvas as any;
+        if (canvas?.viewportManager) {
+            canvas.viewportManager.scale = 1;
+            canvas.viewportManager.panX = 0;
+            canvas.viewportManager.panY = 0;
+            canvas.collapsedViewportSnapshot = null;
+        }
+        window.resizableViews?.applyDefaultLayout?.();
+    });
+    await page.waitForFunction(() => {
+        const fontinfo = document.getElementById('view-fontinfo');
+        const editor = document.getElementById('view-editor');
+        if (!fontinfo || !editor) return false;
+        return (
+            fontinfo.classList.contains('collapsed-width') &&
+            !editor.classList.contains('collapsed-width') &&
+            editor.getBoundingClientRect().width > 60
+        );
+    });
+}
+
 async function activateView(page: Page, shortcutKey: string, viewId: string) {
     await focusView(page, `Meta+Shift+${shortcutKey}`, viewId, {
         expand: true
@@ -299,451 +324,6 @@ async function getResponsiveSidebarMetrics(page: Page) {
     });
 }
 
-test('editor collapses to the top-row width minimum when dragged closed', async ({
-    page
-}) => {
-    await clearStoredViewLayout(page);
-
-    await page.goto('/?test=true');
-    await waitForCanvasReady(page);
-
-    await dragVerticalDivider(page, 1, 2000);
-
-    await page.waitForFunction(() => {
-        const visibleTopRow = Array.from(
-            document.querySelectorAll('.top-row')
-        ).find((row) => (row as HTMLElement).offsetWidth > 0) as
-            HTMLElement | undefined;
-        const editorView = visibleTopRow?.querySelector('#view-editor');
-        return !!editorView && editorView.getBoundingClientRect().width <= 30;
-    });
-
-    const topRowState = await getTopRowState(page);
-
-    expect(topRowState.collapsed['view-editor']).toBe(true);
-    expect(topRowState.widths['view-editor']).toBeLessThanOrEqual(30);
-    expect(
-        Math.abs(topRowState.occupiedWidth - topRowState.topRowWidth)
-    ).toBeLessThanOrEqual(4);
-
-    await dragVerticalDivider(page, 1, -500);
-
-    await page.waitForFunction(() => {
-        const visibleTopRow = Array.from(
-            document.querySelectorAll('.top-row')
-        ).find((row) => (row as HTMLElement).offsetWidth > 0) as
-            HTMLElement | undefined;
-        const editorView = visibleTopRow?.querySelector('#view-editor');
-        return !!editorView && editorView.getBoundingClientRect().width > 60;
-    });
-
-    const expandedTopRowState = await getTopRowState(page);
-
-    expect(expandedTopRowState.collapsed['view-editor']).toBe(false);
-    expect(expandedTopRowState.widths['view-editor']).toBeGreaterThan(60);
-    expect(
-        Math.abs(
-            expandedTopRowState.occupiedWidth - expandedTopRowState.topRowWidth
-        )
-    ).toBeLessThanOrEqual(4);
-});
-
-test('editor collapse and reopen restores the previous canvas viewport', async ({
-    page
-}) => {
-    await clearStoredViewLayout(page);
-
-    await page.goto('/?test=true');
-    await waitForCanvasReady(page);
-
-    const beforeCollapse = await page.evaluate(() => {
-        const canvas = window.glyphCanvas;
-        if (!canvas?.viewportManager) {
-            return null;
-        }
-
-        canvas.viewportManager.scale = 1.75;
-        canvas.viewportManager.panX = 321;
-        canvas.viewportManager.panY = 654;
-        canvas.freezeViewportForCollapse?.();
-        canvas.render();
-
-        const width = canvas.container?.clientWidth || 0;
-        const height = canvas.container?.clientHeight || 0;
-        const anchor =
-            canvas.getKeyboardResizeContentAnchorFontPosition?.() || null;
-        const screen = anchor
-            ? canvas.viewportManager.fontToScreenCoordinates(anchor.x, anchor.y)
-            : null;
-
-        return {
-            scale: canvas.viewportManager.scale,
-            screenFractionX: screen && width > 0 ? screen.x / width : null,
-            screenFractionY: screen && height > 0 ? screen.y / height : null
-        };
-    });
-
-    expect(beforeCollapse).not.toBeNull();
-
-    await dragVerticalDivider(page, 1, 2000);
-
-    await page.waitForFunction(() => {
-        const visibleTopRow = Array.from(
-            document.querySelectorAll('.top-row')
-        ).find((row) => (row as HTMLElement).offsetWidth > 0) as
-            HTMLElement | undefined;
-        const editorView = visibleTopRow?.querySelector('#view-editor');
-        return !!editorView && editorView.classList.contains('collapsed-width');
-    });
-
-    await dragVerticalDivider(page, 1, -500);
-
-    await page.waitForFunction(() => {
-        const visibleTopRow = Array.from(
-            document.querySelectorAll('.top-row')
-        ).find((row) => (row as HTMLElement).offsetWidth > 0) as
-            HTMLElement | undefined;
-        const editorView = visibleTopRow?.querySelector('#view-editor');
-        return (
-            !!editorView && !editorView.classList.contains('collapsed-width')
-        );
-    });
-
-    // Collapse restore keeps scale and re-places the content anchor at the
-    // pre-collapse relative screen position (clamped visible), not raw pan.
-    await page.waitForFunction(
-        ({ scale, screenFractionX, screenFractionY }) => {
-            const canvas = window.glyphCanvas as any;
-            const viewportManager = canvas?.viewportManager;
-            if (!canvas || !viewportManager) {
-                return false;
-            }
-
-            // Resizer schedules restore on rAF; invoke once if still pending.
-            if (canvas.collapsedViewportSnapshot) {
-                canvas.restoreViewportAfterCollapse?.();
-            }
-
-            const epsilon = 0.00001;
-            if (Math.abs(viewportManager.scale - scale) > epsilon) {
-                return false;
-            }
-
-            if (
-                typeof screenFractionX !== 'number' ||
-                typeof screenFractionY !== 'number'
-            ) {
-                return true;
-            }
-
-            const width = canvas.container?.clientWidth || 0;
-            const height = canvas.container?.clientHeight || 0;
-            if (width <= 0 || height <= 0) {
-                return false;
-            }
-
-            const anchor =
-                canvas.getKeyboardResizeContentAnchorFontPosition?.();
-            if (!anchor) {
-                return false;
-            }
-
-            const screen = viewportManager.fontToScreenCoordinates(
-                anchor.x,
-                anchor.y
-            );
-            const marginX = Math.min(30, Math.max(8, width / 4));
-            const marginY = Math.min(30, Math.max(8, height / 4));
-            const targetX = Math.min(
-                width - marginX,
-                Math.max(marginX, screenFractionX * width)
-            );
-            const targetY = Math.min(
-                height - marginY,
-                Math.max(marginY, screenFractionY * height)
-            );
-
-            return (
-                Math.abs(screen.x - targetX) <= 2 &&
-                Math.abs(screen.y - targetY) <= 2
-            );
-        },
-        {
-            scale: beforeCollapse!.scale,
-            screenFractionX: beforeCollapse!.screenFractionX,
-            screenFractionY: beforeCollapse!.screenFractionY
-        },
-        { timeout: 10000 }
-    );
-
-    const afterExpandViewport = await getEditorViewportState(page);
-    expect(afterExpandViewport).not.toBeNull();
-    expect(afterExpandViewport!.scale).toBeCloseTo(beforeCollapse!.scale, 5);
-});
-
-test('collapsed editor reopens to activation minimum by shortcut and title click', async ({
-    page
-}) => {
-    await clearStoredViewLayout(page);
-
-    await page.goto('/?test=true');
-    await waitForCanvasReady(page);
-
-    const minimumWidths = await getActivationMinimumWidths(page);
-
-    await page.evaluate(() => {
-        window.collapseActiveView?.('view-editor');
-    });
-    await page.waitForTimeout(500);
-
-    await activateView(page, 'E', 'view-editor');
-
-    let topRowState = await getTopRowState(page);
-
-    expect(topRowState.collapsed['view-editor']).toBe(false);
-    expect(topRowState.widths['view-editor']).toBeGreaterThanOrEqual(
-        minimumWidths.topRow - 4
-    );
-    expect(topRowState.widths['view-editor']).toBeLessThan(
-        minimumWidths.topRow + 80
-    );
-
-    await page.evaluate(() => {
-        window.collapseActiveView?.('view-editor');
-    });
-    await page.waitForTimeout(500);
-
-    await page.click('#view-editor .view-title-name');
-    await page.waitForTimeout(500);
-
-    topRowState = await getTopRowState(page);
-
-    expect(topRowState.collapsed['view-editor']).toBe(false);
-    expect(topRowState.widths['view-editor']).toBeGreaterThanOrEqual(
-        minimumWidths.topRow - 4
-    );
-    expect(topRowState.widths['view-editor']).toBeLessThan(
-        minimumWidths.topRow + 80
-    );
-});
-
-test('top-row views cycle small, larger, then max', async ({ page }) => {
-    await clearStoredViewLayout(page);
-
-    await page.goto('/?test=true');
-    await waitForCanvasReady(page);
-
-    const minimumWidths = await getActivationMinimumWidths(page);
-    const views = [
-        { key: 'I', viewId: 'view-fontinfo' },
-        { key: 'O', viewId: 'view-overview' },
-        { key: 'E', viewId: 'view-editor' }
-    ] as const;
-
-    for (const { key, viewId } of views) {
-        await page.evaluate((id) => {
-            window.collapseActiveView?.(id);
-        }, viewId);
-        await page.waitForTimeout(500);
-
-        await activateView(page, key, viewId);
-        let topRowState = await getTopRowState(page);
-        expect(topRowState.collapsed[viewId]).toBe(false);
-        expect(topRowState.widths[viewId]).toBeGreaterThanOrEqual(
-            minimumWidths.topRow - 4
-        );
-        expect(topRowState.widths[viewId]).toBeLessThan(
-            minimumWidths.topRow + 80
-        );
-
-        await activateView(page, key, viewId);
-        topRowState = await getTopRowState(page);
-        expect(topRowState.widths[viewId]).toBeGreaterThanOrEqual(
-            topRowState.topRowWidth * 0.45
-        );
-
-        await activateView(page, key, viewId);
-        topRowState = await getTopRowState(page);
-        const otherViewIds = views
-            .map((view) => view.viewId)
-            .filter((id) => id !== viewId);
-        if (viewId === 'view-fontinfo') {
-            expect(topRowState.widths[viewId]).toBeGreaterThanOrEqual(
-                topRowState.topRowWidth * 0.45
-            );
-            expect(topRowState.widths[viewId]).toBeLessThanOrEqual(
-                topRowState.topRowWidth * 0.55 + 4
-            );
-            for (const otherViewId of otherViewIds) {
-                expect(topRowState.collapsed[otherViewId]).toBe(false);
-                expect(topRowState.widths[otherViewId]).toBeGreaterThan(30);
-            }
-        } else {
-            for (const otherViewId of otherViewIds) {
-                expect(topRowState.widths[otherViewId]).toBeLessThanOrEqual(30);
-            }
-            expect(topRowState.widths[viewId]).toBeGreaterThan(
-                topRowState.topRowWidth * 0.85
-            );
-        }
-    }
-});
-
-test('collapsed fontinfo and overview reopen to activation minimum by shortcut and title click', async ({
-    page
-}) => {
-    await clearStoredViewLayout(page);
-
-    await page.goto('/?test=true');
-    await waitForCanvasReady(page);
-
-    const minimumWidths = await getActivationMinimumWidths(page);
-
-    await page.evaluate(() => {
-        window.collapseActiveView?.('view-fontinfo');
-    });
-    await page.waitForTimeout(500);
-
-    await activateView(page, 'I', 'view-fontinfo');
-
-    let topRowState = await getTopRowState(page);
-    expect(topRowState.collapsed['view-fontinfo']).toBe(false);
-    expect(topRowState.widths['view-fontinfo']).toBeGreaterThanOrEqual(
-        minimumWidths.topRow - 4
-    );
-
-    await page.evaluate(() => {
-        window.collapseActiveView?.('view-fontinfo');
-    });
-    await page.waitForTimeout(500);
-
-    await page.click('#view-fontinfo .view-title-name');
-    await page.waitForTimeout(500);
-
-    topRowState = await getTopRowState(page);
-    expect(topRowState.collapsed['view-fontinfo']).toBe(false);
-    expect(topRowState.widths['view-fontinfo']).toBeGreaterThanOrEqual(
-        minimumWidths.topRow - 4
-    );
-
-    await page.evaluate(() => {
-        window.collapseActiveView?.('view-overview');
-    });
-    await page.waitForTimeout(500);
-
-    await activateView(page, 'O', 'view-overview');
-
-    topRowState = await getTopRowState(page);
-    expect(topRowState.collapsed['view-overview']).toBe(false);
-    expect(topRowState.widths['view-overview']).toBeGreaterThanOrEqual(
-        minimumWidths.topRow - 4
-    );
-
-    await page.evaluate(() => {
-        window.collapseActiveView?.('view-overview');
-    });
-    await page.waitForTimeout(500);
-
-    await page.click('#view-overview .view-title-name');
-    await page.waitForTimeout(500);
-
-    topRowState = await getTopRowState(page);
-    expect(topRowState.collapsed['view-overview']).toBe(false);
-    expect(topRowState.widths['view-overview']).toBeGreaterThanOrEqual(
-        minimumWidths.topRow - 4
-    );
-});
-
-test('activating collapsed fontinfo or overview keeps the other open', async ({
-    page
-}) => {
-    await clearStoredViewLayout(page);
-
-    await page.goto('/?test=true');
-    await waitForCanvasReady(page);
-
-    await page.evaluate(() => {
-        window.collapseActiveView?.('view-fontinfo');
-    });
-    await page.waitForTimeout(500);
-
-    await activateView(page, 'O', 'view-overview');
-    await page.click('#view-fontinfo .view-title-name');
-    await page.waitForTimeout(500);
-
-    let topRowState = await getTopRowState(page);
-    expect(topRowState.collapsed['view-fontinfo']).toBe(false);
-    expect(topRowState.collapsed['view-overview']).toBe(false);
-
-    await page.evaluate(() => {
-        window.collapseActiveView?.('view-overview');
-    });
-    await page.waitForTimeout(500);
-
-    await activateView(page, 'I', 'view-fontinfo');
-    await activateView(page, 'O', 'view-overview');
-
-    topRowState = await getTopRowState(page);
-    expect(topRowState.collapsed['view-fontinfo']).toBe(false);
-    expect(topRowState.collapsed['view-overview']).toBe(false);
-});
-
-test('top-row sidebars interpolate width and padding per view width', async ({
-    page
-}) => {
-    await clearStoredViewLayout(page);
-
-    await page.setViewportSize({ width: 1440, height: 960 });
-    await page.goto('/?test=true');
-    await waitForCanvasReady(page);
-
-    await setTopRowViewWidths(page, {
-        'view-fontinfo': 600,
-        'view-overview': 600,
-        'view-editor': 600
-    });
-
-    const compactMetrics = await getResponsiveSidebarMetrics(page);
-    expect(compactMetrics.fontInfoSidebarWidthVar).toBeCloseTo(100, 0);
-    expect(compactMetrics.fontInfoSidebarPaddingVar).toBeCloseTo(6, 0);
-    expect(compactMetrics.fontInfoSidebarGapVar).toBeCloseTo(4, 0);
-    expect(compactMetrics.overviewSidebarWidth).toBeCloseTo(100, 0);
-    expect(compactMetrics.overviewSidebarPaddingLeft).toBeCloseTo(6, 0);
-    expect(compactMetrics.overviewFilterItemPaddingVar).toBeCloseTo(3, 0);
-    expect(compactMetrics.overviewFilterNodePaddingLeft).toBeCloseTo(0, 0);
-    expect(compactMetrics.overviewFilterItemPaddingLeft).toBeCloseTo(6, 0);
-    expect(compactMetrics.editorSidebarWidthVar).toBeCloseTo(100, 0);
-    expect(compactMetrics.editorSidebarItemPaddingVar).toBeCloseTo(6, 0);
-    expect(compactMetrics.editorSidebarElementGapVar).toBeCloseTo(3, 0);
-    expect(compactMetrics.editorLeftSidebarWidth).toBeCloseTo(100, 0);
-    expect(compactMetrics.editorRightSidebarWidth).toBeCloseTo(100, 0);
-    expect(compactMetrics.fontInfoFeatureItemPaddingVar).toBeCloseTo(6, 0);
-    expect(compactMetrics.fontInfoElementGapVar).toBeCloseTo(3, 0);
-
-    await setTopRowViewWidths(page, {
-        'view-fontinfo': 1200,
-        'view-overview': 1200,
-        'view-editor': 1200
-    });
-
-    const expandedMetrics = await getResponsiveSidebarMetrics(page);
-    expect(expandedMetrics.fontInfoSidebarWidthVar).toBeCloseTo(200, 0);
-    expect(expandedMetrics.fontInfoSidebarPaddingVar).toBeCloseTo(12, 0);
-    expect(expandedMetrics.fontInfoSidebarGapVar).toBeCloseTo(12, 0);
-    expect(expandedMetrics.overviewSidebarWidth).toBeCloseTo(200, 0);
-    expect(expandedMetrics.overviewSidebarPaddingLeft).toBeCloseTo(12, 0);
-    expect(expandedMetrics.overviewFilterItemPaddingVar).toBeCloseTo(6, 0);
-    expect(expandedMetrics.overviewFilterNodePaddingLeft).toBeCloseTo(0, 0);
-    expect(expandedMetrics.overviewFilterItemPaddingLeft).toBeCloseTo(12, 0);
-    expect(expandedMetrics.editorSidebarWidthVar).toBeCloseTo(200, 0);
-    expect(expandedMetrics.editorSidebarItemPaddingVar).toBeCloseTo(12, 0);
-    expect(expandedMetrics.editorSidebarElementGapVar).toBeCloseTo(8, 0);
-    expect(expandedMetrics.editorLeftSidebarWidth).toBeCloseTo(200, 0);
-    expect(expandedMetrics.editorRightSidebarWidth).toBeCloseTo(200, 0);
-    expect(expandedMetrics.fontInfoFeatureItemPaddingVar).toBeCloseTo(12, 0);
-    expect(expandedMetrics.fontInfoElementGapVar).toBeCloseTo(8, 0);
-});
-
 /**
  * Get the bounding rect of the root .container and the current window dimensions.
  */
@@ -873,4 +453,487 @@ test('container and views resize when viewport changes', async ({ page }) => {
             expandedTopRowState.occupiedWidth - expandedTopRowState.topRowWidth
         )
     ).toBeLessThanOrEqual(4);
+});
+
+test('editor collapse and reopen restores the previous canvas viewport', async ({
+    page
+}) => {
+    // Own cold boot: viewport freeze/restore is sensitive to prior drag state
+    // from the shared interactive session.
+    await clearStoredViewLayout(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/?test=true');
+    await waitForCanvasReady(page);
+
+    const beforeCollapse = await page.evaluate(() => {
+        const canvas = window.glyphCanvas;
+        if (!canvas?.viewportManager) {
+            return null;
+        }
+
+        canvas.viewportManager.scale = 1.75;
+        canvas.viewportManager.panX = 321;
+        canvas.viewportManager.panY = 654;
+        canvas.freezeViewportForCollapse?.();
+        canvas.render();
+
+        const width = canvas.container?.clientWidth || 0;
+        const height = canvas.container?.clientHeight || 0;
+        const anchor =
+            canvas.getKeyboardResizeContentAnchorFontPosition?.() || null;
+        const screen = anchor
+            ? canvas.viewportManager.fontToScreenCoordinates(anchor.x, anchor.y)
+            : null;
+
+        return {
+            scale: canvas.viewportManager.scale,
+            screenFractionX: screen && width > 0 ? screen.x / width : null,
+            screenFractionY: screen && height > 0 ? screen.y / height : null
+        };
+    });
+
+    expect(beforeCollapse).not.toBeNull();
+
+    await dragVerticalDivider(page, 1, 2000);
+
+    await page.waitForFunction(() => {
+        const visibleTopRow = Array.from(
+            document.querySelectorAll('.top-row')
+        ).find((row) => (row as HTMLElement).offsetWidth > 0) as
+            HTMLElement | undefined;
+        const editorView = visibleTopRow?.querySelector('#view-editor');
+        return !!editorView && editorView.classList.contains('collapsed-width');
+    });
+
+    await dragVerticalDivider(page, 1, -500);
+
+    await page.waitForFunction(() => {
+        const visibleTopRow = Array.from(
+            document.querySelectorAll('.top-row')
+        ).find((row) => (row as HTMLElement).offsetWidth > 0) as
+            HTMLElement | undefined;
+        const editorView = visibleTopRow?.querySelector('#view-editor');
+        return (
+            !!editorView && !editorView.classList.contains('collapsed-width')
+        );
+    });
+
+    // Collapse restore keeps scale and re-places the content anchor at the
+    // pre-collapse relative screen position (clamped visible), not raw pan.
+    await page.waitForFunction(
+        ({ scale, screenFractionX, screenFractionY }) => {
+            const canvas = window.glyphCanvas as any;
+            const viewportManager = canvas?.viewportManager;
+            if (!canvas || !viewportManager) {
+                return false;
+            }
+
+            // Resizer schedules restore on rAF; invoke once if still pending.
+            if (canvas.collapsedViewportSnapshot) {
+                canvas.restoreViewportAfterCollapse?.();
+            }
+
+            const epsilon = 0.00001;
+            if (Math.abs(viewportManager.scale - scale) > epsilon) {
+                return false;
+            }
+
+            if (
+                typeof screenFractionX !== 'number' ||
+                typeof screenFractionY !== 'number'
+            ) {
+                return true;
+            }
+
+            const width = canvas.container?.clientWidth || 0;
+            const height = canvas.container?.clientHeight || 0;
+            if (width <= 0 || height <= 0) {
+                return false;
+            }
+
+            const anchor =
+                canvas.getKeyboardResizeContentAnchorFontPosition?.();
+            if (!anchor) {
+                return false;
+            }
+
+            const screen = viewportManager.fontToScreenCoordinates(
+                anchor.x,
+                anchor.y
+            );
+            const marginX = Math.min(30, Math.max(8, width / 4));
+            const marginY = Math.min(30, Math.max(8, height / 4));
+            const targetX = Math.min(
+                width - marginX,
+                Math.max(marginX, screenFractionX * width)
+            );
+            const targetY = Math.min(
+                height - marginY,
+                Math.max(marginY, screenFractionY * height)
+            );
+
+            return (
+                Math.abs(screen.x - targetX) <= 2 &&
+                Math.abs(screen.y - targetY) <= 2
+            );
+        },
+        {
+            scale: beforeCollapse!.scale,
+            screenFractionX: beforeCollapse!.screenFractionX,
+            screenFractionY: beforeCollapse!.screenFractionY
+        },
+        { timeout: 10000 }
+    );
+
+    const afterExpandViewport = await getEditorViewportState(page);
+    expect(afterExpandViewport).not.toBeNull();
+    expect(afterExpandViewport!.scale).toBeCloseTo(beforeCollapse!.scale, 5);
+});
+
+test.describe('View activation layout — interactive', () => {
+    test.describe.configure({ mode: 'serial' });
+
+    test('interactive layout scenarios share one session', async ({ page }) => {
+        await clearStoredViewLayout(page);
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await page.goto('/?test=true');
+        await waitForCanvasReady(page);
+
+        await test.step('editor collapses to the top-row width minimum when dragged closed', async () => {
+            await dragVerticalDivider(page, 1, 2000);
+
+            await page.waitForFunction(() => {
+                const visibleTopRow = Array.from(
+                    document.querySelectorAll('.top-row')
+                ).find((row) => (row as HTMLElement).offsetWidth > 0) as
+                    HTMLElement | undefined;
+                const editorView = visibleTopRow?.querySelector('#view-editor');
+                return (
+                    !!editorView &&
+                    editorView.getBoundingClientRect().width <= 30
+                );
+            });
+
+            const topRowState = await getTopRowState(page);
+
+            expect(topRowState.collapsed['view-editor']).toBe(true);
+            expect(topRowState.widths['view-editor']).toBeLessThanOrEqual(30);
+            expect(
+                Math.abs(topRowState.occupiedWidth - topRowState.topRowWidth)
+            ).toBeLessThanOrEqual(4);
+
+            await dragVerticalDivider(page, 1, -500);
+
+            await page.waitForFunction(() => {
+                const visibleTopRow = Array.from(
+                    document.querySelectorAll('.top-row')
+                ).find((row) => (row as HTMLElement).offsetWidth > 0) as
+                    HTMLElement | undefined;
+                const editorView = visibleTopRow?.querySelector('#view-editor');
+                return (
+                    !!editorView &&
+                    editorView.getBoundingClientRect().width > 60
+                );
+            });
+
+            const expandedTopRowState = await getTopRowState(page);
+
+            expect(expandedTopRowState.collapsed['view-editor']).toBe(false);
+            expect(expandedTopRowState.widths['view-editor']).toBeGreaterThan(
+                60
+            );
+            expect(
+                Math.abs(
+                    expandedTopRowState.occupiedWidth -
+                        expandedTopRowState.topRowWidth
+                )
+            ).toBeLessThanOrEqual(4);
+        });
+
+        await resetViewLayoutInPage(page);
+
+        await test.step('collapsed editor reopens to activation minimum by shortcut and title click', async () => {
+            const minimumWidths = await getActivationMinimumWidths(page);
+
+            await page.evaluate(() => {
+                window.collapseActiveView?.('view-editor');
+            });
+            await page.waitForTimeout(500);
+
+            await activateView(page, 'E', 'view-editor');
+
+            let topRowState = await getTopRowState(page);
+
+            expect(topRowState.collapsed['view-editor']).toBe(false);
+            expect(topRowState.widths['view-editor']).toBeGreaterThanOrEqual(
+                minimumWidths.topRow - 4
+            );
+            expect(topRowState.widths['view-editor']).toBeLessThan(
+                minimumWidths.topRow + 80
+            );
+
+            await page.evaluate(() => {
+                window.collapseActiveView?.('view-editor');
+            });
+            await page.waitForTimeout(500);
+
+            await page.click('#view-editor .view-title-name');
+            await page.waitForTimeout(500);
+
+            topRowState = await getTopRowState(page);
+
+            expect(topRowState.collapsed['view-editor']).toBe(false);
+            expect(topRowState.widths['view-editor']).toBeGreaterThanOrEqual(
+                minimumWidths.topRow - 4
+            );
+            expect(topRowState.widths['view-editor']).toBeLessThan(
+                minimumWidths.topRow + 80
+            );
+        });
+
+        await resetViewLayoutInPage(page);
+
+        await test.step('top-row views cycle small, larger, then max', async () => {
+            const minimumWidths = await getActivationMinimumWidths(page);
+            const views = [
+                { key: 'I', viewId: 'view-fontinfo' },
+                { key: 'O', viewId: 'view-overview' },
+                { key: 'E', viewId: 'view-editor' }
+            ] as const;
+
+            for (const { key, viewId } of views) {
+                await page.evaluate((id) => {
+                    window.collapseActiveView?.(id);
+                }, viewId);
+                await page.waitForTimeout(500);
+
+                await activateView(page, key, viewId);
+                let topRowState = await getTopRowState(page);
+                expect(topRowState.collapsed[viewId]).toBe(false);
+                expect(topRowState.widths[viewId]).toBeGreaterThanOrEqual(
+                    minimumWidths.topRow - 4
+                );
+                expect(topRowState.widths[viewId]).toBeLessThan(
+                    minimumWidths.topRow + 80
+                );
+
+                await activateView(page, key, viewId);
+                topRowState = await getTopRowState(page);
+                expect(topRowState.widths[viewId]).toBeGreaterThanOrEqual(
+                    topRowState.topRowWidth * 0.45
+                );
+
+                await activateView(page, key, viewId);
+                topRowState = await getTopRowState(page);
+                const otherViewIds = views
+                    .map((view) => view.viewId)
+                    .filter((id) => id !== viewId);
+                if (viewId === 'view-fontinfo') {
+                    expect(topRowState.widths[viewId]).toBeGreaterThanOrEqual(
+                        topRowState.topRowWidth * 0.45
+                    );
+                    expect(topRowState.widths[viewId]).toBeLessThanOrEqual(
+                        topRowState.topRowWidth * 0.55 + 4
+                    );
+                    for (const otherViewId of otherViewIds) {
+                        expect(topRowState.collapsed[otherViewId]).toBe(false);
+                        expect(topRowState.widths[otherViewId]).toBeGreaterThan(
+                            30
+                        );
+                    }
+                } else {
+                    for (const otherViewId of otherViewIds) {
+                        expect(
+                            topRowState.widths[otherViewId]
+                        ).toBeLessThanOrEqual(30);
+                    }
+                    expect(topRowState.widths[viewId]).toBeGreaterThan(
+                        topRowState.topRowWidth * 0.85
+                    );
+                }
+            }
+        });
+
+        await resetViewLayoutInPage(page);
+
+        await test.step('collapsed fontinfo and overview reopen to activation minimum by shortcut and title click', async () => {
+            const minimumWidths = await getActivationMinimumWidths(page);
+
+            await page.evaluate(() => {
+                window.collapseActiveView?.('view-fontinfo');
+            });
+            await page.waitForTimeout(500);
+
+            await activateView(page, 'I', 'view-fontinfo');
+
+            let topRowState = await getTopRowState(page);
+            expect(topRowState.collapsed['view-fontinfo']).toBe(false);
+            expect(topRowState.widths['view-fontinfo']).toBeGreaterThanOrEqual(
+                minimumWidths.topRow - 4
+            );
+
+            await page.evaluate(() => {
+                window.collapseActiveView?.('view-fontinfo');
+            });
+            await page.waitForTimeout(500);
+
+            await page.click('#view-fontinfo .view-title-name');
+            await page.waitForTimeout(500);
+
+            topRowState = await getTopRowState(page);
+            expect(topRowState.collapsed['view-fontinfo']).toBe(false);
+            expect(topRowState.widths['view-fontinfo']).toBeGreaterThanOrEqual(
+                minimumWidths.topRow - 4
+            );
+
+            await page.evaluate(() => {
+                window.collapseActiveView?.('view-overview');
+            });
+            await page.waitForTimeout(500);
+
+            await activateView(page, 'O', 'view-overview');
+
+            topRowState = await getTopRowState(page);
+            expect(topRowState.collapsed['view-overview']).toBe(false);
+            expect(topRowState.widths['view-overview']).toBeGreaterThanOrEqual(
+                minimumWidths.topRow - 4
+            );
+
+            await page.evaluate(() => {
+                window.collapseActiveView?.('view-overview');
+            });
+            await page.waitForTimeout(500);
+
+            await page.click('#view-overview .view-title-name');
+            await page.waitForTimeout(500);
+
+            topRowState = await getTopRowState(page);
+            expect(topRowState.collapsed['view-overview']).toBe(false);
+            expect(topRowState.widths['view-overview']).toBeGreaterThanOrEqual(
+                minimumWidths.topRow - 4
+            );
+        });
+
+        await resetViewLayoutInPage(page);
+
+        await test.step('activating collapsed fontinfo or overview keeps the other open', async () => {
+            await page.evaluate(() => {
+                window.collapseActiveView?.('view-fontinfo');
+            });
+            await page.waitForTimeout(500);
+
+            await activateView(page, 'O', 'view-overview');
+            await page.click('#view-fontinfo .view-title-name');
+            await page.waitForTimeout(500);
+
+            let topRowState = await getTopRowState(page);
+            expect(topRowState.collapsed['view-fontinfo']).toBe(false);
+            expect(topRowState.collapsed['view-overview']).toBe(false);
+
+            await page.evaluate(() => {
+                window.collapseActiveView?.('view-overview');
+            });
+            await page.waitForTimeout(500);
+
+            await activateView(page, 'I', 'view-fontinfo');
+            await activateView(page, 'O', 'view-overview');
+
+            topRowState = await getTopRowState(page);
+            expect(topRowState.collapsed['view-fontinfo']).toBe(false);
+            expect(topRowState.collapsed['view-overview']).toBe(false);
+        });
+
+        await resetViewLayoutInPage(page);
+
+        await test.step('top-row sidebars interpolate width and padding per view width', async () => {
+            await page.setViewportSize({ width: 1440, height: 960 });
+
+            await setTopRowViewWidths(page, {
+                'view-fontinfo': 600,
+                'view-overview': 600,
+                'view-editor': 600
+            });
+
+            const compactMetrics = await getResponsiveSidebarMetrics(page);
+            expect(compactMetrics.fontInfoSidebarWidthVar).toBeCloseTo(100, 0);
+            expect(compactMetrics.fontInfoSidebarPaddingVar).toBeCloseTo(6, 0);
+            expect(compactMetrics.fontInfoSidebarGapVar).toBeCloseTo(4, 0);
+            expect(compactMetrics.overviewSidebarWidth).toBeCloseTo(100, 0);
+            expect(compactMetrics.overviewSidebarPaddingLeft).toBeCloseTo(6, 0);
+            expect(compactMetrics.overviewFilterItemPaddingVar).toBeCloseTo(
+                3,
+                0
+            );
+            expect(compactMetrics.overviewFilterNodePaddingLeft).toBeCloseTo(
+                0,
+                0
+            );
+            expect(compactMetrics.overviewFilterItemPaddingLeft).toBeCloseTo(
+                6,
+                0
+            );
+            expect(compactMetrics.editorSidebarWidthVar).toBeCloseTo(100, 0);
+            expect(compactMetrics.editorSidebarItemPaddingVar).toBeCloseTo(
+                6,
+                0
+            );
+            expect(compactMetrics.editorSidebarElementGapVar).toBeCloseTo(3, 0);
+            expect(compactMetrics.editorLeftSidebarWidth).toBeCloseTo(100, 0);
+            expect(compactMetrics.editorRightSidebarWidth).toBeCloseTo(100, 0);
+            expect(compactMetrics.fontInfoFeatureItemPaddingVar).toBeCloseTo(
+                6,
+                0
+            );
+            expect(compactMetrics.fontInfoElementGapVar).toBeCloseTo(3, 0);
+
+            await setTopRowViewWidths(page, {
+                'view-fontinfo': 1200,
+                'view-overview': 1200,
+                'view-editor': 1200
+            });
+
+            const expandedMetrics = await getResponsiveSidebarMetrics(page);
+            expect(expandedMetrics.fontInfoSidebarWidthVar).toBeCloseTo(200, 0);
+            expect(expandedMetrics.fontInfoSidebarPaddingVar).toBeCloseTo(
+                12,
+                0
+            );
+            expect(expandedMetrics.fontInfoSidebarGapVar).toBeCloseTo(12, 0);
+            expect(expandedMetrics.overviewSidebarWidth).toBeCloseTo(200, 0);
+            expect(expandedMetrics.overviewSidebarPaddingLeft).toBeCloseTo(
+                12,
+                0
+            );
+            expect(expandedMetrics.overviewFilterItemPaddingVar).toBeCloseTo(
+                6,
+                0
+            );
+            expect(expandedMetrics.overviewFilterNodePaddingLeft).toBeCloseTo(
+                0,
+                0
+            );
+            expect(expandedMetrics.overviewFilterItemPaddingLeft).toBeCloseTo(
+                12,
+                0
+            );
+            expect(expandedMetrics.editorSidebarWidthVar).toBeCloseTo(200, 0);
+            expect(expandedMetrics.editorSidebarItemPaddingVar).toBeCloseTo(
+                12,
+                0
+            );
+            expect(expandedMetrics.editorSidebarElementGapVar).toBeCloseTo(
+                8,
+                0
+            );
+            expect(expandedMetrics.editorLeftSidebarWidth).toBeCloseTo(200, 0);
+            expect(expandedMetrics.editorRightSidebarWidth).toBeCloseTo(200, 0);
+            expect(expandedMetrics.fontInfoFeatureItemPaddingVar).toBeCloseTo(
+                12,
+                0
+            );
+            expect(expandedMetrics.fontInfoElementGapVar).toBeCloseTo(8, 0);
+
+            await page.setViewportSize({ width: 1280, height: 800 });
+        });
+    });
 });
