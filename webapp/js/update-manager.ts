@@ -3,6 +3,8 @@
  *
  * The inline script in index.html sets window.__pendingUpdate and dispatches
  * 'counterpunch:update-available' when a new service worker activates.
+ * Scheduled checks also compare the published service-worker tag so the
+ * Preferences gear can notify even before that message arrives.
  */
 
 import { Logger } from './logger';
@@ -11,6 +13,14 @@ const console = new Logger('UpdateManager');
 
 const CHANGELOG_RELEASES_URL =
     'https://github.com/counterpunchspace/editor/releases/tag';
+
+export const AUTO_CHECK_THROTTLE_MS = 60 * 1000;
+export const AUTO_CHECK_INTERVAL_MS = 10 * 60 * 1000;
+
+let lastAutoCheckAt = 0;
+let checkInFlight = false;
+let scheduledChecksInitialized = false;
+let preferencesUiInitialized = false;
 
 export type PendingUpdate = {
     version: string;
@@ -79,6 +89,24 @@ function getInstalledDisplayVersion(): string {
 function getInstalledTag(): string | null {
     const versionSpan = document.getElementById('app-version');
     return versionSpan?.dataset.version || window.EDITOR_VERSION || null;
+}
+
+async function getInstalledTagWhenReady(): Promise<string | null> {
+    const existing = document.getElementById('app-version')?.dataset.version;
+    if (existing) {
+        return existing;
+    }
+    const timeoutAt = Date.now() + 4000;
+    while (Date.now() < timeoutAt) {
+        await new Promise((resolve) => {
+            window.setTimeout(resolve, 50);
+        });
+        const tag = document.getElementById('app-version')?.dataset.version;
+        if (tag) {
+            return tag;
+        }
+    }
+    return getInstalledTag();
 }
 
 function setPendingUpdate(pending: PendingUpdate): void {
@@ -150,15 +178,38 @@ async function fetchPublishedSwVersion(): Promise<SwVersionInfo | null> {
     return parseSwVersions(await response.text());
 }
 
-async function checkForUpdates(): Promise<void> {
+export function isAutoCheckThrottled(
+    lastCheckAt: number,
+    now: number = Date.now()
+): boolean {
+    return lastCheckAt > 0 && now - lastCheckAt < AUTO_CHECK_THROTTLE_MS;
+}
+
+function shouldSkipScheduledChecks(): boolean {
+    if (typeof window === 'undefined') {
+        return true;
+    }
+    if (window.isTestMode?.() || window.isTest?.()) {
+        return true;
+    }
+    return !navigator.serviceWorker;
+}
+
+async function checkForUpdates(userInitiated = false): Promise<void> {
+    if (checkInFlight && !userInitiated) {
+        return;
+    }
+    checkInFlight = true;
+    lastAutoCheckAt = Date.now();
+
     const statusEl = document.getElementById('settings-update-status');
     const checkBtn = document.getElementById(
         'settings-check-updates-btn'
     ) as HTMLButtonElement | null;
-    if (statusEl) {
+    if (userInitiated && statusEl) {
         statusEl.textContent = 'Checking for updates…';
     }
-    if (checkBtn) {
+    if (userInitiated && checkBtn) {
         checkBtn.disabled = true;
     }
 
@@ -170,8 +221,15 @@ async function checkForUpdates(): Promise<void> {
         }
 
         const published = await fetchPublishedSwVersion();
-        const installedTag = getInstalledTag();
-        if (published && installedTag && published.tag !== installedTag) {
+        const installedTag = userInitiated
+            ? getInstalledTag()
+            : await getInstalledTagWhenReady();
+        if (
+            published &&
+            installedTag &&
+            published.tag !== installedTag &&
+            (userInitiated || installedTag.startsWith('v'))
+        ) {
             setPendingUpdate(pendingUpdateFromSw(published));
             if (statusEl) {
                 statusEl.textContent = '';
@@ -179,7 +237,7 @@ async function checkForUpdates(): Promise<void> {
             return;
         }
 
-        if (statusEl) {
+        if (userInitiated && statusEl) {
             statusEl.textContent = getPendingUpdate()
                 ? ''
                 : 'You’re up to date.';
@@ -187,15 +245,43 @@ async function checkForUpdates(): Promise<void> {
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.warn('Update check failed:', message);
-        if (statusEl) {
+        if (userInitiated && statusEl) {
             statusEl.textContent = 'Could not check for updates.';
         }
     } finally {
+        checkInFlight = false;
         if (checkBtn) {
             checkBtn.disabled = false;
         }
         refreshPreferencesVersionUi();
     }
+}
+
+function runScheduledUpdateCheck(bypassThrottle: boolean): void {
+    if (checkInFlight) {
+        return;
+    }
+    if (!bypassThrottle && isAutoCheckThrottled(lastAutoCheckAt)) {
+        return;
+    }
+    void checkForUpdates(false);
+}
+
+function initScheduledUpdateChecks(): void {
+    if (scheduledChecksInitialized || shouldSkipScheduledChecks()) {
+        return;
+    }
+    scheduledChecksInitialized = true;
+
+    runScheduledUpdateCheck(false);
+
+    window.addEventListener('focus', () => {
+        runScheduledUpdateCheck(false);
+    });
+
+    window.setInterval(() => {
+        runScheduledUpdateCheck(true);
+    }, AUTO_CHECK_INTERVAL_MS);
 }
 
 function applyPendingUpdate(): void {
@@ -204,11 +290,17 @@ function applyPendingUpdate(): void {
 
 export function initPreferencesVersionUi(): void {
     refreshPreferencesVersionUi();
+    initScheduledUpdateChecks();
+
+    if (preferencesUiInitialized) {
+        return;
+    }
+    preferencesUiInitialized = true;
 
     document
         .getElementById('settings-check-updates-btn')
         ?.addEventListener('click', () => {
-            void checkForUpdates();
+            void checkForUpdates(true);
         });
     document
         .getElementById('settings-apply-update-btn')
