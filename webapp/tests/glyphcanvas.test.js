@@ -20720,6 +20720,118 @@ describe('GlyphCanvas resize handling', () => {
         expect(canvas.canvas).toBeTruthy();
         expect(canvas.ctx).toBeTruthy();
     });
+
+    function setContainerSize(width, height) {
+        Object.defineProperty(canvas.container, 'clientWidth', {
+            configurable: true,
+            get: () => width
+        });
+        Object.defineProperty(canvas.container, 'clientHeight', {
+            configurable: true,
+            get: () => height
+        });
+    }
+
+    test('keyboard resize keeps the text caret on the same canvas point', () => {
+        setContainerSize(400, 300);
+        canvas.lastContainerWidth = 400;
+        canvas.lastContainerHeight = 300;
+        canvas.viewportManager.scale = 0.5;
+        canvas.viewportManager.panX = 40;
+        canvas.viewportManager.panY = 150;
+        canvas.outlineEditor.active = false;
+        canvas.textRunEditor.cursorX = 200;
+
+        const before = canvas.viewportManager.fontToScreenCoordinates(200, 0);
+        canvas.beginKeyboardViewportResizePreservation();
+        setContainerSize(800, 300);
+        canvas.onResize();
+        canvas.endKeyboardViewportResizePreservation();
+
+        const after = canvas.viewportManager.fontToScreenCoordinates(200, 0);
+        expect(after.x).toBeCloseTo(before.x * 2, 5);
+        expect(after.y).toBeCloseTo(before.y, 5);
+    });
+
+    test('keyboard resize keeps the edit-mode glyph bbox center on the same canvas point', () => {
+        setContainerSize(400, 300);
+        canvas.lastContainerWidth = 400;
+        canvas.lastContainerHeight = 300;
+        canvas.viewportManager.scale = 0.5;
+        canvas.viewportManager.panX = 20;
+        canvas.viewportManager.panY = 180;
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.getBoundingBoxCenterFontPosition = jest
+            .fn()
+            .mockReturnValue({ x: 120, y: 40 });
+
+        const before = canvas.viewportManager.fontToScreenCoordinates(120, 40);
+        canvas.beginKeyboardViewportResizePreservation();
+        setContainerSize(800, 500);
+        canvas.onResize();
+        canvas.endKeyboardViewportResizePreservation();
+
+        const after = canvas.viewportManager.fontToScreenCoordinates(120, 40);
+        expect(after.x).toBeCloseTo(before.x * 2, 5);
+        expect(after.y).toBeCloseTo((before.y / 300) * 500, 5);
+    });
+
+    test('reopening a collapsed editor clamps a far-side caret into the first-stage viewport', () => {
+        setContainerSize(1200, 400);
+        canvas.lastContainerWidth = 1200;
+        canvas.lastContainerHeight = 400;
+        canvas.viewportManager.scale = 0.5;
+        canvas.viewportManager.panX = 40;
+        canvas.viewportManager.panY = 200;
+        canvas.outlineEditor.active = false;
+        canvas.textRunEditor.cursorX = 2000;
+
+        const largeScreen = canvas.viewportManager.fontToScreenCoordinates(
+            2000,
+            0
+        );
+        expect(largeScreen.x).toBeGreaterThan(1000);
+        expect(largeScreen.x).toBeLessThan(1200);
+
+        canvas.freezeViewportForCollapse(1200, 400);
+        setContainerSize(80, 400);
+        canvas.lastContainerWidth = 80;
+        canvas.onResize();
+
+        canvas.beginKeyboardViewportResizePreservation();
+        setContainerSize(400, 400);
+        canvas.onResize();
+        canvas.endKeyboardViewportResizePreservation();
+
+        const after = canvas.viewportManager.fontToScreenCoordinates(2000, 0);
+        expect(after.x).toBeGreaterThanOrEqual(30);
+        expect(after.x).toBeLessThanOrEqual(400 - 30);
+    });
+
+    test('mouse-style resize still recenters the old screen-center font point', () => {
+        setContainerSize(400, 300);
+        canvas.lastContainerWidth = 400;
+        canvas.lastContainerHeight = 300;
+        canvas.viewportManager.scale = 0.5;
+        canvas.viewportManager.panX = 40;
+        canvas.viewportManager.panY = 150;
+        canvas.outlineEditor.active = false;
+        canvas.textRunEditor.cursorX = 200;
+
+        const oldCenterFont = canvas.viewportManager.getFontSpaceCoordinates(
+            200,
+            150
+        );
+        setContainerSize(800, 300);
+        canvas.onResize();
+
+        const recentered = canvas.viewportManager.fontToScreenCoordinates(
+            oldCenterFont.x,
+            oldCenterFont.y
+        );
+        expect(recentered.x).toBeCloseTo(400, 5);
+        expect(recentered.y).toBeCloseTo(150, 5);
+    });
 });
 
 // ==================== Animation Tests ====================

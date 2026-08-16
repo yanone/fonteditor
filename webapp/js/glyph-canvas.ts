@@ -425,38 +425,241 @@ class GlyphCanvas {
         scale: number;
         panX: number;
         panY: number;
+        viewportWidth?: number;
+        viewportHeight?: number;
+        contentAnchorFontX?: number;
+        contentAnchorFontY?: number;
+        contentAnchorScreenFractionX?: number;
+        contentAnchorScreenFractionY?: number;
     } | null = null;
     collapsedViewportSnapshot: {
         scale: number;
         panX: number;
         panY: number;
+        viewportWidth?: number;
+        viewportHeight?: number;
+        contentAnchorFontX?: number;
+        contentAnchorFontY?: number;
+        contentAnchorScreenFractionX?: number;
+        contentAnchorScreenFractionY?: number;
     } | null = null;
     suppressNextViewportResizeAdjustment: boolean = false;
+    /**
+     * While > 0, keyboard-driven view layout changes keep the text cursor
+     * (text mode) or active glyph bbox center (edit mode) on the same
+     * screen point instead of re-centering on the canvas midpoint.
+     */
+    keyboardViewportResizePreservationCount: number = 0;
 
     private snapshotCurrentViewport(): {
         scale: number;
         panX: number;
         panY: number;
+        viewportWidth?: number;
+        viewportHeight?: number;
+        contentAnchorFontX?: number;
+        contentAnchorFontY?: number;
+        contentAnchorScreenFractionX?: number;
+        contentAnchorScreenFractionY?: number;
     } | null {
         if (!this.viewportManager) {
             return null;
         }
 
-        return {
+        const viewportWidth =
+            this.container.clientWidth || this.lastContainerWidth || 0;
+        const viewportHeight =
+            this.container.clientHeight || this.lastContainerHeight || 0;
+        const snapshot: {
+            scale: number;
+            panX: number;
+            panY: number;
+            viewportWidth?: number;
+            viewportHeight?: number;
+            contentAnchorFontX?: number;
+            contentAnchorFontY?: number;
+            contentAnchorScreenFractionX?: number;
+            contentAnchorScreenFractionY?: number;
+        } = {
             scale: this.viewportManager.scale,
             panX: this.viewportManager.panX,
-            panY: this.viewportManager.panY
+            panY: this.viewportManager.panY,
+            viewportWidth,
+            viewportHeight
         };
+
+        const anchor = this.getKeyboardResizeContentAnchorFontPosition();
+        if (anchor && viewportWidth > 0 && viewportHeight > 0) {
+            const screen = this.viewportManager.fontToScreenCoordinates(
+                anchor.x,
+                anchor.y
+            );
+            snapshot.contentAnchorFontX = anchor.x;
+            snapshot.contentAnchorFontY = anchor.y;
+            snapshot.contentAnchorScreenFractionX = screen.x / viewportWidth;
+            snapshot.contentAnchorScreenFractionY = screen.y / viewportHeight;
+        }
+
+        return snapshot;
     }
 
-    freezeViewportForCollapse(): void {
-        const liveViewportSnapshot = this.snapshotCurrentViewport();
-        if (!liveViewportSnapshot) {
+    beginKeyboardViewportResizePreservation(): void {
+        this.keyboardViewportResizePreservationCount += 1;
+    }
+
+    endKeyboardViewportResizePreservation(): void {
+        this.keyboardViewportResizePreservationCount = Math.max(
+            0,
+            this.keyboardViewportResizePreservationCount - 1
+        );
+    }
+
+    isKeyboardViewportResizePreservationActive(): boolean {
+        return this.keyboardViewportResizePreservationCount > 0;
+    }
+
+    /**
+     * Content lock point for keyboard view resizes: edit-mode glyph bbox
+     * center, otherwise the text-mode caret.
+     */
+    getKeyboardResizeContentAnchorFontPosition(): {
+        x: number;
+        y: number;
+    } | null {
+        if (this.outlineEditor?.active) {
+            const bboxCenter =
+                this.outlineEditor.getBoundingBoxCenterFontPosition();
+            if (bboxCenter) {
+                return bboxCenter;
+            }
+        }
+
+        if (this.textRunEditor) {
+            return { x: this.textRunEditor.cursorX, y: 0 };
+        }
+
+        return null;
+    }
+
+    /**
+     * Fail-safe for keyboard (and collapse restore) resizes: place the
+     * caret / glyph bbox center at a target screen point, clamped inside
+     * the current canvas so content cannot stay invisible after reopen.
+     */
+    ensureKeyboardResizeContentAnchorVisible(
+        options: {
+            screenFractionX?: number;
+            screenFractionY?: number;
+        } = {}
+    ): boolean {
+        if (!this.viewportManager || !this.canvas) {
+            return false;
+        }
+
+        const width = this.container.clientWidth;
+        const height = this.container.clientHeight;
+        if (
+            width <= GlyphCanvas.COLLAPSED_EDITOR_VIEWPORT_FREEZE_WIDTH ||
+            height <= 0
+        ) {
+            return false;
+        }
+
+        const anchor = this.getKeyboardResizeContentAnchorFontPosition();
+        if (!anchor) {
+            return false;
+        }
+
+        const marginX = Math.min(CURSOR_VIEW_MARGIN, Math.max(8, width / 4));
+        const marginY = Math.min(CURSOR_VIEW_MARGIN, Math.max(8, height / 4));
+        const currentScreen = this.viewportManager.fontToScreenCoordinates(
+            anchor.x,
+            anchor.y
+        );
+
+        let targetScreenX =
+            typeof options.screenFractionX === 'number'
+                ? options.screenFractionX * width
+                : currentScreen.x;
+        let targetScreenY =
+            typeof options.screenFractionY === 'number'
+                ? options.screenFractionY * height
+                : currentScreen.y;
+
+        targetScreenX = Math.min(
+            Math.max(targetScreenX, marginX),
+            Math.max(marginX, width - marginX)
+        );
+        targetScreenY = Math.min(
+            Math.max(targetScreenY, marginY),
+            Math.max(marginY, height - marginY)
+        );
+
+        const alreadyVisible =
+            currentScreen.x >= marginX &&
+            currentScreen.x <= width - marginX &&
+            currentScreen.y >= marginY &&
+            currentScreen.y <= height - marginY &&
+            typeof options.screenFractionX !== 'number' &&
+            typeof options.screenFractionY !== 'number';
+        if (alreadyVisible) {
+            return false;
+        }
+
+        applyFontPointScreenLock(
+            this.viewportManager,
+            { x: targetScreenX, y: targetScreenY },
+            anchor.x,
+            anchor.y,
+            { lockY: true }
+        );
+        return true;
+    }
+
+    freezeViewportForCollapse(
+        referenceWidth?: number,
+        referenceHeight?: number
+    ): void {
+        if (!this.viewportManager) {
             return;
         }
 
-        this.collapsedViewportSnapshot = liveViewportSnapshot;
-        this.lastStableViewportSnapshot = liveViewportSnapshot;
+        const width =
+            referenceWidth ||
+            this.container.clientWidth ||
+            this.lastContainerWidth ||
+            0;
+        const height =
+            referenceHeight ||
+            this.container.clientHeight ||
+            this.lastContainerHeight ||
+            0;
+
+        const snapshot = this.snapshotCurrentViewport();
+        if (!snapshot) {
+            return;
+        }
+
+        // Prefer the pre-collapse size so relative caret placement survives
+        // reopen into a smaller first-stage panel.
+        if (width > 0 && height > 0) {
+            snapshot.viewportWidth = width;
+            snapshot.viewportHeight = height;
+            const anchor = this.getKeyboardResizeContentAnchorFontPosition();
+            if (anchor) {
+                const screen = this.viewportManager.fontToScreenCoordinates(
+                    anchor.x,
+                    anchor.y
+                );
+                snapshot.contentAnchorFontX = anchor.x;
+                snapshot.contentAnchorFontY = anchor.y;
+                snapshot.contentAnchorScreenFractionX = screen.x / width;
+                snapshot.contentAnchorScreenFractionY = screen.y / height;
+            }
+        }
+
+        this.collapsedViewportSnapshot = snapshot;
+        this.lastStableViewportSnapshot = { ...snapshot };
     }
 
     restoreViewportAfterCollapse(): void {
@@ -471,9 +674,32 @@ class GlyphCanvas {
         }
 
         this.viewportManager.scale = snapshot.scale;
-        this.viewportManager.panX = snapshot.panX;
-        this.viewportManager.panY = snapshot.panY;
-        this.lastStableViewportSnapshot = { ...snapshot };
+
+        const hasRelativeAnchor =
+            typeof snapshot.contentAnchorScreenFractionX === 'number' &&
+            typeof snapshot.contentAnchorFontX === 'number';
+
+        if (hasRelativeAnchor) {
+            // Place the caret/bbox at the same relative canvas position it
+            // had before collapse, clamped into the current (possibly smaller)
+            // panel so the first keyboard reopen cannot leave it invisible.
+            this.ensureKeyboardResizeContentAnchorVisible({
+                screenFractionX: snapshot.contentAnchorScreenFractionX,
+                screenFractionY: snapshot.contentAnchorScreenFractionY ?? 0.5
+            });
+        } else {
+            this.viewportManager.panX = snapshot.panX;
+            this.viewportManager.panY = snapshot.panY;
+            this.ensureKeyboardResizeContentAnchorVisible();
+        }
+
+        this.lastStableViewportSnapshot = {
+            scale: this.viewportManager.scale,
+            panX: this.viewportManager.panX,
+            panY: this.viewportManager.panY,
+            ...(this.snapshotCurrentViewport() || {})
+        };
+        this.collapsedViewportSnapshot = null;
         this.suppressNextViewportResizeAdjustment = true;
         this.render();
     }
@@ -2855,7 +3081,7 @@ class GlyphCanvas {
 
         if (isCollapsedWidth) {
             if (!this.collapsedViewportSnapshot) {
-                this.freezeViewportForCollapse();
+                this.freezeViewportForCollapse(oldWidth, oldHeight);
             }
 
             this.render();
@@ -2863,14 +3089,26 @@ class GlyphCanvas {
         }
 
         if (wasCollapsedWidth && this.collapsedViewportSnapshot) {
-            this.viewportManager.scale = this.collapsedViewportSnapshot.scale;
-            this.viewportManager.panX = this.collapsedViewportSnapshot.panX;
-            this.viewportManager.panY = this.collapsedViewportSnapshot.panY;
-            this.lastStableViewportSnapshot = {
-                ...this.collapsedViewportSnapshot
-            };
+            const snapshot = this.collapsedViewportSnapshot;
+            this.viewportManager.scale = snapshot.scale;
             this.collapsedViewportSnapshot = null;
             this.suppressNextViewportResizeAdjustment = true;
+
+            const hasRelativeAnchor =
+                typeof snapshot.contentAnchorScreenFractionX === 'number';
+            if (hasRelativeAnchor) {
+                this.ensureKeyboardResizeContentAnchorVisible({
+                    screenFractionX: snapshot.contentAnchorScreenFractionX,
+                    screenFractionY:
+                        snapshot.contentAnchorScreenFractionY ?? 0.5
+                });
+            } else {
+                this.viewportManager.panX = snapshot.panX;
+                this.viewportManager.panY = snapshot.panY;
+                this.ensureKeyboardResizeContentAnchorVisible();
+            }
+
+            this.lastStableViewportSnapshot = this.snapshotCurrentViewport();
             this.render();
             return;
         }
@@ -2880,23 +3118,57 @@ class GlyphCanvas {
             this.lastStableViewportSnapshot
         ) {
             this.suppressNextViewportResizeAdjustment = false;
-            this.viewportManager.scale = this.lastStableViewportSnapshot.scale;
-            this.viewportManager.panX = this.lastStableViewportSnapshot.panX;
-            this.viewportManager.panY = this.lastStableViewportSnapshot.panY;
+            const snapshot = this.lastStableViewportSnapshot;
+            this.viewportManager.scale = snapshot.scale;
+
+            if (
+                this.isKeyboardViewportResizePreservationActive() &&
+                typeof snapshot.contentAnchorScreenFractionX === 'number'
+            ) {
+                this.ensureKeyboardResizeContentAnchorVisible({
+                    screenFractionX: snapshot.contentAnchorScreenFractionX,
+                    screenFractionY:
+                        snapshot.contentAnchorScreenFractionY ?? 0.5
+                });
+            } else {
+                this.viewportManager.panX = snapshot.panX;
+                this.viewportManager.panY = snapshot.panY;
+                if (this.isKeyboardViewportResizePreservationActive()) {
+                    this.ensureKeyboardResizeContentAnchorVisible();
+                }
+            }
+
+            this.lastStableViewportSnapshot = this.snapshotCurrentViewport();
             this.render();
             return;
         }
 
         // Skip viewport adjustment if no viewportManager or dimensions unchanged
         if (oldWidth === newWidth && oldHeight === newHeight) {
-            this.lastStableViewportSnapshot = {
-                scale: this.viewportManager.scale,
-                panX: this.viewportManager.panX,
-                panY: this.viewportManager.panY
-            };
+            this.lastStableViewportSnapshot = this.snapshotCurrentViewport();
             this.render();
             return;
         }
+
+        const preserveKeyboardContentAnchor =
+            this.isKeyboardViewportResizePreservationActive();
+        const contentAnchor = preserveKeyboardContentAnchor
+            ? this.getKeyboardResizeContentAnchorFontPosition()
+            : null;
+        const contentAnchorScreen = contentAnchor
+            ? this.viewportManager.fontToScreenCoordinates(
+                  contentAnchor.x,
+                  contentAnchor.y
+              )
+            : null;
+        const contentAnchorScreenFractionX =
+            contentAnchorScreen && oldWidth > 0
+                ? contentAnchorScreen.x / oldWidth
+                : null;
+        const contentAnchorScreenFractionY =
+            contentAnchorScreen && oldHeight > 0
+                ? contentAnchorScreen.y / oldHeight
+                : null;
 
         // Get the font-space point that was at the old screen center
         const oldCenterX = oldWidth / 2;
@@ -2923,21 +3195,33 @@ class GlyphCanvas {
             this.viewportManager.scale = newScale;
         }
 
-        // Adjust pan to keep the font-space center point at screen center
-        // screen = scale * fontX + panX  =>  panX = screen - scale * fontX
-        // For Y axis (flipped): screenY = -scale * fontY + panY  =>  panY = screenY + scale * fontY
-        const newCenterX = newWidth / 2;
-        const newCenterY = newHeight / 2;
-        this.viewportManager.panX =
-            newCenterX - this.viewportManager.scale * fontSpaceCenter.x;
-        this.viewportManager.panY =
-            newCenterY + this.viewportManager.scale * fontSpaceCenter.y;
+        if (
+            contentAnchor &&
+            typeof contentAnchorScreenFractionX === 'number' &&
+            typeof contentAnchorScreenFractionY === 'number'
+        ) {
+            // Keyboard view resizes: keep caret / glyph bbox at the same
+            // relative canvas position, clamped so a smaller first-stage
+            // reopen cannot leave it outside the visible panel.
+            this.ensureKeyboardResizeContentAnchorVisible({
+                screenFractionX: contentAnchorScreenFractionX,
+                screenFractionY: contentAnchorScreenFractionY
+            });
+        } else {
+            // Mouse / window resizes: keep the old screen-center font point
+            // at the new screen center.
+            // screen = scale * fontX + panX  =>  panX = screen - scale * fontX
+            // For Y axis (flipped): screenY = -scale * fontY + panY
+            //   =>  panY = screenY + scale * fontY
+            const newCenterX = newWidth / 2;
+            const newCenterY = newHeight / 2;
+            this.viewportManager.panX =
+                newCenterX - this.viewportManager.scale * fontSpaceCenter.x;
+            this.viewportManager.panY =
+                newCenterY + this.viewportManager.scale * fontSpaceCenter.y;
+        }
 
-        this.lastStableViewportSnapshot = {
-            scale: this.viewportManager.scale,
-            panX: this.viewportManager.panX,
-            panY: this.viewportManager.panY
-        };
+        this.lastStableViewportSnapshot = this.snapshotCurrentViewport();
 
         this.render();
     }

@@ -24,6 +24,91 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
         return window.VIEW_SETTINGS;
     }
 
+    function getEditorView(): HTMLElement | null {
+        return document.getElementById('view-editor');
+    }
+
+    function getEditorViewportFreezeWidth(): number {
+        const freezeWidth = (
+            window.glyphCanvas as
+                | {
+                      constructor?: {
+                          COLLAPSED_EDITOR_VIEWPORT_FREEZE_WIDTH?: number;
+                      };
+                  }
+                | null
+                | undefined
+        )?.constructor?.COLLAPSED_EDITOR_VIEWPORT_FREEZE_WIDTH;
+        return typeof freezeWidth === 'number' ? freezeWidth : 96;
+    }
+
+    function isEditorViewportCollapsed(
+        editor: HTMLElement | null = getEditorView()
+    ): boolean {
+        if (!editor) {
+            return false;
+        }
+        return editor.offsetWidth <= getEditorViewportFreezeWidth();
+    }
+
+    function beginKeyboardEditorViewportPreservation(): void {
+        window.glyphCanvas?.beginKeyboardViewportResizePreservation?.();
+    }
+
+    function endKeyboardEditorViewportPreservation(): void {
+        window.glyphCanvas?.endKeyboardViewportResizePreservation?.();
+    }
+
+    /**
+     * Match mouse-drag expand: after keyboard layout settles, restore any
+     * frozen editor viewport and clamp the caret/bbox into view so the first
+     * reopen stage cannot leave content invisible.
+     */
+    function finishKeyboardEditorViewportSession(
+        editorWasCollapsed: boolean
+    ): void {
+        const editor = getEditorView();
+        const shouldRestore =
+            editorWasCollapsed &&
+            editor &&
+            !isEditorViewportCollapsed(editor) &&
+            !!window.glyphCanvas?.collapsedViewportSnapshot;
+
+        const endPreservation = () => {
+            window.glyphCanvas?.ensureKeyboardResizeContentAnchorVisible?.();
+            endKeyboardEditorViewportPreservation();
+        };
+
+        if (shouldRestore) {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    window.glyphCanvas?.restoreViewportAfterCollapse?.();
+                    endPreservation();
+                });
+            });
+            return;
+        }
+
+        endPreservation();
+    }
+
+    function scheduleKeyboardLayoutFinish(
+        finish: () => void,
+        editorWasCollapsed: boolean
+    ): void {
+        const settings = getViewSettings();
+        const runFinish = () => {
+            finish();
+            finishKeyboardEditorViewportSession(editorWasCollapsed);
+        };
+
+        if (settings?.animation?.enabled) {
+            setTimeout(runFinish, settings.animation.duration);
+        } else {
+            runFinish();
+        }
+    }
+
     function getRowKeyForView(view: HTMLElement): ViewRowKey | null {
         if (view.closest('.top-row')) {
             return 'top';
@@ -150,6 +235,23 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
         widthsByViewId: Record<string, number>
     ) {
         const threshold = 5;
+        const freezeWidth = getEditorViewportFreezeWidth();
+        const editorView = rowViews.find(
+            (rowView) => rowView.id === 'view-editor'
+        );
+        const editorWidthBefore = editorView?.offsetWidth ?? 0;
+        const editorTargetWidth = editorView
+            ? widthsByViewId['view-editor']
+            : undefined;
+
+        if (
+            editorView &&
+            typeof editorTargetWidth === 'number' &&
+            editorWidthBefore > freezeWidth &&
+            editorTargetWidth <= freezeWidth
+        ) {
+            window.glyphCanvas?.freezeViewportForCollapse?.();
+        }
 
         rowViews.forEach((rowView) => {
             const nextWidth = widthsByViewId[rowView.id];
@@ -292,6 +394,16 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
 
         const isTopRow = view.closest('.top-row') !== null;
         const isBottomRow = view.closest('.bottom-row') !== null;
+        const editorWasCollapsed = isEditorViewportCollapsed();
+        let preservationArmed = false;
+
+        const armPreservation = () => {
+            if (preservationArmed) {
+                return;
+            }
+            beginKeyboardEditorViewportPreservation();
+            preservationArmed = true;
+        };
 
         // Enable transitions if configured
         if (settings.animation && settings.animation.enabled) {
@@ -304,7 +416,10 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
         let expanded = false;
 
         if (isTopRow || isBottomRow) {
-            expanded = ensureActivationMinimumWidth(viewId) || expanded;
+            if (ensureActivationMinimumWidth(viewId)) {
+                armPreservation();
+                expanded = true;
+            }
         }
 
         if (isTopRow) {
@@ -322,6 +437,7 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
                 const bottomHeight = availableHeight - targetHeight;
 
                 if (bottomHeight >= 24) {
+                    armPreservation();
                     // Check if bottom row is at minimum (collapsed)
                     if (Math.abs(bottomHeight - 24) < 5) {
                         topRow.style.flex = `1`;
@@ -348,6 +464,7 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
                 const topHeight = availableHeight - targetHeight;
 
                 if (topHeight >= 200) {
+                    armPreservation();
                     // Ensure top row keeps editor min size
                     topRow.style.flex = `${topHeight / availableHeight}`;
                     bottomRow.style.flex = `${targetHeight / availableHeight}`;
@@ -357,13 +474,17 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
         }
 
         // Disable transitions and update collapsed states after animation
-        if (settings.animation && settings.animation.enabled) {
-            setTimeout(() => {
+        if (preservationArmed) {
+            scheduleKeyboardLayoutFinish(() => {
                 disableTransitions();
                 updateCollapsedStates();
                 if (window.resizableViews) {
                     window.resizableViews.saveLayout();
                 }
+            }, editorWasCollapsed);
+        } else if (settings.animation && settings.animation.enabled) {
+            setTimeout(() => {
+                disableTransitions();
             }, settings.animation.duration);
         } else {
             updateCollapsedStates();
@@ -405,6 +526,10 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
         const containerHeight = container.offsetHeight;
         const horizontalDividerHeight = 4;
         const availableHeight = containerHeight - horizontalDividerHeight;
+        const editorWasCollapsed = isEditorViewportCollapsed();
+        let didLayoutChange = false;
+
+        beginKeyboardEditorViewportPreservation();
 
         // Enable transitions if configured
         if (settings.animation && settings.animation.enabled) {
@@ -461,6 +586,7 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
                     containerHeight,
                     false
                 );
+                didLayoutChange = true;
             } else if (!isMaximized) {
                 resizeTopRowView(
                     viewId,
@@ -473,6 +599,7 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
                     containerHeight,
                     collapseOtherViews
                 );
+                didLayoutChange = true;
             }
         } else if (secondaryBehavior === 'expandToTarget') {
             if (isBottomRow) {
@@ -498,6 +625,7 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
                         if (topHeight >= 200) {
                             topRow.style.flex = `${topHeight / availableHeight}`;
                             bottomRow.style.flex = `${targetHeight / availableHeight}`;
+                            didLayoutChange = true;
                         }
                     }
 
@@ -527,14 +655,23 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
                             views.forEach((v, i) => {
                                 v.style.flex = `${widths[i] / totalWidth}`;
                             });
+                            didLayoutChange = true;
                         }
                     }
                 }
             }
         }
 
+        if (!didLayoutChange) {
+            endKeyboardEditorViewportPreservation();
+            if (settings.animation && settings.animation.enabled) {
+                disableTransitions();
+            }
+            return;
+        }
+
         // Disable transitions and update collapsed states after animation completes
-        const finishResize = () => {
+        scheduleKeyboardLayoutFinish(() => {
             disableTransitions();
             updateCollapsedStates();
             if (window.resizableViews) {
@@ -546,13 +683,7 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
             if (viewId === 'view-editor') {
                 transferViewDomFocus('view-editor', true, false);
             }
-        };
-
-        if (settings.animation && settings.animation.enabled) {
-            setTimeout(finishResize, settings.animation.duration);
-        } else {
-            finishResize();
-        }
+        }, editorWasCollapsed);
     }
 
     /**
@@ -611,6 +742,9 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
         const containerHeight = container.offsetHeight;
         const horizontalDividerHeight = 4;
         const availableHeight = containerHeight - horizontalDividerHeight;
+        const editorWasCollapsed = isEditorViewportCollapsed();
+
+        beginKeyboardEditorViewportPreservation();
 
         const settings = getViewSettings();
         if (settings && settings.animation && settings.animation.enabled) {
@@ -655,7 +789,12 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
                     '[KeyboardNav]',
                     'No other non-collapsed views to expand'
                 );
+                endKeyboardEditorViewportPreservation();
                 return;
+            }
+
+            if (viewId === 'view-editor') {
+                window.glyphCanvas?.freezeViewportForCollapse?.();
             }
 
             // Distribute freed space proportionally among non-collapsed other views
@@ -707,27 +846,8 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
         }
 
         // Disable transitions and update collapsed states after animation completes
-        if (settings && settings.animation && settings.animation.enabled) {
-            setTimeout(() => {
-                disableTransitions();
-                updateCollapsedStates();
-                if (window.resizableViews) {
-                    window.resizableViews.saveLayout();
-                }
-                // Focus editor only if we collapsed a currently active bottom-row view
-                if (
-                    viewId === currentFocusedView &&
-                    isBottomRow &&
-                    viewId !== 'view-editor'
-                ) {
-                    focusView('view-editor');
-                }
-                // Notify view title buttons to update
-                window.dispatchEvent(
-                    new CustomEvent('viewResized', { detail: { viewId } })
-                );
-            }, settings.animation.duration);
-        } else {
+        scheduleKeyboardLayoutFinish(() => {
+            disableTransitions();
             updateCollapsedStates();
             if (window.resizableViews) {
                 window.resizableViews.saveLayout();
@@ -744,7 +864,7 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
             window.dispatchEvent(
                 new CustomEvent('viewResized', { detail: { viewId } })
             );
-        }
+        }, editorWasCollapsed);
     }
 
     /**

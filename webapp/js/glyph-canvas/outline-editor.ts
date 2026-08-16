@@ -6681,7 +6681,7 @@ export class OutlineEditor {
         });
     }
 
-    private getBoundingBoxCenterFontPosition(): {
+    getBoundingBoxCenterFontPosition(): {
         x: number;
         y: number;
     } | null {
