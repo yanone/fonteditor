@@ -343,8 +343,9 @@ import { createGlyphFilterTemplate } from './glyph-filter-template';
         editor.setValue(savedScript, -1); // -1 moves cursor to start
         savedContent = restoredSavedContent ?? savedScript;
 
-        // Make editor globally accessible for theme updates
-        window.scriptEditor = editor;
+        // Ace lives on the module-local `editor` and is exposed only via
+        // window.scriptEditor.editor. Do not assign Ace to window.scriptEditor —
+        // that overwrites the API object (getDocumentState, openFile, …).
 
         // Set top margin on the container
         container.style.marginTop = '11px';
@@ -1786,33 +1787,8 @@ import { createGlyphFilterTemplate } from './glyph-filter-template';
         await reloadFileFromDisk();
     }
 
-    // Initialize when DOM is ready
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
-    } else {
-        init();
-    }
-
-    // API Documentation modal handlers
-    function initAPIDocsModal() {
-        const apiDocsBtn = document.getElementById('script-api-docs-btn');
-        if (!apiDocsBtn) {
-            return;
-        }
-        apiDocsBtn.addEventListener('click', (event: Event) => {
-            event.stopPropagation();
-            window.openDocs?.('python/python-api');
-        });
-    }
-
-    // Initialize API docs modal
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initAPIDocsModal);
-    } else {
-        initAPIDocsModal();
-    }
-
-    // Expose scriptEditor API globally for other scripts
+    // Expose the Script Editor API once, before init. Ace is never assigned to
+    // window.scriptEditor; consumers use window.scriptEditor.editor.
     window.scriptEditor = {
         get editor() {
             return editor;
@@ -1890,4 +1866,30 @@ import { createGlyphFilterTemplate } from './glyph-filter-template';
             return currentPluginId;
         }
     };
+
+    // Initialize when DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
+    // API Documentation modal handlers
+    function initAPIDocsModal() {
+        const apiDocsBtn = document.getElementById('script-api-docs-btn');
+        if (!apiDocsBtn) {
+            return;
+        }
+        apiDocsBtn.addEventListener('click', (event: Event) => {
+            event.stopPropagation();
+            window.openDocs?.('python/python-api');
+        });
+    }
+
+    // Initialize API docs modal
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initAPIDocsModal);
+    } else {
+        initAPIDocsModal();
+    }
 })();
