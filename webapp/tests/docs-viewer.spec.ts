@@ -63,6 +63,9 @@ test.describe('Docs viewer', () => {
             await page.keyboard.press('Meta+Shift+D');
             await expect(page.locator('#app-shell')).toHaveClass(/docs-open/);
             await expect(page.locator('#view-docs')).toBeVisible();
+            // openDocs is async from the shortcut; Cmd+Escape only closes the
+            // focused panel, so wait until Docs owns focus before escaping.
+            await expect(page.locator('#view-docs')).toHaveClass(/focused/);
 
             await page.keyboard.press('Meta+Escape');
             await expect(page.locator('#app-shell')).not.toHaveClass(

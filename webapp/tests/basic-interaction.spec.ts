@@ -420,8 +420,27 @@ test.describe('Font Editor Basic Workflow', () => {
         await page.keyboard.press('Meta+0');
         await page.waitForTimeout(200);
         // Font-open can reshuffle subset feature membership and GIDs after the
-        // initial ready signals; wait for a quiet metrics/feature window.
-        await waitForStableEditorMetrics(page, { idleMs: 500, timeout: 30000 });
+        // initial ready signals; wait until the default subset settles (pnum/
+        // tnum stay out of the editing subset) and metrics stay quiet.
+        await page.waitForFunction(
+            () => {
+                const state =
+                    (window as any).stateManager?.getStateSnapshot?.()?.state ||
+                    {};
+                const inSubset = state.editor_opentype_features_in_subset || {};
+                const notInSubset =
+                    state.editor_opentype_features_not_in_subset || {};
+                return (
+                    Object.prototype.hasOwnProperty.call(notInSubset, 'pnum') &&
+                    Object.prototype.hasOwnProperty.call(notInSubset, 'tnum') &&
+                    !Object.prototype.hasOwnProperty.call(inSubset, 'pnum') &&
+                    !Object.prototype.hasOwnProperty.call(inSubset, 'tnum')
+                );
+            },
+            undefined,
+            { timeout: 30000 }
+        );
+        await waitForStableEditorMetrics(page, { idleMs: 800, timeout: 30000 });
 
         // SNAPSHOT POINT 2: Font loaded
         console.log('[Test] Taking snapshot 2: font loaded');
