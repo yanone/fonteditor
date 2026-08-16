@@ -2266,6 +2266,25 @@ kbd + kbd {
     color: var(--text-faint);
 }
 
+@keyframes editor-edit-tool-flash {
+    0%,
+    35% {
+        background-color: var(--accent-cyan);
+    }
+    100% {
+        background-color: var(--input-bg);
+    }
+}
+
+.view-title-button.editor-edit-tool-btn.tool-flash {
+    animation: editor-edit-tool-flash 420ms ease-out;
+}
+
+.view-title-button.editor-edit-tool-btn.tool-flash,
+.view-title-button.editor-edit-tool-btn.tool-flash .material-symbols-outlined {
+    color: var(--background-primary) !important;
+}
+
 .tool-cursor-badge {
     position: fixed;
     display: none;

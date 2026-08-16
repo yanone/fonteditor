@@ -77,6 +77,33 @@ export function refreshEditorEditToolsUi(): void {
     applySnapshot(readSnapshot());
 }
 
+const TOOL_FLASH_CLASS = 'tool-flash';
+
+export function flashEditorEditToolButton(toolId: EditToolId): void {
+    const buttonId = TOOL_BUTTON_IDS[toolId];
+    if (!buttonId) {
+        return;
+    }
+    const button = document.getElementById(buttonId);
+    if (!button) {
+        return;
+    }
+
+    button.classList.remove(TOOL_FLASH_CLASS);
+    // Restart the CSS animation when the same tool is re-triggered.
+    void button.offsetWidth;
+    button.classList.add(TOOL_FLASH_CLASS);
+
+    const onEnd = (event: AnimationEvent): void => {
+        if (event.target !== button) {
+            return;
+        }
+        button.classList.remove(TOOL_FLASH_CLASS);
+        button.removeEventListener('animationend', onEnd);
+    };
+    button.addEventListener('animationend', onEnd);
+}
+
 function handleToolButtonClick(toolId: EditToolId): void {
     const outlineEditor = window.glyphCanvas?.outlineEditor;
     const glyphCanvas = window.glyphCanvas;
@@ -130,6 +157,16 @@ function initEditorEditToolsUi(): void {
     window.addEventListener('editorEditToolsChanged', () => {
         refreshEditorEditToolsUi();
     });
+
+    window.addEventListener('editorEditToolFlash', ((
+        event: CustomEvent<{ toolId?: EditToolId }>
+    ) => {
+        const toolId = event.detail?.toolId;
+        if (!toolId || !(toolId in TOOL_BUTTON_IDS)) {
+            return;
+        }
+        flashEditorEditToolButton(toolId);
+    }) as EventListener);
 
     refreshEditorEditToolsUi();
     console.log('Editor edit tools initialized');

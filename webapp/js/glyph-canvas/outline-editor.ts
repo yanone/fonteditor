@@ -24,6 +24,7 @@ import {
     resolvePointerBadge,
     shortcutKeyToStickyEditTool,
     type EditToolAvailability,
+    type EditToolId,
     type EditToolUiSnapshot,
     type StickyEditTool
 } from './edit-tools';
@@ -10632,6 +10633,14 @@ export class OutlineEditor {
         window.dispatchEvent(new CustomEvent('editorEditToolsChanged'));
     }
 
+    requestEditToolFlash(toolId: EditToolId): void {
+        window.dispatchEvent(
+            new CustomEvent('editorEditToolFlash', {
+                detail: { toolId }
+            })
+        );
+    }
+
     getEditToolAvailability(): EditToolAvailability {
         if (!this.active) {
             return {
@@ -10739,9 +10748,15 @@ export class OutlineEditor {
         }
 
         this.notifyEditToolsChanged();
+        if (forceDefault) {
+            this.requestEditToolFlash('select');
+        }
     }
 
-    setActiveEditTool(tool: StickyEditTool): boolean {
+    setActiveEditTool(
+        tool: StickyEditTool,
+        options?: { flash?: boolean }
+    ): boolean {
         if (!this.active) {
             return false;
         }
@@ -10753,6 +10768,9 @@ export class OutlineEditor {
 
         if (tool === this.activeEditTool) {
             this.notifyEditToolsChanged();
+            if (options?.flash) {
+                this.requestEditToolFlash(tool);
+            }
             return true;
         }
 
@@ -10771,6 +10789,9 @@ export class OutlineEditor {
         this.glyphCanvas.updateCursorStyle();
         this.glyphCanvas.render();
         this.notifyEditToolsChanged();
+        if (options?.flash) {
+            this.requestEditToolFlash(tool);
+        }
         return true;
     }
 
@@ -10897,6 +10918,9 @@ export class OutlineEditor {
             this.getComponentDepth()
         );
         await this.requestExitGlyphEditMode();
+        if (!this.active) {
+            this.requestEditToolFlash('text');
+        }
     }
 
     restoreFocus() {
@@ -19929,11 +19953,14 @@ export class OutlineEditor {
             if (toolShortcut === 'text') {
                 e.preventDefault();
                 await this.requestExitGlyphEditMode();
+                if (!this.active) {
+                    this.requestEditToolFlash('text');
+                }
                 return;
             }
             if (toolShortcut) {
                 e.preventDefault();
-                this.setActiveEditTool(toolShortcut);
+                this.setActiveEditTool(toolShortcut, { flash: true });
                 return;
             }
         }
