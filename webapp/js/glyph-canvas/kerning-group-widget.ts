@@ -23,6 +23,7 @@ export type KerningGroupWidgetOptions = {
     startSide: KerningGroupWidgetSide;
     endSide: KerningGroupWidgetSide;
     center: HTMLElement;
+    isRTL?: boolean;
     onSelectChip?: (chip: KerningGroupChip) => void;
     onRemoveChip?: (chip: KerningGroupChip) => void;
     onAdd?: (pairSide: KerningPairSide, glyphName: string | null) => void;
@@ -60,6 +61,15 @@ export function formatKerningGroupKindLabel(
     isRTL: boolean = false
 ): 'LKG' | 'RKG' {
     return (pairSide === 'first') === !isRTL ? 'RKG' : 'LKG';
+}
+
+export function formatKerningGroupKindTooltip(
+    pairSide: KerningPairSide,
+    isRTL: boolean = false
+): string {
+    return formatKerningGroupKindLabel(pairSide, isRTL) === 'LKG'
+        ? 'Left kerning group'
+        : 'Right kerning group';
 }
 
 export function formatTextModeKerningSideTitle(
@@ -112,6 +122,7 @@ function createSide(
     header.className = 'glyph-property-control-label';
     header.dataset.kerningSide = side.pairSide;
     header.textContent = side.title;
+    header.title = formatKerningGroupKindTooltip(side.pairSide, options.isRTL);
     sideElement.appendChild(header);
 
     const pills = document.createElement('div');

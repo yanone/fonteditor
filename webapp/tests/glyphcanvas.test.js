@@ -14666,6 +14666,13 @@ describe('Text-mode kerning property panel', () => {
         );
 
         expect(sideLabels).toEqual(['First (RKG)', 'Second (LKG)']);
+        expect(
+            Array.from(
+                document.querySelectorAll(
+                    '.glyph-kerning-side .glyph-property-control-label'
+                )
+            ).map((element) => element.title)
+        ).toEqual(['Right kerning group', 'Left kerning group']);
         expect(firstPills).toEqual(['A', '@AFirst']);
         expect(secondPills).toEqual(['V', '@VSecond']);
         expect(
@@ -14704,6 +14711,13 @@ describe('Text-mode kerning property panel', () => {
                 )
             ).map((element) => element.textContent)
         ).toEqual(['First (LKG)', 'Second (RKG)']);
+        expect(
+            Array.from(
+                document.querySelectorAll(
+                    '.glyph-kerning-side .glyph-property-control-label'
+                )
+            ).map((element) => element.title)
+        ).toEqual(['Left kerning group', 'Right kerning group']);
     });
 
     test('hides the add placeholder when both sides already have a group', () => {
@@ -14748,6 +14762,13 @@ describe('Text-mode kerning property panel', () => {
         );
 
         expect(sideLabels).toEqual(['LKG', 'RKG']);
+        expect(
+            Array.from(
+                document.querySelectorAll(
+                    '.glyph-kerning-side .glyph-property-control-label'
+                )
+            ).map((element) => element.title)
+        ).toEqual(['Left kerning group', 'Right kerning group']);
         expect(startPills).toEqual([]);
         expect(endPills).toEqual(['@AFirst']);
         expect(placeholder).not.toBeNull();

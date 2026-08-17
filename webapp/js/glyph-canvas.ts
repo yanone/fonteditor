@@ -9977,6 +9977,7 @@ class GlyphCanvas {
                 chips: context.secondOptions.map(toChip)
             },
             center,
+            isRTL: context.isRTL,
             onSelectChip: (chip) => {
                 this.setTextModeKerningSelection(chip.pairSide, chip.key);
             },
