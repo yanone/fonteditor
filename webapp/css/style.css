@@ -1352,10 +1352,13 @@ kbd + kbd {
     border-radius: 6px;
 }
 
-/* Active view indicator — 3px chrome in the title color (unfocused stays 2px). */
+/* Active view indicator — keep the 2px border (no inward shrink); add 1px
+   outside via box-shadow so the colored chrome reads as 3px total.
+   Paint above adjacent dividers so that outer pixel is not covered. */
 .view.focused {
-    border-width: 3px;
+    z-index: 1;
     border-color: var(--view-title-color);
+    box-shadow: 0 0 0 1px var(--view-title-color);
 }
 
 /* Keyboard view activation focuses the view shell (tabindex=-1). Suppress the
