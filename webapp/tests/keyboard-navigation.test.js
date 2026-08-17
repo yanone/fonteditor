@@ -120,6 +120,46 @@ describe('keyboard navigation focusView DOM transfer', () => {
         expect(document.activeElement).not.toBe(overview);
     });
 
+    it('does not return focus to scripts after activating another view', () => {
+        document.body.innerHTML = `
+            <div class="top-row">
+                <div id="view-editor" class="view"></div>
+                <div id="view-overview" class="view"></div>
+            </div>
+            <div class="bottom-row">
+                <div id="view-scripts" class="view">
+                    <div id="script-editor" tabindex="-1"></div>
+                </div>
+            </div>
+        `;
+        document.querySelectorAll('.view').forEach((view) => {
+            view.addEventListener('click', (event) => {
+                const target = event.currentTarget;
+                if (!target.classList.contains('focused')) {
+                    window.focusView(target.id);
+                } else {
+                    window.restoreFocusedViewDomFocus();
+                }
+            });
+        });
+
+        window.focusView('view-scripts', true);
+        jest.advanceTimersByTime(250);
+        window.focusView('view-overview', true);
+        jest.advanceTimersByTime(250);
+
+        expect(
+            document
+                .getElementById('view-overview')
+                .classList.contains('focused')
+        ).toBe(true);
+        expect(
+            document
+                .getElementById('view-scripts')
+                .classList.contains('focused')
+        ).toBe(false);
+    });
+
     it('blurs the editor canvas when activating font info', () => {
         const canvas = window.glyphCanvas.canvas;
         expect(document.activeElement).toBe(canvas);

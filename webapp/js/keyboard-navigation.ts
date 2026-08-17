@@ -1133,6 +1133,8 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
 
     let pendingEditorCanvasFocusTimer: ReturnType<typeof setTimeout> | null =
         null;
+    let pendingScriptEditorFocusTimer: ReturnType<typeof setTimeout> | null =
+        null;
 
     /**
      * Blur the editing-view glyph canvas so keystrokes stop reaching text mode.
@@ -1163,6 +1165,10 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
      * Blur the scripts Ace editor (and its textarea).
      */
     function blurScriptEditor() {
+        if (pendingScriptEditorFocusTimer !== null) {
+            clearTimeout(pendingScriptEditorFocusTimer);
+            pendingScriptEditorFocusTimer = null;
+        }
         const scriptEditorElement = document.getElementById('script-editor');
         if (scriptEditorElement && window.ace) {
             try {
@@ -1228,11 +1234,31 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
         }
 
         if (viewId === 'view-scripts') {
-            setTimeout(() => {
+            if (pendingScriptEditorFocusTimer !== null) {
+                clearTimeout(pendingScriptEditorFocusTimer);
+                pendingScriptEditorFocusTimer = null;
+            }
+            pendingScriptEditorFocusTimer = setTimeout(() => {
+                pendingScriptEditorFocusTimer = null;
+                const scriptsView = document.getElementById('view-scripts');
+                if (!scriptsView?.classList.contains('focused')) {
+                    return;
+                }
                 const scriptEditor = document.getElementById('script-editor');
-                if (scriptEditor) {
-                    scriptEditor.focus();
-                    scriptEditor.click();
+                if (!scriptEditor) {
+                    return;
+                }
+                scriptEditor.focus();
+                if (window.ace) {
+                    try {
+                        window.ace.edit('script-editor')?.focus();
+                    } catch (e) {
+                        console.warn(
+                            '[KeyboardNav]',
+                            'Could not focus Ace editor:',
+                            e
+                        );
+                    }
                 }
             }, 100);
             return;
