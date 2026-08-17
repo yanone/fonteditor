@@ -297,7 +297,8 @@
                                     version;
                                 const isPreview =
                                     version.includes('preview') ||
-                                    displayVersion.includes('preview');
+                                    displayVersion.includes('preview') ||
+                                    /^\d+-build-\d+$/.test(displayVersion);
                                 versionSpan.dataset.version = version;
                                 versionSpan.dataset.displayVersion =
                                     displayVersion;
@@ -2427,7 +2428,12 @@
                                         tag: newVersion,
                                         isPreview:
                                             newVersion.includes('preview') ||
-                                            displayVersion.includes('preview')
+                                            displayVersion.includes(
+                                                'preview'
+                                            ) ||
+                                            /^\d+-build-\d+$/.test(
+                                                displayVersion
+                                            )
                                     };
                                     document.dispatchEvent(
                                         new CustomEvent(
@@ -2479,6 +2485,9 @@
                                                 version.includes('preview') ||
                                                 displayVersion.includes(
                                                     'preview'
+                                                ) ||
+                                                /^\d+-build-\d+$/.test(
+                                                    displayVersion
                                                 )
                                         };
                                         document.dispatchEvent(

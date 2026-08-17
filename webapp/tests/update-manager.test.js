@@ -7,21 +7,21 @@ const {
 describe('update-manager version helpers', () => {
     test('parses cache-bust tag and display version', () => {
         const info = parseSwVersions(`
-            const VERSION = 'v0.0.0-preview-20260816-c0f8253';
-            const DISPLAY_VERSION = 'preview-build-1-on-20260816';
+            const VERSION = 'v0.0.0-preview.20260816.1';
+            const DISPLAY_VERSION = '20260816-build-1';
         `);
         expect(info).toEqual({
-            tag: 'v0.0.0-preview-20260816-c0f8253',
-            displayVersion: 'preview-build-1-on-20260816',
+            tag: 'v0.0.0-preview.20260816.1',
+            displayVersion: '20260816-build-1',
             isPreview: true
         });
         expect(pendingUpdateFromSw(info)).toEqual({
-            version: 'preview-build-1-on-20260816',
-            tag: 'v0.0.0-preview-20260816-c0f8253',
+            version: '20260816-build-1',
+            tag: 'v0.0.0-preview.20260816.1',
             isPreview: true
         });
         expect(changelogUrlForUpdate(pendingUpdateFromSw(info))).toBe(
-            'https://github.com/counterpunchspace/editor/releases/tag/v0.0.0-preview-20260816-c0f8253'
+            'https://github.com/counterpunchspace/editor/releases/tag/v0.0.0-preview.20260816.1'
         );
     });
 

@@ -57,7 +57,10 @@ export function parseSwVersions(text: string): SwVersionInfo | null {
     return {
         tag,
         displayVersion,
-        isPreview: tag.includes('preview') || displayVersion.includes('preview')
+        isPreview:
+            tag.includes('preview') ||
+            displayVersion.includes('preview') ||
+            /^\d+-build-\d+$/.test(displayVersion)
     };
 }
 

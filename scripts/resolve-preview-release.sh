@@ -20,18 +20,18 @@ fi
 DATE=$(date -u +"%Y%m%d")
 COMMIT_SHA=$(git rev-parse HEAD)
 COMMIT_SHORT=$(git rev-parse --short HEAD)
-TAG="v0.0.0-preview-${DATE}-${COMMIT_SHORT}"
-
-if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
-    echo "Error: remote tag $TAG already exists"
-    exit 1
-fi
 
 MAX_N=0
 PREV_TAG=""
 while IFS=$'\t' read -r name tag; do
     [ -z "$name" ] && continue
-    num=$(printf '%s\n' "$name" | sed -n 's/^preview-build-\([0-9][0-9]*\)-on-.*$/\1/p')
+    num=$(printf '%s\n' "$name" | sed -n 's/^[0-9][0-9]*-build-\([0-9][0-9]*\)$/\1/p')
+    if [ -z "$num" ]; then
+        num=$(printf '%s\n' "$name" | sed -n 's/^preview-build-\([0-9][0-9]*\)-on-.*$/\1/p')
+    fi
+    if [ -z "$num" ]; then
+        num=$(printf '%s\n' "$tag" | sed -n 's/^v0\.0\.0-preview\.[0-9][0-9]*\.\([0-9][0-9]*\)$/\1/p')
+    fi
     if [ -n "$num" ] && [ "$num" -gt "$MAX_N" ]; then
         MAX_N=$num
         PREV_TAG=$tag
@@ -42,7 +42,13 @@ done < <(
 )
 
 NEXT_N=$((MAX_N + 1))
-DISPLAY_VERSION="preview-build-${NEXT_N}-on-${DATE}"
+DISPLAY_VERSION="${DATE}-build-${NEXT_N}"
+TAG="v0.0.0-preview.${DATE}.${NEXT_N}"
+
+if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+    echo "Error: remote tag $TAG already exists"
+    exit 1
+fi
 
 echo "Previous preview: ${PREV_TAG:-<none>}"
 echo "Next build: $DISPLAY_VERSION"
