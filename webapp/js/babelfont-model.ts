@@ -13,6 +13,7 @@
 
 import type { Babelfont } from './babelfont';
 import { setYPath } from './change-bridge-ydoc';
+import { toRestingLayerJson } from './resting-layer-json';
 import { glyphDataIndex, type GlyphDataSearchResult } from './glyph-data';
 import { assertModelMutationAllowed } from './model-mutation-policy';
 import { applyGlyphRenameUiContext } from './rename-glyphs-ui-context';
@@ -5950,24 +5951,32 @@ export class Layer extends ArrayElementBase {
         format_specific?: Record<string, Unsafe>;
     }): void {
         assertModelMutationAllowed();
-        this.data.width = layerData.width;
-        if (layerData.height !== undefined) {
-            this.data.height = layerData.height;
+        const sanitized = toRestingLayerJson(layerData, {
+            existing: this.data,
+            mode: 'delta',
+            allowWrapped: true,
+            context: 'model writeback'
+        });
+        if (typeof sanitized.width === 'number') {
+            this.data.width = sanitized.width;
         }
-        if (layerData.vertWidth !== undefined) {
-            this.data.vertWidth = layerData.vertWidth;
+        if (sanitized.height !== undefined) {
+            this.data.height = sanitized.height;
         }
-        if (layerData.shapes !== undefined) {
-            this.data.shapes = layerData.shapes;
+        if (sanitized.vertWidth !== undefined) {
+            this.data.vertWidth = sanitized.vertWidth;
         }
-        if (layerData.anchors !== undefined) {
-            this.data.anchors = layerData.anchors;
+        if (sanitized.shapes !== undefined) {
+            this.data.shapes = sanitized.shapes;
         }
-        if (layerData.guides !== undefined) {
-            this.data.guides = layerData.guides;
+        if (sanitized.anchors !== undefined) {
+            this.data.anchors = sanitized.anchors;
         }
-        if (layerData.format_specific !== undefined) {
-            this.data.format_specific = layerData.format_specific;
+        if (sanitized.guides !== undefined) {
+            this.data.guides = sanitized.guides;
+        }
+        if (sanitized.format_specific !== undefined) {
+            this.data.format_specific = sanitized.format_specific;
         }
         this.invalidateContentCaches();
     }

@@ -1,4 +1,5 @@
 import { LayerDataNormalizer } from '../layer-data-normalizer';
+import { stripInterpolatorRequestId } from '../resting-layer-json';
 import { fontInterpolation } from '../font-interpolation';
 import { GlyphCanvas } from '../glyph-canvas';
 import fontManager from '../font-manager';
@@ -8430,6 +8431,9 @@ export class OutlineEditor {
             parseComponentNodes(layerData.shapes);
         }
         this.layerData = layerData;
+        if (this.layerData && this.layerData.isInterpolated !== true) {
+            stripInterpolatorRequestId(this.layerData);
+        }
         this.setRenderVerticalMetrics(verticalMetricsSource ?? layerData);
 
         const nextLayerData = this.getCurrentLayerDataFromStack();
@@ -8449,6 +8453,7 @@ export class OutlineEditor {
 
         Object.assign(currentLayerData, layerData);
         currentLayerData.isInterpolated = false;
+        stripInterpolatorRequestId(currentLayerData);
         parseComponentNodes(currentLayerData.shapes || []);
         return true;
     }
@@ -22179,6 +22184,7 @@ export class OutlineEditor {
             // Clear interpolated flag to restore editing mode
             if (this.layerData) {
                 this.layerData.isInterpolated = false;
+                stripInterpolatorRequestId(this.layerData);
                 // Also clear on shapes
                 if (this.layerData.shapes) {
                     this.layerData.shapes.forEach((shape: any) => {

@@ -147,4 +147,33 @@ describe('array-only Y.Doc path nodes', () => {
         expect(shape.nodes).toEqual(nodes);
         expect(shape.id).toBeUndefined();
     });
+
+    test('applyLayerDelta does not let interpolator snapshots delete width or poison shapes', () => {
+        const { fontMap } = setupYDoc(makeTestFont());
+        applyLayerDelta(fontMap, 'A', 'layer-1', {
+            _interpolationRequestId: 4,
+            shapes: [{ id: 'ghost', transform: [1, 0, 0, 1, 10, 20] }]
+        });
+
+        const layer = yDocToJson(fontMap).glyphs[0].layers[0];
+        expect(layer.width).toBe(600);
+        expect(layer.master).toEqual({
+            type: 'DefaultForMaster',
+            master: 'master-1'
+        });
+        expect(layer._interpolationRequestId).toBeUndefined();
+        expect(layer.shapes[0].nodes).toEqual(nodes);
+    });
+
+    test('setYPath on an existing layer map merges instead of replacing identity fields', () => {
+        const { fontMap } = setupYDoc(makeTestFont());
+        setYPath(fontMap, ['glyphs', 'A', 'layers', 'layer-1'], {
+            _interpolationRequestId: 8
+        });
+
+        const layer = yDocToJson(fontMap).glyphs[0].layers[0];
+        expect(layer.width).toBe(600);
+        expect(layer._interpolationRequestId).toBeUndefined();
+        expect(layer.shapes[0].nodes).toEqual(nodes);
+    });
 });

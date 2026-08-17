@@ -76,5 +76,88 @@
                 "webapp/js/window-sync.ts::WindowSync._handleMessage::seedYdoc"
             ]
         }
+    ],
+    "callSiteRules": [
+        {
+            "id": "tocompilejson-call-sites",
+            "description": "toCompileJSON is compile/preview/export only. A new production call is an unreviewed resting-model influx risk unless it is deliberately recorded here.",
+            "path": "webapp/js",
+            "identifier": "toCompileJSON",
+            "allowedSites": [
+                "webapp/js/babelfont-model.ts::Font.toJSONString",
+                "webapp/js/font-manager.ts::FontManager.collectChangedLayerUpdatesFromModel",
+                "webapp/js/font-manager.ts::FontManager.collectChangedLayerUpdatesFromTargets",
+                "webapp/js/glyph-canvas/outline-editor.ts::OutlineEditor.buildExactLayerDataFromModel",
+                "webapp/js/glyph-canvas/outline-editor.ts::OutlineEditor.resolveComponentLayerDataFromModel"
+            ]
+        }
+    ],
+    "requiredCallRules": [
+        {
+            "id": "resting-layer-codec-write-sites",
+            "description": "Layer JSON writeback into the model, Y.Doc, history, and storage must call the resting-layer codec so interpolator/compile payloads cannot enter as Shape.",
+            "sites": [
+                {
+                    "path": "webapp/js/babelfont-model.ts",
+                    "symbol": "Layer.syncFromEditorLayerData",
+                    "mustCall": ["toRestingLayerJson"]
+                },
+                {
+                    "path": "webapp/js/change-bridge-ydoc.ts",
+                    "symbol": "applyLayerDelta",
+                    "mustCall": ["toRestingLayerJson"]
+                },
+                {
+                    "path": "webapp/js/change-bridge-ydoc.ts",
+                    "symbol": "layerToYMap",
+                    "mustCall": ["toRestingLayerJson"]
+                },
+                {
+                    "path": "webapp/js/font-manager.ts",
+                    "symbol": "FontManager.serializeLayerForStorage",
+                    "mustCall": ["toRestingShapeJson", "toRestingLayerJson"]
+                },
+                {
+                    "path": "webapp/js/font-manager.ts",
+                    "symbol": "FontManager.sendWorkerYjsUpdate",
+                    "mustCall": ["workerLayerTargetsAreResting"]
+                },
+                {
+                    "path": "webapp/js/font-manager.ts",
+                    "symbol": "FontManager.workerLayerTargetsAreResting",
+                    "mustCall": ["describeRestingLayerViolation"]
+                },
+                {
+                    "path": "webapp/js/patch-sync-engine.ts",
+                    "symbol": "PatchSyncEngine._applyLayerDelta",
+                    "mustCall": ["toRestingLayerJson"]
+                },
+                {
+                    "path": "webapp/js/patch-sync-engine.ts",
+                    "symbol": "PatchSyncEngine._normalizeLayerSnapshot",
+                    "mustCall": ["toRestingLayerJson"]
+                },
+                {
+                    "path": "webapp/js/patch-sync-engine.ts",
+                    "symbol": "PatchSyncEngine._replaceLayerMapContents",
+                    "mustCall": ["toRestingLayerJson"]
+                },
+                {
+                    "path": "webapp/js/patch-sync-engine.ts",
+                    "symbol": "PatchSyncEngine._prepareLayerSnapshotForHistory",
+                    "mustCall": ["_normalizeLayerSnapshot"]
+                },
+                {
+                    "path": "webapp/js/patch-sync-engine.ts",
+                    "symbol": "PatchSyncEngine.syncLayerSnapshotsFromJson",
+                    "mustCall": ["_prepareLayerSnapshotForHistory"]
+                },
+                {
+                    "path": "webapp/js/patch-sync-engine.ts",
+                    "symbol": "PatchSyncEngine._trySyncSingleLayer",
+                    "mustCall": ["_prepareLayerSnapshotForHistory"]
+                }
+            ]
+        }
     ]
 }

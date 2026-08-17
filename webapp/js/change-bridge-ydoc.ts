@@ -8,6 +8,13 @@
 
 import * as Y from 'yjs';
 import { generateStableId } from './babelfont-model';
+import {
+    omitRestingLayerRuntimeKeys,
+    RESTING_LAYER_IDENTITY_KEYS,
+    RESTING_LAYER_RUNTIME_KEYS,
+    toRestingComponentTransform,
+    toRestingLayerJson
+} from './resting-layer-json';
 
 type Unsafe = ReturnType<typeof JSON.parse>;
 
@@ -17,55 +24,14 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
     return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
 
-function normalizeComponentTransformRecord(
-    transform: unknown
-): Record<string, unknown> {
-    if (
-        !transform ||
-        typeof transform !== 'object' ||
-        Array.isArray(transform)
-    ) {
-        return {
-            translation: [0, 0],
-            rotation: 0,
-            scale: [1, 1],
-            skew: [0, 0],
-            order: 'RestOfTheWorld'
-        };
-    }
-
-    const record = transform as Record<string, unknown>;
-    const translation = Array.isArray(record.translation)
-        ? [
-              Number(record.translation[0]) || 0,
-              Number(record.translation[1]) || 0
-          ]
-        : [0, 0];
-    const scale = Array.isArray(record.scale)
-        ? [Number(record.scale[0]) || 1, Number(record.scale[1]) || 1]
-        : [1, 1];
-    const rawSkew = Array.isArray(record.skew)
-        ? record.skew
-        : [record.skew ?? 0, 0];
-
-    return {
-        translation,
-        rotation: Number(record.rotation) || 0,
-        scale,
-        skew: [Number(rawSkew[0]) || 0, Number(rawSkew[1]) || 0],
-        order:
-            record.order === 'Glyphs' || record.order === 'RestOfTheWorld'
-                ? record.order
-                : 'RestOfTheWorld'
-    };
-}
-
 export function normalizeValueForYDocWrite(value: unknown): unknown {
     if (!isPlainObject(value)) {
         return value;
     }
 
-    const record = value as Record<string, unknown>;
+    const record = omitRestingLayerRuntimeKeys(
+        value as Record<string, unknown>
+    );
 
     if ('Path' in record || 'Component' in record) {
         throw new TypeError(
@@ -85,7 +51,7 @@ export function normalizeValueForYDocWrite(value: unknown): unknown {
 
     // Ensure component transforms are normalized for Y.Doc storage
     if ('reference' in record) {
-        const normalizedTransform = normalizeComponentTransformRecord(
+        const normalizedTransform = toRestingComponentTransform(
             record.transform
         );
         const { tcenter: _tcenter, ...recordWithoutTcenter } = record;
@@ -93,7 +59,8 @@ export function normalizeValueForYDocWrite(value: unknown): unknown {
             !isPlainObject(record.transform) ||
             JSON.stringify(record.transform) !==
                 JSON.stringify(normalizedTransform) ||
-            'tcenter' in record
+            'tcenter' in record ||
+            record !== (value as Record<string, unknown>)
         ) {
             return {
                 ...recordWithoutTcenter,
@@ -102,7 +69,7 @@ export function normalizeValueForYDocWrite(value: unknown): unknown {
         }
     }
 
-    return value;
+    return record === value ? value : record;
 }
 
 function createYContainerForNextSegment(
@@ -123,6 +90,11 @@ function createYContainerForNextSegment(
  */
 function layerToYMap(layerData: Record<string, unknown>): Y.Map<unknown> {
     const map = new Y.Map<unknown>();
+    layerData = toRestingLayerJson(layerData, {
+        mode: 'delta',
+        strict: true,
+        context: 'Y.Doc write'
+    });
 
     // Non-array fields: set directly via toYType
     for (const [k, v] of Object.entries(layerData)) {
@@ -167,6 +139,33 @@ function layerToYMap(layerData: Record<string, unknown>): Y.Map<unknown> {
     return map;
 }
 
+function restingLayerContextFromYMap(
+    layerMap: Y.Map<unknown>
+): Record<string, unknown> {
+    const existing: Record<string, unknown> = {};
+    const width = layerMap.get('width');
+    if (typeof width === 'number' && Number.isFinite(width)) {
+        existing.width = width;
+    }
+    const id = layerMap.get('id');
+    if (typeof id === 'string' && id.length) {
+        existing.id = id;
+    }
+    const master = layerMap.get('master');
+    if (master !== undefined) {
+        existing.master = fromYType(master);
+    }
+    try {
+        const shapes = layerMap.get('shapes');
+        if (shapes !== undefined) {
+            existing.shapes = fromYType(shapes);
+        }
+    } catch {
+        // Corrupt node storage must not block a later delta; identity is enough.
+    }
+    return existing;
+}
+
 /**
  * Deep-merge a flat layer JSON into an existing layer Y.Map in a Y.Doc.
  * Keeps shapes as an atomic ordered array, while anchors and guides use
@@ -195,20 +194,36 @@ export function applyLayerDelta(
     }
     const layersMapTyped = layersMap as Y.Map<unknown>;
     let layerMap = layersMapTyped.get(layerId);
+    const existingLayerJson = isYMap(layerMap)
+        ? restingLayerContextFromYMap(layerMap)
+        : null;
+    const sanitizedLayerData = toRestingLayerJson(layerData, {
+        existing: existingLayerJson,
+        mode: isYMap(layerMap) ? 'delta' : 'replace',
+        context: 'Y.Doc write'
+    });
     if (!isYMap(layerMap)) {
         // Layer doesn't exist — create from flat JSON
-        layersMapTyped.set(layerId, layerToYMap(layerData));
+        layersMapTyped.set(layerId, layerToYMap(sanitizedLayerData));
         return;
     }
 
-    const normalizedLayerData = normalizeValueForYDocWrite(layerData) as Record<
-        string,
-        unknown
-    >;
+    const normalizedLayerData = normalizeValueForYDocWrite(
+        sanitizedLayerData
+    ) as Record<string, unknown>;
+
+    for (const runtimeKey of RESTING_LAYER_RUNTIME_KEYS) {
+        layerMap.delete(runtimeKey);
+    }
 
     // Deep-merge each key
     for (const [key, value] of Object.entries(normalizedLayerData)) {
         if (value === null || value === undefined) {
+            if (
+                (RESTING_LAYER_IDENTITY_KEYS as readonly string[]).includes(key)
+            ) {
+                continue;
+            }
             layerMap.delete(key);
         } else if (key === 'shapes' && Array.isArray(value)) {
             layerMap.set(key, toYType(value));
@@ -1234,6 +1249,25 @@ export function setYPath(
     ) {
         applyIndexedMapArray(current, lastSegStr, value as unknown[]);
         return;
+    }
+
+    if (
+        current instanceof Y.Map &&
+        path.length === 4 &&
+        path[0] === 'glyphs' &&
+        path[2] === 'layers' &&
+        isPlainObject(value)
+    ) {
+        const existingLayer = current.get(lastSegStr);
+        if (isYMap(existingLayer)) {
+            applyLayerDelta(
+                root,
+                String(path[1]),
+                lastSegStr,
+                value as Record<string, unknown>
+            );
+            return;
+        }
     }
 
     const yValue = toYType(value);

@@ -745,27 +745,56 @@ fn apply_sparse_layer_json_to_cached_layer(
     Ok(())
 }
 
+const LAYER_SHAPES_DUMP_MAX_CHARS: usize = 8192;
+
+fn compact_json_for_error(value: &serde_json::Value, max_chars: usize) -> String {
+    let mut dump = serde_json::to_string(value).unwrap_or_else(|_| "unserializable".to_string());
+    if dump.len() > max_chars {
+        dump.truncate(max_chars);
+        dump.push_str("…(truncated)");
+    }
+    dump
+}
+
 fn validate_layer_json_for_native_cache(
     glyph_name: &str,
     layer_id: &str,
     layer_json: &serde_json::Value,
 ) -> Result<(), String> {
-    serde_json::from_value::<babelfont::Layer>(layer_json.clone()).map_err(|error| {
-        format!(
-            "Layer deserialization error for {}::{}: {}",
-            glyph_name, layer_id, error
-        )
-    })?;
-    Ok(())
+    match serde_path_to_error::deserialize::<_, babelfont::Layer>(layer_json.clone()) {
+        Ok(_) => Ok(()),
+        Err(path_error) => {
+            let shapes_dump = layer_json
+                .get("shapes")
+                .map(|shapes| compact_json_for_error(shapes, LAYER_SHAPES_DUMP_MAX_CHARS))
+                .unwrap_or_else(|| "missing".to_string());
+            Err(format!(
+                "Layer deserialization error for {}::{}: {}; path {}: {}; shapes {}",
+                glyph_name,
+                layer_id,
+                path_error.inner(),
+                path_error.path(),
+                path_error.inner(),
+                shapes_dump
+            ))
+        }
+    }
 }
 
 fn validate_glyph_json_for_native_cache(
     glyph_name: &str,
     glyph_json: &serde_json::Value,
 ) -> Result<(), String> {
-    serde_json::from_value::<babelfont::Glyph>(glyph_json.clone())
-        .map_err(|error| format!("Glyph deserialization error for {}: {}", glyph_name, error))?;
-    Ok(())
+    match serde_path_to_error::deserialize::<_, babelfont::Glyph>(glyph_json.clone()) {
+        Ok(_) => Ok(()),
+        Err(path_error) => Err(format!(
+            "Glyph deserialization error for {}: {}; path {}: {}",
+            glyph_name,
+            path_error.inner(),
+            path_error.path(),
+            path_error.inner()
+        )),
+    }
 }
 
 fn validate_active_subset_ydoc_layers_for_native_cache<T: ReadTxn>(txn: &T) -> Result<(), String> {
@@ -3892,10 +3921,14 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
         result
     };
 
-    if result.is_err() {
-        // Yrs applies a binary update atomically but cannot roll it back. A
-        // rejected packet must therefore discard this worker mirror instead of
-        // allowing later edits to run against a Y.Doc ahead of its caches.
+    if let Err(error) = &result {
+        // Log the full diagnostic before discarding the worker mirror. Yrs
+        // cannot roll back an applied update, so a rejected packet still
+        // drops Y_DOC; the error string is the only remaining payload dump.
+        let message = error.as_string().unwrap_or_else(|| format!("{error:?}"));
+        web_sys::console::error_1(
+            &format!("[Rust] apply_yjs_update rejected; discarding worker Y.Doc: {message}").into(),
+        );
         *Y_DOC.lock().unwrap() = None;
         clear_font_cache();
     }
@@ -4480,9 +4513,7 @@ pub fn get_cache_memory_stats() -> Result<String, JsValue> {
             .map_err(|_| dump_lock_error("SUBSET_JSON_CACHE"))?;
         cache
             .as_ref()
-            .map(|(key, _, json)| {
-                cache_memory::str_bytes(key) + estimate_json_value_bytes(json)
-            })
+            .map(|(key, _, json)| cache_memory::str_bytes(key) + estimate_json_value_bytes(json))
             .unwrap_or(0)
     };
     let native_font_bytes = {
@@ -4522,8 +4553,7 @@ pub fn get_cache_memory_stats() -> Result<String, JsValue> {
         cache
             .as_ref()
             .map(|(fea, names)| {
-                fea.len() as u64
-                    + names.iter().map(|name| 24 + name.len() as u64).sum::<u64>()
+                fea.len() as u64 + names.iter().map(|name| 24 + name.len() as u64).sum::<u64>()
             })
             .unwrap_or(0)
     };
@@ -4536,8 +4566,7 @@ pub fn get_cache_memory_stats() -> Result<String, JsValue> {
         cache
             .iter()
             .map(|(key, names)| {
-                key.len() as u64
-                    + names.iter().map(|name| 24 + name.len() as u64).sum::<u64>()
+                key.len() as u64 + names.iter().map(|name| 24 + name.len() as u64).sum::<u64>()
             })
             .sum::<u64>()
     };
@@ -4704,9 +4733,8 @@ pub fn get_cache_memory_stats() -> Result<String, JsValue> {
         ],
     });
 
-    serde_json::to_string(&response).map_err(|e| {
-        JsValue::from_str(&format!("Worker memory stats serialization failed: {}", e))
-    })
+    serde_json::to_string(&response)
+        .map_err(|e| JsValue::from_str(&format!("Worker memory stats serialization failed: {}", e)))
 }
 
 /// Extract a stable glyph-name list from an array- or map-backed cache payload.
@@ -5624,12 +5652,24 @@ mod tests {
         let layer_error = validate_layer_json_for_native_cache("A", "layer-1", &layer_json)
             .expect_err("malformed layer shape must fail before cache refresh");
         assert!(layer_error.contains("Layer deserialization error for A::layer-1"));
+        assert!(
+            layer_error.contains("path shapes[0]"),
+            "layer error should include serde path, got {layer_error}"
+        );
+        assert!(
+            layer_error.contains("broken-shape"),
+            "layer error should dump the failing shapes payload, got {layer_error}"
+        );
 
         let mut glyph_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
         glyph_json["glyphs"][0]["layers"][0] = layer_json;
         let glyph_error = validate_glyph_json_for_native_cache("A", &glyph_json["glyphs"][0])
             .expect_err("malformed glyph shape must fail before cache refresh");
         assert!(glyph_error.contains("Glyph deserialization error for A"));
+        assert!(
+            glyph_error.contains("path layers[0].shapes[0]"),
+            "glyph error should include serde path, got {glyph_error}"
+        );
     }
 
     #[test]
@@ -8279,8 +8319,7 @@ mod tests {
         let native_font: babelfont::Font = serde_json::from_value(canonical_json.clone()).unwrap();
         set_canonical_json_cache(canonical_json.clone());
         *FONT_CACHE.lock().unwrap() = Some(native_font);
-        *SUBSET_JSON_CACHE.lock().unwrap() =
-            Some(("A".to_string(), 7, canonical_json.clone()));
+        *SUBSET_JSON_CACHE.lock().unwrap() = Some(("A".to_string(), 7, canonical_json.clone()));
         *FEATURE_FEA_STRING_CACHE.lock().unwrap() =
             Some(("feature kern { } kern;".to_string(), vec!["A".to_string()]));
 

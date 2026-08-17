@@ -64,6 +64,7 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     Clipboard: false,
     PythonPostExecution: false,
     Renderer: false,
+    RestingLayerJson: false,
     RunPythonScriptDialog: false,
     ScriptEditor: false,
     ShareButton: false,

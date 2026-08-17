@@ -46,6 +46,7 @@ let bridgeSyncQueue: Promise<void> = Promise.resolve();
 let committedChangeRefreshQueue: Promise<void> = Promise.resolve();
 let committedChangeRefreshGeneration = 0;
 let pendingLocalUndoRedoContext: LocalUndoRedoVisualContext | null = null;
+let bridgeUndoRedoInFlight = false;
 
 type Unsafe = ReturnType<typeof JSON.parse>;
 
@@ -2754,139 +2755,167 @@ export function runBridgeUndoRedo(
     historyTargetKey?: string | null,
     surface?: HistoryUndoSurface | null
 ): Promise<void> {
+    if (bridgeUndoRedoInFlight) {
+        return Promise.resolve();
+    }
+    bridgeUndoRedoInFlight = true;
     return enqueueBridgeSync(async () => {
-        await window.glyphCanvas?.outlineEditor?.flushPendingKeyboardPreviewCommit?.();
+        try {
+            await window.glyphCanvas?.outlineEditor?.flushPendingKeyboardPreviewCommit?.();
 
-        const activeElement = document.activeElement;
+            const activeElement = document.activeElement;
 
-        const fontInfoRoot = document.querySelector(
-            '#view-fontinfo.focused'
-        ) as HTMLElement | null;
-        const fontInfoDetailBefore = fontInfoRoot?.querySelector<HTMLElement>(
-            '.fontinfo-records-detail'
-        );
-        const fontInfoListBefore = fontInfoRoot?.querySelector<HTMLElement>(
-            '.fontinfo-records-list'
-        );
-        const fontInfoRootScrollTop = fontInfoRoot?.scrollTop ?? null;
-        const fontInfoRootScrollLeft = fontInfoRoot?.scrollLeft ?? null;
-        const fontInfoDetailScrollTop = fontInfoDetailBefore?.scrollTop ?? null;
-        const fontInfoDetailScrollLeft =
-            fontInfoDetailBefore?.scrollLeft ?? null;
-        const fontInfoListScrollTop = fontInfoListBefore?.scrollTop ?? null;
-        const fontInfoListScrollLeft = fontInfoListBefore?.scrollLeft ?? null;
-        const restoreFontInfoScroll = () => {
-            if (!fontInfoRoot) {
+            const fontInfoRoot = document.querySelector(
+                '#view-fontinfo.focused'
+            ) as HTMLElement | null;
+            const fontInfoDetailBefore =
+                fontInfoRoot?.querySelector<HTMLElement>(
+                    '.fontinfo-records-detail'
+                );
+            const fontInfoListBefore = fontInfoRoot?.querySelector<HTMLElement>(
+                '.fontinfo-records-list'
+            );
+            const fontInfoRootScrollTop = fontInfoRoot?.scrollTop ?? null;
+            const fontInfoRootScrollLeft = fontInfoRoot?.scrollLeft ?? null;
+            const fontInfoDetailScrollTop =
+                fontInfoDetailBefore?.scrollTop ?? null;
+            const fontInfoDetailScrollLeft =
+                fontInfoDetailBefore?.scrollLeft ?? null;
+            const fontInfoListScrollTop = fontInfoListBefore?.scrollTop ?? null;
+            const fontInfoListScrollLeft =
+                fontInfoListBefore?.scrollLeft ?? null;
+            const restoreFontInfoScroll = () => {
+                if (!fontInfoRoot) {
+                    return;
+                }
+
+                const applyRestore = () => {
+                    if (fontInfoRootScrollTop !== null) {
+                        fontInfoRoot.scrollTop = fontInfoRootScrollTop;
+                    }
+                    if (fontInfoRootScrollLeft !== null) {
+                        fontInfoRoot.scrollLeft = fontInfoRootScrollLeft;
+                    }
+
+                    const detailAfter = fontInfoRoot.querySelector<HTMLElement>(
+                        '.fontinfo-records-detail'
+                    );
+                    if (detailAfter) {
+                        if (fontInfoDetailScrollTop !== null) {
+                            detailAfter.scrollTop = fontInfoDetailScrollTop;
+                        }
+                        if (fontInfoDetailScrollLeft !== null) {
+                            detailAfter.scrollLeft = fontInfoDetailScrollLeft;
+                        }
+                    }
+
+                    const listAfter = fontInfoRoot.querySelector<HTMLElement>(
+                        '.fontinfo-records-list'
+                    );
+                    if (listAfter) {
+                        if (fontInfoListScrollTop !== null) {
+                            listAfter.scrollTop = fontInfoListScrollTop;
+                        }
+                        if (fontInfoListScrollLeft !== null) {
+                            listAfter.scrollLeft = fontInfoListScrollLeft;
+                        }
+                    }
+                };
+
+                applyRestore();
+                requestAnimationFrame(applyRestore);
+                requestAnimationFrame(() =>
+                    requestAnimationFrame(applyRestore)
+                );
+                setTimeout(applyRestore, 0);
+                setTimeout(applyRestore, 50);
+                setTimeout(applyRestore, 150);
+            };
+
+            if (
+                activeElement instanceof HTMLElement &&
+                activeElement.classList.contains('fontinfo-axis-map-input')
+            ) {
+                activeElement.blur();
+                restoreFontInfoScroll();
+            }
+
+            const bridge = window.patchSyncEngine;
+            if (!bridge) {
+                return;
+            }
+            await window.fontManager?.awaitWorkerCacheUpdate?.();
+            // Always undo/redo the glyph currently being edited.
+            // This is the last glyph in glyph stack, passed as glyphName.
+            const targetGlyph = glyphName;
+            const editedGlyphName = getActiveEditedGlyphName() ?? targetGlyph;
+            const previousWidth = getLayerWidth(
+                editedGlyphName,
+                layerId ?? null
+            );
+            const localUndoRedoContext: LocalUndoRedoVisualContext = {
+                rootGlyphName: refreshRootGlyphName,
+                requestedGlyphName: glyphName,
+                editedGlyphName,
+                layerId: layerId ?? null,
+                previousWidth
+            };
+            const committedGenerationBefore = committedChangeRefreshGeneration;
+            pendingLocalUndoRedoContext = localUndoRedoContext;
+
+            const appliedChange =
+                action === 'redo'
+                    ? bridge.redo(
+                          targetGlyph,
+                          layerId,
+                          historyTargetKey,
+                          surface
+                      )
+                    : bridge.undo(
+                          targetGlyph,
+                          layerId,
+                          historyTargetKey,
+                          surface
+                      );
+
+            if (!appliedChange) {
+                if (pendingLocalUndoRedoContext === localUndoRedoContext) {
+                    pendingLocalUndoRedoContext = null;
+                }
+                restoreFontInfoScroll();
                 return;
             }
 
-            const applyRestore = () => {
-                if (fontInfoRootScrollTop !== null) {
-                    fontInfoRoot.scrollTop = fontInfoRootScrollTop;
-                }
-                if (fontInfoRootScrollLeft !== null) {
-                    fontInfoRoot.scrollLeft = fontInfoRootScrollLeft;
-                }
-
-                const detailAfter = fontInfoRoot.querySelector<HTMLElement>(
-                    '.fontinfo-records-detail'
-                );
-                if (detailAfter) {
-                    if (fontInfoDetailScrollTop !== null) {
-                        detailAfter.scrollTop = fontInfoDetailScrollTop;
-                    }
-                    if (fontInfoDetailScrollLeft !== null) {
-                        detailAfter.scrollLeft = fontInfoDetailScrollLeft;
-                    }
-                }
-
-                const listAfter = fontInfoRoot.querySelector<HTMLElement>(
-                    '.fontinfo-records-list'
-                );
-                if (listAfter) {
-                    if (fontInfoListScrollTop !== null) {
-                        listAfter.scrollTop = fontInfoListScrollTop;
-                    }
-                    if (fontInfoListScrollLeft !== null) {
-                        listAfter.scrollLeft = fontInfoListScrollLeft;
-                    }
-                }
-            };
-
-            applyRestore();
-            requestAnimationFrame(applyRestore);
-            requestAnimationFrame(() => requestAnimationFrame(applyRestore));
-            setTimeout(applyRestore, 0);
-            setTimeout(applyRestore, 50);
-            setTimeout(applyRestore, 150);
-        };
-
-        if (
-            activeElement instanceof HTMLElement &&
-            activeElement.classList.contains('fontinfo-axis-map-input')
-        ) {
-            activeElement.blur();
             restoreFontInfoScroll();
-        }
 
-        const bridge = window.patchSyncEngine;
-        if (!bridge) {
-            return;
-        }
-        await window.fontManager?.awaitWorkerCacheUpdate?.();
-        // Always undo/redo the glyph currently being edited.
-        // This is the last glyph in glyph stack, passed as glyphName.
-        const targetGlyph = glyphName;
-        const editedGlyphName = getActiveEditedGlyphName() ?? targetGlyph;
-        const previousWidth = getLayerWidth(editedGlyphName, layerId ?? null);
-        const localUndoRedoContext: LocalUndoRedoVisualContext = {
-            rootGlyphName: refreshRootGlyphName,
-            requestedGlyphName: glyphName,
-            editedGlyphName,
-            layerId: layerId ?? null,
-            previousWidth
-        };
-        const committedGenerationBefore = committedChangeRefreshGeneration;
-        pendingLocalUndoRedoContext = localUndoRedoContext;
+            if (
+                committedChangeRefreshGeneration !== committedGenerationBefore
+            ) {
+                await committedChangeRefreshQueue;
+                return;
+            }
 
-        const appliedChange =
-            action === 'redo'
-                ? bridge.redo(targetGlyph, layerId, historyTargetKey, surface)
-                : bridge.undo(targetGlyph, layerId, historyTargetKey, surface);
-
-        if (!appliedChange) {
             if (pendingLocalUndoRedoContext === localUndoRedoContext) {
                 pendingLocalUndoRedoContext = null;
             }
-            restoreFontInfoScroll();
-            return;
+
+            const historyItem =
+                appliedChange.historyItem as HistoryStackItem | null;
+            const fallbackEntries = getFallbackUndoRedoCommittedEntries(
+                historyItem,
+                action,
+                localUndoRedoContext
+            );
+            if (!fallbackEntries.length) {
+                return;
+            }
+
+            await handleCommittedChangeRefresh(fallbackEntries, 'local', {
+                localUndoRedoContext
+            });
+        } finally {
+            bridgeUndoRedoInFlight = false;
         }
-
-        restoreFontInfoScroll();
-
-        if (committedChangeRefreshGeneration !== committedGenerationBefore) {
-            await committedChangeRefreshQueue;
-            return;
-        }
-
-        if (pendingLocalUndoRedoContext === localUndoRedoContext) {
-            pendingLocalUndoRedoContext = null;
-        }
-
-        const historyItem =
-            appliedChange.historyItem as HistoryStackItem | null;
-        const fallbackEntries = getFallbackUndoRedoCommittedEntries(
-            historyItem,
-            action,
-            localUndoRedoContext
-        );
-        if (!fallbackEntries.length) {
-            return;
-        }
-
-        await handleCommittedChangeRefresh(fallbackEntries, 'local', {
-            localUndoRedoContext
-        });
     });
 }
 

@@ -25,6 +25,12 @@ import {
 } from './babelfont-model';
 import { canonicalizeImportedFontJson } from './font-import-canonicalization';
 import { jsonToYDoc, fromYType, getYPath } from './change-bridge-ydoc';
+import {
+    describeRestingLayerViolation,
+    omitRestingLayerRuntimeKeys,
+    toRestingLayerJson,
+    toRestingShapeJson
+} from './resting-layer-json';
 import { sidebarErrorDisplay } from './sidebar-error-display';
 import type { FilesystemPlugin } from './filesystem-plugins';
 import { Logger } from './logger';
@@ -3923,90 +3929,20 @@ class FontManager {
 
         const copyPersistedLayerFields = (value: Record<string, unknown>) => {
             const {
-                isInterpolated: _isInterpolated,
-                _verticalMetrics: _verticalMetrics,
-                _interpolationLocation: _interpolationLocation,
                 anchors: _anchors,
                 guides: _guides,
                 format_specific: _formatSpecific,
                 ...persistedFields
-            } = value;
+            } = omitRestingLayerRuntimeKeys(value);
             return persistedFields;
-        };
-
-        const copyPersistedShapeFields = (value: Record<string, unknown>) => {
-            const {
-                isInterpolated: _isInterpolated,
-                layerData: _layerData,
-                ...persistedFields
-            } = value;
-            return persistedFields;
-        };
-
-        const extractPathShape = (shape: any): any => {
-            if (shape && typeof shape === 'object' && 'Path' in shape) {
-                return (shape as any).Path;
-            }
-            return shape;
-        };
-
-        const extractComponentShape = (shape: any): any => {
-            if (shape && typeof shape === 'object' && 'Component' in shape) {
-                return (shape as any).Component;
-            }
-            return shape;
         };
 
         const cleanShapeForSaving = (shape: Babelfont.Shape): any => {
-            const pathCandidate = extractPathShape(shape as any);
-            if (
-                pathCandidate &&
-                typeof pathCandidate === 'object' &&
-                'nodes' in pathCandidate
-            ) {
-                if (!Array.isArray(pathCandidate.nodes)) {
-                    throw new TypeError(
-                        'Path shape nodes must be an array before layer storage serialization.'
-                    );
-                }
-
-                return {
-                    ...copyPersistedShapeFields(pathCandidate),
-                    nodes: pathCandidate.nodes,
-                    closed:
-                        pathCandidate.closed === undefined
-                            ? false
-                            : pathCandidate.closed
-                };
-            }
-
-            const componentCandidate = extractComponentShape(shape as any);
-            if (
-                componentCandidate &&
-                typeof componentCandidate === 'object' &&
-                'reference' in componentCandidate
-            ) {
-                if (typeof componentCandidate.reference !== 'string') {
-                    throw new TypeError(
-                        'Component shapes must have a string reference before layer storage serialization.'
-                    );
-                }
-
-                return {
-                    ...copyPersistedShapeFields(componentCandidate),
-                    reference: componentCandidate.reference,
-                    transform: this.normalizeComponentTransformForRust(
-                        componentCandidate.transform
-                    )
-                };
-            }
-
-            const isObject =
-                shape && typeof shape === 'object' && !Array.isArray(shape);
-            if (isObject) {
-                return { ...(shape as object) } as Babelfont.Shape;
-            }
-            return shape;
+            return toRestingShapeJson(shape, {
+                allowWrapped: true,
+                strict: true,
+                context: 'layer storage serialization'
+            });
         };
 
         const originalLayer = this.getGlyph(glyphName)?.layers?.find(
@@ -4020,7 +3956,12 @@ class FontManager {
             options?.authoritativeOptionalLayerFields
         );
 
-        assertFiniteLayerWidth(layerData.width, {
+        const resolvedWidth =
+            typeof layerData.width === 'number' &&
+            Number.isFinite(layerData.width)
+                ? layerData.width
+                : originalLayer?.width;
+        assertFiniteLayerWidth(resolvedWidth, {
             glyphName,
             layerId,
             operation: 'serializeLayerForStorage'
@@ -4089,53 +4030,61 @@ class FontManager {
 
         const layerName = layerData.name ?? originalLayer?.name;
 
-        return {
-            ...(originalLayer
-                ? copyPersistedLayerFields(originalLayer as any)
-                : {}),
-            ...copyPersistedLayerFields(layerData as any),
-            width: layerData.width,
-            ...(layerData.height !== undefined && {
-                height: layerData.height
-            }),
-            ...(layerData.vertWidth !== undefined && {
-                vertWidth: layerData.vertWidth
-            }),
-            ...(layerName !== undefined && { name: layerName }),
-            id: layerId,
-            master: originalLayer?.master ?? layerData.master,
-            ...(Array.isArray(storedShapes) && { shapes: storedShapes }),
-            ...(cleanAnchors && { anchors: cleanAnchors }),
-            ...(cleanGuides && { guides: cleanGuides }),
-            ...((layerData.color ?? originalLayer?.color) && {
-                color: layerData.color ?? originalLayer?.color
-            }),
-            ...(layerData.layer_index !== undefined && {
-                layer_index: layerData.layer_index
-            }),
-            ...(layerData.is_background !== undefined
-                ? { is_background: layerData.is_background }
-                : originalLayer?.is_background === true
-                  ? { is_background: true }
-                  : {}),
-            ...((layerData.background_layer_id ??
-                originalLayer?.background_layer_id) && {
-                background_layer_id:
-                    layerData.background_layer_id ??
-                    originalLayer?.background_layer_id
-            }),
-            ...((layerData.location ?? originalLayer?.location) && {
-                location: {
-                    ...(layerData.location ?? originalLayer?.location)
-                }
-            }),
-            ...(formatSpecific && {
-                format_specific: formatSpecific
-            }),
-            ...((layerData as any).master && {
-                master: (layerData as any).master
-            })
-        };
+        return toRestingLayerJson(
+            {
+                ...(originalLayer
+                    ? copyPersistedLayerFields(originalLayer as any)
+                    : {}),
+                ...copyPersistedLayerFields(layerData as any),
+                width: resolvedWidth,
+                ...(layerData.height !== undefined && {
+                    height: layerData.height
+                }),
+                ...(layerData.vertWidth !== undefined && {
+                    vertWidth: layerData.vertWidth
+                }),
+                ...(layerName !== undefined && { name: layerName }),
+                id: layerId,
+                master: originalLayer?.master ?? layerData.master,
+                ...(Array.isArray(storedShapes) && { shapes: storedShapes }),
+                ...(cleanAnchors && { anchors: cleanAnchors }),
+                ...(cleanGuides && { guides: cleanGuides }),
+                ...((layerData.color ?? originalLayer?.color) && {
+                    color: layerData.color ?? originalLayer?.color
+                }),
+                ...(layerData.layer_index !== undefined && {
+                    layer_index: layerData.layer_index
+                }),
+                ...(layerData.is_background !== undefined
+                    ? { is_background: layerData.is_background }
+                    : originalLayer?.is_background === true
+                      ? { is_background: true }
+                      : {}),
+                ...((layerData.background_layer_id ??
+                    originalLayer?.background_layer_id) && {
+                    background_layer_id:
+                        layerData.background_layer_id ??
+                        originalLayer?.background_layer_id
+                }),
+                ...((layerData.location ?? originalLayer?.location) && {
+                    location: {
+                        ...(layerData.location ?? originalLayer?.location)
+                    }
+                }),
+                ...(formatSpecific && {
+                    format_specific: formatSpecific
+                }),
+                ...((layerData as any).master && {
+                    master: (layerData as any).master
+                })
+            },
+            {
+                existing: originalLayer ?? undefined,
+                mode: 'replace',
+                allowWrapped: true,
+                context: 'layer storage serialization'
+            }
+        ) as unknown as Babelfont.Layer;
     }
 
     private updateStoredLayerData(
@@ -4292,6 +4241,42 @@ class FontManager {
         fontCompilation?.setWorkerCacheDocumentReady(false);
     }
 
+    private workerLayerTargetsAreResting(
+        layerTargets: WorkerReplayTarget[]
+    ): boolean {
+        if (!layerTargets.length) {
+            return true;
+        }
+        const fontMap = window.patchSyncEngine?.fontMap;
+        if (!fontMap) {
+            return true;
+        }
+
+        for (const target of layerTargets) {
+            if (!target?.glyphName || !target?.layerId) {
+                continue;
+            }
+            const layerValue = getYPath(fontMap, [
+                'glyphs',
+                target.glyphName,
+                'layers',
+                target.layerId
+            ]);
+            if (layerValue === undefined || layerValue === null) {
+                continue;
+            }
+            const layerJson = fromYType(layerValue);
+            const violation = describeRestingLayerViolation(layerJson);
+            if (violation) {
+                console.error(
+                    `[FontManager] Resting-layer preflight failed for ${target.glyphName}/${target.layerId}: ${violation}`
+                );
+                return false;
+            }
+        }
+        return true;
+    }
+
     private async sendWorkerYjsUpdate(
         update: Uint8Array,
         changedGlyphs: string[],
@@ -4346,9 +4331,17 @@ class FontManager {
                 return true;
             }
 
+            const normalizedLayerTargets =
+                normalizeWorkerReplayTargets(layerTargets);
+            if (!this.workerLayerTargetsAreResting(normalizedLayerTargets)) {
+                console.error(
+                    '[FontManager] Refusing applyYjsUpdate; JS Y.Doc layer is not resting JSON',
+                    { changedGlyphs, layerTargets: normalizedLayerTargets }
+                );
+                return false;
+            }
+
             try {
-                const normalizedLayerTargets =
-                    normalizeWorkerReplayTargets(layerTargets);
                 const response = await fontCompilation.sendMessage({
                     type: 'applyYjsUpdate',
                     update: updateToSend,
@@ -4373,7 +4366,9 @@ class FontManager {
                             invalidateLayoutClosure
                         }
                     );
-                    return false;
+                    return this.recoverWorkerCacheFromAuthoritativeState(
+                        'applyYjsUpdate skipped; worker Y.Doc missing'
+                    );
                 }
 
                 const workerCacheStatus = response?.workerCacheStatus;
@@ -4417,7 +4412,9 @@ class FontManager {
                     },
                     error
                 );
-                return false;
+                return this.recoverWorkerCacheFromAuthoritativeState(
+                    'applyYjsUpdate failed; reseeding from bridge'
+                );
             }
         };
 

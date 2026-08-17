@@ -3,6 +3,10 @@ import assert from "node:assert/strict";
 import {
     checkRule,
     checkSourceRule,
+    checkCallSiteRule,
+    checkRequiredCallRule,
+    findIdentifierCallSites,
+    findMissingRequiredCalls,
     findWorkerMessageSites,
     parseCallerRows,
 } from "../scripts/check-graph-chokepoints.mjs";
@@ -130,6 +134,90 @@ describe("graph chokepoint guard", () => {
                     "webapp/js/sidecar.ts::bypass::storeFontJson",
                 ]),
             /Unexpected full-document requests:\n  \+ webapp\/js\/sidecar.ts::bypass::storeFontJson/,
+        );
+    });
+
+    test("finds toCompileJSON calls and ignores typeof checks", () => {
+        assert.deepEqual(
+            findIdentifierCallSites(
+                `class FontManager {
+    preview(layer) {
+        if (typeof layer.toCompileJSON === 'function') {
+            return layer.toCompileJSON();
+        }
+    }
+}`,
+                "webapp/js/font-manager.ts",
+                "toCompileJSON",
+            ),
+            ["webapp/js/font-manager.ts::FontManager.preview"],
+        );
+    });
+
+    test("rejects an unreviewed toCompileJSON call site", () => {
+        const rule = {
+            id: "tocompilejson-call-sites",
+            identifier: "toCompileJSON",
+            description: "compile-facing only",
+            allowedSites: ["webapp/js/font-manager.ts::FontManager.preview"],
+        };
+
+        assert.throws(
+            () =>
+                checkCallSiteRule(rule, () => [
+                    "webapp/js/font-manager.ts::FontManager.preview",
+                    "webapp/js/sidecar.ts::writeYDoc",
+                ]),
+            /Unexpected toCompileJSON calls:\n  \+ webapp\/js\/sidecar.ts::writeYDoc/,
+        );
+    });
+
+    test("detects a write site that dropped the resting-layer codec", () => {
+        const missing = findMissingRequiredCalls(
+            `class Layer {
+    syncFromEditorLayerData(layerData) {
+        this.data.shapes = layerData.shapes;
+    }
+}`,
+            "webapp/js/babelfont-model.ts",
+            "Layer.syncFromEditorLayerData",
+            ["toRestingLayerJson"],
+        );
+        assert.deepEqual(missing, ["toRestingLayerJson"]);
+    });
+
+    test("accepts a write site that still calls the resting-layer codec", () => {
+        assert.deepEqual(
+            findMissingRequiredCalls(
+                `class Layer {
+    syncFromEditorLayerData(layerData) {
+        const sanitized = toRestingLayerJson(layerData);
+        this.data.shapes = sanitized.shapes;
+    }
+}`,
+                "webapp/js/babelfont-model.ts",
+                "Layer.syncFromEditorLayerData",
+                ["toRestingLayerJson"],
+            ),
+            [],
+        );
+    });
+
+    test("rejects a required-call rule when a write site dropped the codec", () => {
+        assert.throws(
+            () =>
+                checkRequiredCallRule({
+                    id: "resting-layer-codec-write-sites",
+                    description: "must call codec",
+                    sites: [
+                        {
+                            path: "webapp/js/missing.ts",
+                            symbol: "Layer.syncFromEditorLayerData",
+                            mustCall: ["toRestingLayerJson"],
+                        },
+                    ],
+                }),
+            /Required-call symbol Layer.syncFromEditorLayerData not found|ENOENT/,
         );
     });
 });

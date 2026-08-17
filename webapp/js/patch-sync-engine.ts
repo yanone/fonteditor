@@ -25,6 +25,12 @@ import {
     applyIndexedMapArray as applyIndexedMapArrayToYMap
 } from './change-bridge-ydoc';
 import {
+    omitRestingLayerRuntimeKeys,
+    RESTING_LAYER_IDENTITY_KEYS,
+    RESTING_LAYER_RUNTIME_KEYS,
+    toRestingLayerJson
+} from './resting-layer-json';
+import {
     buildHistoryStackItems,
     type ChangeLogEntry,
     type ChangeOp,
@@ -1596,9 +1602,13 @@ export class PatchSyncEngine {
             if (!layerJson) {
                 continue;
             }
-            const storageLayerJson = this._prepareStorageValue(
-                layerJson
-            ) as Record<string, unknown>;
+            const storageLayerJson = this._prepareLayerSnapshotForHistory(
+                layerId,
+                layerJson,
+                layersMap.get(layerId)
+                    ? fromYType(layersMap.get(layerId) as Y.Map<unknown>)
+                    : null
+            );
             operations.push(
                 ...this._buildLayerSyncOperations(
                     glyphName,
@@ -1696,12 +1706,14 @@ export class PatchSyncEngine {
                 continue;
             }
 
-            const storageLayerJson = this._prepareStorageValue(
-                layerJson
-            ) as Record<string, unknown>;
+            const yLayerMap = layersMap.get(layerId);
+            const yLayerJson = yLayerMap ? fromYType(yLayerMap) : null;
+            const storageLayerJson = this._prepareLayerSnapshotForHistory(
+                layerId,
+                layerJson,
+                yLayerJson
+            );
             if (authoritativeOptionalLayerFields !== undefined) {
-                const yLayerMap = layersMap.get(layerId);
-                const yLayerJson = yLayerMap ? fromYType(yLayerMap) : null;
                 if (
                     yLayerJson &&
                     typeof yLayerJson === 'object' &&
@@ -2714,10 +2726,12 @@ export class PatchSyncEngine {
             (l: Record<string, unknown>) => l.id === layerId
         );
         if (!layerJson) return false;
-        const storageLayerJson = this._prepareStorageValue(layerJson) as Record<
-            string,
-            unknown
-        >;
+        const existingYLayer = layersMap.get(layerId);
+        const storageLayerJson = this._prepareLayerSnapshotForHistory(
+            layerId,
+            layerJson,
+            existingYLayer instanceof Y.Map ? fromYType(existingYLayer) : null
+        );
         const operations = this._buildLayerSyncOperations(
             glyphName,
             layerId,
@@ -5637,6 +5651,18 @@ export class PatchSyncEngine {
         return value === undefined ? undefined : cloneHistoryValue(value);
     }
 
+    private _prepareLayerSnapshotForHistory(
+        layerId: string,
+        layerJson: unknown,
+        existingLayerJson: unknown
+    ): Record<string, unknown> {
+        return this._normalizeLayerSnapshot(
+            layerId,
+            this._prepareStorageValue(layerJson),
+            existingLayerJson
+        ) as Record<string, unknown>;
+    }
+
     private _prepareStorageValue(value: unknown): unknown {
         const stripEditorIds = (
             candidate: unknown,
@@ -5652,7 +5678,9 @@ export class PatchSyncEngine {
                 return candidate;
             }
 
-            const record = candidate as Record<string, unknown>;
+            const record = omitRestingLayerRuntimeKeys(
+                candidate as Record<string, unknown>
+            );
             const isPathOrComponent =
                 isShapeEntry &&
                 (Object.prototype.hasOwnProperty.call(record, 'nodes') ||
@@ -5927,7 +5955,16 @@ export class PatchSyncEngine {
         layerMap: Y.Map<unknown>,
         nextRecord: Record<string, unknown>
     ): void {
-        const nextKeys = new Set(Object.keys(nextRecord));
+        const existingRecord = fromYType(layerMap) as Record<
+            string,
+            unknown
+        > | null;
+        const sanitizedRecord = toRestingLayerJson(nextRecord, {
+            existing: existingRecord,
+            mode: 'replace',
+            context: 'Y.Doc write'
+        });
+        const nextKeys = new Set(Object.keys(sanitizedRecord));
         const indexedStorageKeysToKeep = new Set<string>();
         for (const key of nextKeys) {
             const mapping = INDEXED_MAP_KEYS[key];
@@ -5938,14 +5975,22 @@ export class PatchSyncEngine {
         }
 
         layerMap.forEach((_value: unknown, key: string) => {
-            if (nextKeys.has(key) || indexedStorageKeysToKeep.has(key)) {
+            if (
+                nextKeys.has(key) ||
+                indexedStorageKeysToKeep.has(key) ||
+                (RESTING_LAYER_IDENTITY_KEYS as readonly string[]).includes(key)
+            ) {
                 return;
             }
 
             layerMap.delete(key);
         });
 
-        for (const [key, value] of Object.entries(nextRecord)) {
+        for (const runtimeKey of RESTING_LAYER_RUNTIME_KEYS) {
+            layerMap.delete(runtimeKey);
+        }
+
+        for (const [key, value] of Object.entries(sanitizedRecord)) {
             const mapping = INDEXED_MAP_KEYS[key];
             if (mapping) {
                 layerMap.delete(key);
@@ -6675,7 +6720,11 @@ export class PatchSyncEngine {
             delete mergedLayerRecord.isInterpolated;
         }
 
-        return mergedLayerRecord;
+        return toRestingLayerJson(mergedLayerRecord, {
+            existing: existingLayerRecord,
+            mode: 'replace',
+            context: 'history snapshot'
+        });
     }
 
     /**
@@ -6759,10 +6808,14 @@ export class PatchSyncEngine {
         > | null;
 
         // Clone the delta — _normalizeLayerMasterSnapshot mutates it.
-        const workingRecord = cloneHistoryValue(deltaRecord) as Record<
-            string,
-            unknown
-        >;
+        const workingRecord = toRestingLayerJson(
+            cloneHistoryValue(deltaRecord) as Record<string, unknown>,
+            {
+                existing: existingYDocRecord,
+                mode: 'delta',
+                context: 'Y.Doc write'
+            }
+        ) as Record<string, unknown>;
 
         // Normalize master if it changed.
         if ('master' in workingRecord) {
@@ -6799,9 +6852,20 @@ export class PatchSyncEngine {
             workingRecord.isInterpolated = null;
         }
 
+        for (const runtimeKey of RESTING_LAYER_RUNTIME_KEYS) {
+            layerMap.delete(runtimeKey);
+        }
+
         // Apply each delta key to the Y.Map.
         for (const [key, value] of Object.entries(workingRecord)) {
             if (value === null || value === undefined) {
+                if (
+                    (RESTING_LAYER_IDENTITY_KEYS as readonly string[]).includes(
+                        key
+                    )
+                ) {
+                    continue;
+                }
                 // For indexed-map keys, delete the *ById+*Order keys
                 // so downstream readers see the data as absent (not
                 // empty), preserving merge semantics.

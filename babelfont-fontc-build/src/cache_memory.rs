@@ -2,8 +2,7 @@
 //! Counts owned string/number/vec payload, not allocator headers.
 
 use babelfont::{
-    Component, Font, FormatSpecific, Glyph, I18NDictionary, Layer, Master, Names, Node, Path,
-    Shape,
+    Component, Font, FormatSpecific, Glyph, I18NDictionary, Layer, Master, Names, Node, Path, Shape,
 };
 use serde_json::Value;
 use std::collections::HashMap;
@@ -77,7 +76,8 @@ fn names_bytes(names: &Names) -> u64 {
 }
 
 fn node_bytes(node: &Node) -> u64 {
-    24 + node.id.as_deref().map(str_bytes).unwrap_or(0) + format_specific_bytes(&node.format_specific)
+    24 + node.id.as_deref().map(str_bytes).unwrap_or(0)
+        + format_specific_bytes(&node.format_specific)
 }
 
 fn path_bytes(path: &Path) -> u64 {
@@ -194,10 +194,7 @@ pub fn font_bytes(font: &Font) -> u64 {
 }
 
 pub fn string_usize_map_bytes(map: &HashMap<String, usize>) -> u64 {
-    HDR + map
-        .iter()
-        .map(|(key, _)| str_bytes(key) + 8)
-        .sum::<u64>()
+    HDR + map.iter().map(|(key, _)| str_bytes(key) + 8).sum::<u64>()
 }
 
 fn yrs_any_bytes(any: &yrs::Any) -> u64 {

@@ -115,6 +115,17 @@ Live preview staging must never write compile-facing (`toCompileJSON`) layers
 into resting model/storage — that poisons logical component translates and
 double-bakes `=+/-=` on the next drag. Preview collectors build overlay
 payloads only; resting writeback stays logical (`toJSON`).
+Every Y.Doc / history / model layer write goes through `resting-layer-json.ts`:
+Path or Component shapes only, decomposed transforms (never affine arrays),
+required identity fields (`id` / `width` / `master`) preserved on replace, and
+interpolator keys (`_interpolationRequestId`, `isInterpolated`, nested
+`layerData`, …) stripped. History records that same resting snapshot:
+`id` / `width` / `master` are filled from the existing layer before buffering,
+so undo/redo never replays a sparse interpolator fragment as a layer root.
+Sparse interpolator snapshots must not replace a
+layer map or delete `width`/`master`. JS preflight refuses `applyYjsUpdate`
+when a targeted layer is not resting JSON; a rejected worker apply reseeds
+from the bridge Y.Doc instead of leaving compile dead.
 Automatic layers are mutated only by `rebuildAutomaticComposition`, never by
 metrics translate/bake.
 

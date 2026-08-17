@@ -1395,6 +1395,9 @@ function __wbg_get_imports() {
                 wasm.__wbindgen_free(deferred0_0, deferred0_1, 1);
             }
         },
+        __wbg_error_d0b9fd88b7a19297: function (arg0) {
+            console.error(arg0);
+        },
         __wbg_getRandomValues_3dda8830c2565714: function () {
             return handleError(function (arg0, arg1) {
                 globalThis.crypto.getRandomValues(

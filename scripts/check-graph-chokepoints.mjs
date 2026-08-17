@@ -254,6 +254,181 @@ export function queryWorkerMessageSites(rule) {
         .sort();
 }
 
+function getCalleeName(expression) {
+    if (ts.isIdentifier(expression)) {
+        return expression.text;
+    }
+    if (ts.isPropertyAccessExpression(expression)) {
+        return getNodeName(expression.name);
+    }
+    return null;
+}
+
+/** Find production call sites of a named function or method. */
+export function findIdentifierCallSites(sourceText, filePath, identifier) {
+    const sourceFile = ts.createSourceFile(
+        filePath,
+        sourceText,
+        ts.ScriptTarget.Latest,
+        true,
+        filePath.endsWith(".js") ? ts.ScriptKind.JS : ts.ScriptKind.TS,
+    );
+    const sites = [];
+
+    const visit = (node) => {
+        if (ts.isCallExpression(node)) {
+            const calleeName = getCalleeName(node.expression);
+            if (calleeName === identifier) {
+                sites.push(`${filePath}::${getEnclosingSymbol(node)}`);
+            }
+        }
+        ts.forEachChild(node, visit);
+    };
+
+    visit(sourceFile);
+    return [...new Set(sites)].sort();
+}
+
+function symbolMatchesNode(node, symbol) {
+    if (ts.isFunctionDeclaration(node) && node.name) {
+        return node.name.text === symbol;
+    }
+    if (
+        ts.isMethodDeclaration(node) &&
+        ts.isClassDeclaration(node.parent) &&
+        node.parent.name
+    ) {
+        return `${node.parent.name.text}.${getNodeName(node.name)}` === symbol;
+    }
+    return false;
+}
+
+function collectCalleeNames(node, names) {
+    if (ts.isCallExpression(node)) {
+        const calleeName = getCalleeName(node.expression);
+        if (calleeName) {
+            names.add(calleeName);
+        }
+    }
+    ts.forEachChild(node, (child) => collectCalleeNames(child, names));
+}
+
+/** Return required identifiers missing from a named function or method body. */
+export function findMissingRequiredCalls(
+    sourceText,
+    filePath,
+    symbol,
+    requiredNames,
+) {
+    const sourceFile = ts.createSourceFile(
+        filePath,
+        sourceText,
+        ts.ScriptTarget.Latest,
+        true,
+        filePath.endsWith(".js") ? ts.ScriptKind.JS : ts.ScriptKind.TS,
+    );
+    let target = null;
+    const visit = (node) => {
+        if (symbolMatchesNode(node, symbol)) {
+            target = node;
+            return;
+        }
+        ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+    if (!target) {
+        throw new Error(
+            `Required-call symbol ${symbol} not found in ${filePath}`,
+        );
+    }
+    const found = new Set();
+    collectCalleeNames(target, found);
+    return requiredNames.filter((name) => !found.has(name));
+}
+
+/** Find identifier call sites in the checked-in production sources. */
+export function queryIdentifierCallSites(rule) {
+    return collectSourceFiles(join(repositoryRoot, rule.path))
+        .filter(
+            (filePath) =>
+                !rule.excludedPaths?.includes(
+                    relative(repositoryRoot, filePath),
+                ),
+        )
+        .flatMap((filePath) =>
+            findIdentifierCallSites(
+                readFileSync(filePath, "utf8"),
+                relative(repositoryRoot, filePath),
+                rule.identifier,
+            ),
+        )
+        .sort();
+}
+
+/** Compare production identifier call sites to their reviewed locations. */
+export function checkCallSiteRule(rule, getSites = queryIdentifierCallSites) {
+    const actual = getSites(rule);
+    const expected = [...rule.allowedSites].sort();
+    const unexpected = actual.filter((site) => !expected.includes(site));
+    const missing = expected.filter((site) => !actual.includes(site));
+
+    if (unexpected.length === 0 && missing.length === 0) {
+        console.log(`PASS ${rule.id}`);
+        return;
+    }
+
+    const details = [
+        `Call-site chokepoint guard failed: ${rule.id}`,
+        rule.description,
+        ...(unexpected.length
+            ? [
+                  `Unexpected ${rule.identifier} calls:\n${unexpected.map((value) => `  + ${value}`).join("\n")}`,
+              ]
+            : []),
+        ...(missing.length
+            ? [
+                  `Missing reviewed ${rule.identifier} calls:\n${missing.map((value) => `  - ${value}`).join("\n")}`,
+              ]
+            : []),
+        "Keep compile-facing JSON off the resting write path, or deliberately review and update architecture/graph-chokepoints.json.",
+    ];
+    throw new Error(details.join("\n"));
+}
+
+/** Assert reviewed write sites still call the resting-layer codec. */
+export function checkRequiredCallRule(rule) {
+    const failures = [];
+    for (const site of rule.sites) {
+        const filePath = join(repositoryRoot, site.path);
+        const missing = findMissingRequiredCalls(
+            readFileSync(filePath, "utf8"),
+            site.path,
+            site.symbol,
+            site.mustCall,
+        );
+        if (missing.length) {
+            failures.push(
+                `  ${site.path}::${site.symbol} missing ${missing.join(", ")}`,
+            );
+        }
+    }
+
+    if (failures.length === 0) {
+        console.log(`PASS ${rule.id}`);
+        return;
+    }
+
+    throw new Error(
+        [
+            `Required-call chokepoint guard failed: ${rule.id}`,
+            rule.description,
+            "Missing codec calls:",
+            ...failures,
+            "Route layer writes through resting-layer-json.ts, or deliberately review and update architecture/graph-chokepoints.json.",
+        ].join("\n"),
+    );
+}
+
 /** Compare full-document worker requests to their reviewed source locations. */
 export function checkSourceRule(rule, getSites = queryWorkerMessageSites) {
     const actual = getSites(rule);
@@ -300,5 +475,11 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     }
     for (const rule of configuration.sourceRules ?? []) {
         checkSourceRule(rule);
+    }
+    for (const rule of configuration.callSiteRules ?? []) {
+        checkCallSiteRule(rule);
+    }
+    for (const rule of configuration.requiredCallRules ?? []) {
+        checkRequiredCallRule(rule);
     }
 }

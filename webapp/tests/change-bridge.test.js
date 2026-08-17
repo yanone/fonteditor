@@ -2924,6 +2924,63 @@ describe('Transactions', () => {
         expect(fontJson.glyphs[0].layers[0].shapes).toEqual(originalShapes);
     });
 
+    test('layer snapshot history fills missing identity and strips interpolator keys', () => {
+        const { bridge } = createTestBridge(
+            'layer-snapshot-interpolator-sparse'
+        );
+        const original = yDocToJson(bridge.fontMap).glyphs[0].layers[0];
+        const nextAnchors = cloneValue(original.anchors);
+        nextAnchors[0].y = original.anchors[0].y + 12;
+
+        bridge.syncLayerSnapshotsFromJson(
+            [
+                {
+                    glyphName: 'A',
+                    layerId: 'layer-1',
+                    layerJson: {
+                        id: 'layer-1',
+                        _interpolationRequestId: 9,
+                        isInterpolated: true,
+                        shapes: cloneValue(original.shapes),
+                        anchors: nextAnchors,
+                        guides: cloneValue(original.guides),
+                        name: original.name,
+                        format_specific: cloneValue(original.format_specific)
+                    }
+                }
+            ],
+            'Drag anchor'
+        );
+
+        const nextLayer = yDocToJson(bridge.fontMap).glyphs[0].layers[0];
+        expect(nextLayer.width).toBe(original.width);
+        expect(nextLayer.master).toEqual(original.master);
+        expect(nextLayer._interpolationRequestId).toBeUndefined();
+        expect(nextLayer.isInterpolated).toBeUndefined();
+        expect(nextLayer.anchors[0].y).toBe(original.anchors[0].y + 12);
+
+        const layerRootEntries = bridge
+            .getChangeLog()
+            .filter((entry) => entry.path === 'glyphs.A:layers.layer-1');
+        for (const entry of layerRootEntries) {
+            const recorded = entry.replayNewValue ?? entry.newValue;
+            if (
+                recorded &&
+                typeof recorded === 'object' &&
+                !Array.isArray(recorded)
+            ) {
+                expect(recorded).toHaveProperty('width');
+                expect(recorded).toHaveProperty('master');
+                expect(recorded._interpolationRequestId).toBeUndefined();
+            }
+        }
+
+        bridge.undo('A', 'layer-1');
+        expect(
+            yDocToJson(bridge.fontMap).glyphs[0].layers[0].anchors[0].y
+        ).toBe(original.anchors[0].y);
+    });
+
     test('layer snapshot node deletion round-trips through undo and redo', () => {
         const { bridge, fontJson } = createTestBridge(
             'layer-snapshot-node-delete'
