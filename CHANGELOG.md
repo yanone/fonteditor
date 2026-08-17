@@ -1,5 +1,6 @@
 # Unreleased
 
+- **Kerning group editor**: Allow editing of kerning groups in the overview panel. Multiple matches are displayed as multiple chips, which is already a more versatile editing experience even before multiple groups per glyph are possible.
 - **Preferences Version and Updates**: App now checks for updates on boot and after window focus, throttled to 1 minute, and automatically the latest every 10 minutes.
 - **Panel focus**: 3px wide focussed panel border
 - **Property panels**: Preserve text field focus in active views
