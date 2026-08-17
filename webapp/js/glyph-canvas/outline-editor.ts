@@ -6299,8 +6299,8 @@ export class OutlineEditor {
 
     /**
      * Drop live sidebearing preview overlays, session baselines, and queued
-     * live-drag stages. Optionally keep the bbox-center pan anchor so a
-     * committed undo/redo can still re-apply it.
+     * live-drag stages. Idle committed packets use the canvas viewer lock
+     * instead of this live bbox-center anchor.
      */
     private resetLiveSidebearingRefreshState(options?: {
         preservePendingBboxAnchor?: boolean;
@@ -6367,9 +6367,7 @@ export class OutlineEditor {
         if (this.isLiveSidebearingInteractionActive()) {
             return;
         }
-        this.resetLiveSidebearingRefreshState({
-            preservePendingBboxAnchor: true
-        });
+        this.resetLiveSidebearingRefreshState();
     }
 
     capturePendingSidebearingBboxCenterAnchor(): boolean {

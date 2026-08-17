@@ -543,6 +543,106 @@ class GlyphCanvas {
     }
 
     /**
+     * True while this canvas owns a live gesture lock (drag or sidebearing
+     * burst). Idle committed packets must not capture a viewer lock then.
+     */
+    shouldSkipIdleViewLock(): boolean {
+        return !!(
+            this.outlineEditor?.draggingSomething ||
+            this.outlineEditor?.isLiveSidebearingInteractionActive?.()
+        );
+    }
+
+    /**
+     * Capture this window's idle viewer lock before a committed packet
+     * mutates the canvas (local, remote, undo, or redo). Edit mode locks
+     * the active glyph bbox center; text-mode kerning locks the pair's
+     * reference glyph; other text-mode packets lock the caret.
+     */
+    captureIdleViewLock(options?: { kerningPair?: boolean }): boolean {
+        this.clearIdleViewLock();
+        if (this.shouldSkipIdleViewLock() || !this.viewportManager) {
+            return false;
+        }
+
+        if (options?.kerningPair && !this.outlineEditor?.active) {
+            this.captureTextModeKerningPanAnchor();
+            if (this.textModeKerningPanAnchor) {
+                this.pendingIdleViewLock = 'kerning-pair';
+                this.idleViewLockScreen = {
+                    x: this.textModeKerningPanAnchor.screenX,
+                    y: 0
+                };
+                return true;
+            }
+        }
+
+        const fontPosition = this.getKeyboardResizeContentAnchorFontPosition();
+        if (!fontPosition) {
+            return false;
+        }
+        this.idleViewLockScreen = this.viewportManager.fontToScreenCoordinates(
+            fontPosition.x,
+            fontPosition.y
+        );
+        this.pendingIdleViewLock = 'content';
+        return true;
+    }
+
+    /**
+     * Re-apply a captured idle viewer lock after model sync or reshape.
+     */
+    reapplyIdleViewLock(): boolean {
+        if (!this.pendingIdleViewLock || !this.viewportManager) {
+            return false;
+        }
+
+        if (this.pendingIdleViewLock === 'kerning-pair') {
+            this.applyTextModeKerningPanAdjustment();
+            return this.textModeKerningPanAnchor !== null;
+        }
+
+        const fontPosition = this.getKeyboardResizeContentAnchorFontPosition();
+        if (!fontPosition || !this.idleViewLockScreen) {
+            return false;
+        }
+        applyFontPointScreenLock(
+            this.viewportManager,
+            this.idleViewLockScreen,
+            fontPosition.x,
+            fontPosition.y,
+            { lockY: !!this.outlineEditor?.active }
+        );
+        return true;
+    }
+
+    /**
+     * Re-apply and drop an idle viewer lock after reshape. Also clears the
+     * local kerning compile flag so a later full compile cannot pan twice.
+     */
+    consumeIdleViewLockAfterReshape(): boolean {
+        if (!this.hasPendingIdleViewLock()) {
+            return false;
+        }
+        this.reapplyIdleViewLock();
+        this.clearIdleViewLock();
+        this.pendingTextModeKerningCursorAnchor = false;
+        return true;
+    }
+
+    hasPendingIdleViewLock(): boolean {
+        return this.pendingIdleViewLock !== null;
+    }
+
+    /**
+     * Drop a consumed or abandoned idle viewer lock.
+     */
+    clearIdleViewLock(): void {
+        this.pendingIdleViewLock = null;
+        this.idleViewLockScreen = null;
+    }
+
+    /**
      * Fail-safe for keyboard (and collapse restore) resizes: place the
      * caret / glyph bbox center at a target screen point, clamped inside
      * the current canvas so content cannot stay invisible after reopen.
@@ -790,6 +890,13 @@ class GlyphCanvas {
 
     // Re-apply kerning pan after the compile reshape that follows a kerning write
     pendingTextModeKerningCursorAnchor: boolean = false;
+
+    /**
+     * Idle committed-packet viewer lock: keep this canvas's focus point
+     * screen-stationary across model sync and reshape.
+     */
+    private pendingIdleViewLock: 'content' | 'kerning-pair' | null = null;
+    private idleViewLockScreen: { x: number; y: number } | null = null;
 
     // Flag to suppress rendering during critical operations (e.g., layer data swap)
     renderSuppressed: boolean = false;
@@ -11327,6 +11434,7 @@ function setupFontLoadingListener() {
     editingFontCompiledHandler = async (e: Event) => {
         const detail = (e as CustomEvent).detail;
         let deferredCommittedSidebearingRender = false;
+        let deferredIdleViewLock = false;
         timelineMark('canvas.editingFontCompiled.received');
         editingFontApplyQueue = editingFontApplyQueue
             .then(async () => {
@@ -11399,7 +11507,10 @@ function setupFontLoadingListener() {
                         gc.outlineEditor.isLiveSidebearingInteractionActive();
                     deferredCommittedSidebearingRender =
                         !isLivePreview &&
+                        !gc.hasPendingIdleViewLock() &&
                         gc.outlineEditor.hasPendingSidebearingBboxCenterAnchor();
+                    deferredIdleViewLock =
+                        !isLivePreview && gc.hasPendingIdleViewLock();
 
                     // Live outline previews skip reshaping: the preview font
                     // omits features/kerning for speed, so a reshape would
@@ -11470,12 +11581,18 @@ function setupFontLoadingListener() {
 
                     if (compilationMode === 'kerning-only') {
                         const fontBytesArray = new Uint8Array(arrayBuffer);
-                        gc.captureTextModeKerningPanAnchor();
+                        if (!deferredIdleViewLock) {
+                            gc.captureTextModeKerningPanAnchor();
+                        }
                         gc.textRunEditor!.setShapingFontBlob(fontBytesArray);
                         gc.textRunEditor!.shapeText(true);
                         gc.reapplyTextModeKerningLivePreviewAfterReshape();
-                        gc.applyTextModeKerningPanAdjustment();
-                        gc.clearTextModeKerningPanAnchor();
+                        if (deferredIdleViewLock) {
+                            gc.consumeIdleViewLockAfterReshape();
+                        } else {
+                            gc.applyTextModeKerningPanAdjustment();
+                            gc.clearTextModeKerningPanAnchor();
+                        }
                         timelineMark(
                             'canvas.editingFontCompiled.kerningOnlyShaped'
                         );
@@ -11500,7 +11617,10 @@ function setupFontLoadingListener() {
                         }
                     }
 
-                    if (deferredCommittedSidebearingRender) {
+                    if (
+                        deferredCommittedSidebearingRender ||
+                        deferredIdleViewLock
+                    ) {
                         gc.renderSuppressed = true;
                         timelineMark(
                             'canvas.editingFontCompiled.committedSidebearingRenderDeferred'
@@ -11517,7 +11637,9 @@ function setupFontLoadingListener() {
                         // properties UI here would render after setFont's
                         // first shape and before that final render.
                         skipPropertiesUIUpdate:
-                            isDragActive || deferredCommittedSidebearingRender
+                            isDragActive ||
+                            deferredCommittedSidebearingRender ||
+                            deferredIdleViewLock
                     });
                     timelineSpanEnd(setFontSpanId);
                     timelineMark('canvas.editingFontCompiled.fontApplied');
@@ -11529,12 +11651,18 @@ function setupFontLoadingListener() {
                     const forceShapeTextSpanId = timelineSpanStart(
                         'canvas.editingFontCompiled.forceShapeText'
                     );
-                    if (gc.pendingTextModeKerningCursorAnchor) {
+                    if (
+                        gc.pendingTextModeKerningCursorAnchor &&
+                        !deferredIdleViewLock
+                    ) {
                         gc.captureTextModeKerningPanAnchor();
                     }
                     gc.textRunEditor!.shapeText(true);
                     gc.reapplyTextModeKerningLivePreviewAfterReshape();
-                    if (gc.pendingTextModeKerningCursorAnchor) {
+                    if (deferredIdleViewLock) {
+                        gc.reapplyIdleViewLock();
+                        gc.pendingTextModeKerningCursorAnchor = false;
+                    } else if (gc.pendingTextModeKerningCursorAnchor) {
                         gc.applyTextModeKerningPanAdjustment();
                         gc.clearTextModeKerningPanAnchor();
                         gc.pendingTextModeKerningCursorAnchor = false;
@@ -11547,14 +11675,24 @@ function setupFontLoadingListener() {
                         latestAppliedEditingRevision = incomingRevision;
                     }
 
-                    if (deferredCommittedSidebearingRender) {
+                    if (
+                        deferredCommittedSidebearingRender ||
+                        deferredIdleViewLock
+                    ) {
                         gc.renderSuppressed = false;
-                        gc.outlineEditor.reapplyPendingSidebearingBboxCenterAnchor();
+                        if (deferredCommittedSidebearingRender) {
+                            gc.outlineEditor.reapplyPendingSidebearingBboxCenterAnchor();
+                        }
+                        if (deferredIdleViewLock) {
+                            gc.consumeIdleViewLockAfterReshape();
+                        }
                         await gc.updatePropertiesUI({
                             skipAutoSelectMatchingLayer: true
                         });
                         gc.render();
-                        gc.outlineEditor.clearPendingSidebearingBboxCenterAnchor();
+                        if (deferredCommittedSidebearingRender) {
+                            gc.outlineEditor.clearPendingSidebearingBboxCenterAnchor();
+                        }
                         timelineMark(
                             'canvas.editingFontCompiled.committedSidebearingRenderCompleted'
                         );
@@ -11576,6 +11714,10 @@ function setupFontLoadingListener() {
                 if (deferredCommittedSidebearingRender && gc) {
                     gc.renderSuppressed = false;
                     gc.outlineEditor.clearPendingSidebearingBboxCenterAnchor();
+                }
+                if (deferredIdleViewLock && gc) {
+                    gc.renderSuppressed = false;
+                    gc.clearIdleViewLock();
                 }
                 console.error(
                     '[GlyphCanvas] Failed to apply editing font update:',

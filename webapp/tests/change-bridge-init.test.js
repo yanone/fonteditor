@@ -2792,7 +2792,7 @@ describe('handleRemoteChangeRefresh', () => {
         expect(requestCompile).toHaveBeenCalledWith('feature-code', null);
     });
 
-    describe('linked-window visual pan', () => {
+    describe('idle view lock', () => {
         const originalGlyphCanvas = window.glyphCanvas;
         const originalFontManager = window.fontManager;
 
@@ -2806,7 +2806,9 @@ describe('handleRemoteChangeRefresh', () => {
             activeLayerId,
             currentLayerWidth,
             initialPanX,
-            initialScale
+            initialScale,
+            editMode = true,
+            draggingSomething = false
         }) {
             const layer = { width: currentLayerWidth };
             const fontModel = {
@@ -2817,20 +2819,24 @@ describe('handleRemoteChangeRefresh', () => {
                 }))
             };
             const refreshGlyphAdvanceDeltasLive = jest.fn(() => true);
+            const captureIdleViewLock = jest.fn(() => !draggingSomething);
+            const reapplyIdleViewLock = jest.fn(() => true);
+            const clearIdleViewLock = jest.fn();
             const glyphCanvas = {
                 viewportManager: { panX: initialPanX, scale: initialScale },
-                textRunEditor: { refreshGlyphAdvanceDeltasLive },
+                textRunEditor: { refreshGlyphAdvanceDeltasLive, cursorX: 120 },
                 outlineEditor: {
-                    active: true,
+                    active: editMode,
+                    draggingSomething,
                     selectedLayerId: activeLayerId,
                     parseGlyphStack: () => [{ glyphName: activeGlyphName }],
-                    capturePendingSidebearingBboxCenterAnchor: jest.fn(
-                        () => true
-                    ),
-                    reapplyPendingSidebearingBboxCenterAnchor: jest.fn(),
                     performHitDetection: jest.fn()
                 },
                 getCurrentGlyphName: () => activeGlyphName,
+                captureIdleViewLock,
+                reapplyIdleViewLock,
+                hasPendingIdleViewLock: jest.fn(() => !draggingSomething),
+                clearIdleViewLock,
                 syncCurrentOutlineLayerDataFromModel: jest.fn(),
                 updatePropertyPanel: jest.fn(),
                 render: jest.fn()
@@ -2843,44 +2849,7 @@ describe('handleRemoteChangeRefresh', () => {
             return { glyphCanvas, fontModel };
         }
 
-        test('remote sidebearing edit anchors the active bbox without side metadata', async () => {
-            const previousWidth = 500;
-            const nextWidth = 560;
-            const { glyphCanvas } = installReceiverHarness({
-                activeGlyphName: 'a',
-                activeLayerId: 'master-regular',
-                currentLayerWidth: nextWidth,
-                initialPanX: 200,
-                initialScale: 2
-            });
-
-            await handleRemoteChangeRefresh(
-                [
-                    {
-                        transactionLabel: 'Set sidebearing',
-                        path: 'glyphs.a.layers.master-regular',
-                        oldValue: { width: previousWidth },
-                        newValue: { width: nextWidth }
-                    }
-                ],
-                {
-                    requestCompile: jest.fn(async () => {}),
-                    queueCacheRefresh: jest.fn(async () => {})
-                }
-            );
-
-            expect(
-                glyphCanvas.outlineEditor
-                    .capturePendingSidebearingBboxCenterAnchor
-            ).toHaveBeenCalledTimes(1);
-            expect(
-                glyphCanvas.outlineEditor
-                    .reapplyPendingSidebearingBboxCenterAnchor
-            ).toHaveBeenCalledTimes(1);
-            expect(glyphCanvas.render).not.toHaveBeenCalled();
-        });
-
-        test('remote sidebearing edit on a non-active glyph leaves the linked window pan untouched', async () => {
+        test("remote colon-path sidebearing packet locks this window's edit-mode bbox", async () => {
             const { glyphCanvas } = installReceiverHarness({
                 activeGlyphName: 'a',
                 activeLayerId: 'master-regular',
@@ -2888,13 +2857,12 @@ describe('handleRemoteChangeRefresh', () => {
                 initialPanX: 200,
                 initialScale: 2
             });
-            const beforePanX = glyphCanvas.viewportManager.panX;
 
             await handleRemoteChangeRefresh(
                 [
                     {
                         transactionLabel: 'Set sidebearing',
-                        path: 'glyphs.b.layers.master-regular',
+                        path: 'glyphs.a:layers.master-regular:',
                         visualAnchorSide: 'left',
                         oldValue: { width: 500 },
                         newValue: { width: 560 }
@@ -2906,7 +2874,134 @@ describe('handleRemoteChangeRefresh', () => {
                 }
             );
 
-            expect(glyphCanvas.viewportManager.panX).toBe(beforePanX);
+            expect(glyphCanvas.captureIdleViewLock).toHaveBeenCalledWith({
+                kerningPair: false
+            });
+            expect(glyphCanvas.reapplyIdleViewLock).toHaveBeenCalled();
+            expect(glyphCanvas.render).not.toHaveBeenCalled();
+        });
+
+        test("remote outline packet on another glyph still locks this window's active bbox", async () => {
+            const { glyphCanvas } = installReceiverHarness({
+                activeGlyphName: 'a',
+                activeLayerId: 'master-regular',
+                currentLayerWidth: 560,
+                initialPanX: 200,
+                initialScale: 2
+            });
+
+            await handleRemoteChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Drag point',
+                        path: 'glyphs.b:layers.master-regular:shapes.0.nodes.0.x',
+                        oldValue: 10,
+                        newValue: 20
+                    }
+                ],
+                {
+                    requestCompile: jest.fn(async () => {}),
+                    queueCacheRefresh: jest.fn(async () => {})
+                }
+            );
+
+            expect(glyphCanvas.captureIdleViewLock).toHaveBeenCalledWith({
+                kerningPair: false
+            });
+            expect(glyphCanvas.reapplyIdleViewLock).toHaveBeenCalled();
+        });
+
+        test('remote kerning-value packet in text mode requests the pair-glyph lock', async () => {
+            const { glyphCanvas } = installReceiverHarness({
+                activeGlyphName: 'a',
+                activeLayerId: 'master-regular',
+                currentLayerWidth: 500,
+                initialPanX: 200,
+                initialScale: 2,
+                editMode: false
+            });
+
+            await handleRemoteChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Edit kerning pair',
+                        path: 'masters.0.kerning.A.V',
+                        oldValue: 0,
+                        newValue: -40
+                    }
+                ],
+                {
+                    requestCompile: jest.fn(async () => {}),
+                    queueCacheRefresh: jest.fn(async () => {})
+                }
+            );
+
+            expect(glyphCanvas.captureIdleViewLock).toHaveBeenCalledWith({
+                kerningPair: true
+            });
+            expect(glyphCanvas.reapplyIdleViewLock).toHaveBeenCalled();
+        });
+
+        test('local idle sidebearing commit uses the same viewer lock', async () => {
+            const { glyphCanvas } = installReceiverHarness({
+                activeGlyphName: 'a',
+                activeLayerId: 'master-regular',
+                currentLayerWidth: 560,
+                initialPanX: 200,
+                initialScale: 2
+            });
+
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Set sidebearing',
+                        path: 'glyphs.a:layers.master-regular:',
+                        visualAnchorSide: 'left',
+                        oldValue: { width: 500 },
+                        newValue: { width: 560 }
+                    }
+                ],
+                'local',
+                {
+                    requestCompile: jest.fn(async () => {}),
+                    awaitWorkerSync: jest.fn(async () => {})
+                }
+            );
+
+            expect(glyphCanvas.captureIdleViewLock).toHaveBeenCalledWith({
+                kerningPair: false
+            });
+            expect(glyphCanvas.reapplyIdleViewLock).toHaveBeenCalled();
+        });
+
+        test('a live drag on this window bypasses the idle viewer lock', async () => {
+            const { glyphCanvas } = installReceiverHarness({
+                activeGlyphName: 'a',
+                activeLayerId: 'master-regular',
+                currentLayerWidth: 560,
+                initialPanX: 200,
+                initialScale: 2,
+                draggingSomething: true
+            });
+
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Drag point',
+                        path: 'glyphs.a:layers.master-regular:shapes.0.nodes.0.x',
+                        oldValue: 10,
+                        newValue: 20
+                    }
+                ],
+                'local',
+                {
+                    requestCompile: jest.fn(async () => {}),
+                    awaitWorkerSync: jest.fn(async () => {})
+                }
+            );
+
+            expect(glyphCanvas.captureIdleViewLock).toHaveBeenCalled();
+            expect(glyphCanvas.reapplyIdleViewLock).not.toHaveBeenCalled();
         });
     });
 });
@@ -2982,6 +3077,7 @@ describe('bridge Yjs worker callback', () => {
     test('anchors the active layer for a synchronous Arrow key sidebearing undo packet', async () => {
         const layer = { width: 600, isAutomaticAlignedLayer: () => false };
         const anchor = { center: null };
+        let canvasWidth = 600;
 
         fontCompilation.isInitialized = false;
         jest.spyOn(
@@ -3007,24 +3103,26 @@ describe('bridge Yjs worker callback', () => {
         window.glyphCanvas = {
             viewportManager: { panX: 100, panY: 0, scale: 1 },
             getCurrentGlyphName: () => 'A',
-            syncCurrentOutlineLayerDataFromModel: jest.fn(),
+            syncCurrentOutlineLayerDataFromModel: jest.fn((modelLayer) => {
+                canvasWidth = modelLayer.width;
+            }),
             requestRepaintAfterCompile: jest.fn(),
             render: jest.fn(),
+            captureIdleViewLock: jest.fn(() => {
+                anchor.center =
+                    window.glyphCanvas.viewportManager.panX + canvasWidth / 2;
+                return true;
+            }),
+            reapplyIdleViewLock: jest.fn(() => {
+                window.glyphCanvas.viewportManager.panX =
+                    anchor.center - canvasWidth / 2;
+                return true;
+            }),
+            clearIdleViewLock: jest.fn(),
             outlineEditor: {
                 active: true,
                 selectedLayerId: 'layer-1',
-                parseGlyphStack: () => [{ glyphName: 'A' }],
-                capturePendingSidebearingBboxCenterAnchor: jest.fn(() => {
-                    anchor.center =
-                        window.glyphCanvas.viewportManager.panX +
-                        layer.width / 2;
-                    return true;
-                }),
-                reapplyPendingSidebearingBboxCenterAnchor: jest.fn(() => {
-                    window.glyphCanvas.viewportManager.panX =
-                        anchor.center - layer.width / 2;
-                }),
-                clearPendingSidebearingBboxCenterAnchor: jest.fn()
+                parseGlyphStack: () => [{ glyphName: 'A' }]
             }
         };
 
@@ -3055,14 +3153,8 @@ describe('bridge Yjs worker callback', () => {
         expect(window.glyphCanvas.viewportManager.panX + layer.width / 2).toBe(
             centerBefore
         );
-        expect(
-            window.glyphCanvas.outlineEditor
-                .reapplyPendingSidebearingBboxCenterAnchor
-        ).toHaveBeenCalledTimes(1);
-        expect(
-            window.glyphCanvas.outlineEditor
-                .clearPendingSidebearingBboxCenterAnchor
-        ).not.toHaveBeenCalled();
+        expect(window.glyphCanvas.captureIdleViewLock).toHaveBeenCalled();
+        expect(window.glyphCanvas.reapplyIdleViewLock).toHaveBeenCalled();
         expect(window.glyphCanvas.render).not.toHaveBeenCalled();
     });
 

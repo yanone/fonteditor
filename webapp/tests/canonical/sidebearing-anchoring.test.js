@@ -486,6 +486,19 @@ describe('Sidebearing undo viewport stability', () => {
                     })),
                     refreshGlyphAdvanceDeltasLive: jest.fn(() => true)
                 },
+                captureIdleViewLock: jest.fn(() => {
+                    capturedAnchor = snapshotLayerCenterScreen(glyphCanvas);
+                    return true;
+                }),
+                reapplyIdleViewLock: jest.fn(() => {
+                    const currentCenter =
+                        snapshotLayerCenterScreen(glyphCanvas);
+                    glyphCanvas.viewportManager.panX +=
+                        capturedAnchor.x - currentCenter.x;
+                    glyphCanvas.viewportManager.panY +=
+                        capturedAnchor.y - currentCenter.y;
+                    return true;
+                }),
                 outlineEditor: {
                     active: true,
                     selectedLayerId: 'layer-1',
@@ -495,20 +508,7 @@ describe('Sidebearing undo viewport stability', () => {
                     runDeterministicRefresh: jest.fn(
                         async (task) => await task()
                     ),
-                    performHitDetection: jest.fn(),
-                    capturePendingSidebearingBboxCenterAnchor: jest.fn(() => {
-                        capturedAnchor = snapshotLayerCenterScreen(glyphCanvas);
-                        return true;
-                    }),
-                    reapplyPendingSidebearingBboxCenterAnchor: jest.fn(() => {
-                        const currentCenter =
-                            snapshotLayerCenterScreen(glyphCanvas);
-                        glyphCanvas.viewportManager.panX +=
-                            capturedAnchor.x - currentCenter.x;
-                        glyphCanvas.viewportManager.panY +=
-                            capturedAnchor.y - currentCenter.y;
-                        return true;
-                    })
+                    performHitDetection: jest.fn()
                 },
                 getCurrentGlyphName: jest.fn(() => 'a'),
                 syncCurrentOutlineLayerDataFromModel: jest.fn((layer) => {
@@ -579,18 +579,12 @@ describe('Sidebearing undo viewport stability', () => {
             await runBridgeUndoRedo(action, 'a', 'a', 'layer-1', null);
 
             expectLayerCenterAnchored(glyphCanvas, beforeCenter);
-            expect(
-                glyphCanvas.outlineEditor
-                    .capturePendingSidebearingBboxCenterAnchor
-            ).toHaveBeenCalledTimes(1);
-            expect(
-                glyphCanvas.outlineEditor
-                    .reapplyPendingSidebearingBboxCenterAnchor
-            ).toHaveBeenCalledTimes(1);
+            expect(glyphCanvas.captureIdleViewLock).toHaveBeenCalledTimes(1);
+            expect(glyphCanvas.reapplyIdleViewLock).toHaveBeenCalledTimes(1);
         }
     );
 
-    test('clears a captured bbox anchor for a non-sidebearing undo', async () => {
+    test('a non-sidebearing undo still captures the idle viewer lock', async () => {
         const { glyphCanvas } = installUndoHarness(
             {
                 transactionLabel: 'Drag point',
@@ -599,19 +593,13 @@ describe('Sidebearing undo viewport stability', () => {
             500,
             520
         );
-        glyphCanvas.outlineEditor.capturePendingSidebearingBboxCenterAnchor =
-            jest.fn(() => true);
-        glyphCanvas.outlineEditor.clearPendingSidebearingBboxCenterAnchor =
-            jest.fn();
+        glyphCanvas.captureIdleViewLock = jest.fn(() => true);
+        glyphCanvas.reapplyIdleViewLock = jest.fn(() => true);
 
         await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-        expect(
-            glyphCanvas.outlineEditor.capturePendingSidebearingBboxCenterAnchor
-        ).toHaveBeenCalledTimes(1);
-        expect(
-            glyphCanvas.outlineEditor.clearPendingSidebearingBboxCenterAnchor
-        ).toHaveBeenCalledTimes(1);
+        expect(glyphCanvas.captureIdleViewLock).toHaveBeenCalledTimes(1);
+        expect(glyphCanvas.reapplyIdleViewLock).toHaveBeenCalledTimes(1);
     });
 
     test.each([
@@ -880,5 +868,57 @@ describe('Idle live sidebearing overlay cleanup', () => {
         expect(canvas.outlineEditor._lastLiveSidebearingAdvances).toEqual({
             a: 592
         });
+    });
+});
+
+describe('Idle committed viewer lock', () => {
+    let canvas;
+    let currentFontSpy;
+
+    beforeEach(() => {
+        document.body.innerHTML = '<div id="test-container"></div>';
+        canvas = new GlyphCanvas('test-container');
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue(null);
+        window.changeBridge = null;
+        setupUnkeyedCanvas(canvas);
+    });
+
+    afterEach(() => {
+        currentFontSpy.mockRestore();
+        canvas.destroy();
+    });
+
+    test('edit mode keeps the active glyph bbox center on screen after a remote layout shift', () => {
+        const beforeCenter = snapshotLayerCenterScreen(canvas);
+        expect(canvas.captureIdleViewLock({ kerningPair: false })).toBe(true);
+
+        canvas.textRunEditor._getGlyphPosition = jest.fn(() => ({
+            xPosition: 80,
+            xOffset: 0,
+            yOffset: 0
+        }));
+
+        expect(canvas.reapplyIdleViewLock()).toBe(true);
+        expectLayerCenterAnchored(canvas, beforeCenter);
+        canvas.clearIdleViewLock();
+        expect(canvas.hasPendingIdleViewLock()).toBe(false);
+    });
+
+    test('text mode keeps the caret on screen after a remote advance shift', () => {
+        canvas.outlineEditor.active = false;
+        canvas.textRunEditor.cursorX = 100;
+        expect(canvas.captureIdleViewLock({ kerningPair: false })).toBe(true);
+        const lockedScreenX = canvas.viewportManager.fontToScreenCoordinates(
+            100,
+            0
+        ).x;
+
+        canvas.textRunEditor.cursorX = 175;
+        expect(canvas.reapplyIdleViewLock()).toBe(true);
+        expect(
+            canvas.viewportManager.fontToScreenCoordinates(175, 0).x
+        ).toBeCloseTo(lockedScreenX, 5);
     });
 });

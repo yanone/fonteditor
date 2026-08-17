@@ -13,6 +13,8 @@ Main and linked windows share the live session:
 - undo and redo operate on the shared change history
 - History shows which window produced each change
 
+Each window keeps its own pan and zoom. Idle edits from any window, including undo and redo, hold **this** window’s view: the active glyph’s bounding-box center in edit mode, the kerning pair’s reference glyph in text-mode kerning, or the caret otherwise. A live drag in this window is not interrupted by that lock.
+
 A change in a linked window is a real shared edit, not a preview. Think of linked windows as extra control surfaces for one document.
 
 ## Using them well

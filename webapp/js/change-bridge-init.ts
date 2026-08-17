@@ -1844,7 +1844,6 @@ function applyImmediateUndoSidebearingSync(
         previousWidth,
         render: false
     });
-    gc.outlineEditor?.reapplyPendingSidebearingBboxCenterAnchor?.();
 
     return true;
 }
@@ -2304,77 +2303,37 @@ async function awaitCommittedEditingCompileReady(
     return fontCompilation.hasWorkerCacheDocument();
 }
 
+function committedPacketLocksKerningPair(entries: ChangeLogEntry[]): boolean {
+    return entries.some((entry) => {
+        const editType = inferKerningEditTypeFromMetadata(
+            entry.transactionLabel ?? '',
+            entry.path ?? ''
+        );
+        return editType === 'kerning-value' || editType === 'kerning-groups';
+    });
+}
+
 /**
- * Apply the receiver-side bbox-center anchor when a remote explicit
- * sidebearing edit lands on a linked window.
- *
- * Returns true when a pan was applied so the caller can avoid duplicate work.
+ * Capture this window's idle viewer lock before a committed packet mutates
+ * the canvas. Same lock for local, remote, undo, and redo. Live drags and
+ * sidebearing bursts on this window still bypass it.
  */
-function applyRemoteSidebearingVisualSync(entries: ChangeLogEntry[]): boolean {
+function applyIdleViewLock(entries: ChangeLogEntry[]): boolean {
     const gc = window.glyphCanvas;
-    const fontModel = window.fontManager?.currentFont?.fontModel;
-    if (!gc || !fontModel) {
+    if (!gc || typeof gc.captureIdleViewLock !== 'function') {
         return false;
     }
-
-    const editedGlyphName = getActiveEditedGlyphName();
-    if (!editedGlyphName) {
-        return false;
-    }
-
-    const activeLayerId = gc.outlineEditor?.selectedLayerId ?? null;
-    if (!activeLayerId) {
-        return false;
-    }
-
-    const matchingEntry = entries.find((entry) => {
-        if (!isDirectSidebearingTransactionLabel(entry.transactionLabel)) {
-            return false;
-        }
-        const path = entry.path ?? '';
-        return path === `glyphs.${editedGlyphName}.layers.${activeLayerId}`;
+    return gc.captureIdleViewLock({
+        kerningPair: committedPacketLocksKerningPair(entries)
     });
+}
 
-    if (!matchingEntry) {
-        return false;
+function reapplyIdleViewLockAfterModelSync(applied: boolean): void {
+    if (!applied) {
+        return;
     }
-
-    const previousLayerSnapshot = matchingEntry.oldValue as
-        { width?: number } | string | null | undefined;
-    const previousWidth =
-        previousLayerSnapshot && typeof previousLayerSnapshot === 'object'
-            ? Number(previousLayerSnapshot.width)
-            : NaN;
-    if (!Number.isFinite(previousWidth)) {
-        return false;
-    }
-
-    const capturedAnchor =
-        gc.outlineEditor?.capturePendingSidebearingBboxCenterAnchor?.() ===
-        true;
-    const layer = fontModel
-        .findGlyph(editedGlyphName)
-        ?.findLayerById(activeLayerId);
-    if (!layer) {
-        if (capturedAnchor) {
-            gc.outlineEditor?.clearPendingSidebearingBboxCenterAnchor?.();
-        }
-        return false;
-    }
-
-    syncModelSidebearingEditToCanvas(gc, {
-        layer,
-        glyphName: editedGlyphName,
-        previousWidth,
-        render: false
-    });
-    if (capturedAnchor) {
-        gc.outlineEditor?.reapplyPendingSidebearingBboxCenterAnchor?.();
-    }
-    gc.updatePropertyPanel?.();
-    gc.outlineEditor?.performHitDetection?.(null);
-
-    return true;
+    window.glyphCanvas?.reapplyIdleViewLock?.();
+    window.glyphCanvas?.updatePropertyPanel?.();
 }
 
 /**
@@ -2534,9 +2493,8 @@ export function committedEntriesTouchAxes(entries: ChangeLogEntry[]): boolean {
 
 /**
  * Refresh committed changes through one post-commit funnel for both the
- * local sender and remote receivers. Remote packets still run their
- * receiver-only pan compensation before the shared compile + overview
- * refresh steps.
+ * local sender and remote receivers. Idle packets capture this window's
+ * viewer lock; live drags on this canvas keep their gesture lock.
  */
 export async function handleCommittedChangeRefresh(
     entries: ChangeLogEntry[],
@@ -2568,6 +2526,8 @@ export async function handleCommittedChangeRefresh(
     // (property panel, undo/redo, remote, Python) must not keep a stale
     // advance on canvas; mouse/keyboard bursts keep theirs until session end.
     window.glyphCanvas?.outlineEditor?.clearIdleLiveSidebearingPreview?.();
+
+    const appliedIdleViewLock = applyIdleViewLock(entries);
 
     const isUndoRedoPacket =
         isUndoRedoCommittedPacket(entries) ||
@@ -2603,9 +2563,6 @@ export async function handleCommittedChangeRefresh(
     };
 
     if (origin === 'remote') {
-        const appliedSidebearingSync =
-            applyRemoteSidebearingVisualSync(entries);
-
         const awaitWorkerSync =
             dependencies?.awaitWorkerSync ??
             (() => fontCompilation.awaitWorkerDocumentSync());
@@ -2626,15 +2583,15 @@ export async function handleCommittedChangeRefresh(
               )
             : {};
         await refreshCanvasFromCommittedModelSync(undefined, undefined, {
-            skipDeferredCanvasRepaint: appliedSidebearingSync,
-            ...(!appliedSidebearingSync &&
-            Object.keys(liveAdvanceDeltas).length > 0
+            skipDeferredCanvasRepaint: appliedIdleViewLock,
+            ...(Object.keys(liveAdvanceDeltas).length > 0
                 ? { liveAdvanceDeltas }
                 : {}),
             ...(replayTargets.length > 0
                 ? { workerReplayTargets: replayTargets }
                 : {})
         });
+        reapplyIdleViewLockAfterModelSync(appliedIdleViewLock);
 
         if (
             !(await awaitCommittedEditingCompileReady(
@@ -2642,6 +2599,7 @@ export async function handleCommittedChangeRefresh(
                 awaitWorkerSync
             ))
         ) {
+            window.glyphCanvas?.clearIdleViewLock?.();
             await refreshPostCommitUi();
             return;
         }
@@ -2697,7 +2655,9 @@ export async function handleCommittedChangeRefresh(
             !isUndoRedoPacket && hasLocalLiveAdvancePreview(entries);
         await refreshCanvasFromCommittedModelSync(undefined, undefined, {
             skipDeferredCanvasRepaint:
-                (isUndoRedoPacket || isSidebearingCommit) &&
+                (appliedIdleViewLock ||
+                    isUndoRedoPacket ||
+                    isSidebearingCommit) &&
                 !requiresBackgroundLayerRefresh &&
                 !localUndoRedoVisualSync.deferAdvanceRefreshUntilCommittedCanvas,
             skipLayerDataFetch: localUndoRedoVisualSync.skipLayerDataFetch,
@@ -2718,12 +2678,15 @@ export async function handleCommittedChangeRefresh(
                 : {})
         });
 
+        reapplyIdleViewLockAfterModelSync(appliedIdleViewLock);
+
         if (
             !(await awaitCommittedEditingCompileReady(
                 isUndoRedoPacket,
                 awaitWorkerSync
             ))
         ) {
+            window.glyphCanvas?.clearIdleViewLock?.();
             await refreshPostCommitUi();
             return;
         }
@@ -2876,7 +2839,6 @@ export function runBridgeUndoRedo(
         const targetGlyph = glyphName;
         const editedGlyphName = getActiveEditedGlyphName() ?? targetGlyph;
         const previousWidth = getLayerWidth(editedGlyphName, layerId ?? null);
-        window.glyphCanvas?.outlineEditor?.capturePendingSidebearingBboxCenterAnchor?.();
         const localUndoRedoContext: LocalUndoRedoVisualContext = {
             rootGlyphName: refreshRootGlyphName,
             requestedGlyphName: glyphName,
@@ -2896,7 +2858,6 @@ export function runBridgeUndoRedo(
             if (pendingLocalUndoRedoContext === localUndoRedoContext) {
                 pendingLocalUndoRedoContext = null;
             }
-            window.glyphCanvas?.outlineEditor?.clearPendingSidebearingBboxCenterAnchor?.();
             restoreFontInfoScroll();
             return;
         }
