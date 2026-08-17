@@ -1173,3 +1173,189 @@ describe('GlyphOverview tile cache LRU', () => {
         expect(overview.tiles.size).toBe(2);
     });
 });
+
+describe('GlyphOverview property panel kerning groups', () => {
+    let GlyphOverview;
+    let overview;
+    let parent;
+    let Font;
+
+    function makeFont() {
+        return Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: {}
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-A',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                },
+                {
+                    name: 'B',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-B',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                },
+                {
+                    name: 'C',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-C',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: {},
+            first_kern_groups: {
+                AFirst: ['A']
+            },
+            second_kern_groups: {
+                ALeft: ['A'],
+                BLeft: ['B']
+            }
+        });
+    }
+
+    beforeEach(() => {
+        jest.resetModules();
+        require('../js/glyph-overview');
+        GlyphOverview = window.GlyphOverview;
+        Font = require('../js/babelfont-model').Font;
+
+        document.body.innerHTML = '';
+        parent = document.createElement('div');
+        document.body.appendChild(parent);
+
+        const panel = document.createElement('div');
+        panel.id = 'overview-property-panel';
+        panel.className = 'glyph-property-panel';
+        document.body.appendChild(panel);
+
+        window.currentFontModel = makeFont();
+        overview = new GlyphOverview(parent);
+        overview.attachPropertyPanel(panel);
+        overview.tiles = new Map([
+            [
+                'glyph-A',
+                {
+                    glyphId: 'glyph-A',
+                    glyphName: 'A',
+                    selected: true,
+                    element: document.createElement('div')
+                }
+            ],
+            [
+                'glyph-B',
+                {
+                    glyphId: 'glyph-B',
+                    glyphName: 'B',
+                    selected: true,
+                    element: document.createElement('div')
+                }
+            ],
+            [
+                'glyph-C',
+                {
+                    glyphId: 'glyph-C',
+                    glyphName: 'C',
+                    selected: true,
+                    element: document.createElement('div')
+                }
+            ]
+        ]);
+    });
+
+    afterEach(() => {
+        jest.restoreAllMocks();
+        delete window.currentFontModel;
+        delete window.GlyphOverview;
+        delete window.patchSyncEngine;
+    });
+
+    test('orders LKG, LSB, Name, Unicode, RSB, RKG and shows mixed group chips', () => {
+        overview.updatePropertyPanel();
+
+        const labels = Array.from(
+            document.querySelectorAll(
+                '#overview-property-panel .glyph-property-control-label'
+            )
+        ).map((element) => element.textContent);
+        // Widget sides wrap the center: LKG, then LSB/Name/Unicode/RSB, then RKG.
+        expect(labels).toEqual(['LKG', 'LSB', 'Name', 'Unicode', 'RSB', 'RKG']);
+
+        const sides = document.querySelectorAll('.glyph-kerning-side');
+        expect(
+            Array.from(
+                sides[0].querySelectorAll('.glyph-kerning-pill-label')
+            ).map((element) => element.textContent)
+        ).toEqual(['@ALeft', '@BLeft']);
+        expect(
+            sides[0].querySelector('.glyph-kerning-pill-placeholder').title
+        ).toBe('Only empty fields will be filled');
+        expect(
+            sides[1].querySelector('.glyph-kerning-pill-placeholder')
+        ).not.toBeNull();
+    });
+
+    test('clicking an existing group chip fills only glyphs without a group', () => {
+        overview.updatePropertyPanel();
+
+        const existingChip = document.querySelector(
+            '.glyph-kerning-pill[data-kerning-key="@ALeft"]'
+        );
+        existingChip.click();
+
+        expect(window.currentFontModel.second_kern_groups.ALeft).toEqual([
+            'A',
+            'C'
+        ]);
+        expect(window.currentFontModel.second_kern_groups.BLeft).toEqual(['B']);
+    });
+});

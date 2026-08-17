@@ -4,7 +4,7 @@ Sidebearing formulas let you link spacing instead of typing the same numbers int
 
 ## Where to edit
 
-With nothing selected on the canvas, the editor property panel shows left and right sidebearings, plus LKG and RKG chips. Left (LKG) uses orange; right (RKG) uses blue, the same colors as the Second and First chips in LTR text-mode kerning. Each side can have one group. A placeholder `+` chip stands in when a side has no group; click it to add. `x` removes a group.
+With nothing selected on the canvas, the editor property panel shows left and right sidebearings, plus LKG and RKG chips. Overview uses the same chips around Name and Unicode. Left (LKG) uses orange; right (RKG) uses blue, the same colors as the Second and First chips in LTR text-mode kerning. Each side can have one group. A placeholder `+` chip stands in when a side has no group; click it to add. `x` removes a group.
 
 Each field takes a number or a metrics key. The resolved value sits next to the input, so you can keep `=n+10` in the field and still see the spacing that is applied.
 

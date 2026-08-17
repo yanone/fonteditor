@@ -23,7 +23,8 @@ import { get_glyph_name } from '../wasm-dist/babelfont_fontc_web';
 import fontManager from './font-manager';
 import { OutlineEditor } from './glyph-canvas/outline-editor';
 import {
-    buildGlyphKerningGroupChips,
+    applyKerningGroupMembership,
+    buildEditViewKerningGroupSide,
     collectKerningGroupMemberships,
     formatKerningGroupKindLabel,
     formatKerningOperandLabel,
@@ -7869,67 +7870,22 @@ class GlyphCanvas {
             return;
         }
 
-        let groups =
-            side === 'first'
-                ? fontModel.first_kern_groups
-                : fontModel.second_kern_groups;
-        if (!groups) {
-            if (!include) {
-                return;
-            }
-
-            if (side === 'first') {
-                fontModel.first_kern_groups = {};
-                groups = fontModel.first_kern_groups;
-            } else {
-                fontModel.second_kern_groups = {};
-                groups = fontModel.second_kern_groups;
-            }
-        }
-        if (!groups) {
-            return;
-        }
-
-        const existingGroupNames = collectKerningGroupMemberships(
-            groups,
-            glyphName
-        );
-        if (
-            include &&
-            existingGroupNames.length > 0 &&
-            !existingGroupNames.includes(normalizedGroupName)
-        ) {
-            return;
-        }
-
         window.patchSyncEngine?.beginTransaction(
             include
                 ? 'Add kern group membership'
                 : 'Remove kern group membership'
         );
         try {
-            if (include) {
-                if (!Array.isArray(groups[normalizedGroupName])) {
-                    groups[normalizedGroupName] = [];
-                }
-                if (!groups[normalizedGroupName].includes(glyphName)) {
-                    groups[normalizedGroupName].push(glyphName);
-                    groups[normalizedGroupName].sort((left, right) =>
-                        left.localeCompare(right)
-                    );
-                }
-            } else {
-                const members = groups[normalizedGroupName];
-                if (!Array.isArray(members)) {
-                    return;
-                }
-                const memberIndex = members.indexOf(glyphName);
-                if (memberIndex >= 0) {
-                    members.splice(memberIndex, 1);
-                }
-                if (members.length === 0) {
-                    delete groups[normalizedGroupName];
-                }
+            if (
+                !applyKerningGroupMembership(
+                    fontModel,
+                    side,
+                    [glyphName],
+                    normalizedGroupName,
+                    include
+                )
+            ) {
+                return;
             }
         } finally {
             window.patchSyncEngine?.endTransaction();
@@ -9684,43 +9640,20 @@ class GlyphCanvas {
         const glyphName = fontModel?.findGlyph?.(rawGlyphName)
             ? rawGlyphName
             : null;
-        const leftGroupNames = collectKerningGroupMemberships(
-            fontModel?.second_kern_groups,
-            glyphName
-        );
-        const rightGroupNames = collectKerningGroupMemberships(
-            fontModel?.first_kern_groups,
-            glyphName
-        );
+        const glyphNames = glyphName ? [glyphName] : [];
 
         this.propertyPanel.classList.add('glyph-kerning-groups-panel');
         renderKerningGroupWidget(this.propertyPanel, {
-            startSide: {
-                pairSide: 'second',
-                title: formatKerningGroupKindLabel('second'),
-                glyphName,
-                chips: glyphName
-                    ? buildGlyphKerningGroupChips(
-                          'second',
-                          glyphName,
-                          leftGroupNames,
-                          false
-                      )
-                    : []
-            },
-            endSide: {
-                pairSide: 'first',
-                title: formatKerningGroupKindLabel('first'),
-                glyphName,
-                chips: glyphName
-                    ? buildGlyphKerningGroupChips(
-                          'first',
-                          glyphName,
-                          rightGroupNames,
-                          false
-                      )
-                    : []
-            },
+            startSide: buildEditViewKerningGroupSide(
+                'second',
+                glyphNames,
+                fontModel?.second_kern_groups
+            ),
+            endSide: buildEditViewKerningGroupSide(
+                'first',
+                glyphNames,
+                fontModel?.first_kern_groups
+            ),
             center: content,
             onRemoveChip: (chip) => {
                 if (!glyphName) {
@@ -9733,10 +9666,10 @@ class GlyphCanvas {
                     false
                 );
             },
-            onAdd: (pairSide, sideGlyphName) => {
+            onAdd: (pairSide, sideGlyphNames) => {
                 this.promptAndAddTextModeKerningGroup(
                     pairSide,
-                    sideGlyphName,
+                    sideGlyphNames[0] ?? null,
                     formatKerningGroupKindLabel(pairSide)
                 );
             }
@@ -9963,17 +9896,32 @@ class GlyphCanvas {
             center.appendChild(code);
         }
 
+        const firstGlyphNames = context.firstGlyphName
+            ? [context.firstGlyphName]
+            : [];
+        const secondGlyphNames = context.secondGlyphName
+            ? [context.secondGlyphName]
+            : [];
+        const firstHasGroup = context.firstOptions.some(
+            (option) => option.kind === 'group'
+        );
+        const secondHasGroup = context.secondOptions.some(
+            (option) => option.kind === 'group'
+        );
+
         renderKerningGroupWidget(this.propertyPanel, {
             startSide: {
                 pairSide: 'first',
                 title: formatTextModeKerningSideTitle('first', context.isRTL),
-                glyphName: context.firstGlyphName,
+                glyphNames: firstGlyphNames,
+                missingGlyphNames: firstHasGroup ? [] : firstGlyphNames,
                 chips: context.firstOptions.map(toChip)
             },
             endSide: {
                 pairSide: 'second',
                 title: formatTextModeKerningSideTitle('second', context.isRTL),
-                glyphName: context.secondGlyphName,
+                glyphNames: secondGlyphNames,
+                missingGlyphNames: secondHasGroup ? [] : secondGlyphNames,
                 chips: context.secondOptions.map(toChip)
             },
             center,
@@ -9996,10 +9944,10 @@ class GlyphCanvas {
                     false
                 );
             },
-            onAdd: (pairSide, glyphName) => {
+            onAdd: (pairSide, glyphNames) => {
                 this.promptAndAddTextModeKerningGroup(
                     pairSide,
-                    glyphName,
+                    glyphNames[0] ?? null,
                     formatKerningGroupKindLabel(pairSide, context.isRTL)
                 );
             }

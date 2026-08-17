@@ -1,5 +1,10 @@
 export type KerningPairSide = 'first' | 'second';
 
+export type KerningGroupsHost = {
+    first_kern_groups?: Record<string, string[]>;
+    second_kern_groups?: Record<string, string[]>;
+};
+
 export type KerningGroupChip = {
     pairSide: KerningPairSide;
     kind: 'glyph' | 'group';
@@ -15,7 +20,8 @@ export type KerningGroupChip = {
 export type KerningGroupWidgetSide = {
     pairSide: KerningPairSide;
     title: string;
-    glyphName: string | null;
+    glyphNames: string[];
+    missingGlyphNames: string[];
     chips: KerningGroupChip[];
 };
 
@@ -26,7 +32,7 @@ export type KerningGroupWidgetOptions = {
     isRTL?: boolean;
     onSelectChip?: (chip: KerningGroupChip) => void;
     onRemoveChip?: (chip: KerningGroupChip) => void;
-    onAdd?: (pairSide: KerningPairSide, glyphName: string | null) => void;
+    onAdd?: (pairSide: KerningPairSide, glyphNames: string[]) => void;
 };
 
 export function collectKerningGroupMemberships(
@@ -47,6 +53,34 @@ export function collectKerningGroupMemberships(
 
     memberships.sort((left, right) => left.localeCompare(right));
     return memberships;
+}
+
+export function summarizeKerningGroupsForGlyphs(
+    groups: Record<string, string[]> | undefined,
+    glyphNames: string[]
+): {
+    groupNames: string[];
+    missingGlyphNames: string[];
+} {
+    const uniqueGroups = new Set<string>();
+    const missingGlyphNames: string[] = [];
+    for (const glyphName of glyphNames) {
+        const memberships = collectKerningGroupMemberships(groups, glyphName);
+        if (memberships.length === 0) {
+            missingGlyphNames.push(glyphName);
+            continue;
+        }
+        for (const groupName of memberships) {
+            uniqueGroups.add(groupName);
+        }
+    }
+
+    return {
+        groupNames: Array.from(uniqueGroups).sort((left, right) =>
+            left.localeCompare(right)
+        ),
+        missingGlyphNames
+    };
 }
 
 export function formatKerningOperandLabel(
@@ -80,13 +114,11 @@ export function formatTextModeKerningSideTitle(
     return `${role} (${formatKerningGroupKindLabel(pairSide, isRTL)})`;
 }
 
-export function buildGlyphKerningGroupChips(
+export function buildGroupKerningChips(
     pairSide: KerningPairSide,
-    glyphName: string,
-    groupNames: string[],
-    includeGlyphName: boolean = true
+    groupNames: string[]
 ): KerningGroupChip[] {
-    const groupChips = groupNames.map((groupName) => ({
+    return groupNames.map((groupName) => ({
         pairSide,
         kind: 'group' as const,
         name: groupName,
@@ -94,6 +126,15 @@ export function buildGlyphKerningGroupChips(
         label: formatKerningOperandLabel('group', groupName),
         removable: true
     }));
+}
+
+export function buildGlyphKerningGroupChips(
+    pairSide: KerningPairSide,
+    glyphName: string,
+    groupNames: string[],
+    includeGlyphName: boolean = true
+): KerningGroupChip[] {
+    const groupChips = buildGroupKerningChips(pairSide, groupNames);
     if (!includeGlyphName) {
         return groupChips;
     }
@@ -109,6 +150,140 @@ export function buildGlyphKerningGroupChips(
         },
         ...groupChips
     ];
+}
+
+export function buildEditViewKerningGroupSide(
+    pairSide: KerningPairSide,
+    glyphNames: string[],
+    groups: Record<string, string[]> | undefined,
+    isRTL: boolean = false
+): KerningGroupWidgetSide {
+    const summary = summarizeKerningGroupsForGlyphs(groups, glyphNames);
+    return {
+        pairSide,
+        title: formatKerningGroupKindLabel(pairSide, isRTL),
+        glyphNames,
+        missingGlyphNames: summary.missingGlyphNames,
+        chips: buildGroupKerningChips(pairSide, summary.groupNames)
+    };
+}
+
+function getGroupsForPairSide(
+    fontModel: KerningGroupsHost,
+    pairSide: KerningPairSide
+): Record<string, string[]> | undefined {
+    return pairSide === 'first'
+        ? fontModel.first_kern_groups
+        : fontModel.second_kern_groups;
+}
+
+function ensureGroupsForPairSide(
+    fontModel: KerningGroupsHost,
+    pairSide: KerningPairSide
+): Record<string, string[]> {
+    let groups = getGroupsForPairSide(fontModel, pairSide);
+    if (groups) {
+        return groups;
+    }
+
+    groups = {};
+    if (pairSide === 'first') {
+        fontModel.first_kern_groups = groups;
+    } else {
+        fontModel.second_kern_groups = groups;
+    }
+    return groups;
+}
+
+export function applyKerningGroupMembership(
+    fontModel: KerningGroupsHost,
+    pairSide: KerningPairSide,
+    glyphNames: string[],
+    groupName: string,
+    include: boolean
+): boolean {
+    const normalizedGroupName = groupName.trim().replace(/^@+/, '');
+    if (!normalizedGroupName || glyphNames.length === 0) {
+        return false;
+    }
+
+    let groups = getGroupsForPairSide(fontModel, pairSide);
+    if (!groups) {
+        if (!include) {
+            return false;
+        }
+        groups = ensureGroupsForPairSide(fontModel, pairSide);
+    }
+
+    let changed = false;
+    for (const glyphName of glyphNames) {
+        const existingGroupNames = collectKerningGroupMemberships(
+            groups,
+            glyphName
+        );
+        if (include) {
+            if (
+                existingGroupNames.length > 0 &&
+                !existingGroupNames.includes(normalizedGroupName)
+            ) {
+                continue;
+            }
+            if (!Array.isArray(groups[normalizedGroupName])) {
+                groups[normalizedGroupName] = [];
+            }
+            if (!groups[normalizedGroupName].includes(glyphName)) {
+                groups[normalizedGroupName].push(glyphName);
+                groups[normalizedGroupName].sort((left, right) =>
+                    left.localeCompare(right)
+                );
+                changed = true;
+            }
+            continue;
+        }
+
+        const members = groups[normalizedGroupName];
+        if (!Array.isArray(members)) {
+            continue;
+        }
+        const memberIndex = members.indexOf(glyphName);
+        if (memberIndex >= 0) {
+            members.splice(memberIndex, 1);
+            changed = true;
+        }
+        if (members.length === 0) {
+            delete groups[normalizedGroupName];
+        }
+    }
+
+    return changed;
+}
+
+function formatAddChipTitle(side: KerningGroupWidgetSide): string {
+    const missingGlyphNames = side.missingGlyphNames;
+    const hasGroupChip = side.chips.some((chip) => chip.kind === 'group');
+    if (hasGroupChip && missingGlyphNames.length > 0) {
+        return 'Only empty fields will be filled';
+    }
+    if (missingGlyphNames.length === 1) {
+        return `Add kerning group to glyph "${missingGlyphNames[0]}"`;
+    }
+    if (missingGlyphNames.length > 1) {
+        return 'Add kerning group';
+    }
+    return 'Add kerning group';
+}
+
+function formatRemoveChipTitle(
+    side: KerningGroupWidgetSide,
+    chip: KerningGroupChip
+): string {
+    if (side.glyphNames.length === 1) {
+        return `Remove kerning group "${chip.name}" from glyph "${side.glyphNames[0]}"`;
+    }
+    if (side.glyphNames.length > 1) {
+        return `Remove kerning group "${chip.name}" from selected glyphs`;
+    }
+    return `Remove kerning group "${chip.name}"`;
 }
 
 function createSide(
@@ -158,9 +333,7 @@ function createSide(
         if (chip.removable) {
             const removeBadge = document.createElement('span');
             removeBadge.className = 'glyph-kerning-pill-remove';
-            removeBadge.title = side.glyphName
-                ? `Remove kerning group "${chip.name}" from glyph "${side.glyphName}"`
-                : `Remove kerning group "${chip.name}"`;
+            removeBadge.title = formatRemoveChipTitle(side, chip);
             removeBadge.setAttribute('aria-hidden', 'true');
 
             const removeIcon = document.createElement('span');
@@ -188,8 +361,13 @@ function createSide(
         pills.appendChild(button);
     }
 
-    if (!side.chips.some((chip) => chip.kind === 'group')) {
-        const canAdd = Boolean(side.glyphName);
+    const missingGlyphNames = side.missingGlyphNames;
+    const showAddChip =
+        missingGlyphNames.length > 0 ||
+        (side.glyphNames.length === 0 &&
+            !side.chips.some((chip) => chip.kind === 'group'));
+    if (showAddChip) {
+        const canAdd = missingGlyphNames.length > 0;
         const placeholder = document.createElement(canAdd ? 'button' : 'span');
         if (canAdd) {
             (placeholder as HTMLButtonElement).type = 'button';
@@ -198,18 +376,20 @@ function createSide(
             'glyph-kerning-pill glyph-kerning-pill-placeholder';
         placeholder.dataset.kerningSide = side.pairSide;
         placeholder.textContent = '+';
-        placeholder.title = canAdd
-            ? `Add kerning group to glyph "${side.glyphName}"`
-            : 'Add kerning group';
+        placeholder.title = formatAddChipTitle(side);
         if (canAdd) {
             placeholder.addEventListener('click', () => {
-                options.onAdd?.(side.pairSide, side.glyphName);
+                options.onAdd?.(side.pairSide, missingGlyphNames);
             });
         }
         pills.appendChild(placeholder);
     }
 
     sideElement.appendChild(pills);
+    const visualChipCount = side.chips.length + (showAddChip ? 1 : 0);
+    if (visualChipCount > 2) {
+        sideElement.classList.add('glyph-kerning-side-multiline');
+    }
     return sideElement;
 }
 

@@ -6608,6 +6608,23 @@ select.glyph-property-input {
     max-width: 100%;
 }
 
+.glyph-kerning-side-multiline {
+    width: 11.5rem;
+    max-width: 100%;
+}
+
+.glyph-kerning-side-multiline .glyph-kerning-pills {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-content: center;
+    width: 100%;
+}
+
+.glyph-kerning-side-multiline .glyph-kerning-pill {
+    flex: 0 1 auto;
+}
+
 .glyph-kerning-pill {
     appearance: none;
     -webkit-appearance: none;

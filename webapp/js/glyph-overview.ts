@@ -32,6 +32,13 @@ import APP_SETTINGS from './settings';
 import { getGlyphRenamePreflightErrors } from './rename-glyphs-preflight';
 import { ArrowAdjustableTextInput } from './arrow-adjustable-text-input';
 import {
+    applyKerningGroupMembership,
+    buildEditViewKerningGroupSide,
+    formatKerningGroupKindLabel,
+    renderKerningGroupWidget,
+    type KerningPairSide
+} from './glyph-canvas/kerning-group-widget';
+import {
     getSidebearingTransactionLabel,
     type SidebearingSide
 } from './sidebearing-utils';
@@ -4260,6 +4267,7 @@ class GlyphOverview {
 
         const activeInputState = this.getActiveOverviewPropertyInputState();
         this.propertyPanel.textContent = '';
+        this.propertyPanel.classList.remove('glyph-kerning-groups-panel');
 
         const content = document.createElement('div');
         content.className = 'glyph-property-panel-content';
@@ -4270,6 +4278,7 @@ class GlyphOverview {
         const nameEditable = Boolean(singleGlyph);
         const layers = this.getSelectedOverviewLayers();
         const sidebearingSummary = this.summarizeOverviewSidebearings(layers);
+        const fontModel = window.currentFontModel;
 
         const nameControl = document.createElement('div');
         nameControl.className =
@@ -4295,7 +4304,6 @@ class GlyphOverview {
             this.commitOverviewGlyphName(nameInput.value);
         });
         nameControl.appendChild(nameInput);
-        content.appendChild(nameControl);
 
         const unicodeControl = document.createElement('div');
         unicodeControl.className =
@@ -4325,7 +4333,6 @@ class GlyphOverview {
             this.commitOverviewGlyphCodepoints(unicodeInput.value);
         });
         unicodeControl.appendChild(unicodeInput);
-        content.appendChild(unicodeControl);
 
         content.appendChild(
             this.createOverviewSidebearingControl(
@@ -4335,6 +4342,8 @@ class GlyphOverview {
                 sidebearingSummary.left
             )
         );
+        content.appendChild(nameControl);
+        content.appendChild(unicodeControl);
         content.appendChild(
             this.createOverviewSidebearingControl(
                 'right',
@@ -4344,7 +4353,53 @@ class GlyphOverview {
             )
         );
 
-        this.propertyPanel.appendChild(content);
+        const startSide = buildEditViewKerningGroupSide(
+            'second',
+            selectedNames,
+            fontModel?.second_kern_groups
+        );
+        const endSide = buildEditViewKerningGroupSide(
+            'first',
+            selectedNames,
+            fontModel?.first_kern_groups
+        );
+
+        this.propertyPanel.classList.add('glyph-kerning-groups-panel');
+        renderKerningGroupWidget(this.propertyPanel, {
+            startSide,
+            endSide,
+            center: content,
+            onSelectChip: (chip) => {
+                if (chip.kind !== 'group') {
+                    return;
+                }
+                const missingGlyphNames =
+                    chip.pairSide === 'second'
+                        ? startSide.missingGlyphNames
+                        : endSide.missingGlyphNames;
+                this.updateOverviewKerningGroupMembership(
+                    chip.pairSide,
+                    missingGlyphNames,
+                    chip.name,
+                    true
+                );
+            },
+            onRemoveChip: (chip) => {
+                this.updateOverviewKerningGroupMembership(
+                    chip.pairSide,
+                    selectedNames,
+                    chip.name,
+                    false
+                );
+            },
+            onAdd: (pairSide, glyphNames) => {
+                this.promptAndAddOverviewKerningGroup(
+                    pairSide,
+                    glyphNames,
+                    formatKerningGroupKindLabel(pairSide)
+                );
+            }
+        });
         this.restoreActiveOverviewPropertyInput(activeInputState);
     }
 
@@ -4590,6 +4645,67 @@ class GlyphOverview {
         }
 
         this.updatePropertyPanel();
+    }
+
+    private updateOverviewKerningGroupMembership(
+        pairSide: KerningPairSide,
+        glyphNames: string[],
+        groupName: string,
+        include: boolean
+    ): void {
+        const fontModel = window.currentFontModel;
+        if (!fontModel || glyphNames.length === 0) {
+            return;
+        }
+
+        window.patchSyncEngine?.beginTransaction(
+            include
+                ? 'Add kern group membership'
+                : 'Remove kern group membership'
+        );
+        try {
+            if (
+                !applyKerningGroupMembership(
+                    fontModel,
+                    pairSide,
+                    glyphNames,
+                    groupName,
+                    include
+                )
+            ) {
+                return;
+            }
+        } finally {
+            window.patchSyncEngine?.endTransaction();
+        }
+
+        this.updatePropertyPanel();
+    }
+
+    private promptAndAddOverviewKerningGroup(
+        pairSide: KerningPairSide,
+        glyphNames: string[],
+        sideTitle: string
+    ): void {
+        if (glyphNames.length === 0) {
+            return;
+        }
+
+        const groupName = window.prompt(
+            glyphNames.length === 1
+                ? `Add ${glyphNames[0]} to ${sideTitle}`
+                : `Add ${sideTitle}`
+        );
+        if (groupName === null) {
+            return;
+        }
+
+        this.updateOverviewKerningGroupMembership(
+            pairSide,
+            glyphNames,
+            groupName,
+            true
+        );
     }
 
     // Drag selection handlers
