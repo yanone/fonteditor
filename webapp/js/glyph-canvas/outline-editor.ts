@@ -3011,8 +3011,9 @@ export class OutlineEditor {
     /** First pointer sample seeds lastGlyphX without mutating. */
     private _sidebearingPointerBaselineReady: boolean = false;
     /**
-     * Width shared by metrics and sidebearing handles for the current
-     * interactive sidebearing session (mouse or keyboard).
+     * Width overlay for the current live sidebearing session (mouse drag or
+     * keyboard burst). Valid only while
+     * `isLiveSidebearingInteractionActive()` is true; idle commits drop it.
      */
     activeSidebearingDragLayout: { width: number } | null = null;
     /** Keyboard bbox-center screen anchor to re-apply after preview blob swaps. */
@@ -6296,6 +6297,11 @@ export class OutlineEditor {
         this.queueLiveVisibleAnchorDependentRefresh();
     }
 
+    /**
+     * Drop live sidebearing preview overlays, session baselines, and queued
+     * live-drag stages. Optionally keep the bbox-center pan anchor so a
+     * committed undo/redo can still re-apply it.
+     */
     private resetLiveSidebearingRefreshState(options?: {
         preservePendingBboxAnchor?: boolean;
     }): void {
@@ -6329,10 +6335,41 @@ export class OutlineEditor {
         this._lastSidebearingTickAt = 0;
     }
 
+    /**
+     * True while a mouse sidebearing drag or keyboard sidebearing burst owns
+     * the live preview overlay and must not be vacuumed by the commit funnel.
+     */
     isLiveSidebearingInteractionActive(): boolean {
         return (
             this.isDraggingSidebearing || this._keyboardSidebearingPreviewActive
         );
+    }
+
+    /**
+     * Advance-width overlay for metrics drawing during a live sidebearing
+     * session. Returns null when idle so canvas uses `layerData.width`.
+     */
+    getLiveSidebearingOverlayWidth(): number | null {
+        if (!this.isLiveSidebearingInteractionActive()) {
+            return null;
+        }
+        const width = this.activeSidebearingDragLayout?.width;
+        return typeof width === 'number' && Number.isFinite(width)
+            ? width
+            : null;
+    }
+
+    /**
+     * Drop leftover live sidebearing canvas state after an idle committed
+     * packet. No-op while a drag or keyboard burst is still active.
+     */
+    clearIdleLiveSidebearingPreview(): void {
+        if (this.isLiveSidebearingInteractionActive()) {
+            return;
+        }
+        this.resetLiveSidebearingRefreshState({
+            preservePendingBboxAnchor: true
+        });
     }
 
     capturePendingSidebearingBboxCenterAnchor(): boolean {
@@ -18803,7 +18840,9 @@ export class OutlineEditor {
             }
         );
         void widthDelta;
-        this.activeSidebearingDragLayout = { width: nextWidth };
+        if (this.isLiveSidebearingInteractionActive()) {
+            this.activeSidebearingDragLayout = { width: nextWidth };
+        }
 
         this.applyBoundingBoxCenterScreenAnchor(bboxCenterAnchorScreen);
 

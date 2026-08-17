@@ -1,4 +1,7 @@
-const { runBridgeUndoRedo } = require('../../js/change-bridge-init');
+const {
+    handleCommittedChangeRefresh,
+    runBridgeUndoRedo
+} = require('../../js/change-bridge-init');
 const { Layer } = require('../../js/babelfont-model');
 const fontManager = require('../../js/font-manager').default;
 
@@ -124,6 +127,9 @@ describe('Sidebearing center anchoring matrix', () => {
         canvas.outlineEditor._updateDraggedSidebearing(deltaX);
 
         expectLayerCenterAnchored(canvas, beforeCenter);
+        expect(canvas.outlineEditor.getLiveSidebearingOverlayWidth()).toEqual(
+            canvas.outlineEditor.layerData.width
+        );
     });
 
     test('mouse sidebearing drag retains its center anchor for recomposed advance replay', () => {
@@ -193,6 +199,9 @@ describe('Sidebearing center anchoring matrix', () => {
 
         expect(canvas.outlineEditor.layerData.width).not.toBe(beforeWidth);
         expectLayerCenterAnchored(canvas, beforeCenter);
+        expect(canvas.outlineEditor.getLiveSidebearingOverlayWidth()).toEqual(
+            canvas.outlineEditor.layerData.width
+        );
     });
 
     test('keyboard LSB nudge keeps center after live preview blob swap', async () => {
@@ -782,5 +791,94 @@ describe('Sidebearing undo viewport stability', () => {
         await runBridgeUndoRedo('redo', 'a', 'a', 'layer-1', null);
 
         expectViewportUnchanged(glyphCanvas, beforeViewport);
+    });
+});
+
+describe('Idle live sidebearing overlay cleanup', () => {
+    let canvas;
+    let currentFontSpy;
+    const originalGlyphCanvas = window.glyphCanvas;
+
+    beforeEach(() => {
+        document.body.innerHTML = '<div id="test-container"></div>';
+        canvas = new GlyphCanvas('test-container');
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue(null);
+        window.changeBridge = null;
+        setupUnkeyedCanvas(canvas);
+        window.glyphCanvas = canvas;
+    });
+
+    afterEach(() => {
+        currentFontSpy.mockRestore();
+        window.glyphCanvas = originalGlyphCanvas;
+        canvas.destroy();
+    });
+
+    test('undo after property-panel LSB uses restored layer width, not leftover overlay', () => {
+        const originalWidth = canvas.outlineEditor.layerData.width;
+
+        expect(canvas.outlineEditor.setSidebearingValue('left', 150)).toBe(
+            true
+        );
+        const committedWidth = canvas.outlineEditor.layerData.width;
+        expect(committedWidth).toBe(originalWidth + 50);
+
+        // Forward commit left the live overlay at the new advance. Undo
+        // restored layerData.width but used to leave that overlay in place,
+        // so metric bars kept the post-edit advance.
+        canvas.outlineEditor.activeSidebearingDragLayout = {
+            width: committedWidth
+        };
+        canvas.outlineEditor._lastLiveSidebearingAdvances = {
+            a: committedWidth
+        };
+        canvas.outlineEditor.layerData.width = originalWidth;
+
+        expect(
+            canvas.outlineEditor.getLiveSidebearingOverlayWidth()
+        ).toBeNull();
+        expect(canvas.renderer['getLiveSelectedLayerWidth']()).toBe(
+            originalWidth
+        );
+
+        canvas.outlineEditor.clearIdleLiveSidebearingPreview();
+
+        expect(canvas.outlineEditor.activeSidebearingDragLayout).toBeNull();
+        expect(canvas.outlineEditor._lastLiveSidebearingAdvances).toEqual({});
+        expect(canvas.renderer['getLiveSelectedLayerWidth']()).toBe(
+            originalWidth
+        );
+    });
+
+    test('a live sidebearing session keeps its overlay through the commit funnel', async () => {
+        canvas.outlineEditor.isDraggingSidebearing = true;
+        canvas.outlineEditor.activeSidebearingDragLayout = { width: 592 };
+        canvas.outlineEditor._lastLiveSidebearingAdvances = { a: 592 };
+
+        await handleCommittedChangeRefresh(
+            [
+                {
+                    historyAction: 'change',
+                    transactionLabel: 'Set sidebearing',
+                    path: 'glyphs.a.layers.layer-1',
+                    compileChangeSource: 'mouse-drag-sidebearing'
+                }
+            ],
+            'local',
+            {
+                awaitWorkerSync: jest.fn(async () => {}),
+                requestCompile: jest.fn(async () => {})
+            }
+        );
+
+        expect(canvas.outlineEditor.activeSidebearingDragLayout).toEqual({
+            width: 592
+        });
+        expect(canvas.outlineEditor.getLiveSidebearingOverlayWidth()).toBe(592);
+        expect(canvas.outlineEditor._lastLiveSidebearingAdvances).toEqual({
+            a: 592
+        });
     });
 });

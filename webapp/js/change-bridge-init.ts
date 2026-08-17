@@ -2564,6 +2564,11 @@ export async function handleCommittedChangeRefresh(
         return;
     }
 
+    // Live sidebearing overlays are session-only. Idle committed packets
+    // (property panel, undo/redo, remote, Python) must not keep a stale
+    // advance on canvas; mouse/keyboard bursts keep theirs until session end.
+    window.glyphCanvas?.outlineEditor?.clearIdleLiveSidebearingPreview?.();
+
     const isUndoRedoPacket =
         isUndoRedoCommittedPacket(entries) ||
         dependencies?.localUndoRedoContext !== undefined;

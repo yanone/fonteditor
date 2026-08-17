@@ -996,13 +996,10 @@ export class GlyphCanvasRenderer {
     }
 
     private getLiveSelectedLayerWidth(): number | null {
-        const activeSidebearingDragLayout =
-            this.glyphCanvas.outlineEditor.activeSidebearingDragLayout;
-        if (
-            typeof activeSidebearingDragLayout?.width === 'number' &&
-            Number.isFinite(activeSidebearingDragLayout.width)
-        ) {
-            return activeSidebearingDragLayout.width;
+        const overlayWidth =
+            this.glyphCanvas.outlineEditor.getLiveSidebearingOverlayWidth();
+        if (overlayWidth !== null) {
+            return overlayWidth;
         }
         if (
             this.glyphCanvas.outlineEditor.active &&
@@ -1250,14 +1247,10 @@ export class GlyphCanvasRenderer {
                 this.glyphCanvas.outlineEditor.isEditingBackgroundLayer()
                     ? this.glyphCanvas.outlineEditor.getPairedLayerModel()
                     : null;
-            const dragLayoutWidth =
-                this.glyphCanvas.outlineEditor.activeSidebearingDragLayout
-                    ?.width;
+            const overlayWidth =
+                this.glyphCanvas.outlineEditor.getLiveSidebearingOverlayWidth();
             const layerWidth =
-                typeof dragLayoutWidth === 'number' &&
-                Number.isFinite(dragLayoutWidth)
-                    ? dragLayoutWidth
-                    : (pairedLayer?.width ?? selectedLayerData?.width);
+                overlayWidth ?? pairedLayer?.width ?? selectedLayerData?.width;
             const activeGlyphAdvance =
                 typeof layerWidth === 'number' && Number.isFinite(layerWidth)
                     ? layerWidth
