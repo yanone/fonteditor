@@ -1906,12 +1906,10 @@ export class GlyphCanvasRenderer {
         const currentLayerData =
             this.glyphCanvas.outlineEditor.getCurrentLayerDataFromStack();
         const visibleGuides = this.glyphCanvas.outlineEditor.getVisibleGuides();
-        const pairedLayerData =
-            this.glyphCanvas.outlineEditor.isPairedLayerVisible()
-                ? this.glyphCanvas.outlineEditor
-                      .getPairedLayerModel()
-                      ?.toJSON?.()
-                : null;
+        const hasPairedGhost =
+            this.glyphCanvas.outlineEditor.isPairedLayerVisible() &&
+            this.glyphCanvas.outlineEditor.getPairedLayerGhostPaths().length >
+                0;
 
         // Skip rendering if there is nothing editable to show.
         if (
@@ -1921,7 +1919,7 @@ export class GlyphCanvasRenderer {
                 (!currentLayerData.anchors ||
                     currentLayerData.anchors.length === 0) &&
                 visibleGuides.length === 0 &&
-                !pairedLayerData?.shapes?.length)
+                !hasPairedGhost)
         ) {
             console.log(
                 '[Renderer]',
@@ -2673,13 +2671,12 @@ export class GlyphCanvasRenderer {
     }
 
     private drawPairedLayerGhost(invScale: number): void {
-        const pairedLayerData =
-            this.glyphCanvas.outlineEditor.isPairedLayerVisible()
-                ? this.glyphCanvas.outlineEditor
-                      .getPairedLayerModel()
-                      ?.toJSON?.()
-                : null;
-        if (!pairedLayerData?.shapes?.length) {
+        if (!this.glyphCanvas.outlineEditor.isPairedLayerVisible()) {
+            return;
+        }
+        const ghostPaths =
+            this.glyphCanvas.outlineEditor.getPairedLayerGhostPaths();
+        if (!ghostPaths.length) {
             return;
         }
 
@@ -2689,41 +2686,13 @@ export class GlyphCanvasRenderer {
             document.documentElement
         ).getPropertyValue('--accent-yellow');
         this.ctx.lineWidth = 1.5 * invScale;
-        pairedLayerData.shapes.forEach((shape: any) => {
-            const rawNodes =
-                shape?.nodes ?? shape?.Path?.nodes ?? shape?.Contour?.nodes;
-            if (!rawNodes) {
-                return;
-            }
-            if (!Array.isArray(rawNodes)) {
-                throw new TypeError('Paired-layer path nodes must be arrays.');
-            }
-            const nodes: Babelfont.Node[] = rawNodes.map((node, index) => {
-                const x = Number(node.x);
-                const y = Number(node.y);
-                const nodetype = node.nodetype;
-                if (
-                    !Number.isFinite(x) ||
-                    !Number.isFinite(y) ||
-                    typeof nodetype !== 'string'
-                ) {
-                    throw new TypeError(
-                        `Invalid paired-layer node at index ${index}.`
-                    );
-                }
-                return {
-                    x,
-                    y,
-                    nodetype: nodetype as Babelfont.Node['nodetype'],
-                    smooth: node.smooth === true
-                };
-            });
-            if (nodes.length === 0) {
+        ghostPaths.forEach((path) => {
+            if (path.nodes.length === 0) {
                 return;
             }
             this.ctx.beginPath();
-            this.buildPathFromNodes(nodes, getClosedFromOutlineShape(shape));
-            if (getClosedFromOutlineShape(shape)) {
+            this.buildPathFromNodes(path.nodes, path.closed);
+            if (path.closed) {
                 this.ctx.closePath();
             }
             this.ctx.stroke();

@@ -901,6 +901,46 @@ describe('GlyphCanvas renderer anchor-only layers', () => {
         expect(pairedGhostPathIndex).toBeGreaterThan(activePathIndex);
     });
 
+    test('drawOutlineEditor renders a paired ghost for background component outlines', () => {
+        canvas.outlineEditor.layerData.shapes = [];
+        canvas.outlineEditor.setPairedLayerVisible(true);
+        const getPairedLayerModelSpy = jest
+            .spyOn(canvas.outlineEditor, 'getPairedLayerModel')
+            .mockReturnValue({
+                shapes: [
+                    {
+                        isComponent: () => true,
+                        isPath: () => false,
+                        asComponent: () => ({
+                            getTransformedPaths: () => [
+                                {
+                                    nodes: [
+                                        { x: 50, y: 10, nodetype: 'Line' },
+                                        { x: 150, y: 10, nodetype: 'Line' },
+                                        { x: 150, y: 80, nodetype: 'Line' },
+                                        { x: 50, y: 80, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ]
+                        })
+                    }
+                ]
+            });
+        canvas.renderer.ctx.moveTo.mockClear();
+        canvas.renderer.ctx.lineTo.mockClear();
+        const buildPathSpy = jest.spyOn(canvas.renderer, 'buildPathFromNodes');
+
+        canvas.renderer.drawOutlineEditor();
+
+        expect(getPairedLayerModelSpy).toHaveBeenCalled();
+        expect(canvas.renderer.ctx.moveTo).toHaveBeenCalledWith(50, 10);
+        expect(canvas.renderer.ctx.lineTo).toHaveBeenCalledWith(150, 10);
+        expect(
+            buildPathSpy.mock.calls.some(([nodes]) => nodes[0]?.x === 50)
+        ).toBe(true);
+    });
+
     test('drawOutlineEditor renders a paired ghost for an otherwise empty selected layer', () => {
         canvas.outlineEditor.layerData.anchors = [];
         canvas.outlineEditor.layerData.guides = [];
@@ -8255,6 +8295,57 @@ describe('GlyphCanvas snap debug candidates', () => {
         expect(activeOnly[0]).toEqual(
             expect.objectContaining({ source: 'origin', x: 100, y: 0 })
         );
+    });
+
+    test('snap cache includes on-curve nodes from paired background components', () => {
+        setupTextRun();
+        canvas.outlineEditor.setPairedLayerVisible(true);
+        jest.spyOn(canvas.outlineEditor, 'getPairedLayerModel').mockReturnValue(
+            {
+                shapes: [
+                    {
+                        isComponent: () => true,
+                        isPath: () => false,
+                        asComponent: () => ({
+                            getTransformedPaths: () => [
+                                {
+                                    nodes: [
+                                        { x: 40, y: 25, nodetype: 'Line' },
+                                        { x: 90, y: 25, nodetype: 'OffCurve' },
+                                        { x: 140, y: 25, nodetype: 'Line' }
+                                    ],
+                                    closed: false
+                                }
+                            ]
+                        })
+                    }
+                ]
+            }
+        );
+
+        simulateDragStart(0, 0);
+
+        const cache = canvas.outlineEditor._snapCandidateCache;
+        expect(cache.allDragCandidates).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    source: 'paired',
+                    x: 40,
+                    y: 25
+                }),
+                expect.objectContaining({
+                    source: 'paired',
+                    x: 140,
+                    y: 25
+                })
+            ])
+        );
+        expect(
+            cache.allDragCandidates.some(
+                (candidate) =>
+                    candidate.source === 'paired' && candidate.x === 90
+            )
+        ).toBe(false);
     });
 
     test('snap cache pre-computes snapDistFontUnits and metricsYValues', () => {

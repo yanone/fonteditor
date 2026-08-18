@@ -3796,6 +3796,74 @@ export class OutlineEditor {
         return currentLayer?.backgroundLayer || null;
     }
 
+    getPairedLayerGhostPaths(): Array<{
+        nodes: Babelfont.Node[];
+        closed: boolean;
+    }> {
+        const pairedLayer = this.getPairedLayerModel();
+        if (!pairedLayer) {
+            return [];
+        }
+
+        const shapes = Array.isArray(pairedLayer.shapes)
+            ? pairedLayer.shapes
+            : pairedLayer.toJSON?.()?.shapes;
+        if (!Array.isArray(shapes) || shapes.length === 0) {
+            return [];
+        }
+
+        const paths: Array<{ nodes: Babelfont.Node[]; closed: boolean }> = [];
+        const appendPath = (rawNodes: unknown, closed: boolean): void => {
+            if (!Array.isArray(rawNodes) || rawNodes.length === 0) {
+                return;
+            }
+            const nodes: Babelfont.Node[] = rawNodes.map((node, index) => {
+                const x = Number(node?.x);
+                const y = Number(node?.y);
+                const nodetype = node?.nodetype ?? node?.type;
+                if (
+                    !Number.isFinite(x) ||
+                    !Number.isFinite(y) ||
+                    typeof nodetype !== 'string'
+                ) {
+                    throw new TypeError(
+                        `Invalid paired-layer node at index ${index}.`
+                    );
+                }
+                return {
+                    x,
+                    y,
+                    nodetype: nodetype as Babelfont.Node['nodetype'],
+                    smooth: node?.smooth === true
+                };
+            });
+            paths.push({ nodes, closed: !!closed });
+        };
+
+        for (const shape of shapes) {
+            if (
+                typeof shape?.isComponent === 'function' &&
+                shape.isComponent()
+            ) {
+                for (const path of shape.asComponent().getTransformedPaths()) {
+                    appendPath(path.nodes, !!path.closed);
+                }
+                continue;
+            }
+            if (typeof shape?.isPath === 'function' && shape.isPath()) {
+                const path = shape.asPath();
+                appendPath(path.nodes, !!path.closed);
+                continue;
+            }
+            const contour = getEditableContour(shape);
+            if (contour) {
+                appendPath(contour.nodes, contour.closed);
+            }
+        }
+
+        return paths;
+    }
+
     async toggleBackgroundLayerEditing(): Promise<boolean> {
         const currentLayer = this.getCurrentLayerModel();
         if (!currentLayer) {
@@ -12517,11 +12585,8 @@ export class OutlineEditor {
 
         const pairedCandidates: SnapCandidate[] = [];
         if (this.isPairedLayerVisible()) {
-            const pairedLayerData = this.getPairedLayerModel()?.toJSON?.();
-            pairedLayerData?.shapes?.forEach((shape: any) => {
-                const contour = getEditableContour(shape);
-                if (!contour) return;
-                contour.nodes.forEach((node) => {
+            for (const path of this.getPairedLayerGhostPaths()) {
+                for (const node of path.nodes) {
                     if (isOnCurveNode(node)) {
                         pairedCandidates.push({
                             x: node.x,
@@ -12529,8 +12594,8 @@ export class OutlineEditor {
                             source: 'paired'
                         });
                     }
-                });
-            });
+                }
+            }
         }
 
         // Neighbor candidates (left + right adjacent glyphs)
