@@ -10541,14 +10541,16 @@ export class OutlineEditor {
             getHighestVisibleVerticalMetricValue(this.renderVerticalMetrics) ??
             lowestMetricY;
         const panY = this.glyphCanvas.viewportManager!.panY;
-        const contentHeight =
-            this.glyphCanvas.getCanvasContentFrame?.().height ?? 0;
+        const frame = this.glyphCanvas.getCanvasContentFrame?.();
+        const contentHeight = frame?.height ?? 0;
+        const contentBottom =
+            frame && frame.width > 0 ? frame.top + frame.height : contentHeight;
         const fallbackHeight = this.canvas
             ? this.canvas.height / (window.devicePixelRatio || 1)
             : 0;
         const canvasHeight =
             contentHeight > 0
-                ? contentHeight
+                ? contentBottom
                 : fallbackHeight > 0
                   ? fallbackHeight
                   : null;
@@ -11239,7 +11241,7 @@ export class OutlineEditor {
             const shouldExitPreview = !this.previewModeBeforeSlider;
 
             if (shouldExitPreview) {
-                this.isPreviewMode = false;
+                this.glyphCanvas.setPreviewMode(false);
             }
 
             // Check if we're on an exact layer
@@ -20114,7 +20116,7 @@ export class OutlineEditor {
         if (!this.active || !this.isPreviewMode) return;
         this.spaceKeyPressed = false;
         console.log('  -> Exiting preview mode from Space release');
-        this.isPreviewMode = false;
+        this.glyphCanvas.setPreviewMode(false);
 
         // Restore cursor style
         if (this.glyphCanvas.canvas && this.cursorStyleBeforePreview) {
@@ -20173,7 +20175,7 @@ export class OutlineEditor {
         this.isDraggingComponent = false;
         // Exit preview mode if active
         if (this.isPreviewMode) {
-            this.isPreviewMode = false;
+            this.glyphCanvas.setPreviewMode(false);
             // Restore cursor visibility in text mode
             if (!this.active) {
                 this.glyphCanvas.cursorVisible = true;
@@ -20441,7 +20443,7 @@ export class OutlineEditor {
             this.spaceKeyPressed = true;
             // Only enter preview mode if not already in it (prevents key repeat from re-entering)
             if (!this.isPreviewMode) {
-                this.isPreviewMode = true;
+                this.glyphCanvas.setPreviewMode(true);
                 // Store current cursor and change to grab cursor
                 if (this.glyphCanvas.canvas) {
                     this.cursorStyleBeforePreview =

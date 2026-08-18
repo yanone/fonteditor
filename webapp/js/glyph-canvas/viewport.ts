@@ -15,9 +15,27 @@ export interface ViewportPanLockTarget {
 
 /** Usable camera box in canvas CSS pixels (top-left origin). */
 export type ViewportFrame = {
+    left: number;
+    top: number;
     width: number;
     height: number;
 };
+
+export function viewportFrameRight(frame: ViewportFrame): number {
+    return frame.left + frame.width;
+}
+
+export function viewportFrameBottom(frame: ViewportFrame): number {
+    return frame.top + frame.height;
+}
+
+export function viewportFrameCenterX(frame: ViewportFrame): number {
+    return frame.left + frame.width / 2;
+}
+
+export function viewportFrameCenterY(frame: ViewportFrame): number {
+    return frame.top + frame.height / 2;
+}
 
 /**
  * Shift pan so `fontX`/`fontY` maps to the captured screen point.
@@ -315,10 +333,10 @@ export class ViewportManager {
 
         // Calculate pan to center the glyph both horizontally and vertically
         const targetPanX =
-            canvasRect.width / 2 - fontSpaceCenterX * clampedScale;
+            viewportFrameCenterX(canvasRect) - fontSpaceCenterX * clampedScale;
         // Note: Y is flipped in canvas, so we negate fontSpaceCenterY
         const targetPanY =
-            canvasRect.height / 2 - -fontSpaceCenterY * clampedScale;
+            viewportFrameCenterY(canvasRect) - -fontSpaceCenterY * clampedScale;
 
         // Animate to target
         this.animateZoomAndPan(
@@ -381,11 +399,11 @@ export class ViewportManager {
         const currentScreenBottom = -fontSpaceMinY * currentScale + this.panY;
 
         const fitsHorizontally =
-            currentScreenLeft >= margin &&
-            currentScreenRight <= canvasRect.width - margin;
+            currentScreenLeft >= canvasRect.left + margin &&
+            currentScreenRight <= viewportFrameRight(canvasRect) - margin;
         const fitsVertically =
-            currentScreenTop >= margin &&
-            currentScreenBottom <= canvasRect.height - margin;
+            currentScreenTop >= canvasRect.top + margin &&
+            currentScreenBottom <= viewportFrameBottom(canvasRect) - margin;
 
         // Only adjust viewport if glyph doesn't fit comfortably
         if (!fitsHorizontally || !fitsVertically) {
@@ -400,13 +418,14 @@ export class ViewportManager {
             // When zooming, content shifts relative to viewport center
             if (targetScale !== currentScale) {
                 const scaleFactor = targetScale / currentScale;
-                const centerX = canvasRect.width / 2;
+                const centerX = viewportFrameCenterX(canvasRect);
                 // Adjust panX to keep the horizontal center point stable during zoom
                 targetPanX = centerX - (centerX - this.panX) * scaleFactor;
             }
 
             // Note: Y is flipped in canvas, so we negate glyphCenterY.
-            targetPanY = canvasRect.height / 2 - -glyphCenterY * targetScale;
+            targetPanY =
+                viewportFrameCenterY(canvasRect) - -glyphCenterY * targetScale;
 
             console.log(
                 '[Viewport]',
@@ -427,9 +446,10 @@ export class ViewportManager {
                 fontSpaceMaxX * targetScale + targetPanX;
 
             // Calculate how far outside the viewport the glyph extends
-            const leftOverhang = margin - screenLeftAfterZoom; // Positive if glyph is off left edge
+            const leftOverhang = canvasRect.left + margin - screenLeftAfterZoom; // Positive if glyph is off left edge
             const rightOverhang =
-                screenRightAfterZoom - (canvasRect.width - margin); // Positive if glyph is off right edge
+                screenRightAfterZoom -
+                (viewportFrameRight(canvasRect) - margin); // Positive if glyph is off right edge
 
             if (leftOverhang > 0) {
                 // Glyph extends past left edge - pan right just enough to bring it to margin
@@ -689,8 +709,10 @@ export class ViewportManager {
             )
         );
 
-        const targetPanX = canvasRect.width / 2 - centerX * clampedScale;
-        const targetPanY = canvasRect.height / 2 - -centerY * clampedScale;
+        const targetPanX =
+            viewportFrameCenterX(canvasRect) - centerX * clampedScale;
+        const targetPanY =
+            viewportFrameCenterY(canvasRect) - -centerY * clampedScale;
 
         this.animateZoomAndPan(
             clampedScale,

@@ -1527,6 +1527,8 @@ export class GlyphCanvasRenderer {
 
         // Canvas dimensions
         const contentFrame = this.glyphCanvas.getCanvasContentFrame();
+        const canvasLeft = contentFrame.left;
+        const canvasTop = contentFrame.top;
         const canvasWidth = contentFrame.width;
         const canvasHeight = contentFrame.height;
 
@@ -1538,17 +1540,17 @@ export class GlyphCanvasRenderer {
         let adjustY = 0;
 
         // Check horizontal bounds
-        if (screenMinX < margin) {
-            adjustX = (margin - screenMinX) / scale; // Move right
-        } else if (screenMaxX > canvasWidth - margin) {
-            adjustX = (canvasWidth - margin - screenMaxX) / scale; // Move left
+        if (screenMinX < canvasLeft + margin) {
+            adjustX = (canvasLeft + margin - screenMinX) / scale; // Move right
+        } else if (screenMaxX > canvasLeft + canvasWidth - margin) {
+            adjustX = (canvasLeft + canvasWidth - margin - screenMaxX) / scale; // Move left
         }
 
         // Check vertical bounds (remember screen Y is flipped)
-        if (screenMinY < margin) {
-            adjustY = -(margin - screenMinY) / scale; // Move down in font space
-        } else if (screenMaxY > canvasHeight - margin) {
-            adjustY = -(canvasHeight - margin - screenMaxY) / scale; // Move up in font space
+        if (screenMinY < canvasTop + margin) {
+            adjustY = -(canvasTop + margin - screenMinY) / scale; // Move down in font space
+        } else if (screenMaxY > canvasTop + canvasHeight - margin) {
+            adjustY = -(canvasTop + canvasHeight - margin - screenMaxY) / scale; // Move up in font space
         }
 
         // Apply adjustments to position
@@ -1803,8 +1805,8 @@ export class GlyphCanvasRenderer {
         this.ctx.setTransform(1, 0, 0, 1, 0, 0);
         this.ctx.beginPath();
         this.ctx.rect(
-            0,
-            0,
+            (frame.left / rect.width) * canvas.width,
+            (frame.top / rect.height) * canvas.height,
             (frame.width / rect.width) * canvas.width,
             (frame.height / rect.height) * canvas.height
         );
@@ -3312,6 +3314,30 @@ export class GlyphCanvasRenderer {
             }
         }
 
+        const previewGuide = this.glyphCanvas.previewViewportGuide;
+        if (
+            previewGuide &&
+            this.glyphCanvas.previewChromeOpacity < 1 &&
+            rect.width > 0 &&
+            rect.height > 0
+        ) {
+            const computedStyle = getComputedStyle(document.documentElement);
+            this.ctx.save();
+            this.ctx.strokeStyle = computedStyle
+                .getPropertyValue('--text-muted')
+                .trim();
+            this.ctx.globalAlpha = 0.35;
+            this.ctx.lineWidth = 1;
+            this.ctx.setLineDash([5, 5]);
+            this.ctx.strokeRect(
+                (previewGuide.left / rect.width) * this.canvas.width,
+                (previewGuide.top / rect.height) * this.canvas.height,
+                (previewGuide.width / rect.width) * this.canvas.width,
+                (previewGuide.height / rect.height) * this.canvas.height
+            );
+            this.ctx.restore();
+        }
+
         // Draw crosshair or a user-defined line when the measurement key is pressed in editing mode
         if (this.glyphCanvas.measurementTool.shouldDrawVisuals()) {
             const isDarkTheme =
@@ -3330,8 +3356,8 @@ export class GlyphCanvasRenderer {
             ) {
                 this.ctx.beginPath();
                 this.ctx.rect(
-                    0,
-                    0,
+                    (contentFrame.left / rect.width) * this.canvas.width,
+                    (contentFrame.top / rect.height) * this.canvas.height,
                     (contentFrame.width / rect.width) * this.canvas.width,
                     (contentFrame.height / rect.height) * this.canvas.height
                 );

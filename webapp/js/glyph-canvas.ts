@@ -10,7 +10,11 @@ import { FeaturesManager } from './glyph-canvas/features';
 import { TextRunEditor } from './glyph-canvas/textrun';
 import {
     applyFontPointScreenLock,
-    ViewportManager
+    ViewportManager,
+    viewportFrameCenterX,
+    viewportFrameCenterY,
+    viewportFrameRight,
+    type ViewportFrame
 } from './glyph-canvas/viewport';
 import { GlyphCanvasRenderer } from './glyph-canvas/renderer';
 import {
@@ -369,13 +373,19 @@ const TEXT_INTERACTION_Y_MIN = -700;
 const CURSOR_VIEW_MARGIN = 30;
 const BACKSPACE_PRECEDING_GLYPH_COUNT = 2;
 const BACKSPACE_SAFE_VIEWPORT_FRACTION = 1 / 5;
+const PREVIEW_CHROME_ANIMATION_FRAMES = 10;
 
 class GlyphCanvas {
     static COLLAPSED_EDITOR_VIEWPORT_FREEZE_WIDTH = 96;
 
     container: HTMLElement;
     canvasHost: HTMLElement | null = null;
+    canvasStage: HTMLElement | null = null;
     canvas: HTMLCanvasElement | null = null;
+    previewChromeOpacity: number = 1;
+    previewChromeTarget: number = 1;
+    previewChromeRaf: number | null = null;
+    previewViewportGuide: ViewportFrame | null = null;
     ctx: CanvasRenderingContext2D | null = null;
     outlineEditor: OutlineEditor = new OutlineEditor(this);
 
@@ -422,6 +432,8 @@ class GlyphCanvas {
     // Track previous container dimensions for resize handling
     lastContainerWidth: number = 0;
     lastContainerHeight: number = 0;
+    lastCutoutLeft: number = 0;
+    lastCutoutTop: number = 0;
     lastStableViewportSnapshot: {
         scale: number;
         panX: number;
@@ -708,8 +720,9 @@ class GlyphCanvas {
             return false;
         }
 
-        const width = this.container.clientWidth;
-        const height = this.getCanvasContentFrame().height;
+        const frame = this.getCanvasContentFrame();
+        const width = frame.width;
+        const height = frame.height;
         if (
             width <= GlyphCanvas.COLLAPSED_EDITOR_VIEWPORT_FREEZE_WIDTH ||
             height <= 0
@@ -731,27 +744,27 @@ class GlyphCanvas {
 
         let targetScreenX =
             typeof options.screenFractionX === 'number'
-                ? options.screenFractionX * width
+                ? frame.left + options.screenFractionX * width
                 : currentScreen.x;
         let targetScreenY =
             typeof options.screenFractionY === 'number'
-                ? options.screenFractionY * height
+                ? frame.top + options.screenFractionY * height
                 : currentScreen.y;
 
         targetScreenX = Math.min(
-            Math.max(targetScreenX, marginX),
-            Math.max(marginX, width - marginX)
+            Math.max(targetScreenX, frame.left + marginX),
+            Math.max(frame.left + marginX, frame.left + width - marginX)
         );
         targetScreenY = Math.min(
-            Math.max(targetScreenY, marginY),
-            Math.max(marginY, height - marginY)
+            Math.max(targetScreenY, frame.top + marginY),
+            Math.max(frame.top + marginY, frame.top + height - marginY)
         );
 
         const alreadyVisible =
-            currentScreen.x >= marginX &&
-            currentScreen.x <= width - marginX &&
-            currentScreen.y >= marginY &&
-            currentScreen.y <= height - marginY &&
+            currentScreen.x >= frame.left + marginX &&
+            currentScreen.x <= frame.left + width - marginX &&
+            currentScreen.y >= frame.top + marginY &&
+            currentScreen.y <= frame.top + height - marginY &&
             typeof options.screenFractionX !== 'number' &&
             typeof options.screenFractionY !== 'number';
         if (alreadyVisible) {
@@ -813,8 +826,10 @@ class GlyphCanvas {
                 );
                 snapshot.contentAnchorFontX = anchor.x;
                 snapshot.contentAnchorFontY = anchor.y;
-                snapshot.contentAnchorScreenFractionX = screen.x / width;
-                snapshot.contentAnchorScreenFractionY = screen.y / height;
+                snapshot.contentAnchorScreenFractionX =
+                    (screen.x - this.lastCutoutLeft) / width;
+                snapshot.contentAnchorScreenFractionY =
+                    (screen.y - this.lastCutoutTop) / height;
             }
         }
 
@@ -1276,7 +1291,7 @@ class GlyphCanvas {
         this.canvas.style.outline = 'none'; // Remove focus outline
         this.canvas.tabIndex = 0; // Make canvas focusable
         this.canvas.dataset.hasContextMenu = 'true';
-        this.canvasHost.appendChild(this.canvas);
+        this.mountCanvasElement();
 
         this.propertyPanel = document.createElement('div');
         this.propertyPanel.className = 'glyph-property-panel';
@@ -1286,12 +1301,18 @@ class GlyphCanvas {
 
         this.syncCanvasBackingStore();
 
+        const cutout = this.getCanvasCutoutFrame();
+        this.lastContainerWidth = cutout.width;
+        this.lastContainerHeight = cutout.height;
+        this.lastCutoutLeft = cutout.left;
+        this.lastCutoutTop = cutout.top;
+
         // Set initial scale and position with deterministic values
         // Using fixed values instead of getBoundingClientRect() for consistency
         this.viewportManager = new ViewportManager(
             this.initialScale,
-            100, // Fixed horizontal pan
-            250 // Fixed vertical pan
+            100 + cutout.left, // Fixed horizontal pan, offset into the chrome cutout
+            250 + cutout.top // Fixed vertical pan
         );
         this.renderer = new GlyphCanvasRenderer(
             this.canvas,
@@ -1320,7 +1341,8 @@ class GlyphCanvas {
         }
 
         const dpr = window.devicePixelRatio || 1;
-        const measurementTarget = this.canvasHost || this.container;
+        const measurementTarget =
+            this.canvasStage || this.canvasHost || this.container;
         const nextWidth = measurementTarget.clientWidth * dpr;
         const nextHeight = measurementTarget.clientHeight * dpr;
         const sizeUnchanged =
@@ -1349,20 +1371,46 @@ class GlyphCanvas {
     }
 
     /**
-     * Usable camera box in canvas CSS pixels: full canvas minus the overlay
-     * property panel at the bottom. Left/top/right insets are 0. Hidden
-     * panels contribute no bottom inset. Pointer mapping still uses the
-     * full canvas `getBoundingClientRect()`.
+     * Hoist the bitmap behind app chrome when the full editor shell is present.
+     * Jest fixtures only have a test container, so the canvas stays in-host.
      */
-    getCanvasContentFrame(): {
-        left: number;
-        top: number;
-        right: number;
-        bottom: number;
-        width: number;
-        height: number;
-    } {
+    private usesFullWindowCanvas(): boolean {
+        return !!(
+            document.querySelector('.toolbar') &&
+            document.querySelector('.container')
+        );
+    }
+
+    private mountCanvasElement(): void {
+        if (!this.canvas || !this.canvasHost) {
+            return;
+        }
+
+        if (!this.usesFullWindowCanvas()) {
+            this.canvasHost.appendChild(this.canvas);
+            document.body.classList.remove('has-full-window-glyph-canvas');
+            return;
+        }
+
+        let stage = document.getElementById('glyph-canvas-stage');
+        if (!stage) {
+            stage = document.createElement('div');
+            stage.id = 'glyph-canvas-stage';
+            document.body.insertBefore(stage, document.body.firstChild);
+        }
+        this.canvasStage = stage;
+        stage.appendChild(this.canvas);
+        document.body.classList.add('has-full-window-glyph-canvas');
+    }
+
+    /**
+     * Editor hole in canvas CSS pixels: the current chrome cutout, including
+     * the overlay property panel.
+     */
+    getCanvasCutoutFrame(): ViewportFrame {
         const canvasRect = this.canvas?.getBoundingClientRect();
+        const holeEl = this.container;
+        const holeRect = holeEl?.getBoundingClientRect();
         const host = this.canvasHost || this.container;
         const canvasWidth =
             (canvasRect && canvasRect.width > 0 ? canvasRect.width : 0) ||
@@ -1374,20 +1422,122 @@ class GlyphCanvas {
             host?.clientHeight ||
             this.container?.clientHeight ||
             0;
+        const holeValid = !!(
+            holeRect &&
+            holeRect.width > 0 &&
+            holeRect.height > 0
+        );
+        if (
+            !canvasRect ||
+            canvasWidth <= 0 ||
+            canvasHeight <= 0 ||
+            !holeValid
+        ) {
+            return {
+                left: 0,
+                top: 0,
+                width: canvasWidth,
+                height: canvasHeight
+            };
+        }
+
+        return {
+            left: holeRect.left - canvasRect.left,
+            top: holeRect.top - canvasRect.top,
+            width: holeRect.width,
+            height: holeRect.height
+        };
+    }
+
+    /**
+     * Usable camera box in canvas CSS pixels: the chrome cutout minus the
+     * overlay property panel at the bottom. Hidden panels contribute no
+     * bottom inset. Pointer mapping still uses the full canvas
+     * `getBoundingClientRect()`.
+     */
+    getCanvasContentFrame(): {
+        left: number;
+        top: number;
+        right: number;
+        bottom: number;
+        width: number;
+        height: number;
+    } {
+        const cutout = this.getCanvasCutoutFrame();
         const panel = this.propertyPanel;
         const panelHidden = !panel || panel.classList.contains('hidden');
         const panelHeight = panelHidden
             ? 0
             : Math.max(0, panel.getBoundingClientRect().height);
-        const bottom = Math.min(panelHeight, canvasHeight);
+        const bottomInset = Math.min(panelHeight, cutout.height);
+        const canvasRect = this.canvas?.getBoundingClientRect();
+        const canvasWidth =
+            (canvasRect && canvasRect.width > 0 ? canvasRect.width : 0) ||
+            cutout.left + cutout.width;
+        const canvasHeight =
+            (canvasRect && canvasRect.height > 0 ? canvasRect.height : 0) ||
+            cutout.top + cutout.height;
+        const width = Math.max(0, cutout.width);
+        const height = Math.max(0, cutout.height - bottomInset);
         return {
-            left: 0,
-            top: 0,
-            right: 0,
-            bottom,
-            width: Math.max(0, canvasWidth),
-            height: Math.max(0, canvasHeight - bottom)
+            left: cutout.left,
+            top: cutout.top,
+            right: Math.max(0, canvasWidth - cutout.left - width),
+            bottom: Math.max(0, canvasHeight - cutout.top - height),
+            width,
+            height
         };
+    }
+
+    setPreviewMode(active: boolean): void {
+        const wasActive = this.outlineEditor.isPreviewMode;
+        this.outlineEditor.isPreviewMode = active;
+        if (active && !wasActive) {
+            this.previewViewportGuide = this.getCanvasCutoutFrame();
+            this.animatePreviewChrome(0);
+        } else if (!active && wasActive) {
+            this.animatePreviewChrome(1);
+        } else {
+            this.render();
+        }
+    }
+
+    private animatePreviewChrome(target: number): void {
+        this.previewChromeTarget = target;
+        if (target < 1) {
+            document.body.classList.add('preview-mode-chrome');
+        }
+        if (this.previewChromeRaf !== null) {
+            return;
+        }
+        const step = () => {
+            const delta = this.previewChromeTarget - this.previewChromeOpacity;
+            const increment = 1 / PREVIEW_CHROME_ANIMATION_FRAMES;
+            if (Math.abs(delta) <= increment) {
+                this.previewChromeOpacity = this.previewChromeTarget;
+                this.previewChromeRaf = null;
+                this.applyPreviewChromeOpacity();
+                if (this.previewChromeOpacity === 1) {
+                    document.body.classList.remove('preview-mode-chrome');
+                    this.previewViewportGuide = null;
+                }
+                this.render();
+                return;
+            }
+            this.previewChromeOpacity += Math.sign(delta) * increment;
+            this.applyPreviewChromeOpacity();
+            this.render();
+            this.previewChromeRaf = requestAnimationFrame(step);
+        };
+        this.applyPreviewChromeOpacity();
+        this.previewChromeRaf = requestAnimationFrame(step);
+    }
+
+    private applyPreviewChromeOpacity(): void {
+        document.documentElement.style.setProperty(
+            '--preview-chrome-opacity',
+            String(this.previewChromeOpacity)
+        );
     }
 
     setupEventListeners(): void {
@@ -2531,7 +2681,7 @@ class GlyphCanvas {
         this.textRunEditor!.on('activatePreviewMode', () => {
             // Activate preview mode when space key timer expires in text mode
             this.outlineEditor.spaceKeyPressed = true;
-            this.outlineEditor.isPreviewMode = true;
+            this.setPreviewMode(true);
             // Store current cursor style and switch to grab cursor
             this.textRunEditor!.cursorStyleBeforePreview =
                 this.canvas!.style.cursor;
@@ -2548,7 +2698,7 @@ class GlyphCanvas {
                 }
             );
             this.outlineEditor.spaceKeyPressed = false;
-            this.outlineEditor.isPreviewMode = false;
+            this.setPreviewMode(false);
             // Restore previous cursor style
             if (this.textRunEditor!.cursorStyleBeforePreview) {
                 this.canvas!.style.cursor =
@@ -2666,10 +2816,29 @@ class GlyphCanvas {
         );
     }
 
+    /**
+     * The bitmap is not a descendant of `#view-editor`, so cutout clicks do
+     * not bubble to the view click-focus handler. Mirror that handler here.
+     */
+    private focusEditorViewFromCanvasPointer(): void {
+        const editorView = document.getElementById('view-editor');
+        if (!editorView || typeof window.focusView !== 'function') {
+            return;
+        }
+        const isCollapsed =
+            editorView.classList.contains('collapsed') ||
+            editorView.classList.contains('collapsed-width');
+        if (!editorView.classList.contains('focused') || isCollapsed) {
+            window.focusView('view-editor');
+        }
+    }
+
     async onMouseDown(e: MouseEvent): Promise<void> {
         if (e.button === 2) {
             return;
         }
+
+        this.focusEditorViewFromCanvasPointer();
 
         // Start each pointer gesture from a clean pan state. Mouseup can be
         // missed when a previous pan leaves the canvas/window.
@@ -3285,17 +3454,25 @@ class GlyphCanvas {
     }
 
     onResize(): void {
-        // Splitter/collapse sizing is based on the outer canvas container.
-        const newWidth = this.container.clientWidth;
-        const newHeight = this.container.clientHeight;
+        // Splitter/collapse sizing is based on the editor cutout, not the
+        // full-window bitmap.
+        const cutout = this.getCanvasCutoutFrame();
+        const newWidth = cutout.width || this.container.clientWidth;
+        const newHeight = cutout.height || this.container.clientHeight;
+        const newLeft = cutout.left;
+        const newTop = cutout.top;
 
         // Use stored previous dimensions (or current if first resize)
         const oldWidth = this.lastContainerWidth || newWidth;
         const oldHeight = this.lastContainerHeight || newHeight;
+        const oldLeft = this.lastCutoutLeft;
+        const oldTop = this.lastCutoutTop;
 
         // Store new dimensions for next resize
         this.lastContainerWidth = newWidth;
         this.lastContainerHeight = newHeight;
+        this.lastCutoutLeft = newLeft;
+        this.lastCutoutTop = newTop;
 
         this.syncCanvasBackingStore();
 
@@ -3373,7 +3550,12 @@ class GlyphCanvas {
         }
 
         // Skip viewport adjustment if no viewportManager or dimensions unchanged
-        if (oldWidth === newWidth && oldHeight === newHeight) {
+        if (
+            oldWidth === newWidth &&
+            oldHeight === newHeight &&
+            oldLeft === newLeft &&
+            oldTop === newTop
+        ) {
             this.lastStableViewportSnapshot = this.snapshotCurrentViewport();
             this.render();
             return;
@@ -3392,16 +3574,16 @@ class GlyphCanvas {
             : null;
         const contentAnchorScreenFractionX =
             contentAnchorScreen && oldWidth > 0
-                ? contentAnchorScreen.x / oldWidth
+                ? (contentAnchorScreen.x - oldLeft) / oldWidth
                 : null;
         const contentAnchorScreenFractionY =
             contentAnchorScreen && oldHeight > 0
-                ? contentAnchorScreen.y / oldHeight
+                ? (contentAnchorScreen.y - oldTop) / oldHeight
                 : null;
 
-        // Get the font-space point that was at the old screen center
-        const oldCenterX = oldWidth / 2;
-        const oldCenterY = oldHeight / 2;
+        // Get the font-space point that was at the old cutout center
+        const oldCenterX = oldLeft + oldWidth / 2;
+        const oldCenterY = oldTop + oldHeight / 2;
         const fontSpaceCenter = this.viewportManager.getFontSpaceCoordinates(
             oldCenterX,
             oldCenterY
@@ -3442,8 +3624,8 @@ class GlyphCanvas {
             // screen = scale * fontX + panX  =>  panX = screen - scale * fontX
             // For Y axis (flipped): screenY = -scale * fontY + panY
             //   =>  panY = screenY + scale * fontY
-            const newCenterX = newWidth / 2;
-            const newCenterY = newHeight / 2;
+            const newCenterX = newLeft + newWidth / 2;
+            const newCenterY = newTop + newHeight / 2;
             this.viewportManager.panX =
                 newCenterX - this.viewportManager.scale * fontSpaceCenter.x;
             this.viewportManager.panY =
@@ -10374,8 +10556,10 @@ class GlyphCanvas {
             )
         );
 
-        const targetPanX = rect.width / 2 - fontSpaceCenterX * clampedScale;
-        const targetPanY = rect.height / 2 - -fontSpaceCenterY * clampedScale;
+        const targetPanX =
+            viewportFrameCenterX(rect) - fontSpaceCenterX * clampedScale;
+        const targetPanY =
+            viewportFrameCenterY(rect) - -fontSpaceCenterY * clampedScale;
 
         return {
             scale: clampedScale,
@@ -10632,8 +10816,8 @@ class GlyphCanvas {
                 centerY = screenPoint.y;
             } else {
                 // Fallback to canvas center if no bounds
-                centerX = rect.width / 2;
-                centerY = rect.height / 2;
+                centerX = viewportFrameCenterX(rect);
+                centerY = viewportFrameCenterY(rect);
             }
         } else {
             // Text mode: zoom towards cursor center
@@ -10867,6 +11051,18 @@ class GlyphCanvas {
         this.textRunEditor!.destroyHarfbuzz();
 
         // Remove canvas
+        if (this.previewChromeRaf !== null) {
+            cancelAnimationFrame(this.previewChromeRaf);
+            this.previewChromeRaf = null;
+        }
+        document.body.classList.remove(
+            'has-full-window-glyph-canvas',
+            'preview-mode-chrome'
+        );
+        document.documentElement.style.removeProperty(
+            '--preview-chrome-opacity'
+        );
+
         if (this.canvas && this.canvas.parentNode) {
             this.canvas.parentNode.removeChild(this.canvas);
         }
@@ -11124,7 +11320,10 @@ class GlyphCanvas {
             this.textRunEditor!.cursorX * this.viewportManager!.scale +
             this.viewportManager!.panX;
 
-        return screenX >= leftMargin && screenX <= rect.width - rightMargin;
+        return (
+            screenX >= rect.left + leftMargin &&
+            screenX <= viewportFrameRight(rect) - rightMargin
+        );
     }
 
     /**
@@ -11212,11 +11411,14 @@ class GlyphCanvas {
             this.textRunEditor!.cursorX * scale + this.viewportManager!.panX;
 
         let targetPanX;
-        if (screenX < leftMargin) {
-            targetPanX = leftMargin - this.textRunEditor!.cursorX * scale;
+        if (screenX < rect.left + leftMargin) {
+            targetPanX =
+                rect.left + leftMargin - this.textRunEditor!.cursorX * scale;
         } else {
             targetPanX =
-                rect.width - rightMargin - this.textRunEditor!.cursorX * scale;
+                viewportFrameRight(rect) -
+                rightMargin -
+                this.textRunEditor!.cursorX * scale;
         }
 
         this.viewportManager!.animatePan(

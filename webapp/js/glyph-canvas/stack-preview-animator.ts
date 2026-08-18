@@ -432,6 +432,8 @@ export class StackPreviewAnimator {
             frame && frame.width > 0 ? frame.width : canvas.width / dpr;
         const canvasHeight =
             frame && frame.height > 0 ? frame.height : canvas.height / dpr;
+        const frameLeft = frame && frame.width > 0 ? frame.left : 0;
+        const frameTop = frame && frame.height > 0 ? frame.top : 0;
 
         const margin = 40;
         const availableWidth = canvasWidth - 2 * margin;
@@ -450,8 +452,10 @@ export class StackPreviewAnimator {
         const stackCenterY = (bounds.minY + bounds.maxY) / 2;
         const skewedCenterX = stackCenterX - stackCenterY * tanTilt;
 
-        this.targetPanX = canvasWidth / 2 - this.targetScale * skewedCenterX;
-        this.targetPanY = canvasHeight / 2 + this.targetScale * stackCenterY;
+        this.targetPanX =
+            frameLeft + canvasWidth / 2 - this.targetScale * skewedCenterX;
+        this.targetPanY =
+            frameTop + canvasHeight / 2 + this.targetScale * stackCenterY;
     }
 
     /** Calculate bounds of entire stack in font coordinates */

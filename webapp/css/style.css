@@ -6340,12 +6340,75 @@ kbd + kbd {
 /* Glyph Canvas Styles    */
 /* ====================== */
 
+#glyph-canvas-stage {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: auto;
+}
+
+.toolbar,
+.app-shell,
+.container {
+    position: relative;
+    z-index: 1;
+}
+
+body.preview-mode-chrome .toolbar,
+body.preview-mode-chrome .app-shell {
+    opacity: var(--preview-chrome-opacity, 1);
+    pointer-events: none;
+}
+
+/* Canvas sits behind chrome; only the editor drawing slot is a hole. */
+body.has-full-window-glyph-canvas .app-shell,
+body.has-full-window-glyph-canvas .container {
+    background-color: transparent;
+}
+
+body.has-full-window-glyph-canvas .container {
+    box-shadow:
+        inset 5px 0 0 var(--border-primary),
+        inset -5px 0 0 var(--border-primary),
+        inset 0 -5px 0 var(--border-primary);
+}
+
+body.has-full-window-glyph-canvas .app-shell,
+body.has-full-window-glyph-canvas .container,
+body.has-full-window-glyph-canvas .top-row,
+body.has-full-window-glyph-canvas #view-editor,
+body.has-full-window-glyph-canvas #view-editor .view-content,
+body.has-full-window-glyph-canvas #glyph-canvas-container,
+body.has-full-window-glyph-canvas .glyph-canvas-viewport {
+    pointer-events: none;
+}
+
+body.has-full-window-glyph-canvas .container > :not(.top-row),
+body.has-full-window-glyph-canvas .top-row > :not(#view-editor),
+body.has-full-window-glyph-canvas .app-shell.docs-open > .view-docs,
+body.has-full-window-glyph-canvas .app-shell.docs-open > #docs-divider,
+body.has-full-window-glyph-canvas #view-editor .view-title-bar,
+body.has-full-window-glyph-canvas #view-editor .view-sidebar,
+body.has-full-window-glyph-canvas
+    #glyph-canvas-container
+    > .glyph-property-panel {
+    pointer-events: auto;
+}
+
+#view-editor:has(#glyph-canvas-container) {
+    background-color: transparent;
+}
+
+#view-editor:has(#glyph-canvas-container) .view-title-bar {
+    background-color: var(--background-primary);
+}
+
 #glyph-canvas-container {
     width: 100%;
     height: 100%;
     position: relative;
     overflow: hidden;
-    background-color: var(--background-editor-sidebar);
+    background-color: transparent;
 }
 
 .glyph-canvas-viewport {

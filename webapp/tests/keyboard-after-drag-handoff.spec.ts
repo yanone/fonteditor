@@ -321,7 +321,7 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
         await page.mouse.move(-100, -100);
         await page.waitForTimeout(100);
 
-        const canvasLocator = page.locator('#glyph-canvas-container canvas');
+        const canvasLocator = page.locator('#glyph-canvas-container');
 
         let framedViewport: {
             panX: number;

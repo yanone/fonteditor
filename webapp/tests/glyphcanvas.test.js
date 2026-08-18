@@ -586,6 +586,53 @@ describe('GlyphCanvas initialization', () => {
         expect(canvas.getCanvasContentFrame().height).toBe(600);
     });
 
+    test('getCanvasContentFrame subtracts chrome around a full-window canvas cutout', () => {
+        canvas = new GlyphCanvas('test-container');
+        canvas.canvas.getBoundingClientRect = () => ({
+            width: 1200,
+            height: 800,
+            top: 0,
+            left: 0,
+            right: 1200,
+            bottom: 800,
+            x: 0,
+            y: 0,
+            toJSON() {}
+        });
+        canvas.container.getBoundingClientRect = () => ({
+            width: 800,
+            height: 600,
+            top: 80,
+            left: 200,
+            right: 1000,
+            bottom: 680,
+            x: 200,
+            y: 80,
+            toJSON() {}
+        });
+        canvas.propertyPanel.classList.remove('hidden');
+        canvas.propertyPanel.getBoundingClientRect = () => ({
+            width: 800,
+            height: 80,
+            top: 600,
+            left: 200,
+            right: 1000,
+            bottom: 680,
+            x: 200,
+            y: 600,
+            toJSON() {}
+        });
+
+        expect(canvas.getCanvasContentFrame()).toEqual({
+            left: 200,
+            top: 80,
+            right: 200,
+            bottom: 200,
+            width: 800,
+            height: 520
+        });
+    });
+
     test('should initialize viewport manager with default values', () => {
         canvas = new GlyphCanvas('test-container');
         expect(canvas.viewportManager).toBeTruthy();
@@ -1425,6 +1472,21 @@ describe('GlyphCanvas onMouseDown', () => {
         const focusSpy = jest.spyOn(canvas.canvas, 'focus');
         canvas.onMouseDown({ clientX: 10, clientY: 20, detail: 1 });
         expect(focusSpy).toHaveBeenCalled();
+    });
+
+    test('should activate the editor view when the canvas is clicked', () => {
+        const editorView = document.createElement('div');
+        editorView.id = 'view-editor';
+        editorView.className = 'view';
+        document.body.appendChild(editorView);
+        const focusView = jest.fn();
+        window.focusView = focusView;
+
+        canvas.onMouseDown({ clientX: 10, clientY: 20, detail: 1, button: 0 });
+
+        expect(focusView).toHaveBeenCalledWith('view-editor');
+        delete window.focusView;
+        editorView.remove();
     });
 
     test('should start canvas panning when Space key is pressed', () => {

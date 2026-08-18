@@ -455,7 +455,7 @@ test.describe('Font Editor Basic Workflow', () => {
         // Type some text - click canvas to focus, then type
         // This triggers the subsetted font compilation via onTextChange debounce
         console.log('[Test] Typing text on canvas');
-        await page.click('#glyph-canvas-container canvas');
+        await page.locator('#glyph-canvas-container').click({ force: true });
         await page.waitForTimeout(100);
         // Move mouse far outside the viewport to avoid triggering any hover effects
         await page.mouse.move(-100, -100);
@@ -802,11 +802,12 @@ test.describe('Font Editor Basic Workflow', () => {
 
         // SNAPSHOT POINT 17: Variation set to 300
         console.log('[Test] Taking snapshot 17: variation 300');
-        await expect(
-            page.locator('#glyph-canvas-container canvas')
-        ).toHaveScreenshot('17-variation-300.png', {
-            maxDiffPixelRatio: 0.04
-        });
+        await expect(page.locator('#glyph-canvas-container')).toHaveScreenshot(
+            '17-variation-300.png',
+            {
+                maxDiffPixelRatio: 0.04
+            }
+        );
 
         console.log('[Test] Setting variation axis value to 400');
         await firstAxisValueInput.fill('400');

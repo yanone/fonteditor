@@ -564,7 +564,7 @@ export async function waitForStableCanvasBox(
         await page.waitForFunction(
             (stableIdleMs) => {
                 const canvas = document.querySelector(
-                    '#glyph-canvas-container canvas'
+                    '#glyph-canvas-stage canvas, #glyph-canvas-container canvas'
                 ) as HTMLCanvasElement | null;
                 if (!canvas) {
                     return false;
@@ -1450,7 +1450,7 @@ export async function takeSnapshot(
             async () => {
                 const screenshotOptions = { maxDiffPixelRatio };
                 await expect(
-                    page.locator('#glyph-canvas-container canvas')
+                    page.locator('#glyph-canvas-container')
                 ).toHaveScreenshot(
                     `${snapshotNumber}-${label}.png`,
                     screenshotOptions

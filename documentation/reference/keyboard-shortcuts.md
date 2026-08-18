@@ -55,7 +55,7 @@ Each view title bar shows the same shortcut.
 - `Cmd/Ctrl+Shift+B` — toggle editing the background layer
 - `Cmd/Ctrl+Alt/Option+B` — show or hide the paired layer
 - Arrow keys — nudge selected objects (`Shift` for 10×)
-- `Space` — preview outline fill (grab cursor; drag to pan)
+- `Space` — preview outline fill; chrome fades out for 10 frames and a dotted rectangle marks the editor viewport so you can pan the drawing onto it (grab cursor; drag to pan). Release Space to fade chrome back.
 - `Tab` — measurement tool; click and drag for a custom line
 - `T` — text mode (leave glyph editing)
 - `V` — select tool
