@@ -2875,13 +2875,14 @@ describe('handleRemoteChangeRefresh', () => {
             );
 
             expect(glyphCanvas.captureIdleViewLock).toHaveBeenCalledWith({
-                kerningPair: false
+                kerningPair: false,
+                bboxCenter: true
             });
             expect(glyphCanvas.reapplyIdleViewLock).toHaveBeenCalled();
             expect(glyphCanvas.render).not.toHaveBeenCalled();
         });
 
-        test("remote outline packet on another glyph still locks this window's active bbox", async () => {
+        test("remote outline packet on another glyph locks this window's active origin", async () => {
             const { glyphCanvas } = installReceiverHarness({
                 activeGlyphName: 'a',
                 activeLayerId: 'master-regular',
@@ -2906,7 +2907,8 @@ describe('handleRemoteChangeRefresh', () => {
             );
 
             expect(glyphCanvas.captureIdleViewLock).toHaveBeenCalledWith({
-                kerningPair: false
+                kerningPair: false,
+                bboxCenter: false
             });
             expect(glyphCanvas.reapplyIdleViewLock).toHaveBeenCalled();
         });
@@ -2937,7 +2939,40 @@ describe('handleRemoteChangeRefresh', () => {
             );
 
             expect(glyphCanvas.captureIdleViewLock).toHaveBeenCalledWith({
-                kerningPair: true
+                kerningPair: true,
+                bboxCenter: false
+            });
+            expect(glyphCanvas.reapplyIdleViewLock).toHaveBeenCalled();
+        });
+
+        test('remote sidebearing packet on another glyph locks this window origin', async () => {
+            const { glyphCanvas } = installReceiverHarness({
+                activeGlyphName: 'a',
+                activeLayerId: 'master-regular',
+                currentLayerWidth: 560,
+                initialPanX: 200,
+                initialScale: 2
+            });
+
+            await handleRemoteChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Set sidebearing',
+                        path: 'glyphs.b:layers.master-regular:',
+                        visualAnchorSide: 'left',
+                        oldValue: { width: 500 },
+                        newValue: { width: 560 }
+                    }
+                ],
+                {
+                    requestCompile: jest.fn(async () => {}),
+                    queueCacheRefresh: jest.fn(async () => {})
+                }
+            );
+
+            expect(glyphCanvas.captureIdleViewLock).toHaveBeenCalledWith({
+                kerningPair: false,
+                bboxCenter: false
             });
             expect(glyphCanvas.reapplyIdleViewLock).toHaveBeenCalled();
         });
@@ -2969,7 +3004,8 @@ describe('handleRemoteChangeRefresh', () => {
             );
 
             expect(glyphCanvas.captureIdleViewLock).toHaveBeenCalledWith({
-                kerningPair: false
+                kerningPair: false,
+                bboxCenter: true
             });
             expect(glyphCanvas.reapplyIdleViewLock).toHaveBeenCalled();
         });

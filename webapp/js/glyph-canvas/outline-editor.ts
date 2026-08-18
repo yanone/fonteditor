@@ -6729,17 +6729,10 @@ export class OutlineEditor {
             return null;
         }
 
-        if (
-            !this.glyphCanvas.viewportManager ||
-            !this.glyphCanvas.textRunEditor ||
-            this.glyphCanvas.textRunEditor.selectedGlyphIndex < 0
-        ) {
+        const glyphOrigin = this.getActiveGlyphRunOrigin();
+        if (!glyphOrigin) {
             return null;
         }
-
-        const glyphPosition = this.glyphCanvas.textRunEditor._getGlyphPosition(
-            this.glyphCanvas.textRunEditor.selectedGlyphIndex
-        );
 
         let localCenterX = bbox.minX + bbox.width / 2;
         let localCenterY = bbox.minY + bbox.height / 2;
@@ -6754,8 +6747,59 @@ export class OutlineEditor {
         }
 
         return {
-            x: glyphPosition.xPosition + glyphPosition.xOffset + localCenterX,
-            y: glyphPosition.yOffset + localCenterY
+            x: glyphOrigin.x + localCenterX,
+            y: glyphOrigin.y + localCenterY
+        };
+    }
+
+    /**
+     * Edit-mode idle lock when the packet is not an active-glyph sidebearing
+     * edit: LTR uses the glyph origin (0, 0); RTL uses (xAdvance, 0).
+     */
+    getEditModeOriginLockFontPosition(): {
+        x: number;
+        y: number;
+    } | null {
+        const textRun = this.glyphCanvas.textRunEditor;
+        const glyphOrigin = this.getActiveGlyphRunOrigin();
+        if (!glyphOrigin || !textRun) {
+            return null;
+        }
+
+        const glyphIndex = textRun.selectedGlyphIndex;
+        const shapedGlyph = textRun.shapedGlyphs?.[glyphIndex];
+        const cluster = shapedGlyph?.cl ?? 0;
+        const isRTL = textRun.isPositionRTL(cluster);
+        const shapedAdvance = shapedGlyph?.ax;
+        const layerWidth = this.getCurrentLayerDataFromStack()?.width;
+        const advance =
+            typeof shapedAdvance === 'number' && Number.isFinite(shapedAdvance)
+                ? shapedAdvance
+                : typeof layerWidth === 'number' && Number.isFinite(layerWidth)
+                  ? layerWidth
+                  : 0;
+
+        return {
+            x: glyphOrigin.x + (isRTL ? advance : 0),
+            y: glyphOrigin.y
+        };
+    }
+
+    private getActiveGlyphRunOrigin(): { x: number; y: number } | null {
+        if (
+            !this.glyphCanvas.viewportManager ||
+            !this.glyphCanvas.textRunEditor ||
+            this.glyphCanvas.textRunEditor.selectedGlyphIndex < 0
+        ) {
+            return null;
+        }
+
+        const glyphPosition = this.glyphCanvas.textRunEditor._getGlyphPosition(
+            this.glyphCanvas.textRunEditor.selectedGlyphIndex
+        );
+        return {
+            x: glyphPosition.xPosition + glyphPosition.xOffset,
+            y: glyphPosition.yOffset
         };
     }
 

@@ -2314,10 +2314,78 @@ function committedPacketLocksKerningPair(entries: ChangeLogEntry[]): boolean {
     });
 }
 
+function flattenCommittedSemanticEntries(
+    entries: ChangeLogEntry[]
+): ChangeLogEntry[] {
+    const flattened: ChangeLogEntry[] = [];
+    for (const entry of entries) {
+        if (entry.semanticChangeLogEntries?.length) {
+            flattened.push(...entry.semanticChangeLogEntries);
+        } else {
+            flattened.push(entry);
+        }
+    }
+    return flattened;
+}
+
+function isIdleSidebearingLockEntry(entry: ChangeLogEntry): boolean {
+    return (
+        isDirectSidebearingTransactionLabel(entry.transactionLabel) ||
+        isSidebearingKeyCommittedEntry(entry) ||
+        entry.visualAnchorSide === 'left' ||
+        entry.visualAnchorSide === 'right' ||
+        entry.editSource === 'mouse-drag-sidebearing' ||
+        entry.compileChangeSource === 'mouse-drag-sidebearing'
+    );
+}
+
+function collectIdleLockGlyphNames(entries: ChangeLogEntry[]): string[] {
+    const names = new Set<string>();
+    const semanticEntries = flattenCommittedSemanticEntries(entries);
+    for (const name of deriveGlyphNamesFromPaths(
+        semanticEntries
+            .map((entry) => entry.path)
+            .filter((path): path is string => !!path)
+    )) {
+        names.add(name);
+    }
+    for (const target of collectReplayTargetsFromEntries(entries)) {
+        names.add(target.glyphName);
+    }
+    for (const target of collectReplayTargetsFromEntries(semanticEntries)) {
+        names.add(target.glyphName);
+    }
+    return [...names];
+}
+
+function committedPacketLocksActiveGlyphBbox(
+    entries: ChangeLogEntry[]
+): boolean {
+    if (!window.glyphCanvas?.outlineEditor?.active) {
+        return false;
+    }
+    const semanticEntries = flattenCommittedSemanticEntries(entries);
+    const isSidebearingPacket = semanticEntries.some(
+        isIdleSidebearingLockEntry
+    );
+    if (!isSidebearingPacket) {
+        return false;
+    }
+
+    const glyphNames = collectIdleLockGlyphNames(entries);
+    if (!glyphNames.length) {
+        return true;
+    }
+
+    const activeGlyphName = getActiveEditedGlyphName();
+    return !!activeGlyphName && glyphNames.includes(activeGlyphName);
+}
+
 /**
  * Capture this window's idle viewer lock before a committed packet mutates
  * the canvas. Same lock for local, remote, undo, and redo. Live drags and
- * sidebearing bursts on this window still bypass it.
+ * sidebearing bursts on this window still bypass it. Edit mode locks origin
+ * unless this packet is a sidebearing edit that includes the active glyph.
  */
 function applyIdleViewLock(entries: ChangeLogEntry[]): boolean {
     const gc = window.glyphCanvas;
@@ -2325,7 +2393,8 @@ function applyIdleViewLock(entries: ChangeLogEntry[]): boolean {
         return false;
     }
     return gc.captureIdleViewLock({
-        kerningPair: committedPacketLocksKerningPair(entries)
+        kerningPair: committedPacketLocksKerningPair(entries),
+        bboxCenter: committedPacketLocksActiveGlyphBbox(entries)
     });
 }
 

@@ -26,11 +26,46 @@ function snapshotLayerCenterScreen(target) {
     );
 }
 
+function snapshotGlyphOriginScreen(target, { rtl = false } = {}) {
+    const glyphPosition = target.textRunEditor._getGlyphPosition(
+        target.textRunEditor.selectedGlyphIndex
+    );
+    const shapedGlyph =
+        target.textRunEditor.shapedGlyphs?.[
+            target.textRunEditor.selectedGlyphIndex
+        ];
+    const advance =
+        typeof shapedGlyph?.ax === 'number'
+            ? shapedGlyph.ax
+            : target.outlineEditor.layerData.width;
+    const localX = rtl ? advance : 0;
+
+    return target.viewportManager.fontToScreenCoordinates(
+        glyphPosition.xPosition + glyphPosition.xOffset + localX,
+        glyphPosition.yOffset
+    );
+}
+
 function expectLayerCenterAnchored(target, beforeCenter) {
     const afterCenter = snapshotLayerCenterScreen(target);
 
     expect(afterCenter.x).toBeCloseTo(beforeCenter.x, 5);
     expect(afterCenter.y).toBeCloseTo(beforeCenter.y, 5);
+}
+
+function expectGlyphOriginAnchored(target, beforeOrigin, options) {
+    const afterOrigin = snapshotGlyphOriginScreen(target, options);
+
+    expect(afterOrigin.x).toBeCloseTo(beforeOrigin.x, 5);
+    expect(afterOrigin.y).toBeCloseTo(beforeOrigin.y, 5);
+}
+
+function shiftLayerNodes(target, dx) {
+    for (const shape of target.outlineEditor.layerData.shapes) {
+        for (const node of shape.nodes) {
+            node.x += dx;
+        }
+    }
 }
 
 function snapshotViewport(target) {
@@ -890,8 +925,8 @@ describe('Idle committed viewer lock', () => {
         canvas.destroy();
     });
 
-    test('edit mode keeps the active glyph bbox center on screen after a remote layout shift', () => {
-        const beforeCenter = snapshotLayerCenterScreen(canvas);
+    test('edit mode keeps the active glyph origin on screen after a remote layout shift', () => {
+        const beforeOrigin = snapshotGlyphOriginScreen(canvas);
         expect(canvas.captureIdleViewLock({ kerningPair: false })).toBe(true);
 
         canvas.textRunEditor._getGlyphPosition = jest.fn(() => ({
@@ -901,9 +936,53 @@ describe('Idle committed viewer lock', () => {
         }));
 
         expect(canvas.reapplyIdleViewLock()).toBe(true);
-        expectLayerCenterAnchored(canvas, beforeCenter);
+        expectGlyphOriginAnchored(canvas, beforeOrigin);
         canvas.clearIdleViewLock();
         expect(canvas.hasPendingIdleViewLock()).toBe(false);
+    });
+
+    test('edit mode origin lock does not keep bbox center after a geometry change', () => {
+        const beforeOrigin = snapshotGlyphOriginScreen(canvas);
+        const beforeCenter = snapshotLayerCenterScreen(canvas);
+        expect(canvas.captureIdleViewLock({ kerningPair: false })).toBe(true);
+
+        shiftLayerNodes(canvas, 80);
+
+        expect(canvas.reapplyIdleViewLock()).toBe(true);
+        expectGlyphOriginAnchored(canvas, beforeOrigin);
+        const afterCenter = snapshotLayerCenterScreen(canvas);
+        expect(afterCenter.x).not.toBeCloseTo(beforeCenter.x, 5);
+        canvas.clearIdleViewLock();
+    });
+
+    test('edit mode sidebearing exception keeps bbox center after a geometry change', () => {
+        const beforeCenter = snapshotLayerCenterScreen(canvas);
+        expect(
+            canvas.captureIdleViewLock({
+                kerningPair: false,
+                bboxCenter: true
+            })
+        ).toBe(true);
+
+        shiftLayerNodes(canvas, 80);
+
+        expect(canvas.reapplyIdleViewLock()).toBe(true);
+        expectLayerCenterAnchored(canvas, beforeCenter);
+        canvas.clearIdleViewLock();
+    });
+
+    test('edit mode RTL origin lock keeps the advance edge on screen', () => {
+        canvas.textRunEditor.isPositionRTL = jest.fn(() => true);
+        canvas.textRunEditor.shapedGlyphs = [{ ax: 500, cl: 0 }];
+        const beforeOrigin = snapshotGlyphOriginScreen(canvas, { rtl: true });
+        expect(canvas.captureIdleViewLock({ kerningPair: false })).toBe(true);
+
+        canvas.textRunEditor.shapedGlyphs = [{ ax: 580, cl: 0 }];
+        canvas.outlineEditor.layerData.width = 580;
+
+        expect(canvas.reapplyIdleViewLock()).toBe(true);
+        expectGlyphOriginAnchored(canvas, beforeOrigin, { rtl: true });
+        canvas.clearIdleViewLock();
     });
 
     test('text mode keeps the caret on screen after a remote advance shift', () => {
