@@ -176,6 +176,65 @@ export function deriveOriginatingLayerFromPaths(paths: string[]): {
     return { glyphName: null, layerId: null };
 }
 
+function operationPathTouchesLayer(
+    path: (string | number)[] | undefined
+): boolean {
+    return !!path && !!deriveLayerId(path);
+}
+
+/**
+ * Transaction undo origin: the layer the user edited, not each written
+ * cascade/replay target. Canvas context wins for layer-touching commits so
+ * dependent snapshots cannot claim ownership. Font-root canvas edits (kerning)
+ * leave origin unset.
+ */
+export function resolveCommitOriginatingLayer(options: {
+    contextSurface?: HistoryUndoSurface | null;
+    contextGlyphName?: string | null;
+    contextLayerId?: string | null;
+    operations: Array<{
+        originatingGlyphName?: string | null;
+        originatingLayerId?: string | null;
+        path?: (string | number)[];
+        applyPath?: (string | number)[];
+    }>;
+}): { glyphName: string | null; layerId: string | null } {
+    const operations = options.operations ?? [];
+    const touchesLayer = operations.some(
+        (operation) =>
+            operationPathTouchesLayer(operation.applyPath) ||
+            operationPathTouchesLayer(operation.path)
+    );
+
+    if (
+        options.contextSurface === 'canvas' &&
+        options.contextGlyphName &&
+        options.contextLayerId &&
+        touchesLayer
+    ) {
+        return {
+            glyphName: options.contextGlyphName,
+            layerId: options.contextLayerId
+        };
+    }
+
+    for (const operation of operations) {
+        if (operation.originatingGlyphName && operation.originatingLayerId) {
+            return {
+                glyphName: operation.originatingGlyphName,
+                layerId: operation.originatingLayerId
+            };
+        }
+    }
+
+    return deriveOriginatingLayerFromPaths(
+        operations.map((operation) => {
+            const path = operation.applyPath ?? operation.path ?? [];
+            return joinPathWithGlyphSeparator(path);
+        })
+    );
+}
+
 /**
  * Originating layer for collaboration / history display metadata.
  *
@@ -612,6 +671,17 @@ const FONT_SCOPE_KEY = '__font__';
 
 function getGlyphScopeKey(glyphName: string | null): string {
     return glyphName ?? FONT_SCOPE_KEY;
+}
+
+export function isDerivedLayerChangePath(
+    path: string,
+    originatingGlyphName: string | null | undefined
+): boolean {
+    if (!originatingGlyphName) {
+        return false;
+    }
+    const glyphName = deriveGlyphNameFromPath(path);
+    return !!glyphName && glyphName !== originatingGlyphName;
 }
 
 function getLayerScopeKey(
@@ -1230,8 +1300,9 @@ function inferHistoryUndoSurface(options: {
 /**
  * Canvas Cmd+Z includes every layer of the originating glyph that this item
  * actually wrote. Dependent glyphs in the same packet stay off that stack.
- * Font-scoped Editing View edits (kerning, master guides, …) join via
- * `undoSurfaceAffinity === 'canvas'`.
+ * Editing View font-root edits (kerning, master guides, …) join via
+ * `undoSurfaceAffinity === 'canvas'` only when the item has no originating
+ * layer — affinity must not make a layer-origin packet global.
  */
 function historyItemTouchesCanvasLayer(
     item: MutableHistoryStackItem,
@@ -1253,19 +1324,22 @@ function historyItemMatchesCanvasSurface(
     glyphName: string | null,
     layerId: string | null
 ): boolean {
+    if (item.originatingGlyphName) {
+        if (glyphName && layerId) {
+            return historyItemTouchesCanvasLayer(item, glyphName, layerId);
+        }
+        // Text mode (no layer): still reach layer-origin edits for the caret glyph.
+        return (
+            !!glyphName &&
+            item.originatingGlyphName === glyphName &&
+            !!item.originatingLayerId
+        );
+    }
     if (item.undoSurfaceAffinity === 'canvas') {
         return true;
     }
     if (glyphName && layerId) {
         return historyItemTouchesCanvasLayer(item, glyphName, layerId);
-    }
-    // Text mode (no layer): still reach layer-origin edits for the caret glyph.
-    if (
-        glyphName &&
-        item.originatingGlyphName === glyphName &&
-        item.originatingLayerId
-    ) {
-        return true;
     }
     return false;
 }

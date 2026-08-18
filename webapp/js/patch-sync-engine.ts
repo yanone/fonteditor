@@ -56,9 +56,11 @@ import {
     glyphRenamesForHistoryAction,
     normalizeChangeLogEntry,
     resolveCollaborationOriginatingLayer,
+    resolveCommitOriginatingLayer,
     resolveHistoryTargetItem,
     resolveUndoSurfaceAffinity,
-    resetLogCounter
+    resetLogCounter,
+    isDerivedLayerChangePath
 } from './change-log';
 import { Logger } from './logger';
 import {
@@ -72,6 +74,12 @@ import { windowRole } from './window-role';
 import { withSuppressedModelRecording } from './babelfont-model';
 import { diffFontDataToPatchPairs } from './font-data-diff';
 import { getUndoRedoContext } from './undo-redo-context';
+import {
+    computeLayerRecompositionClosure,
+    deriveEditKindsFromChangeLogEntries,
+    shouldResettleDerivedLayersOnHistoryReplay,
+    type FontModelLike
+} from './recomposition-closure';
 
 const console = new Logger('PatchSyncEngine');
 
@@ -2795,8 +2803,9 @@ export class PatchSyncEngine {
             targetItem
         );
         const { manager: um, scope } = this._getUndoManagerForTarget(target);
-        const shouldReplayHistoryItem = !!(
-            targetItem && this._canReplayHistoryItemDirectly(targetItem, 'undo')
+        const shouldReplayHistoryItem = this._shouldReplayHistoryItemDirectly(
+            targetItem,
+            'undo'
         );
         const authoritativeHistory = this._resolveAuthoritativeUndoHistory(
             'undo',
@@ -2871,33 +2880,37 @@ export class PatchSyncEngine {
             const isHistoryReplay =
                 !!targetItem && (scope === 'font' || shouldReplayHistoryItem);
 
-            if (isHistoryReplay) {
-                this._applyHistoryItem(targetItem, 'undo');
-            } else {
+            const historyReplayWrittenTargets = isHistoryReplay
+                ? this._applyHistoryItem(targetItem, 'undo')
+                : [];
+            if (!isHistoryReplay) {
                 um?.undo();
             }
 
-            const layerScopeHints = !(
-                isHistoryReplay && targetItem?.undoScope !== 'layer'
-            )
-                ? workerReplayTargets.length > 0 &&
-                  workerReplayTargets.every(
-                      (replayTarget) =>
-                          !!replayTarget.glyphName &&
-                          !!replayTarget.layerId &&
-                          this._canPatchLayerFromYDoc(replayTarget)
-                  )
-                    ? workerReplayTargets
-                    : scope === 'layer' &&
-                        target.glyphName &&
-                        target.layerId &&
-                        this._canPatchLayerFromYDoc({
-                            glyphName: target.glyphName,
-                            layerId: target.layerId
-                        })
-                      ? { glyphName: target.glyphName, layerId: target.layerId }
-                      : null
-                : null;
+            const layerScopeHints = historyReplayWrittenTargets.length
+                ? historyReplayWrittenTargets
+                : !(isHistoryReplay && targetItem?.undoScope !== 'layer')
+                  ? workerReplayTargets.length > 0 &&
+                    workerReplayTargets.every(
+                        (replayTarget) =>
+                            !!replayTarget.glyphName &&
+                            !!replayTarget.layerId &&
+                            this._canPatchLayerFromYDoc(replayTarget)
+                    )
+                      ? workerReplayTargets
+                      : scope === 'layer' &&
+                          target.glyphName &&
+                          target.layerId &&
+                          this._canPatchLayerFromYDoc({
+                              glyphName: target.glyphName,
+                              layerId: target.layerId
+                          })
+                        ? {
+                              glyphName: target.glyphName,
+                              layerId: target.layerId
+                          }
+                        : null
+                  : null;
             if (layerScopeHints) {
                 this._syncJsonFromYDoc(layerScopeHints);
             } else if (metadataEntries?.length) {
@@ -2967,8 +2980,9 @@ export class PatchSyncEngine {
             targetItem
         );
         const { manager: um, scope } = this._getUndoManagerForTarget(target);
-        const shouldReplayHistoryItem = !!(
-            targetItem && this._canReplayHistoryItemDirectly(targetItem, 'redo')
+        const shouldReplayHistoryItem = this._shouldReplayHistoryItemDirectly(
+            targetItem,
+            'redo'
         );
         const authoritativeHistory = this._resolveAuthoritativeUndoHistory(
             'redo',
@@ -3042,33 +3056,37 @@ export class PatchSyncEngine {
             const isHistoryReplay =
                 !!targetItem && (scope === 'font' || shouldReplayHistoryItem);
 
-            if (isHistoryReplay) {
-                this._applyHistoryItem(targetItem, 'redo');
-            } else {
+            const historyReplayWrittenTargets = isHistoryReplay
+                ? this._applyHistoryItem(targetItem, 'redo')
+                : [];
+            if (!isHistoryReplay) {
                 um?.redo();
             }
 
-            const layerScopeHints = !(
-                isHistoryReplay && targetItem?.undoScope !== 'layer'
-            )
-                ? workerReplayTargets.length > 0 &&
-                  workerReplayTargets.every(
-                      (replayTarget) =>
-                          !!replayTarget.glyphName &&
-                          !!replayTarget.layerId &&
-                          this._canPatchLayerFromYDoc(replayTarget)
-                  )
-                    ? workerReplayTargets
-                    : scope === 'layer' &&
-                        target.glyphName &&
-                        target.layerId &&
-                        this._canPatchLayerFromYDoc({
-                            glyphName: target.glyphName,
-                            layerId: target.layerId
-                        })
-                      ? { glyphName: target.glyphName, layerId: target.layerId }
-                      : null
-                : null;
+            const layerScopeHints = historyReplayWrittenTargets.length
+                ? historyReplayWrittenTargets
+                : !(isHistoryReplay && targetItem?.undoScope !== 'layer')
+                  ? workerReplayTargets.length > 0 &&
+                    workerReplayTargets.every(
+                        (replayTarget) =>
+                            !!replayTarget.glyphName &&
+                            !!replayTarget.layerId &&
+                            this._canPatchLayerFromYDoc(replayTarget)
+                    )
+                      ? workerReplayTargets
+                      : scope === 'layer' &&
+                          target.glyphName &&
+                          target.layerId &&
+                          this._canPatchLayerFromYDoc({
+                              glyphName: target.glyphName,
+                              layerId: target.layerId
+                          })
+                        ? {
+                              glyphName: target.glyphName,
+                              layerId: target.layerId
+                          }
+                        : null
+                  : null;
             if (layerScopeHints) {
                 this._syncJsonFromYDoc(layerScopeHints);
             } else if (metadataEntries?.length) {
@@ -3143,10 +3161,7 @@ export class PatchSyncEngine {
         if (scope === 'font') {
             return !!authoritativeHistory.historyItem;
         }
-        if (
-            targetItem &&
-            this._canReplayHistoryItemDirectly(targetItem, 'undo')
-        ) {
+        if (this._shouldReplayHistoryItemDirectly(targetItem, 'undo')) {
             return true;
         }
         return (
@@ -3192,7 +3207,7 @@ export class PatchSyncEngine {
         }
         if (
             targetItem &&
-            this._canReplayHistoryItemDirectly(targetItem, 'redo')
+            this._shouldReplayHistoryItemDirectly(targetItem, 'redo')
         ) {
             return true;
         }
@@ -3962,6 +3977,8 @@ export class PatchSyncEngine {
             historyTarget,
             operations: normalizedOperations
         });
+        const originatingLayer =
+            this._resolveCommitOriginatingLayer(normalizedOperations);
         const changeLogEntries: ChangeLogEntry[] = normalizedOperations.map(
             (operation) => {
                 const operationHistoryTarget =
@@ -4006,9 +4023,8 @@ export class PatchSyncEngine {
                     historyTargetType: operationHistoryTarget?.type ?? null,
                     historyTargetKey: operationHistoryTarget?.key ?? null,
                     historyTargetLabel: operationHistoryTarget?.label ?? null,
-                    originatingGlyphName:
-                        operation.originatingGlyphName ?? null,
-                    originatingLayerId: operation.originatingLayerId ?? null
+                    originatingGlyphName: originatingLayer.glyphName,
+                    originatingLayerId: originatingLayer.layerId
                 });
             }
         );
@@ -4580,6 +4596,28 @@ export class PatchSyncEngine {
         });
     }
 
+    private _resolveCommitOriginatingLayer(
+        operations: TransactionBufferedOperation[]
+    ): { glyphName: string | null; layerId: string | null } {
+        let contextSurface: HistoryUndoSurface | null = null;
+        let contextGlyphName: string | null = null;
+        let contextLayerId: string | null = null;
+        try {
+            const context = getUndoRedoContext();
+            contextSurface = context.surface;
+            contextGlyphName = context.undoGlyphName ?? null;
+            contextLayerId = context.undoLayerId ?? null;
+        } catch {
+            contextSurface = null;
+        }
+        return resolveCommitOriginatingLayer({
+            contextSurface,
+            contextGlyphName,
+            contextLayerId,
+            operations
+        });
+    }
+
     private _queueOrCommitOperations(
         operations: TransactionBufferedOperation[],
         label?: string | null,
@@ -4748,6 +4786,8 @@ export class PatchSyncEngine {
             historyTarget: primaryHistoryTarget,
             operations: effectiveOperations
         });
+        const originatingLayer =
+            this._resolveCommitOriginatingLayer(effectiveOperations);
         const changeLogEntries: ChangeLogEntry[] = [];
 
         for (const operation of effectiveOperations) {
@@ -4794,8 +4834,8 @@ export class PatchSyncEngine {
                 historyTargetType: operationHistoryTarget?.type ?? null,
                 historyTargetKey: operationHistoryTarget?.key ?? null,
                 historyTargetLabel: operationHistoryTarget?.label ?? null,
-                originatingGlyphName: operation.originatingGlyphName ?? null,
-                originatingLayerId: operation.originatingLayerId ?? null
+                originatingGlyphName: originatingLayer.glyphName,
+                originatingLayerId: originatingLayer.layerId
             });
             changeLogEntries.push(entry);
         }
@@ -5447,7 +5487,9 @@ export class PatchSyncEngine {
 
         for (let index = candidates.length - 1; index >= 0; index--) {
             const candidate = candidates[index];
-            if (this._canReplayHistoryItemDirectly(candidate, historyAction)) {
+            if (
+                this._shouldReplayHistoryItemDirectly(candidate, historyAction)
+            ) {
                 return candidate;
             }
             const target = this._targetFromHistoryItem(
@@ -5578,63 +5620,247 @@ export class PatchSyncEngine {
     private _applyHistoryItem(
         item: HistoryStackItem,
         direction: 'undo' | 'redo'
-    ): void {
-        const entries =
+    ): WorkerReplayTarget[] {
+        const resettleDerivedLayers =
+            shouldResettleDerivedLayersOnHistoryReplay(
+                item,
+                !!this._getResettleFontModel()
+            );
+        const orderedEntries =
             direction === 'undo' ? [...item.entries].reverse() : item.entries;
+        const replayEntries = resettleDerivedLayers
+            ? orderedEntries.filter(
+                  (entry) =>
+                      !isDerivedLayerChangePath(
+                          entry.path,
+                          item.originatingGlyphName
+                      )
+              )
+            : orderedEntries;
 
+        let writtenTargets: WorkerReplayTarget[] = [];
         this.yDoc.transact(() => {
-            for (const entry of entries) {
-                const replayValue = this._getHistoryReplayValue(
-                    entry,
-                    direction
-                );
-                if (entry.path === 'font') {
-                    this._applyFontSnapshot(replayValue);
-                    continue;
-                }
-                const path = this._toYDocPath(this._parseEntryPath(entry.path));
-                if (this._isGlyphRootPath(path) && replayValue) {
-                    this._applyGlyphSnapshot(String(path[1]), replayValue);
-                    continue;
-                }
-                if (
-                    path.length === 4 &&
-                    path[0] === 'glyphs' &&
-                    path[2] === 'layers' &&
-                    typeof path[1] === 'string' &&
-                    typeof path[3] === 'string' &&
-                    replayValue !== undefined
-                ) {
-                    this._applyLayerDelta(path[1], path[3], replayValue);
-                    continue;
-                }
-                if (direction === 'undo') {
-                    if (entry.op === 'add') {
-                        deleteYPath(this.fontMap, path);
-                        continue;
-                    }
-                    if (entry.op === 'remove' || entry.op === 'set') {
-                        // A set that created a property has no prior value.
-                        // Undo must delete the path instead of writing undefined
-                        // through setYPath (and instead of falling back to the
-                        // native UndoManager, which can resurrect stale CRDT
-                        // shape nodes after structural history-replay undos).
-                        if (entry.op === 'set' && replayValue === undefined) {
-                            deleteYPath(this.fontMap, path);
-                        } else {
-                            setYPath(this.fontMap, path, replayValue);
-                        }
-                    }
-                    continue;
-                }
-
-                if (entry.op === 'remove') {
-                    deleteYPath(this.fontMap, path);
-                    continue;
-                }
-                setYPath(this.fontMap, path, replayValue);
+            for (const entry of replayEntries) {
+                this._applyHistoryReplayEntry(entry, direction);
+            }
+            if (resettleDerivedLayers) {
+                writtenTargets =
+                    this._resettleDerivedLayersAfterOriginReplay(item);
             }
         }, HISTORY_REPLAY_ORIGIN);
+
+        return writtenTargets;
+    }
+
+    private _applyHistoryReplayEntry(
+        entry: ChangeLogEntry,
+        direction: 'undo' | 'redo'
+    ): void {
+        const replayValue = this._getHistoryReplayValue(entry, direction);
+        if (entry.path === 'font') {
+            this._applyFontSnapshot(replayValue);
+            return;
+        }
+        const path = this._toYDocPath(this._parseEntryPath(entry.path));
+        if (this._isGlyphRootPath(path) && replayValue) {
+            this._applyGlyphSnapshot(String(path[1]), replayValue);
+            return;
+        }
+        if (
+            path.length === 4 &&
+            path[0] === 'glyphs' &&
+            path[2] === 'layers' &&
+            typeof path[1] === 'string' &&
+            typeof path[3] === 'string' &&
+            replayValue !== undefined
+        ) {
+            this._applyLayerDelta(path[1], path[3], replayValue);
+            return;
+        }
+        if (direction === 'undo') {
+            if (entry.op === 'add') {
+                deleteYPath(this.fontMap, path);
+                return;
+            }
+            if (entry.op === 'remove' || entry.op === 'set') {
+                if (entry.op === 'set' && replayValue === undefined) {
+                    deleteYPath(this.fontMap, path);
+                } else {
+                    setYPath(this.fontMap, path, replayValue);
+                }
+            }
+            return;
+        }
+
+        if (entry.op === 'remove') {
+            deleteYPath(this.fontMap, path);
+            return;
+        }
+        setYPath(this.fontMap, path, replayValue);
+    }
+
+    private _getResettleFontModel(): FontModelLike | null {
+        const fontModel = window.fontManager?.currentFont?.fontModel as
+            FontModelLike | undefined;
+        if (!fontModel || typeof fontModel.findGlyph !== 'function') {
+            return null;
+        }
+        if (
+            typeof fontModel.rebuildAutomaticCompositesForGlyphs !==
+                'function' &&
+            typeof fontModel.recomputeMetricsKeys !== 'function'
+        ) {
+            return null;
+        }
+        return fontModel;
+    }
+
+    private _collectOriginLayerTargets(
+        item: HistoryStackItem,
+        entries: ChangeLogEntry[]
+    ): WorkerReplayTarget[] {
+        return normalizeWorkerReplayTargets([
+            item.originatingGlyphName && item.originatingLayerId
+                ? {
+                      glyphName: item.originatingGlyphName,
+                      layerId: item.originatingLayerId
+                  }
+                : null,
+            ...entries.map((entry) => ({
+                glyphName: deriveGlyphNameFromPath(entry.path) || '',
+                layerId: deriveLayerIdFromPath(entry.path) || ''
+            }))
+        ]);
+    }
+
+    private _getFontJsonLayer(
+        glyphName: string,
+        layerId: string
+    ): Record<string, unknown> | null {
+        const glyphs = Array.isArray(this._fontJson?.glyphs)
+            ? (this._fontJson.glyphs as Unsafe[])
+            : [];
+        const glyphJson = glyphs.find((glyph) => glyph?.name === glyphName);
+        const layerJson = Array.isArray(glyphJson?.layers)
+            ? (glyphJson.layers as Unsafe[]).find(
+                  (layer) => layer?.id === layerId
+              )
+            : null;
+        if (!layerJson || typeof layerJson !== 'object') {
+            return null;
+        }
+        return layerJson as Record<string, unknown>;
+    }
+
+    private _resettleDerivedLayersAfterOriginReplay(
+        item: HistoryStackItem
+    ): WorkerReplayTarget[] {
+        const fontModel = this._getResettleFontModel();
+        const originTargets = this._collectOriginLayerTargets(
+            item,
+            item.entries.filter(
+                (entry) =>
+                    !isDerivedLayerChangePath(
+                        entry.path,
+                        item.originatingGlyphName
+                    )
+            )
+        );
+        if (!fontModel) {
+            return originTargets;
+        }
+
+        if (originTargets.length) {
+            this._syncPatchedLayerTargetsFromYDoc(originTargets);
+        }
+
+        const editKinds = deriveEditKindsFromChangeLogEntries(
+            item.entries.filter(
+                (entry) =>
+                    !isDerivedLayerChangePath(
+                        entry.path,
+                        item.originatingGlyphName
+                    )
+            )
+        );
+        if (editKinds.size === 0 || !originTargets.length) {
+            return originTargets;
+        }
+
+        const sourceTarget = originTargets[0];
+        const closure = computeLayerRecompositionClosure({
+            sourceTargets: originTargets,
+            editKinds,
+            scope: 'all',
+            fontModel,
+            activeLayerId: sourceTarget?.layerId ?? item.originatingLayerId,
+            sourceGlyphName:
+                sourceTarget?.glyphName ?? item.originatingGlyphName,
+            suppressor: this
+        });
+
+        const originatingGlyphName = item.originatingGlyphName ?? null;
+        const derivedTargets = closure.recomposeTargets.filter((target) => {
+            if (
+                originatingGlyphName &&
+                target.glyphName === originatingGlyphName
+            ) {
+                return false;
+            }
+            return !!this._getFontJsonLayer(target.glyphName, target.layerId);
+        });
+        for (const target of derivedTargets) {
+            this._applySettledLayerFromFontJson(
+                target.glyphName,
+                target.layerId
+            );
+        }
+        return normalizeWorkerReplayTargets([
+            ...originTargets,
+            ...derivedTargets
+        ]);
+    }
+
+    private _applySettledLayerFromFontJson(
+        glyphName: string,
+        layerId: string
+    ): void {
+        const layerJson = this._getFontJsonLayer(glyphName, layerId);
+        if (!layerJson) {
+            return;
+        }
+        const glyphsMap = this.fontMap.get('glyphs');
+        const glyphMap =
+            glyphsMap instanceof Y.Map ? glyphsMap.get(glyphName) : null;
+        const layersMap =
+            glyphMap instanceof Y.Map ? glyphMap.get('layers') : null;
+        const yLayerMap =
+            layersMap instanceof Y.Map ? layersMap.get(layerId) : null;
+        if (!(yLayerMap instanceof Y.Map)) {
+            return;
+        }
+
+        const yLayerJson = fromYType(yLayerMap) as Record<string, unknown>;
+        const delta: Record<string, unknown> = { id: layerId };
+        let hasChanges = false;
+        for (const [key, value] of Object.entries(layerJson)) {
+            if (JSON.stringify(value) === JSON.stringify(yLayerJson?.[key])) {
+                continue;
+            }
+            delta[key] = cloneHistoryValue(value);
+            hasChanges = true;
+        }
+        for (const key of Object.keys(yLayerJson || {})) {
+            if (key === 'id' || key in layerJson) {
+                continue;
+            }
+            delta[key] = null;
+            hasChanges = true;
+        }
+        if (!hasChanges) {
+            return;
+        }
+        this._applyLayerDelta(glyphName, layerId, delta);
     }
 
     private _getHistoryReplayValue(
@@ -5708,15 +5934,44 @@ export class PatchSyncEngine {
         return cloneHistoryValue(value);
     }
 
-    private _canReplayHistoryItemDirectly(
-        item: HistoryStackItem,
+    private _shouldReplayHistoryItemDirectly(
+        item: HistoryStackItem | null | undefined,
         direction: 'undo' | 'redo'
     ): boolean {
-        if (!item.entries.length) {
+        if (!item) {
+            return false;
+        }
+        const resettleDerivedLayers =
+            shouldResettleDerivedLayersOnHistoryReplay(
+                item,
+                !!this._getResettleFontModel()
+            );
+        return this._canReplayHistoryItemDirectly(
+            item,
+            direction,
+            resettleDerivedLayers
+        );
+    }
+
+    private _canReplayHistoryItemDirectly(
+        item: HistoryStackItem,
+        direction: 'undo' | 'redo',
+        originEntriesOnly = false
+    ): boolean {
+        const entries = originEntriesOnly
+            ? item.entries.filter(
+                  (entry) =>
+                      !isDerivedLayerChangePath(
+                          entry.path,
+                          item.originatingGlyphName
+                      )
+              )
+            : item.entries;
+        if (!entries.length) {
             return false;
         }
 
-        return item.entries.every((entry) => {
+        return entries.every((entry) => {
             // Direct replay supports 'set', 'add', and 'remove' ops.
             // 'add' on undo → deleteYPath (no replay value needed).
             // 'remove' on redo → deleteYPath (no replay value needed).

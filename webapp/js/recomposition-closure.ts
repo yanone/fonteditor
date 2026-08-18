@@ -39,7 +39,12 @@
  */
 
 import type { WorkerReplayTarget } from './change-log';
-import { normalizeWorkerReplayTargets } from './change-log';
+import {
+    deriveGlyphNameFromPath,
+    getPathSegments,
+    isDerivedLayerChangePath,
+    normalizeWorkerReplayTargets
+} from './change-log';
 
 // ── Public types ───────────────────────────────────────────────────────────
 
@@ -268,6 +273,99 @@ export function deriveEditKindsFromOperations(
     }
 
     return kinds;
+}
+
+export function deriveEditKindsFromChangeLogEntries(
+    entries: Array<{
+        path: string;
+        oldValue?: unknown;
+        newValue?: unknown;
+        replayOldValue?: unknown;
+        replayNewValue?: unknown;
+        compileEditType?: string | null;
+    }>
+): Set<RecompositionEditKind> {
+    const kinds = deriveEditKindsFromOperations(
+        entries.map((entry) => {
+            const path = getPathSegments(entry.path);
+            const isLayerRoot =
+                path.length === 4 &&
+                path[0] === 'glyphs' &&
+                path[2] === 'layers';
+            return {
+                path,
+                applyMode: isLayerRoot ? 'layer-snapshot' : 'default',
+                oldValue: entry.replayOldValue ?? entry.oldValue,
+                newValue: entry.replayNewValue ?? entry.newValue
+            };
+        })
+    );
+    for (const entry of entries) {
+        if (entry.compileEditType === 'anchor') {
+            kinds.add('anchor');
+        }
+        if (entry.compileEditType === 'outline') {
+            kinds.add('outline');
+        }
+        if (entry.compileEditType === 'component') {
+            kinds.add('component');
+        }
+    }
+    return kinds;
+}
+
+export function historyItemHasDerivedLayerWrites(item: {
+    originatingGlyphName?: string | null;
+    entries: Array<{ path: string }>;
+    workerReplayTargets?: WorkerReplayTarget[] | null;
+}): boolean {
+    const originatingGlyphName = item.originatingGlyphName ?? null;
+    if (!originatingGlyphName) {
+        return false;
+    }
+    for (const entry of item.entries) {
+        const glyphName = deriveGlyphNameFromPath(entry.path);
+        if (glyphName && glyphName !== originatingGlyphName) {
+            return true;
+        }
+    }
+    return (item.workerReplayTargets ?? []).some(
+        (target) => target.glyphName !== originatingGlyphName
+    );
+}
+
+function originEntriesForHistoryItem(item: {
+    originatingGlyphName?: string | null;
+    entries: Array<{ path: string }>;
+}): Array<{ path: string }> {
+    return item.entries.filter(
+        (entry) =>
+            !isDerivedLayerChangePath(entry.path, item.originatingGlyphName)
+    );
+}
+
+export function shouldResettleDerivedLayersOnHistoryReplay(
+    item: {
+        originatingGlyphName?: string | null;
+        entries: Array<{
+            path: string;
+            oldValue?: unknown;
+            newValue?: unknown;
+            replayOldValue?: unknown;
+            replayNewValue?: unknown;
+            compileEditType?: string | null;
+        }>;
+        workerReplayTargets?: WorkerReplayTarget[] | null;
+    },
+    hasFontModel: boolean
+): boolean {
+    if (!hasFontModel || !historyItemHasDerivedLayerWrites(item)) {
+        return false;
+    }
+    return (
+        deriveEditKindsFromChangeLogEntries(originEntriesForHistoryItem(item))
+            .size > 0
+    );
 }
 
 /**

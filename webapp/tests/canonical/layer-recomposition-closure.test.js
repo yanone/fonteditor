@@ -17,6 +17,8 @@ const { Font, DecomposedAffineTransform } = require('../../js/babelfont-model');
 const {
     computeLayerRecompositionClosure,
     deriveEditKindsFromOperations,
+    deriveEditKindsFromChangeLogEntries,
+    shouldResettleDerivedLayersOnHistoryReplay,
     resolveLayerSyncTargetsFromClosure
 } = require('../../js/recomposition-closure');
 const { PatchSyncEngine: ChangeBridge } = require('../../js/patch-sync-engine');
@@ -1091,5 +1093,78 @@ describe('lean cascading layer recomposition', () => {
             window.fontManager.currentFont.fontModel
                 .rebuildAutomaticCompositesForGlyphs
         ).toHaveBeenCalled();
+    });
+});
+
+describe('undo/redo derived-layer resettle helpers', () => {
+    test('detects cascade kinds and derived glyphs', () => {
+        const entries = [
+            {
+                path: 'glyphs.A:layers.layer-1',
+                oldValue: { id: 'layer-1', anchors: [] },
+                newValue: { id: 'layer-1', anchors: [{ name: 'top' }] }
+            },
+            {
+                path: 'glyphs.B:layers.layer-2',
+                oldValue: { id: 'layer-2', width: 650 },
+                newValue: { id: 'layer-2', width: 777 }
+            }
+        ];
+        const kinds = deriveEditKindsFromChangeLogEntries(entries);
+        expect(kinds.has('anchor')).toBe(true);
+        expect(
+            shouldResettleDerivedLayersOnHistoryReplay(
+                {
+                    originatingGlyphName: 'A',
+                    entries,
+                    workerReplayTargets: [
+                        { glyphName: 'A', layerId: 'layer-1' },
+                        { glyphName: 'B', layerId: 'layer-2' }
+                    ]
+                },
+                true
+            )
+        ).toBe(true);
+        expect(
+            shouldResettleDerivedLayersOnHistoryReplay(
+                {
+                    originatingGlyphName: 'A',
+                    entries: [
+                        {
+                            path: 'glyphs.A:layers.layer-1.anchors',
+                            oldValue: [],
+                            newValue: [{ name: 'top' }]
+                        },
+                        {
+                            path: 'glyphs.B:layers.layer-2',
+                            oldValue: { id: 'layer-2', width: 650, shapes: [] },
+                            newValue: {
+                                id: 'layer-2',
+                                width: 777,
+                                shapes: [{ type: 'component' }]
+                            }
+                        }
+                    ],
+                    workerReplayTargets: [
+                        { glyphName: 'A', layerId: 'layer-1' },
+                        { glyphName: 'B', layerId: 'layer-2' }
+                    ]
+                },
+                true
+            )
+        ).toBe(true);
+        expect(
+            shouldResettleDerivedLayersOnHistoryReplay(
+                {
+                    originatingGlyphName: 'A',
+                    entries,
+                    workerReplayTargets: [
+                        { glyphName: 'A', layerId: 'layer-1' },
+                        { glyphName: 'B', layerId: 'layer-2' }
+                    ]
+                },
+                false
+            )
+        ).toBe(false);
     });
 });

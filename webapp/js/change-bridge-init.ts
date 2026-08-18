@@ -486,6 +486,19 @@ function buildCascadeLayerOperations(
         return [];
     }
 
+    const originOperation = directOperations.find(
+        (operation) =>
+            operation.originatingGlyphName && operation.originatingLayerId
+    );
+    const sourceTarget =
+        collectCascadeTriggerSourceTargets(directOperations)[0];
+    const originatingGlyphName =
+        originOperation?.originatingGlyphName ??
+        sourceTarget?.glyphName ??
+        null;
+    const originatingLayerId =
+        originOperation?.originatingLayerId ?? sourceTarget?.layerId ?? null;
+
     const operations: TransactionBufferedOperation[] = [];
     for (const { glyphName, layerId } of layerTargets) {
         const glyphJson = glyphs.find((glyph) => glyph?.name === glyphName);
@@ -555,7 +568,9 @@ function buildCascadeLayerOperations(
             applyPath: ['glyphs', glyphName, 'layers', layerId],
             applyNewValue: cloneBridgeValue(delta),
             applyMode: 'layer-snapshot',
-            workerReplayTargets: [{ glyphName, layerId }]
+            workerReplayTargets: [{ glyphName, layerId }],
+            originatingGlyphName,
+            originatingLayerId
         });
     }
 

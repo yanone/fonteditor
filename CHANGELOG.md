@@ -1,5 +1,6 @@
 # Unreleased
 
+- **Undo resettle**: Undo/redo of edits that recompose other layers (like an anchor move) does not wholesale return all cascading layers to their state at the time of the edit. Instead, the base layer’s edit is undone, and the cascading recomposition resettled on the current font state. Consequently, component’s automatic composition status that may have changed after the anchor move is respected; only automatic layers return to their previous state.
 - **Kerning group editor**: Allow editing of kerning groups in the overview panel. Multiple matches are displayed as multiple chips, which is already a more versatile editing experience even before multiple groups per glyph are possible.
 - **Preferences Version and Updates**: App now checks for updates on boot and after window focus, throttled to 1 minute, and automatically the latest every 10 minutes.
 - **Panel focus**: 3px wide focussed panel border
