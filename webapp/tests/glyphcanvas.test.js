@@ -6218,6 +6218,50 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         expect(handleScreenY).toBeCloseTo(590, 5);
     });
 
+    test('snaps the handle above the overlay property panel', () => {
+        canvas.outlineEditor.renderVerticalMetrics = {
+            Ascender: 700,
+            Descender: -200
+        };
+        canvas.outlineEditor.canvas = canvas.canvas;
+        canvas.canvas.getBoundingClientRect = () => ({
+            width: 800,
+            height: 600,
+            top: 0,
+            left: 0,
+            right: 800,
+            bottom: 600,
+            x: 0,
+            y: 0,
+            toJSON() {}
+        });
+        canvas.propertyPanel.classList.remove('hidden');
+        canvas.propertyPanel.getBoundingClientRect = () => ({
+            width: 800,
+            height: 80,
+            top: 520,
+            left: 0,
+            right: 800,
+            bottom: 600,
+            x: 0,
+            y: 520,
+            toJSON() {}
+        });
+
+        const originalScale = canvas.viewportManager.scale;
+        const originalPanY = canvas.viewportManager.panY;
+        canvas.viewportManager.scale = 1;
+        canvas.viewportManager.panY = 1000;
+
+        const handle = canvas.outlineEditor.getVisibleSidebearingHandles()[0];
+        const handleScreenY = -handle.y + canvas.viewportManager.panY;
+
+        canvas.viewportManager.scale = originalScale;
+        canvas.viewportManager.panY = originalPanY;
+
+        expect(handleScreenY).toBeCloseTo(510, 5);
+    });
+
     test('ignores inactive sidebearing handles for hover interaction', () => {
         const font = Font.fromData({
             upm: 1000,

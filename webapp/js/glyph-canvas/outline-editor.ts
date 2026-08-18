@@ -10541,13 +10541,17 @@ export class OutlineEditor {
             getHighestVisibleVerticalMetricValue(this.renderVerticalMetrics) ??
             lowestMetricY;
         const panY = this.glyphCanvas.viewportManager!.panY;
-        const rawCanvasHeight = this.canvas
+        const contentHeight =
+            this.glyphCanvas.getCanvasContentFrame?.().height ?? 0;
+        const fallbackHeight = this.canvas
             ? this.canvas.height / (window.devicePixelRatio || 1)
-            : null;
+            : 0;
         const canvasHeight =
-            rawCanvasHeight !== null && rawCanvasHeight > 0
-                ? rawCanvasHeight
-                : null;
+            contentHeight > 0
+                ? contentHeight
+                : fallbackHeight > 0
+                  ? fallbackHeight
+                  : null;
         const desiredHandleScreenY = -lowestMetricY * scale + panY;
         const highestMetricScreenY = -highestMetricY * scale + panY;
         const handleViewportInset = 10;

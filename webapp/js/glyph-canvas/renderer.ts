@@ -1704,27 +1704,29 @@ export class GlyphCanvasRenderer {
         }
 
         if (phase !== 'handles') {
-            for (const guideEntry of guides) {
-                const angleRad = (guideEntry.rootAngle * Math.PI) / 180;
-                const dirX = Math.cos(angleRad);
-                const dirY = Math.sin(angleRad);
-                const color = this.getGuideColor(guideEntry.scope);
+            this.withContentFrameClip(() => {
+                for (const guideEntry of guides) {
+                    const angleRad = (guideEntry.rootAngle * Math.PI) / 180;
+                    const dirX = Math.cos(angleRad);
+                    const dirY = Math.sin(angleRad);
+                    const color = this.getGuideColor(guideEntry.scope);
 
-                this.ctx.save();
-                this.ctx.strokeStyle = color;
-                this.ctx.lineWidth = 1 * invScale;
-                this.ctx.beginPath();
-                this.ctx.moveTo(
-                    guideEntry.rootX - dirX * viewportExtent,
-                    guideEntry.rootY - dirY * viewportExtent
-                );
-                this.ctx.lineTo(
-                    guideEntry.rootX + dirX * viewportExtent,
-                    guideEntry.rootY + dirY * viewportExtent
-                );
-                this.ctx.stroke();
-                this.ctx.restore();
-            }
+                    this.ctx.save();
+                    this.ctx.strokeStyle = color;
+                    this.ctx.lineWidth = 1 * invScale;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(
+                        guideEntry.rootX - dirX * viewportExtent,
+                        guideEntry.rootY - dirY * viewportExtent
+                    );
+                    this.ctx.lineTo(
+                        guideEntry.rootX + dirX * viewportExtent,
+                        guideEntry.rootY + dirY * viewportExtent
+                    );
+                    this.ctx.stroke();
+                    this.ctx.restore();
+                }
+            });
         }
 
         if (phase === 'lines') {
@@ -1736,42 +1738,80 @@ export class GlyphCanvasRenderer {
         const selectedGuideHandle =
             this.glyphCanvas.outlineEditor.selectedGuideHandle;
 
-        for (const guideEntry of guides) {
-            const isHovered = this.sameGuideHandle(
-                guideEntry,
-                hoveredGuideHandle
-            );
-            const isSelected = this.sameGuideHandle(
-                guideEntry,
-                selectedGuideHandle
-            );
-            const color = this.getGuideColor(guideEntry.scope);
-            const handleRadius =
-                baseHandleRadius * (isSelected ? 1.3 : isHovered ? 1.15 : 1);
-
-            this.ctx.save();
-            this.ctx.translate(guideEntry.rootX, guideEntry.rootY);
-            this.ctx.beginPath();
-            this.ctx.arc(0, 0, handleRadius, 0, Math.PI * 2);
-            this.ctx.fillStyle = color;
-            this.ctx.fill();
-            this.ctx.lineWidth = 1 * invScale;
-            this.ctx.strokeStyle = isDarkTheme
-                ? 'rgba(0, 0, 0, 0.9)'
-                : 'rgba(255, 255, 255, 0.95)';
-            this.ctx.stroke();
-            this.ctx.restore();
-
-            if (guideEntry.guide.name) {
-                this.drawGuideLabel(
-                    guideEntry.guide.name,
-                    guideEntry.rootX,
-                    guideEntry.rootY,
-                    invScale,
-                    isDarkTheme
+        this.withContentFrameClip(() => {
+            for (const guideEntry of guides) {
+                const isHovered = this.sameGuideHandle(
+                    guideEntry,
+                    hoveredGuideHandle
                 );
+                const isSelected = this.sameGuideHandle(
+                    guideEntry,
+                    selectedGuideHandle
+                );
+                const color = this.getGuideColor(guideEntry.scope);
+                const handleRadius =
+                    baseHandleRadius *
+                    (isSelected ? 1.3 : isHovered ? 1.15 : 1);
+
+                this.ctx.save();
+                this.ctx.translate(guideEntry.rootX, guideEntry.rootY);
+                this.ctx.beginPath();
+                this.ctx.arc(0, 0, handleRadius, 0, Math.PI * 2);
+                this.ctx.fillStyle = color;
+                this.ctx.fill();
+                this.ctx.lineWidth = 1 * invScale;
+                this.ctx.strokeStyle = isDarkTheme
+                    ? 'rgba(0, 0, 0, 0.9)'
+                    : 'rgba(255, 255, 255, 0.95)';
+                this.ctx.stroke();
+                this.ctx.restore();
+
+                if (guideEntry.guide.name) {
+                    this.drawGuideLabel(
+                        guideEntry.guide.name,
+                        guideEntry.rootX,
+                        guideEntry.rootY,
+                        invScale,
+                        isDarkTheme
+                    );
+                }
             }
+        });
+    }
+
+    /**
+     * Clip drawing to the camera box above the overlay property panel.
+     * The clip is applied in device pixels so it stays correct after the
+     * glyph-origin translate used by outline drawing.
+     */
+    private withContentFrameClip(draw: () => void): void {
+        const frame = this.glyphCanvas.getCanvasContentFrame?.();
+        const canvas = this.canvas;
+        if (!frame || frame.width <= 0 || frame.height <= 0 || !canvas) {
+            draw();
+            return;
         }
+
+        const rect = canvas.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+            draw();
+            return;
+        }
+
+        const currentTransform = this.ctx.getTransform();
+        this.ctx.save();
+        this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+        this.ctx.beginPath();
+        this.ctx.rect(
+            0,
+            0,
+            (frame.width / rect.width) * canvas.width,
+            (frame.height / rect.height) * canvas.height
+        );
+        this.ctx.clip();
+        this.ctx.setTransform(currentTransform);
+        draw();
+        this.ctx.restore();
     }
 
     drawGlyphTooltip() {
@@ -3280,6 +3320,23 @@ export class GlyphCanvasRenderer {
                 ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
                 : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
             this.ctx.save();
+            const contentFrame = this.glyphCanvas.getCanvasContentFrame?.();
+            if (
+                contentFrame &&
+                contentFrame.width > 0 &&
+                contentFrame.height > 0 &&
+                rect.width > 0 &&
+                rect.height > 0
+            ) {
+                this.ctx.beginPath();
+                this.ctx.rect(
+                    0,
+                    0,
+                    (contentFrame.width / rect.width) * this.canvas.width,
+                    (contentFrame.height / rect.height) * this.canvas.height
+                );
+                this.ctx.clip();
+            }
             this.ctx.globalAlpha =
                 APP_SETTINGS.OUTLINE_EDITOR.MEASUREMENT_TOOL_GUIDE_LINES_OPACITY;
             this.ctx.strokeStyle = colors.MEASUREMENT_TOOL_CROSSHAIR;

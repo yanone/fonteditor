@@ -423,12 +423,15 @@ export class StackPreviewAnimator {
         bounds.minY -= padding;
         bounds.maxY += padding;
 
-        // Get canvas dimensions (CSS pixels)
+        // Usable camera box (canvas minus overlay property panel)
         const canvas = this.glyphCanvas.canvas;
         if (!canvas) return;
+        const frame = this.glyphCanvas.getCanvasContentFrame?.();
         const dpr = window.devicePixelRatio || 1;
-        const canvasWidth = canvas.width / dpr;
-        const canvasHeight = canvas.height / dpr;
+        const canvasWidth =
+            frame && frame.width > 0 ? frame.width : canvas.width / dpr;
+        const canvasHeight =
+            frame && frame.height > 0 ? frame.height : canvas.height / dpr;
 
         const margin = 40;
         const availableWidth = canvasWidth - 2 * margin;
