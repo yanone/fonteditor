@@ -17009,9 +17009,7 @@ export class OutlineEditor {
         contextPoint: CanvasPoint | null = this.canvasContextMenuPoint
     ): void {
         if (action === 'add-component') {
-            if (contextPoint) {
-                this.glyphCanvas.openAddComponentDialogAt(contextPoint);
-            }
+            this.glyphCanvas.openAddComponentDialog();
             return;
         }
 

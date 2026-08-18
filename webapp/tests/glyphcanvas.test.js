@@ -22789,21 +22789,17 @@ describe('Linked component structural edits', () => {
         const font = fontManager.currentFont.fontModel;
         const [activeLayer, linkedLayer] = font.findGlyph('A').layers;
 
-        await canvas.addComponentAtPosition(activeLayer, 'sourceB', {
-            x: 45,
-            y: 70
-        });
+        await canvas.addComponentToLayer(activeLayer, 'sourceB');
 
         expect(activeLayer.shapes).toHaveLength(3);
         expect(linkedLayer.shapes).toHaveLength(3);
         expect(activeLayer.components[2].reference).toBe('sourceB');
         expect(linkedLayer.components[2].reference).toBe('sourceB');
-        // sourceB has no outline shapes, so placement stays at the click origin.
         expect(activeLayer.components[2].toAffineArray().slice(4)).toEqual([
-            45, 70
+            0, 0
         ]);
         expect(linkedLayer.components[2].toAffineArray().slice(4)).toEqual([
-            45, 70
+            0, 0
         ]);
         expect(canvas.outlineEditor.selectedComponents).toEqual([2]);
         expect(syncLayerToStorageSpy).toHaveBeenCalledWith('A', 'layer-1');
@@ -22816,11 +22812,10 @@ describe('Linked component structural edits', () => {
         ).toBeGreaterThan(finalStorageSyncCall);
     });
 
-    test('centers component outline bounding box on the click position', async () => {
+    test('places outlined components at the origin', async () => {
         const font = fontManager.currentFont.fontModel;
         const [activeLayer, linkedLayer] = font.findGlyph('A').layers;
         const sourceLayer = font.findGlyph('sourceA').layers[0];
-        // Give sourceA a simple rectangle outline: (100,200)–(300,600).
         sourceLayer.data.shapes = [
             {
                 closed: true,
@@ -22833,44 +22828,13 @@ describe('Linked component structural edits', () => {
             }
         ];
 
-        await canvas.addComponentAtPosition(activeLayer, 'sourceA', {
-            x: 400,
-            y: 500
-        });
+        await canvas.addComponentToLayer(activeLayer, 'sourceA');
 
-        // BBox center is (200, 400); translation = click - center.
         expect(activeLayer.components[2].toAffineArray().slice(4)).toEqual([
-            200, 100
+            0, 0
         ]);
         expect(linkedLayer.components[2].toAffineArray().slice(4)).toEqual([
-            200, 100
-        ]);
-    });
-
-    test('rounds component placement translation to integers on create', async () => {
-        const font = fontManager.currentFont.fontModel;
-        const [activeLayer] = font.findGlyph('A').layers;
-        const sourceLayer = font.findGlyph('sourceA').layers[0];
-        sourceLayer.data.shapes = [
-            {
-                closed: true,
-                nodes: [
-                    { x: 100, y: 200, nodetype: 'Line' },
-                    { x: 300, y: 200, nodetype: 'Line' },
-                    { x: 300, y: 600, nodetype: 'Line' },
-                    { x: 100, y: 600, nodetype: 'Line' }
-                ]
-            }
-        ];
-
-        await canvas.addComponentAtPosition(activeLayer, 'sourceA', {
-            x: 400.6,
-            y: 500.4
-        });
-
-        // BBox center is (200, 400); rounded translation of click - center.
-        expect(activeLayer.components[2].toAffineArray().slice(4)).toEqual([
-            201, 100
+            0, 0
         ]);
     });
 

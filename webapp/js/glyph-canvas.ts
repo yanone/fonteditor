@@ -6478,9 +6478,9 @@ class GlyphCanvas {
     }
 
     /**
-     * Open the single-glyph picker for a component placed at the canvas point.
+     * Open the single-glyph picker for a component placed at the origin.
      */
-    public openAddComponentDialogAt(position: { x: number; y: number }): void {
+    public openAddComponentDialog(): void {
         const layer = this.getCurrentEditingLayerModel();
         if (!layer) {
             return;
@@ -6494,11 +6494,7 @@ class GlyphCanvas {
             onConfirm: (glyphNames) => {
                 const reference = glyphNames[0];
                 if (reference) {
-                    void this.addComponentAtPosition(
-                        layer,
-                        reference,
-                        position
-                    );
+                    void this.addComponentToLayer(layer, reference);
                 }
             },
             onClose: () => {
@@ -6594,53 +6590,11 @@ class GlyphCanvas {
     }
 
     /**
-     * Build an identity transform whose translation places the referenced
-     * glyph's outline bounding-box center on the given canvas point.
-     * Falls back to origin placement when no outline geometry is available.
+     * Insert a component at the origin and select it.
      */
-    private buildComponentPlacementTransform(
-        reference: string,
-        hostLayer: Layer,
-        position: { x: number; y: number }
-    ): [number, number, number, number, number, number] {
-        const fontModel =
-            fontManager.currentFont?.fontModel || window.currentFontModel;
-        const componentGlyph = fontModel?.findGlyph?.(reference);
-        const masterId =
-            typeof hostLayer.master === 'object' && hostLayer.master
-                ? hostLayer.master.master || null
-                : null;
-        const componentLayer =
-            (hostLayer.getMatchingLayerOnGlyph?.(reference) as
-                Layer | undefined) ||
-            (masterId
-                ? componentGlyph?.findLayerByMasterId?.(masterId)
-                : undefined) ||
-            componentGlyph?.layers?.[0];
-        const hasOutlineGeometry = (componentLayer?.shapes?.length ?? 0) > 0;
-        const bbox = hasOutlineGeometry
-            ? componentLayer?.getBoundingBox?.(false)
-            : null;
-        const offsetX = bbox ? (bbox.minX + bbox.maxX) / 2 : 0;
-        const offsetY = bbox ? (bbox.minY + bbox.maxY) / 2 : 0;
-
-        return [
-            1,
-            0,
-            0,
-            1,
-            Math.round(position.x - offsetX),
-            Math.round(position.y - offsetY)
-        ];
-    }
-
-    /**
-     * Insert a component at the captured canvas position and select it.
-     */
-    private async addComponentAtPosition(
+    private async addComponentToLayer(
         layer: Layer,
-        reference: string,
-        position: { x: number; y: number }
+        reference: string
     ): Promise<void> {
         const activeLayer = this.getCurrentEditingLayerModel();
         if (
@@ -6657,16 +6611,11 @@ class GlyphCanvas {
         }
 
         const linkedLayers = activeLayer._getLinkedLayers?.() || [];
-        const transform = this.buildComponentPlacementTransform(
-            reference,
-            activeLayer,
-            position
-        );
         const affectedGlyphNames = new Set<string>([glyphName]);
         window.patchSyncEngine?.beginTransaction('Add component');
         try {
             for (const targetLayer of [activeLayer, ...linkedLayers]) {
-                targetLayer.addComponent(reference, transform);
+                targetLayer.addComponent(reference);
             }
             if (
                 activeLayer.is_background &&
