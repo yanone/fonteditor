@@ -9,6 +9,7 @@
 - **Panel focus**: 3px wide focussed panel border
 - **Property panels**: Preserve text field focus in active views
 - **Canvas**: Hide HUD in production
+- **Canvas**: Anchor the debug HUD (and measurement edge labels) to the drawing-slot inset instead of the full-window canvas origin, so they stay visible under chrome.
 - **Assistant**: Links to documentation open correctly from the assistant chats
 - **Preferences Version and Updates**: Moved update checks out of the File menu into Preferences. The pane always shows the current version, a Check for updates control, and an Update button with a changelog link when a new build is ready. An orange notification appears on the Preferences gear instead of the File menu.
 - **Themed Scrollbars**: Native and custom scrollbars follow the app theme (dark by default, light when `data-theme` is light), including Ace editors. `color-scheme` drives native chrome; `--scrollbar-*` tokens paint WebKit and Firefox bars globally.

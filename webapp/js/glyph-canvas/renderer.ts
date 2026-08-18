@@ -3322,30 +3322,41 @@ export class GlyphCanvasRenderer {
         this.ctx.setTransform(1, 0, 0, 1, 0, 0);
 
         const rect = this.canvas.getBoundingClientRect();
+        const contentFrame = this.glyphCanvas.getCanvasContentFrame?.();
+        const cssToCanvasX =
+            rect.width > 0 ? this.canvas.width / rect.width : 1;
+        const cssToCanvasY =
+            rect.height > 0 ? this.canvas.height / rect.height : 1;
+        const overlayLeft = (contentFrame?.left ?? 0) * cssToCanvasX;
+        const overlayTop = (contentFrame?.top ?? 0) * cssToCanvasY;
 
-        // Debug HUD (top left) — development only; skip in test mode for screenshot diffs
+        // Debug HUD (top left of the drawing slot) — development only;
+        // skip in test mode for screenshot diffs
         if (window.isDevelopment?.() && !window.isTestMode?.()) {
             const isDarkTheme =
                 document.documentElement.getAttribute('data-theme') !== 'light';
             this.ctx.fillStyle = isDarkTheme
                 ? 'rgba(255, 255, 255, 0.7)'
                 : 'rgba(0, 0, 0, 0.7)';
-            this.ctx.font = '12px monospace';
+            this.ctx.font = `${12 * cssToCanvasY}px monospace`;
+
+            const hudX = overlayLeft + 10 * cssToCanvasX;
+            const hudY = overlayTop;
 
             if (this.textRunEditor.textBuffer) {
                 const textInfo = `Text: "${this.textRunEditor.textBuffer}" (${this.textRunEditor.shapedGlyphs.length} glyphs)`;
-                this.ctx.fillText(textInfo, 10, 20);
+                this.ctx.fillText(textInfo, hudX, hudY + 20 * cssToCanvasY);
             }
 
             const panText = `Pan: (${Math.round(this.viewportManager.panX)}, ${Math.round(this.viewportManager.panY)})`;
-            this.ctx.fillText(panText, 10, 35);
+            this.ctx.fillText(panText, hudX, hudY + 35 * cssToCanvasY);
 
             const zoomText = `Zoom: ${(this.viewportManager.scale * 100).toFixed(1)}%`;
-            this.ctx.fillText(zoomText, 10, 50);
+            this.ctx.fillText(zoomText, hudX, hudY + 50 * cssToCanvasY);
 
             if (this.fps > 0) {
                 const fpsText = `FPS: ${Math.round(this.fps)}`;
-                this.ctx.fillText(fpsText, 10, 65);
+                this.ctx.fillText(fpsText, hudX, hudY + 65 * cssToCanvasY);
             }
         }
 
@@ -3382,7 +3393,6 @@ export class GlyphCanvasRenderer {
                 ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
                 : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
             this.ctx.save();
-            const contentFrame = this.glyphCanvas.getCanvasContentFrame?.();
             if (
                 contentFrame &&
                 contentFrame.width > 0 &&
@@ -3596,7 +3606,7 @@ export class GlyphCanvasRenderer {
                 const yLabel = `y=${Math.round(mouseFontY)}`;
                 this.ctx.fillText(
                     yLabel,
-                    labelPadding,
+                    overlayLeft + labelPadding,
                     this.glyphCanvas.mouseCanvasY - labelPadding
                 );
 
@@ -3608,7 +3618,7 @@ export class GlyphCanvasRenderer {
                 this.ctx.fillText(
                     xLabel,
                     this.glyphCanvas.mouseCanvasX + labelPadding,
-                    labelPadding
+                    overlayTop + labelPadding
                 );
 
                 this.ctx.restore();
