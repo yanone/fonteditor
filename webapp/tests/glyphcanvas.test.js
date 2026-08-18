@@ -5343,6 +5343,96 @@ describe('GlyphCanvas property panel metrics edits', () => {
         expect(canvas.requestRepaintAfterCompile).toHaveBeenCalled();
     });
 
+    test('authoritative outline-only consume keeps the text-mode caret locked', async () => {
+        const { setupFontLoadingListener } = require('../js/glyph-canvas');
+        setupFontLoadingListener();
+
+        canvas.outlineEditor.active = false;
+        canvas.axesManager = { fontBytes: null };
+        canvas.textRunEditor.swapFontBlob = jest.fn();
+        canvas.textRunEditor.cursorX = 100;
+        canvas.viewportManager.scale = 2;
+        canvas.viewportManager.panX = 40;
+        canvas.requestRepaintAfterCompile = jest.fn();
+
+        expect(canvas.captureIdleViewLock({ kerningPair: false })).toBe(true);
+        const lockedScreenX = canvas.viewportManager.fontToScreenCoordinates(
+            100,
+            0
+        ).x;
+
+        canvas.textRunEditor.shapeText = jest.fn(() => {
+            canvas.textRunEditor.cursorX = 175;
+        });
+
+        window.dispatchEvent(
+            new CustomEvent('editingFontCompiled', {
+                detail: {
+                    fontBytes: new Uint8Array([7, 8, 9]),
+                    fontRevisionKey: '100',
+                    compilationMode: 'outline-only',
+                    dataFreshnessMode: 'authoritative-worker-yjs'
+                }
+            })
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(
+            canvas.viewportManager.fontToScreenCoordinates(
+                canvas.textRunEditor.cursorX,
+                0
+            ).x
+        ).toBeCloseTo(lockedScreenX, 5);
+        expect(canvas.hasPendingIdleViewLock()).toBe(false);
+    });
+
+    test('anchor-only consume keeps the text-mode caret locked', async () => {
+        const { setupFontLoadingListener } = require('../js/glyph-canvas');
+        setupFontLoadingListener();
+
+        canvas.outlineEditor.active = false;
+        canvas.axesManager = { fontBytes: null };
+        canvas.textRunEditor.swapFontBlob = jest.fn();
+        canvas.textRunEditor.cursorX = 100;
+        canvas.viewportManager.scale = 2;
+        canvas.viewportManager.panX = 40;
+        canvas.requestRepaintAfterCompile = jest.fn();
+
+        expect(canvas.captureIdleViewLock({ kerningPair: false })).toBe(true);
+        const lockedScreenX = canvas.viewportManager.fontToScreenCoordinates(
+            100,
+            0
+        ).x;
+
+        canvas.textRunEditor.shapeText = jest.fn(() => {
+            canvas.textRunEditor.cursorX = 175;
+        });
+
+        window.dispatchEvent(
+            new CustomEvent('editingFontCompiled', {
+                detail: {
+                    fontBytes: new Uint8Array([4, 5, 6]),
+                    fontRevisionKey: '101',
+                    compilationMode: 'anchor-only',
+                    dataFreshnessMode: 'authoritative-worker-yjs'
+                }
+            })
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(
+            canvas.viewportManager.fontToScreenCoordinates(
+                canvas.textRunEditor.cursorX,
+                0
+            ).x
+        ).toBeCloseTo(lockedScreenX, 5);
+        expect(canvas.hasPendingIdleViewLock()).toBe(false);
+    });
+
     test('requestRepaintAfterCompile refreshes hit detection in outline mode', () => {
         const originalRequestAnimationFrame = global.requestAnimationFrame;
         const renderSpy = jest
@@ -5368,6 +5458,81 @@ describe('GlyphCanvas property panel metrics edits', () => {
         } finally {
             global.requestAnimationFrame = originalRequestAnimationFrame;
             renderSpy.mockRestore();
+        }
+    });
+
+    test('render defers while an idle view lock is pending', () => {
+        window.isTest = () => true;
+        delete window.__liveTextDiagnostics;
+        const rendererRender = jest.spyOn(canvas.renderer, 'render');
+        canvas.outlineEditor.active = false;
+        canvas.viewportManager.panX = 40;
+        canvas.viewportManager.panY = 10;
+        canvas.viewportManager.scale = 2;
+        canvas.textRunEditor.cursorX = 100;
+
+        expect(canvas.captureIdleViewLock({ kerningPair: false })).toBe(true);
+        rendererRender.mockClear();
+        canvas.render();
+
+        expect(rendererRender).not.toHaveBeenCalled();
+        expect(canvas.hasDeferredRenderRequest).toBe(true);
+        expect(window.__liveTextDiagnostics.entries.at(-1)).toEqual(
+            expect.objectContaining({
+                source: 'canvas.render.deferred',
+                detail: expect.objectContaining({
+                    reason: 'pendingIdleViewLock',
+                    pendingIdleViewLock: true,
+                    viewport: expect.objectContaining({ panX: 40 })
+                })
+            })
+        );
+
+        canvas.consumeIdleViewLockAfterReshape();
+        rendererRender.mockClear();
+        canvas.render();
+        expect(rendererRender).toHaveBeenCalledTimes(1);
+        expect(window.__liveTextDiagnostics.entries.at(-1).source).toBe(
+            'canvas.render'
+        );
+        rendererRender.mockRestore();
+    });
+
+    test('requestRepaintAfterCompile waits for a pending idle view lock', () => {
+        const originalRequestAnimationFrame = global.requestAnimationFrame;
+        const renderSpy = jest.spyOn(canvas, 'render');
+        const rafCallbacks = [];
+
+        try {
+            canvas.outlineEditor.active = false;
+            canvas.outlineEditor.performHitDetection = jest.fn();
+            canvas.viewportManager.panX = 40;
+            canvas.viewportManager.scale = 2;
+            canvas.textRunEditor.cursorX = 100;
+            expect(canvas.captureIdleViewLock({ kerningPair: false })).toBe(
+                true
+            );
+            global.requestAnimationFrame = jest.fn((callback) => {
+                rafCallbacks.push(callback);
+                return rafCallbacks.length;
+            });
+
+            canvas.requestRepaintAfterCompile();
+            expect(rafCallbacks).toHaveLength(1);
+            rafCallbacks[0](0);
+            expect(renderSpy).not.toHaveBeenCalled();
+            expect(
+                canvas.outlineEditor.performHitDetection
+            ).not.toHaveBeenCalled();
+            expect(rafCallbacks).toHaveLength(2);
+
+            canvas.consumeIdleViewLockAfterReshape();
+            rafCallbacks[1](0);
+            expect(renderSpy).toHaveBeenCalledTimes(1);
+        } finally {
+            global.requestAnimationFrame = originalRequestAnimationFrame;
+            renderSpy.mockRestore();
+            canvas.clearIdleViewLock();
         }
     });
 

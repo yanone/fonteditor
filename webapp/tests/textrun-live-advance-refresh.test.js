@@ -627,7 +627,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         jest.clearAllMocks();
     });
 
-    test('undoing a left sidebearing change refreshes through interpolation', async () => {
+    test('undoing a left sidebearing change refreshes the layer without a live-advance detour', async () => {
         const requestRepaintAfterCompile = jest.fn();
         const refreshGlyphAdvancesLive = jest.fn();
         const fetchLayerData = jest.fn().mockResolvedValue();
@@ -635,6 +635,8 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         const canRefreshSelectedLayerFromModelExactly = jest.fn(() => true);
         const refreshSelectedLayerFromModel = jest.fn(() => true);
         const syncCurrentOutlineLayerDataFromModel = jest.fn();
+        const captureIdleViewLock = jest.fn(() => true);
+        const reapplyIdleViewLock = jest.fn(() => true);
         const render = jest.fn();
 
         const makeFontModel = (width) => ({
@@ -658,6 +660,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
                 refreshGlyphAdvanceDeltasLive: refreshGlyphAdvancesLive
             },
             outlineEditor: {
+                active: true,
                 selectedLayerId: 'layer-1',
                 parseGlyphStack: jest.fn(() => [{ glyphName: 'a' }]),
                 canRefreshSelectedLayerFromModelExactly,
@@ -666,6 +669,9 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
                 runDeterministicRefresh,
                 performHitDetection: jest.fn()
             },
+            getCurrentGlyphName: jest.fn(() => 'a'),
+            captureIdleViewLock,
+            reapplyIdleViewLock,
             syncCurrentOutlineLayerDataFromModel,
             updatePropertyPanel: jest.fn(),
             render,
@@ -721,13 +727,18 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         );
         expect(refreshSelectedLayerFromModel).toHaveBeenCalledTimes(1);
         expect(fetchLayerData).not.toHaveBeenCalled();
-        expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
-            { a: 20 },
-            { render: false }
-        );
+        expect(refreshGlyphAdvancesLive).not.toHaveBeenCalled();
         expect(originalWindow.glyphCanvas.viewportManager.panX).toBe(100);
-        expect(syncCurrentOutlineLayerDataFromModel).toHaveBeenCalledTimes(1);
+        expect(syncCurrentOutlineLayerDataFromModel).not.toHaveBeenCalled();
+        expect(captureIdleViewLock).toHaveBeenCalledWith({
+            kerningPair: false,
+            bboxCenter: true
+        });
+        expect(reapplyIdleViewLock).toHaveBeenCalled();
         expect(render).not.toHaveBeenCalled();
+        expect(
+            originalWindow.glyphCanvas.outlineEditor.performHitDetection
+        ).not.toHaveBeenCalled();
         expect(requestRepaintAfterCompile).not.toHaveBeenCalled();
     });
 
@@ -1072,10 +1083,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
 
         await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-        expect(refreshGlyphAdvancesLive.mock.calls).toContainEqual([
-            { 'a.alt': -20 },
-            { render: false }
-        ]);
+        expect(refreshGlyphAdvancesLive).not.toHaveBeenCalled();
         expect(originalWindow.glyphCanvas.viewportManager.panX).toBe(100);
     });
 

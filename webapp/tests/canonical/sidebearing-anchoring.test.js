@@ -460,10 +460,7 @@ describe('Sidebearing undo viewport stability', () => {
         await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
         expectViewportUnchanged(glyphCanvas, beforeViewport);
-        expect(refreshGlyphAdvanceDeltasLive).toHaveBeenCalledWith(
-            { a: nextWidth - previousWidth },
-            { render: false }
-        );
+        expect(refreshGlyphAdvanceDeltasLive).not.toHaveBeenCalled();
     });
 
     test.each(['undo', 'redo'])(

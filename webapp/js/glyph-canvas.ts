@@ -676,6 +676,15 @@ class GlyphCanvas {
     }
 
     /**
+     * True while a critical apply owns the next paint, or an idle lock is
+     * waiting for reshape consume. Stray paints in that window show the
+     * pre-lock pan (LSB undo flash).
+     */
+    shouldDeferCanvasPaint(): boolean {
+        return this.renderSuppressed || this.hasPendingIdleViewLock();
+    }
+
+    /**
      * Drop a consumed or abandoned idle viewer lock.
      */
     clearIdleViewLock(): void {
@@ -2428,6 +2437,9 @@ class GlyphCanvas {
         });
         this.textRunEditor!.on('cursormoved', (reason?: string) => {
             this.updatePropertyPanel();
+            if (this.hasPendingIdleViewLock() || this.renderSuppressed) {
+                return;
+            }
             this.panToCursor(reason === 'backspace');
             this.render();
         });
@@ -10618,10 +10630,31 @@ class GlyphCanvas {
     }
 
     render(): void {
-        // Skip rendering if suppressed (during critical operations)
-        if (this.renderSuppressed) {
+        if (this.shouldDeferCanvasPaint()) {
             this.hasDeferredRenderRequest = true;
-            timelineMark('canvas.render.deferredSuppressed');
+            const deferReason = this.renderSuppressed
+                ? 'renderSuppressed'
+                : 'pendingIdleViewLock';
+            timelineMark(
+                this.renderSuppressed
+                    ? 'canvas.render.deferredSuppressed'
+                    : 'canvas.render.deferredIdleViewLock'
+            );
+            recordLiveTextDiagnostic(
+                'canvas.render.deferred',
+                this.textRunEditor,
+                {
+                    reason: deferReason,
+                    viewport: {
+                        panX: this.viewportManager?.panX ?? null,
+                        panY: this.viewportManager?.panY ?? null,
+                        scale: this.viewportManager?.scale ?? null
+                    },
+                    pendingIdleViewLock: this.hasPendingIdleViewLock(),
+                    idleViewLockUsesBbox: this.idleViewLockUsesBbox,
+                    renderSuppressed: this.renderSuppressed
+                }
+            );
             return;
         }
 
@@ -10673,7 +10706,10 @@ class GlyphCanvas {
                 panX: this.viewportManager?.panX ?? null,
                 panY: this.viewportManager?.panY ?? null,
                 scale: this.viewportManager?.scale ?? null
-            }
+            },
+            pendingIdleViewLock: this.hasPendingIdleViewLock(),
+            idleViewLockUsesBbox: this.idleViewLockUsesBbox,
+            renderSuppressed: this.renderSuppressed
         });
         window.dispatchEvent(
             new CustomEvent('glyphCanvasRendered', {
@@ -10699,9 +10735,13 @@ class GlyphCanvas {
                 return;
             }
 
-            if (this.renderSuppressed) {
+            if (this.shouldDeferCanvasPaint()) {
                 attempts += 1;
-                timelineMark('canvas.compileRepaint.waitingForUnsuppress');
+                timelineMark(
+                    this.renderSuppressed
+                        ? 'canvas.compileRepaint.waitingForUnsuppress'
+                        : 'canvas.compileRepaint.waitingForIdleViewLock'
+                );
                 if (attempts >= maxAttempts) {
                     timelineMark('canvas.compileRepaint.timeout');
                     return;
@@ -11598,6 +11638,9 @@ function setupFontLoadingListener() {
                             gc.outlineEditor.reapplyPendingSidebearingBboxCenterAnchor();
                             gc.outlineEditor.scheduleSidebearingOwnedRepaint();
                         } else {
+                            if (deferredIdleViewLock) {
+                                gc.consumeIdleViewLockAfterReshape();
+                            }
                             gc.requestRepaintAfterCompile();
                         }
                         return;
@@ -11618,6 +11661,9 @@ function setupFontLoadingListener() {
                             latestAppliedEditingRevision = incomingRevision;
                         }
 
+                        if (deferredIdleViewLock) {
+                            gc.consumeIdleViewLockAfterReshape();
+                        }
                         gc.requestRepaintAfterCompile();
                         return;
                     }

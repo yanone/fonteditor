@@ -38,7 +38,6 @@ import {
     type HistoryUndoSurface,
     type WorkerReplayTarget
 } from './change-log';
-import { syncModelSidebearingEditToCanvas } from './sidebearing-utils';
 import { recordLiveTextDiagnostic } from './live-text-diagnostics';
 import type { TransactionBufferedOperation } from './patch-sync-engine';
 const console = new Logger('ChangeBridgeInit');
@@ -1802,53 +1801,6 @@ async function refreshCanvasFromCommittedModelSync(
     }
 }
 
-function applyImmediateUndoSidebearingSync(
-    appliedGlyphName: string | null,
-    appliedLayerId: string | null,
-    historyItem: HistoryStackItem | null,
-    previousWidth: number | null,
-    fallbackEditedGlyphName?: string | null,
-    fallbackLayerId?: string | null
-): boolean {
-    const gc = window.glyphCanvas;
-    const fontModel = window.fontManager?.currentFont?.fontModel;
-    // Visual anchoring follows the user-visible active glyph/layer, not the
-    // appliedChange target. Font-scoped sidebearing cascades report no target,
-    // but the canvas is still showing a specific glyph whose bbox center must
-    // remain stationary on screen.
-    const editedGlyphName =
-        getActiveEditedGlyphName() ??
-        appliedGlyphName ??
-        fallbackEditedGlyphName ??
-        null;
-    const editedLayerId = appliedLayerId ?? fallbackLayerId ?? null;
-    if (
-        !gc ||
-        !fontModel ||
-        !isDirectSidebearingUndoRedo(historyItem) ||
-        !editedGlyphName ||
-        !editedLayerId
-    ) {
-        return false;
-    }
-
-    const layer = fontModel
-        .findGlyph(editedGlyphName)
-        ?.findLayerById(editedLayerId);
-    if (!layer || previousWidth === null) {
-        return false;
-    }
-
-    syncModelSidebearingEditToCanvas(gc, {
-        layer,
-        glyphName: editedGlyphName,
-        previousWidth,
-        render: false
-    });
-
-    return true;
-}
-
 function isDirectSidebearingUndoRedo(
     historyItem: HistoryStackItem | null
 ): boolean {
@@ -1920,8 +1872,8 @@ function syncImmediateUndoOutlineLayerFromModel(
         return false;
     }
     gc.updatePropertyPanel?.();
-    outlineEditor?.performHitDetection?.(null);
     if (!deferRender) {
+        outlineEditor?.performHitDetection?.(null);
         gc.render?.();
     }
     return true;
@@ -2146,32 +2098,6 @@ function buildHistoryItemFromCommittedEntries(
     } as HistoryStackItem;
 }
 
-function inferPreviousWidthFromUndoRedoEntries(
-    entries: ChangeLogEntry[],
-    action: 'undo' | 'redo'
-): number | null {
-    for (const entry of entries) {
-        const previousValue =
-            action === 'undo'
-                ? (entry.replayNewValue ?? entry.newValue)
-                : (entry.replayOldValue ?? entry.oldValue);
-        if (
-            previousValue &&
-            typeof previousValue === 'object' &&
-            !Array.isArray(previousValue)
-        ) {
-            const width = Number(
-                (previousValue as Record<string, unknown>).width
-            );
-            if (Number.isFinite(width)) {
-                return width;
-            }
-        }
-    }
-
-    return null;
-}
-
 function applyLocalUndoRedoVisualSync(
     entries: ChangeLogEntry[],
     context?: LocalUndoRedoVisualContext,
@@ -2188,13 +2114,6 @@ function applyLocalUndoRedoVisualSync(
     }
 
     const historyItem = buildHistoryItemFromCommittedEntries(entries);
-    const action =
-        entries.find(
-            (entry) =>
-                entry.historyAction === 'undo' || entry.historyAction === 'redo'
-        )?.historyAction === 'redo'
-            ? 'redo'
-            : 'undo';
     const entryPaths = entries
         .map((entry) => entry.path)
         .filter((path): path is string => !!path);
@@ -2212,46 +2131,36 @@ function applyLocalUndoRedoVisualSync(
             )
             .find((candidate): candidate is string => !!candidate) ??
         null;
-    const previousWidth =
-        context?.previousWidth ??
-        inferPreviousWidthFromUndoRedoEntries(entries, action);
-
     const isSidebearingUndoRedo =
         isDirectSidebearingUndoRedo(historyItem) ||
-        hasSidebearingVisualAnchor(entries);
+        hasSidebearingVisualAnchor(entries) ||
+        flattenCommittedSemanticEntries(entries).some(
+            isIdleSidebearingLockEntry
+        );
     if (!isSidebearingUndoRedo) {
         window.glyphCanvas?.outlineEditor?.clearPendingSidebearingBboxCenterAnchor?.();
     }
 
-    const appliedSidebearingSync =
-        isSidebearingUndoRedo &&
-        previousWidth !== null &&
-        applyImmediateUndoSidebearingSync(
-            editedGlyphName,
-            layerId,
-            historyItem,
-            previousWidth,
-            context?.editedGlyphName,
-            context?.layerId
-        );
-
     // Live advances are only for outline-only commits that will not reshape
     // with kerning. Full (editType null) undo/redo waits for the authoritative
     // reshape; comparing layer.width to kern-contaminated intrinsics here was
-    // the post-undo no-kerning flash.
+    // the post-undo no-kerning flash. Sidebearing undo/redo must not patch
+    // advances or pan here — the idle bbox lock owns the view.
     const deferAdvanceRefreshUntilCommittedCanvas =
-        !appliedSidebearingSync &&
         localCompileContext?.editType === 'outline' &&
         Object.keys(collectLiveAdvanceDeltas(entries, layerId, editedGlyphName))
             .length > 0;
 
+    const deferUndoCanvasPaint =
+        isSidebearingUndoRedo || deferAdvanceRefreshUntilCommittedCanvas;
+    const refreshedExactLayer = syncImmediateUndoOutlineLayerFromModel(
+        editedGlyphName,
+        layerId,
+        deferUndoCanvasPaint
+    );
     const skipLayerDataFetch =
-        syncImmediateUndoOutlineLayerFromModel(
-            editedGlyphName,
-            layerId,
-            appliedSidebearingSync || deferAdvanceRefreshUntilCommittedCanvas
-        ) &&
-        (appliedSidebearingSync ||
+        refreshedExactLayer &&
+        (isSidebearingUndoRedo ||
             historyItem.transactionLabel?.startsWith('Drag ') === true ||
             (localCompileContext?.changeSource === 'keyboard-outline' &&
                 localCompileContext.editType === 'outline'));
@@ -2339,53 +2248,23 @@ function isIdleSidebearingLockEntry(entry: ChangeLogEntry): boolean {
     );
 }
 
-function collectIdleLockGlyphNames(entries: ChangeLogEntry[]): string[] {
-    const names = new Set<string>();
-    const semanticEntries = flattenCommittedSemanticEntries(entries);
-    for (const name of deriveGlyphNamesFromPaths(
-        semanticEntries
-            .map((entry) => entry.path)
-            .filter((path): path is string => !!path)
-    )) {
-        names.add(name);
-    }
-    for (const target of collectReplayTargetsFromEntries(entries)) {
-        names.add(target.glyphName);
-    }
-    for (const target of collectReplayTargetsFromEntries(semanticEntries)) {
-        names.add(target.glyphName);
-    }
-    return [...names];
-}
-
 function committedPacketLocksActiveGlyphBbox(
     entries: ChangeLogEntry[]
 ): boolean {
     if (!window.glyphCanvas?.outlineEditor?.active) {
         return false;
     }
-    const semanticEntries = flattenCommittedSemanticEntries(entries);
-    const isSidebearingPacket = semanticEntries.some(
+    return flattenCommittedSemanticEntries(entries).some(
         isIdleSidebearingLockEntry
     );
-    if (!isSidebearingPacket) {
-        return false;
-    }
-
-    const glyphNames = collectIdleLockGlyphNames(entries);
-    if (!glyphNames.length) {
-        return true;
-    }
-
-    const activeGlyphName = getActiveEditedGlyphName();
-    return !!activeGlyphName && glyphNames.includes(activeGlyphName);
 }
 
 /**
  * Capture this window's idle viewer lock before a committed packet mutates
  * the canvas. Same lock for local, remote, undo, and redo. Live drags and
  * sidebearing bursts on this window still bypass it. Edit mode locks origin
- * unless this packet is a sidebearing edit that includes the active glyph.
+ * unless the packet is a sidebearing edit, which always locks this window's
+ * active glyph bbox center.
  */
 function applyIdleViewLock(entries: ChangeLogEntry[]): boolean {
     const gc = window.glyphCanvas;

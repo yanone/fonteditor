@@ -2945,7 +2945,7 @@ describe('handleRemoteChangeRefresh', () => {
             expect(glyphCanvas.reapplyIdleViewLock).toHaveBeenCalled();
         });
 
-        test('remote sidebearing packet on another glyph locks this window origin', async () => {
+        test("remote sidebearing packet on another glyph locks this window's edit-mode bbox", async () => {
             const { glyphCanvas } = installReceiverHarness({
                 activeGlyphName: 'a',
                 activeLayerId: 'master-regular',
@@ -2972,7 +2972,7 @@ describe('handleRemoteChangeRefresh', () => {
 
             expect(glyphCanvas.captureIdleViewLock).toHaveBeenCalledWith({
                 kerningPair: false,
-                bboxCenter: false
+                bboxCenter: true
             });
             expect(glyphCanvas.reapplyIdleViewLock).toHaveBeenCalled();
         });
@@ -3150,6 +3150,7 @@ describe('bridge Yjs worker callback', () => {
                 return true;
             }),
             reapplyIdleViewLock: jest.fn(() => {
+                canvasWidth = layer.width;
                 window.glyphCanvas.viewportManager.panX =
                     anchor.center - canvasWidth / 2;
                 return true;
