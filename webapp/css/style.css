@@ -3684,7 +3684,14 @@ kbd + kbd {
 }
 
 .plugin-menu-item.plugin-menu-item-disabled {
-    opacity: 0.65;
+    opacity: 0.45;
+    cursor: default;
+    pointer-events: none;
+}
+
+.plugin-menu-item.plugin-menu-item-disabled:hover,
+.plugin-menu-item.plugin-menu-item-disabled.focused {
+    background-color: transparent;
 }
 
 .plugin-menu-item .material-symbols-outlined {

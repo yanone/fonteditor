@@ -25,22 +25,29 @@ const console = new Logger('EditorStackPreviewMenu');
 
 let stackPreviewMenuInstance: TippyInstance | null = null;
 
+function isEditorEditMode(): boolean {
+    return !!window.glyphCanvas?.outlineEditor?.active;
+}
+
+function viewMenuItemClass(enabled: boolean): string {
+    return enabled ? '' : ' disabled plugin-menu-item-disabled';
+}
+
+function viewMenuItemDisabledAttr(enabled: boolean): string {
+    return enabled ? '' : ' aria-disabled="true"';
+}
+
 function updateStackPreviewButtonVisibility(button: HTMLElement): void {
-    const isEditMode = !!window.glyphCanvas?.outlineEditor?.active;
-
-    if (!isEditMode && stackPreviewMenuInstance?.state.isVisible) {
-        stackPreviewMenuInstance.hide();
-    }
-
     if (button instanceof HTMLButtonElement) {
-        button.disabled = !isEditMode;
+        button.disabled = false;
     }
-    button.setAttribute('aria-disabled', String(!isEditMode));
-    button.classList.toggle('inactive', !isEditMode);
+    button.removeAttribute('aria-disabled');
+    button.classList.remove('inactive');
     button.style.display = 'flex';
 }
 
-function createStackPreviewMenuHtml(): string {
+export function createStackPreviewMenuHtml(): string {
+    const isEditMode = isEditorEditMode();
     const stackPreviewActive =
         !!window.glyphCanvas?.stackPreviewAnimator?.isActive &&
         !window.glyphCanvas?.stackPreviewAnimator?.isReversing;
@@ -69,22 +76,22 @@ function createStackPreviewMenuHtml(): string {
                     ${previewAreaSegment('full', 'Full')}
                 </div>
             </div>
-            <div class="plugin-menu-item" data-action="toggle-stack-preview" role="menuitemcheckbox" aria-checked="${stackPreviewActive}" tabindex="-1">
+            <div class="plugin-menu-item${viewMenuItemClass(isEditMode)}" data-action="toggle-stack-preview" role="menuitemcheckbox" aria-checked="${stackPreviewActive}"${viewMenuItemDisabledAttr(isEditMode)} tabindex="-1">
                 <span class="plugin-menu-check material-symbols-outlined${stackPreviewActive ? '' : ' empty'}">${stackPreviewCheckmark}</span>
                 <span>Stack Preview</span>
                 <span class="plugin-menu-shortcut">⌘⌥S</span>
             </div>
-            <div class="plugin-menu-item" data-action="toggle-guidelines" role="menuitemcheckbox" aria-checked="${guidelinesVisible}" tabindex="-1">
+            <div class="plugin-menu-item${viewMenuItemClass(isEditMode)}" data-action="toggle-guidelines" role="menuitemcheckbox" aria-checked="${guidelinesVisible}"${viewMenuItemDisabledAttr(isEditMode)} tabindex="-1">
                 <span class="plugin-menu-check material-symbols-outlined${guidelinesVisible ? '' : ' empty'}">${guidelinesCheckmark}</span>
                 <span>Guidelines</span>
                 <span class="plugin-menu-shortcut">⌘⌥G</span>
             </div>
-            <div class="plugin-menu-item" data-action="toggle-paired-layer" role="menuitemcheckbox" aria-checked="${pairedLayerVisible}" tabindex="-1">
+            <div class="plugin-menu-item${viewMenuItemClass(isEditMode)}" data-action="toggle-paired-layer" role="menuitemcheckbox" aria-checked="${pairedLayerVisible}"${viewMenuItemDisabledAttr(isEditMode)} tabindex="-1">
                 <span class="plugin-menu-check material-symbols-outlined${pairedLayerVisible ? '' : ' empty'}">${pairedLayerCheckmark}</span>
                 <span>Show Foreground/Background</span>
                 <span class="plugin-menu-shortcut">⌘⌥B</span>
             </div>
-            <div class="plugin-menu-item" data-action="toggle-show-all-metrics" role="menuitemcheckbox" aria-checked="${showAllMetrics}" tabindex="-1">
+            <div class="plugin-menu-item${viewMenuItemClass(isEditMode)}" data-action="toggle-show-all-metrics" role="menuitemcheckbox" aria-checked="${showAllMetrics}"${viewMenuItemDisabledAttr(isEditMode)} tabindex="-1">
                 <span class="plugin-menu-check material-symbols-outlined${showAllMetrics ? '' : ' empty'}">${showAllMetricsCheckmark}</span>
                 <span>Show All Metrics</span>
             </div>
@@ -177,6 +184,14 @@ function initEditorStackPreviewMenu(): void {
                 if (!item) {
                     return;
                 }
+                if (
+                    item.classList.contains('plugin-menu-item-disabled') ||
+                    item.getAttribute('aria-disabled') === 'true'
+                ) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
+                }
 
                 const action = item.getAttribute('data-action');
                 instance.hide();
@@ -203,7 +218,10 @@ function initEditorStackPreviewMenu(): void {
             refreshStackPreviewMenuContent();
             const menu = instance.popper.querySelector('.plugin-menu');
             if (menu) {
-                setupMenuKeyboardNav(menu);
+                setupMenuKeyboardNav(
+                    menu,
+                    '.plugin-menu-item:not(.plugin-menu-item-disabled)'
+                );
             }
         },
         onHide: () => {
@@ -223,10 +241,6 @@ function initEditorStackPreviewMenu(): void {
     menuButton.addEventListener('click', (e: Event) => {
         e.preventDefault();
         e.stopPropagation();
-
-        if ((menuButton as HTMLButtonElement).disabled) {
-            return;
-        }
 
         if (stackPreviewMenuInstance?.state.isVisible) {
             stackPreviewMenuInstance.hide();
