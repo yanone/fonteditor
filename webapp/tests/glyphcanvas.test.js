@@ -22004,7 +22004,7 @@ describe('GlyphCanvas resize handling', () => {
         expect(after.x).toBeLessThanOrEqual(400 - 30);
     });
 
-    test('opening the overlay property panel keeps the caret at the same relative inset position', () => {
+    test('opening the overlay property panel does not change pan or zoom', () => {
         canvas.lastContainerWidth = 800;
         canvas.lastContainerHeight = 600;
         canvas.lastCutoutLeft = 0;
@@ -22039,15 +22039,17 @@ describe('GlyphCanvas resize handling', () => {
             200,
             textCaretCenterY
         );
-        const fractionY = before.y / 600;
         canvas.onResize();
         const after = canvas.viewportManager.fontToScreenCoordinates(
             200,
             textCaretCenterY
         );
 
+        expect(canvas.viewportManager.scale).toBe(0.5);
+        expect(canvas.viewportManager.panX).toBe(40);
+        expect(canvas.viewportManager.panY).toBe(150);
         expect(after.x).toBeCloseTo(before.x, 5);
-        expect(after.y).toBeCloseTo(fractionY * 520, 5);
+        expect(after.y).toBeCloseTo(before.y, 5);
     });
 
     test('edit-mode resize anchors a visible glyph when the active glyph is off-screen', () => {
@@ -22082,15 +22084,15 @@ describe('GlyphCanvas resize handling', () => {
             left: 0,
             top: 0,
             width: 800,
-            height: 600
+            height: 400
         });
         canvas.getCanvasContentFrame = () => ({
             left: 0,
             top: 0,
             right: 0,
-            bottom: 80,
+            bottom: 0,
             width: 800,
-            height: 520
+            height: 400
         });
 
         const visibleBefore = canvas.viewportManager.fontToScreenCoordinates(
@@ -22104,7 +22106,7 @@ describe('GlyphCanvas resize handling', () => {
             0
         );
 
-        expect(visibleAfter.y).toBeCloseTo(fractionY * 520, 5);
+        expect(visibleAfter.y).toBeCloseTo(fractionY * 400, 5);
     });
 
     test('mouse-style resize keeps the caret at the same relative inset position', () => {

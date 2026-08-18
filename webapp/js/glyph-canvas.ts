@@ -3777,7 +3777,7 @@ class GlyphCanvas {
 
     onResize(): void {
         // Splitter/collapse sizing is based on the editor cutout, not the
-        // full-window bitmap. Camera anchoring uses the overlay inset.
+        // full-window bitmap. Overlay property-panel size is ignored here.
         const cutout = this.getCanvasCutoutFrame();
         const contentFrame = this.getCanvasContentFrameAsViewport();
         const newWidth = cutout.width || this.container.clientWidth;
@@ -3882,15 +3882,18 @@ class GlyphCanvas {
             return;
         }
 
-        // Skip viewport adjustment if the cutout and overlay inset are unchanged
+        // Skip viewport adjustment if the cutout is unchanged. Property-panel
+        // overlay size shifts are exempt: they do not resettle pan or zoom.
         if (
             oldWidth === newWidth &&
             oldHeight === newHeight &&
             oldLeft === newLeft &&
-            oldTop === newTop &&
-            this.contentFramesMatch(oldContentFrame, contentFrame)
+            oldTop === newTop
         ) {
             this.lastStableViewportSnapshot = this.snapshotCurrentViewport();
+            if (!this.contentFramesMatch(oldContentFrame, contentFrame)) {
+                this.render();
+            }
             return;
         }
 
