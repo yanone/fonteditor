@@ -1354,7 +1354,8 @@ kbd + kbd {
 
 /* Active view indicator — keep the 2px border (no inward shrink); add 1px
    outside via box-shadow so the colored chrome reads as 3px total.
-   Paint above adjacent dividers so that outer pixel is not covered. */
+   Stay above sibling views so the outer pixel is not clipped; dividers
+   stack above this so resize handles stay visible. */
 .view.focused {
     z-index: 1;
     border-color: var(--view-title-color);
@@ -2058,15 +2059,17 @@ kbd + kbd {
     color: var(--text-faint);
 }
 
-/* Divider styles */
+/* Divider styles — above focused views so the 4px handle stays visible
+   over the 1px outer focus ring and the full-window canvas. */
 .divider {
     background-color: var(--border-primary);
     position: relative;
+    z-index: 2;
     transition: background-color 0.2s ease;
 }
 
 .divider:hover {
-    background-color: var(--border-secondary);
+    background-color: var(--border-active);
 }
 
 .divider.active {
