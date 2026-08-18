@@ -759,6 +759,16 @@ Convert transform to affine matrix array [a, b, c, d, e, f]
 Uses the proper DecomposedAffineTransform utility
 
 #### `toString() -> str`
+#### `decompose() -> float | int | None`
+Replace this component with its recursively flattened outlines in place.
+Nested components are expanded with accumulated transforms. Returns the
+number of paths inserted, or `None` if the component is not on a layer.
+
+**Example:**
+```python
+count = component.decompose()
+```
+
 #### `getTransformedPaths() -> list[Babelfont.Path]`
 Get all paths from this component with transforms applied recursively
 Automatically determines the correct master by walking up the parent chain

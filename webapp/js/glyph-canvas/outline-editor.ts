@@ -204,12 +204,13 @@ type OpenPathEndpointRef = {
 
 type CanvasPathContextTarget = {
     shapeIndex: number;
-    pathIndex: number;
+    pathIndex: number | null;
     nodeIndex: number | null;
     onCurveOrdinal: number | null;
     nodeType: Babelfont.NodeType | null;
     intendedPoint: CanvasPoint | null;
     canSetStartNode: boolean;
+    isComponent: boolean;
 };
 
 type CanvasPoint = { x: number; y: number };
@@ -16621,6 +16622,21 @@ export class OutlineEditor {
             y: fallbackPoint.glyphY
         };
 
+        const componentShapeIndex =
+            this.findComponentShapeIndexAt(resolvedPoint);
+        if (componentShapeIndex !== null) {
+            return {
+                shapeIndex: componentShapeIndex,
+                pathIndex: null,
+                nodeIndex: null,
+                onCurveOrdinal: null,
+                nodeType: null,
+                intendedPoint: resolvedPoint,
+                canSetStartNode: false,
+                isComponent: true
+            };
+        }
+
         const segmentHit = this.findClosestPathSegmentHitAt(resolvedPoint);
         let shapeIndex = segmentHit?.shapeIndex ?? null;
         let pathIndex = segmentHit?.pathIndex ?? null;
@@ -16681,8 +16697,64 @@ export class OutlineEditor {
                           y: Number(hoveredNode.y)
                       }
                     : null,
-            canSetStartNode
+            canSetStartNode,
+            isComponent: false
         };
+    }
+
+    private findComponentShapeIndexAt(point: CanvasPoint): number | null {
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const shapes = currentLayerData?.shapes;
+        if (!shapes?.length) {
+            return null;
+        }
+
+        const scaledOriginRadius =
+            20 / (this.glyphCanvas.viewportManager?.scale || 1);
+
+        for (let index = shapes.length - 1; index >= 0; index--) {
+            const shape = shapes[index];
+            if (!this.isComponentShape(shape)) {
+                continue;
+            }
+
+            if (this._isPointInComponent(shape, point.x, point.y)) {
+                return index;
+            }
+
+            const origin = this.getComponentOriginFromShape(shape);
+            if (
+                origin &&
+                Math.hypot(origin.x - point.x, origin.y - point.y) <=
+                    scaledOriginRadius
+            ) {
+                return index;
+            }
+        }
+
+        return null;
+    }
+
+    private getComponentOriginFromShape(
+        shape: Babelfont.Shape
+    ): { x: number; y: number } | null {
+        const nestedComponent = (
+            shape as { Component?: { transform?: unknown } }
+        ).Component;
+        const componentData = nestedComponent || shape;
+        const transformRaw = (componentData as { transform?: unknown })
+            .transform;
+        const transform = !transformRaw
+            ? [1, 0, 0, 1, 0, 0]
+            : Array.isArray(transformRaw)
+              ? transformRaw
+              : DecomposedAffineTransform.toAffine(
+                    transformRaw as Babelfont.DecomposedAffine
+                );
+        if (!Array.isArray(transform) || transform.length < 6) {
+            return { x: 0, y: 0 };
+        }
+        return { x: transform[4] || 0, y: transform[5] || 0 };
     }
 
     private getClosestOnCurveNodeIndex(
@@ -16770,6 +16842,14 @@ export class OutlineEditor {
         const currentLayerData = this.getCurrentLayerDataFromStack();
 
         if (currentLayer && !currentLayerData?.isInterpolated) {
+            if (target?.isComponent) {
+                items.push(`
+                <div class="plugin-menu-item" data-action="decompose-component">
+                    <span class="material-symbols-outlined">conversion_path</span>
+                    <span>Decompose</span>
+                </div>
+            `);
+            }
             items.push(`
                 <div class="plugin-menu-item" data-action="add-component">
                     <span class="material-symbols-outlined">add_box</span>
@@ -16801,7 +16881,7 @@ export class OutlineEditor {
             `);
         }
 
-        if (target) {
+        if (target && !target.isComponent) {
             items.push(`
                 <div class="plugin-menu-item" data-action="reverse-path-direction">
                     <span class="material-symbols-outlined">swap_horiz</span>
@@ -16913,6 +16993,11 @@ export class OutlineEditor {
             return;
         }
 
+        if (action === 'decompose-component') {
+            this.decomposeContextMenuComponents();
+            return;
+        }
+
         if (action === 'set-start-node') {
             this.setContextMenuPathStartNode();
             return;
@@ -16921,6 +17006,143 @@ export class OutlineEditor {
         if (action === 'reverse-path-direction') {
             this.reverseContextMenuPathDirection();
         }
+    }
+
+    private decomposeContextMenuComponents(): boolean {
+        const target = this.canvasContextMenuTarget;
+        const currentLayerModel = this.getCurrentLayerModel();
+        const currentGlyphModel = this.getCurrentGlyphModel();
+        if (
+            !target?.isComponent ||
+            !currentLayerModel ||
+            !currentGlyphModel?.name
+        ) {
+            return false;
+        }
+
+        const selectedComponentIndices = [
+            ...new Set(this.selectedComponents)
+        ].filter(
+            (shapeIndex) =>
+                Number.isInteger(shapeIndex) &&
+                currentLayerModel.shapes?.[shapeIndex]?.isComponent()
+        );
+        const shapeIndices = (
+            selectedComponentIndices.includes(target.shapeIndex)
+                ? selectedComponentIndices
+                : [target.shapeIndex]
+        )
+            .filter((shapeIndex) =>
+                currentLayerModel.shapes?.[shapeIndex]?.isComponent()
+            )
+            .sort((left, right) => right - left);
+
+        if (!shapeIndices.length) {
+            return false;
+        }
+
+        const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
+        const layers = [currentLayerModel, ...linkedLayers];
+        const structuralLayerTargets = layers
+            .filter((layer) => !!layer.id)
+            .map((layer) => ({
+                glyphName: currentGlyphModel.name,
+                layerId: layer.id!
+            }));
+
+        let changed = false;
+        let insertedShapeIndices: number[] = [];
+        const label = 'Decompose component';
+        const bridge = window.patchSyncEngine;
+        bridge?.beginTransaction(label);
+        try {
+            withSuppressedModelRecording(() => {
+                for (const shapeIndex of shapeIndices) {
+                    for (const layer of layers) {
+                        const shape = layer.shapes?.[shapeIndex];
+                        if (!shape?.isComponent?.()) {
+                            continue;
+                        }
+                        const inserted = shape.asComponent().decompose();
+                        if (inserted === null) {
+                            continue;
+                        }
+                        changed = true;
+                        if (layer !== currentLayerModel) {
+                            continue;
+                        }
+                        insertedShapeIndices = insertedShapeIndices.map(
+                            (existingIndex) =>
+                                existingIndex >= shapeIndex
+                                    ? existingIndex + (inserted - 1)
+                                    : existingIndex
+                        );
+                        for (
+                            let pathOffset = 0;
+                            pathOffset < inserted;
+                            pathOffset++
+                        ) {
+                            insertedShapeIndices.push(shapeIndex + pathOffset);
+                        }
+                    }
+                }
+            });
+
+            if (!changed) {
+                return false;
+            }
+
+            this.syncCurrentExactLayerDataFromModel();
+            const bboxCenterAnchorScreen =
+                this.getBoundingBoxCenterScreenPosition();
+            const affectedGlyphNames = this.recomputeMetricsKeysForGlyph(
+                currentGlyphModel.name
+            );
+            this.commitStructuralOutlineChange(label, {
+                reuseTransaction: true,
+                layerTargets: structuralLayerTargets.length
+                    ? structuralLayerTargets
+                    : undefined
+            });
+            this.refreshKeyedMetricsAfterStructuralEdit(
+                affectedGlyphNames,
+                bboxCenterAnchorScreen
+            );
+        } finally {
+            bridge?.endTransaction();
+        }
+
+        this.selectedPoints = [];
+        for (const shapeIndex of insertedShapeIndices) {
+            const shape = currentLayerModel.shapes?.[shapeIndex];
+            const nodeCount = shape?.isPath?.()
+                ? shape.asPath().nodes?.length || 0
+                : 0;
+            for (let nodeIndex = 0; nodeIndex < nodeCount; nodeIndex++) {
+                this.selectedPoints.push({
+                    contourIndex: shapeIndex,
+                    nodeIndex
+                });
+            }
+        }
+        this.selectedAnchors = [];
+        this.selectedComponents = [];
+        this.selectedGuideHandle = null;
+        this.selectedSidebearingHandle = null;
+        this.performHitDetection(null);
+        this.glyphCanvas.updatePropertyPanel();
+
+        if (!fontManager.currentFont && currentGlyphModel.name) {
+            window.dispatchEvent(
+                new CustomEvent('glyphChanged', {
+                    detail: {
+                        glyphName: currentGlyphModel.name,
+                        layerId: this.getCurrentLayerId()
+                    }
+                })
+            );
+        }
+        return true;
     }
 
     private applyPathMutationAcrossLinkedLayers(
@@ -17046,7 +17268,11 @@ export class OutlineEditor {
         }
 
         const resolvedPathIndex = target.pathIndex;
-        if (!Number.isInteger(resolvedPathIndex) || resolvedPathIndex < 0) {
+        if (
+            resolvedPathIndex === null ||
+            !Number.isInteger(resolvedPathIndex) ||
+            resolvedPathIndex < 0
+        ) {
             return false;
         }
 
@@ -17155,12 +17381,16 @@ export class OutlineEditor {
 
     private reverseContextMenuPathDirection(): boolean {
         const target = this.canvasContextMenuTarget;
-        if (!target) {
+        if (!target || target.isComponent) {
             return false;
         }
 
         const resolvedPathIndex = target.pathIndex;
-        if (!Number.isInteger(resolvedPathIndex) || resolvedPathIndex < 0) {
+        if (
+            resolvedPathIndex === null ||
+            !Number.isInteger(resolvedPathIndex) ||
+            resolvedPathIndex < 0
+        ) {
             return false;
         }
 

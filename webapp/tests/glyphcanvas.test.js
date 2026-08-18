@@ -11978,6 +11978,245 @@ describe('OutlineEditor structural outline compile scheduling', () => {
     });
 });
 
+describe('GlyphCanvas decompose component', () => {
+    let canvas;
+
+    function makeCompositeFont() {
+        return Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    reference: 'B',
+                                    transform: {
+                                        translation: [10, 0],
+                                        scale: [1, 1],
+                                        rotation: 0,
+                                        skew: [0, 0]
+                                    }
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        },
+                        {
+                            id: 'layer-2',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    reference: 'B',
+                                    transform: {
+                                        translation: [30, 0],
+                                        scale: [1, 1],
+                                        rotation: 0,
+                                        skew: [0, 0]
+                                    }
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                },
+                {
+                    name: 'B',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'b-layer',
+                            width: 200,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 0, y: 0, nodetype: 'Line' },
+                                        { x: 40, y: 0, nodetype: 'Line' },
+                                        { x: 40, y: 40, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ]
+        });
+    }
+
+    beforeEach(() => {
+        document.body.innerHTML =
+            '<div id="test-container"></div><div id="file-dirty-indicator"></div>';
+        fontManager.dirtyIndicator = document.getElementById(
+            'file-dirty-indicator'
+        );
+        canvas = new GlyphCanvas('test-container');
+    });
+
+    afterEach(() => {
+        canvas.destroy();
+        window.currentFontModel = null;
+    });
+
+    test('repeats decompose across linked layers', () => {
+        const font = makeCompositeFont();
+        const currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({
+                fontModel: font,
+                markDirty: jest.fn(),
+                syncJsonFromModel: jest.fn(),
+                hasUnsavedChanges: false
+            });
+        jest.spyOn(fontManager, 'updateDirtyIndicator').mockResolvedValue();
+        window.currentFontModel = font;
+        const glyph = font.findGlyph('A');
+        const currentLayer = glyph.findLayerById('layer-1');
+        const linkedLayer = glyph.findLayerById('layer-2');
+        const linkedLayersSpy = jest.spyOn(Layer.prototype, '_getLinkedLayers');
+        jest.spyOn(
+            canvas.outlineEditor,
+            'commitStructuralOutlineChange'
+        ).mockImplementation(() => {});
+        jest.spyOn(
+            canvas.outlineEditor,
+            'recomputeMetricsKeysForGlyph'
+        ).mockReturnValue(new Set());
+        jest.spyOn(
+            canvas.outlineEditor,
+            'refreshKeyedMetricsAfterStructuralEdit'
+        ).mockImplementation(() => {});
+
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.layerData = JSON.parse(
+            JSON.stringify(currentLayer.toJSON())
+        );
+        canvas.outlineEditor.canvasContextMenuTarget = {
+            shapeIndex: 0,
+            pathIndex: null,
+            nodeIndex: null,
+            onCurveOrdinal: null,
+            nodeType: null,
+            intendedPoint: { x: 10, y: 0 },
+            canSetStartNode: false,
+            isComponent: true
+        };
+
+        try {
+            expect(canvas.outlineEditor.decomposeContextMenuComponents()).toBe(
+                true
+            );
+            expect(linkedLayersSpy).toHaveBeenCalled();
+            expect(currentLayer.components).toHaveLength(0);
+            expect(linkedLayer.components).toHaveLength(0);
+            expect(currentLayer.paths[0].nodes[0].x).toBe(10);
+            expect(linkedLayer.paths[0].nodes[0].x).toBe(30);
+        } finally {
+            linkedLayersSpy.mockRestore();
+            currentFontSpy.mockRestore();
+        }
+    });
+
+    test('keeps decompose local to a background layer', () => {
+        const font = makeCompositeFont();
+        const currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({
+                fontModel: font,
+                markDirty: jest.fn(),
+                syncJsonFromModel: jest.fn(),
+                hasUnsavedChanges: false
+            });
+        jest.spyOn(fontManager, 'updateDirtyIndicator').mockResolvedValue();
+        window.currentFontModel = font;
+        const glyph = font.findGlyph('A');
+        const foreground = glyph.findLayerById('layer-1');
+        const sibling = glyph.findLayerById('layer-2');
+        const background = foreground.backgroundLayer;
+        background.addComponent('B', [1, 0, 0, 1, 50, 0]);
+        const linkedLayersSpy = jest.spyOn(Layer.prototype, '_getLinkedLayers');
+        jest.spyOn(
+            canvas.outlineEditor,
+            'commitStructuralOutlineChange'
+        ).mockImplementation(() => {});
+        jest.spyOn(
+            canvas.outlineEditor,
+            'recomputeMetricsKeysForGlyph'
+        ).mockReturnValue(new Set());
+        jest.spyOn(
+            canvas.outlineEditor,
+            'refreshKeyedMetricsAfterStructuralEdit'
+        ).mockImplementation(() => {});
+
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = background.id;
+        canvas.outlineEditor.layerData = JSON.parse(
+            JSON.stringify(background.toJSON())
+        );
+        canvas.outlineEditor.canvasContextMenuTarget = {
+            shapeIndex: 0,
+            pathIndex: null,
+            nodeIndex: null,
+            onCurveOrdinal: null,
+            nodeType: null,
+            intendedPoint: { x: 50, y: 0 },
+            canSetStartNode: false,
+            isComponent: true
+        };
+
+        try {
+            expect(canvas.outlineEditor.decomposeContextMenuComponents()).toBe(
+                true
+            );
+            expect(linkedLayersSpy).toHaveBeenCalled();
+            expect(background.components).toHaveLength(0);
+            expect(background.paths[0].nodes[0].x).toBe(50);
+            expect(foreground.components).toHaveLength(1);
+            expect(sibling.components).toHaveLength(1);
+        } finally {
+            linkedLayersSpy.mockRestore();
+            currentFontSpy.mockRestore();
+        }
+    });
+});
+
 describe('GlyphCanvas command path drawing visuals', () => {
     let canvas;
 
@@ -14601,6 +14840,30 @@ describe('GlyphCanvas property panel', () => {
         expect(html).toContain('data-action="add-component"');
         expect(html).not.toContain('data-action="add-anchor"');
         expect(html).not.toContain('data-action="add-guideline"');
+    });
+
+    test('context menu offers Decompose when the target is a component', () => {
+        canvas.outlineEditor.getCurrentLayerModel = jest.fn(() => ({
+            is_background: false
+        }));
+        canvas.outlineEditor.getCurrentLayerDataFromStack = jest.fn(() => ({
+            isInterpolated: false
+        }));
+
+        const html = canvas.outlineEditor.buildCanvasContextMenuHtml({
+            shapeIndex: 0,
+            pathIndex: null,
+            nodeIndex: null,
+            onCurveOrdinal: null,
+            nodeType: null,
+            intendedPoint: { x: 0, y: 0 },
+            canSetStartNode: false,
+            isComponent: true
+        });
+
+        expect(html).toContain('data-action="decompose-component"');
+        expect(html).toContain('Decompose');
+        expect(html).not.toContain('data-action="reverse-path-direction"');
     });
 
     test('rejects adding an anchor when the name already exists', async () => {

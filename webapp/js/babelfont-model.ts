@@ -638,6 +638,29 @@ function cloneNodeData<T extends Babelfont.Node>(
     };
 }
 
+function flattenedPathToStoredShape(path: Babelfont.Path): Babelfont.Path {
+    const nodes = (path.nodes || []).map((node: Unsafe) => {
+        const nodetype = (node.nodetype ||
+            node.type ||
+            'Line') as Babelfont.NodeType;
+        const stored: Babelfont.Node = {
+            id: generateStableId(),
+            x: Number(node.x),
+            y: Number(node.y),
+            nodetype
+        };
+        if (node.smooth !== undefined) {
+            stored.smooth = !!node.smooth;
+        }
+        return stored;
+    });
+    return {
+        id: generateStableId(),
+        nodes,
+        closed: path.closed !== false
+    };
+}
+
 function midpoint(left: SegmentPoint, right: SegmentPoint): SegmentPoint {
     return {
         x: (left.x + right.x) / 2,
@@ -5317,6 +5340,46 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
             ? ` transform=${JSON.stringify(this.transform)}`
             : '';
         return `<Component ref="${this.reference}"${transform}>`;
+    }
+
+    /**
+     * Replace this component with its recursively flattened outlines in place.
+     * Nested components are expanded with accumulated transforms. Returns the
+     * number of paths inserted, or `None` if the component is not on a layer.
+     * @example
+     * count = component.decompose()
+     */
+    decompose(): number | null {
+        assertModelMutationAllowed();
+        // Component -> Shape -> Layer
+        const shape = this.parent() as Shape;
+        const layer = shape?.parent() as Layer;
+        if (!shape || !layer) {
+            return null;
+        }
+
+        const shapes = layer.shapes;
+        if (!shapes) {
+            return null;
+        }
+        const index = shapes.findIndex((candidate) =>
+            areSameModelObject(candidate, shape)
+        );
+        if (index < 0) {
+            return null;
+        }
+
+        const pathShapes = this.getTransformedPaths()
+            .filter(
+                (path) => Array.isArray(path.nodes) && path.nodes.length > 0
+            )
+            .map((path) => flattenedPathToStoredShape(path));
+
+        layer.removeShape(index);
+        for (let pathOffset = 0; pathOffset < pathShapes.length; pathOffset++) {
+            layer.insertShapeAt(index + pathOffset, pathShapes[pathOffset]);
+        }
+        return pathShapes.length;
     }
 
     /**

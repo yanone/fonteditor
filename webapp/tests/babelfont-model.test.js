@@ -2089,6 +2089,164 @@ describe('Babelfont Object Model', () => {
             expect(component.getTransformedPaths()[0].nodes[2].x).toBe(200);
         });
 
+        test('component.decompose replaces a component with transformed outlines in place', () => {
+            const testFont = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                instances: [],
+                masters: [
+                    {
+                        id: 'master-1',
+                        name: { en: 'Regular' },
+                        location: {},
+                        guides: [],
+                        metrics: {},
+                        kerning: new Map()
+                    }
+                ],
+                glyphs: [
+                    {
+                        name: 'A',
+                        layers: [
+                            {
+                                id: 'a-layer',
+                                width: 500,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            { x: 0, y: 0, nodetype: 'Line' },
+                                            { x: 10, y: 0, nodetype: 'Line' }
+                                        ],
+                                        closed: true
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        name: 'B',
+                        layers: [
+                            {
+                                id: 'b-layer',
+                                width: 200,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            { x: 0, y: 0, nodetype: 'Line' },
+                                            { x: 40, y: 0, nodetype: 'Line' },
+                                            { x: 40, y: 40, nodetype: 'Line' }
+                                        ],
+                                        closed: true
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            });
+            const layer = testFont.findGlyph('A').findLayerById('a-layer');
+            const component = layer.addComponent('B', [1, 0, 0, 1, 100, 50]);
+
+            expect(component.decompose()).toBe(1);
+            expect(layer.components).toHaveLength(0);
+            expect(layer.paths).toHaveLength(2);
+            expect(
+                layer.paths[1].nodes.map((node) => [node.x, node.y])
+            ).toEqual([
+                [100, 50],
+                [140, 50],
+                [140, 90]
+            ]);
+        });
+
+        test('component.decompose stays local on a background layer', () => {
+            const testFont = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                instances: [],
+                masters: [
+                    {
+                        id: 'master-1',
+                        name: { en: 'Regular' },
+                        location: {},
+                        guides: [],
+                        metrics: {},
+                        kerning: new Map()
+                    }
+                ],
+                glyphs: [
+                    {
+                        name: 'A',
+                        layers: [
+                            {
+                                id: 'foreground',
+                                width: 500,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [
+                                    {
+                                        reference: 'B',
+                                        transform: {
+                                            translation: [0, 0],
+                                            scale: [1, 1],
+                                            rotation: 0,
+                                            skew: [0, 0]
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        name: 'B',
+                        layers: [
+                            {
+                                id: 'b-foreground',
+                                width: 200,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            { x: 0, y: 0, nodetype: 'Line' },
+                                            { x: 40, y: 0, nodetype: 'Line' },
+                                            { x: 40, y: 40, nodetype: 'Line' }
+                                        ],
+                                        closed: true
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            });
+            const glyph = testFont.findGlyph('A');
+            const foreground = glyph.findLayerById('foreground');
+            const background = foreground.backgroundLayer;
+            const component = background.addComponent('B', [1, 0, 0, 1, 25, 0]);
+
+            expect(background._getLinkedLayers()).toEqual([]);
+            expect(component.decompose()).toBe(1);
+            expect(background.components).toHaveLength(0);
+            expect(background.paths[0].nodes[0].x).toBe(25);
+            expect(foreground.components).toHaveLength(1);
+            expect(foreground.paths).toHaveLength(0);
+        });
+
         test('getComputedName returns Intermediate Layer for intermediate layers', () => {
             const testFont = Font.fromData({
                 upm: 1000,

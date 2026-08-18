@@ -324,6 +324,8 @@ The Glyphs paste script clears the current selection and selects the pasted obje
 
 Components, like paths, must be of identical structure across the layers of a glyph to be compatible. Their decomposed transformations can be edited via the property panel of the editor view. Translation is locked only while the entire layer is automatically composed. In other words: if any component in a component-only layer is not automatic and the layer therefore falls out of automatic composition, all components in that layer, including components still marked automatic, must remain movable by the user. While a layer is fully automatic, component translation is derived from automatic composition and therefore not directly editable, while rotation, scale, and skew remain editable. All transformation edits stay local to a layer, even if the edited layer is linked with other layers, while changing the automatic alignment status of a component is updated across all linked layers.
 
+Decompose (canvas context menu) replaces a component with its recursively flattened outlines at the same shape index, applying the component transform. The action repeats across currently linked sibling layers. On a background layer it stays local to that background layer.
+
 When an automatically aligned component has more than one eligible target anchor in the current composition, the property panel must offer an anchor override control backed by `Component.anchor`. Leaving that control unset keeps the component on the default automatic target selection for its anchor family.
 
 #### Automatic Glyph Composition
