@@ -633,6 +633,145 @@ describe('GlyphCanvas initialization', () => {
         });
     });
 
+    test('getPreviewViewportGuide uses the editor view for Small and the drawing slot otherwise', () => {
+        const { setPreviewArea } = require('../js/editor-preview-area-pref');
+        canvas = new GlyphCanvas('test-container');
+        canvas.canvas.getBoundingClientRect = () => ({
+            width: 1200,
+            height: 800,
+            top: 0,
+            left: 0,
+            right: 1200,
+            bottom: 800,
+            x: 0,
+            y: 0,
+            toJSON() {}
+        });
+        canvas.container.getBoundingClientRect = () => ({
+            width: 800,
+            height: 600,
+            top: 80,
+            left: 200,
+            right: 1000,
+            bottom: 680,
+            x: 200,
+            y: 80,
+            toJSON() {}
+        });
+        const editorView = document.createElement('div');
+        editorView.id = 'view-editor';
+        editorView.getBoundingClientRect = () => ({
+            width: 900,
+            height: 700,
+            top: 40,
+            left: 150,
+            right: 1050,
+            bottom: 740,
+            x: 150,
+            y: 40,
+            toJSON() {}
+        });
+        document.body.appendChild(editorView);
+
+        setPreviewArea('full');
+        expect(canvas.getPreviewViewportGuide()).toEqual({
+            left: 200,
+            top: 80,
+            width: 800,
+            height: 600
+        });
+
+        setPreviewArea('medium');
+        expect(canvas.getPreviewViewportGuide()).toEqual({
+            left: 200,
+            top: 80,
+            width: 800,
+            height: 600
+        });
+
+        canvas.propertyPanel.classList.remove('hidden');
+        canvas.propertyPanel.getBoundingClientRect = () => ({
+            width: 800,
+            height: 80,
+            top: 600,
+            left: 200,
+            right: 1000,
+            bottom: 680,
+            x: 200,
+            y: 600,
+            toJSON() {}
+        });
+        expect(canvas.getPreviewViewportGuide()).toEqual({
+            left: 200,
+            top: 80,
+            width: 800,
+            height: 520
+        });
+
+        setPreviewArea('small');
+        expect(canvas.getPreviewViewportGuide()).toEqual({
+            left: 150,
+            top: 40,
+            width: 900,
+            height: 620
+        });
+
+        editorView.remove();
+        localStorage.clear();
+    });
+
+    test('Small Space preview does not fade chrome', () => {
+        const { setPreviewArea } = require('../js/editor-preview-area-pref');
+        setPreviewArea('small');
+        canvas = new GlyphCanvas('test-container');
+        canvas.setPreviewMode(true);
+        expect(document.body.classList.contains('preview-mode-chrome')).toBe(
+            false
+        );
+        expect(canvas.getPreviewFillAlpha()).toBeCloseTo(0.1);
+        localStorage.clear();
+    });
+
+    test('Medium Space preview fades editor chrome', () => {
+        const { setPreviewArea } = require('../js/editor-preview-area-pref');
+        setPreviewArea('medium');
+        canvas = new GlyphCanvas('test-container');
+        canvas.setPreviewMode(true);
+        expect(document.body.classList.contains('preview-mode-chrome')).toBe(
+            true
+        );
+        expect(document.body.classList.contains('preview-area-medium')).toBe(
+            true
+        );
+        localStorage.clear();
+    });
+
+    test('Space preview fade does not record live text diagnostics', () => {
+        canvas = new GlyphCanvas('test-container');
+        const before = window.__liveTextDiagnostics?.entries?.length ?? 0;
+        canvas.setPreviewMode(true);
+        expect(window.__liveTextDiagnostics?.entries?.length ?? 0).toBe(before);
+        localStorage.clear();
+    });
+
+    test('restoreCanvasKeyboardFocus focuses the canvas when the editor is focused', () => {
+        canvas = new GlyphCanvas('test-container');
+        const editorView = document.createElement('div');
+        editorView.id = 'view-editor';
+        editorView.className = 'focused';
+        document.body.appendChild(editorView);
+        const other = document.createElement('button');
+        document.body.appendChild(other);
+        other.focus();
+        expect(document.activeElement).toBe(other);
+
+        canvas.restoreCanvasKeyboardFocus();
+
+        expect(document.activeElement).toBe(canvas.canvas);
+        editorView.remove();
+        other.remove();
+    });
+
     test('should initialize viewport manager with default values', () => {
         canvas = new GlyphCanvas('test-container');
         expect(canvas.viewportManager).toBeTruthy();

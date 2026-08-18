@@ -3661,7 +3661,7 @@ kbd + kbd {
 /* Plugin Menu (Tippy Content) */
 .plugin-menu {
     background: var(--background-secondary);
-    min-width: 180px;
+    min-width: 220px;
     font-family: var(--font-families-sans);
     font-size: 11px;
     border-radius: 3px;
@@ -3708,6 +3708,48 @@ kbd + kbd {
     color: var(--text-faint);
     font-family: var(--font-families-mono);
     font-size: 10px;
+}
+
+.plugin-menu-setting {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 12px 10px;
+    color: var(--text-primary);
+}
+
+.plugin-menu-setting-label {
+    color: var(--text-secondary);
+}
+
+.plugin-menu-segments {
+    display: flex;
+    border: 1px solid var(--border-primary);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.plugin-menu-segment {
+    flex: 1;
+    padding: 4px 6px;
+    border: none;
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    cursor: pointer;
+}
+
+.plugin-menu-segment:not(:last-child) {
+    border-right: 1px solid var(--border-primary);
+}
+
+.plugin-menu-segment:hover {
+    background-color: var(--background-hover);
+}
+
+.plugin-menu-segment.active {
+    background-color: var(--view-editor);
+    color: var(--background-primary);
 }
 
 /* Plugin Menu Backdrop */
@@ -6354,9 +6396,25 @@ kbd + kbd {
     z-index: 1;
 }
 
-body.preview-mode-chrome .toolbar,
-body.preview-mode-chrome .app-shell {
+body.preview-mode-chrome.preview-area-full .toolbar,
+body.preview-mode-chrome.preview-area-full .app-shell {
     opacity: var(--preview-chrome-opacity, 1);
+    pointer-events: none;
+    transition: none;
+}
+
+body.preview-mode-chrome.preview-area-medium #view-editor {
+    opacity: var(--preview-chrome-opacity, 1);
+    border-color: transparent;
+    box-shadow: none;
+    transition: none;
+}
+
+body.preview-mode-chrome.preview-area-medium #view-editor .view-title-bar,
+body.preview-mode-chrome.preview-area-medium #view-editor .view-sidebar,
+body.preview-mode-chrome.preview-area-medium
+    #glyph-canvas-container
+    > .glyph-property-panel {
     pointer-events: none;
 }
 
@@ -6364,6 +6422,14 @@ body.preview-mode-chrome .app-shell {
 body.has-full-window-glyph-canvas .app-shell,
 body.has-full-window-glyph-canvas .container {
     background-color: transparent;
+}
+
+/* View shells are rounded; the full-window canvas shows through those
+   corner notches. Outline paints the chrome gutter color into them
+   (outline is not clipped by overflow:hidden). */
+body.has-full-window-glyph-canvas .view {
+    outline: 6px solid var(--border-primary);
+    outline-offset: 0;
 }
 
 body.has-full-window-glyph-canvas .container {

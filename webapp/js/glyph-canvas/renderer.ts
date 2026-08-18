@@ -360,7 +360,9 @@ export class GlyphCanvasRenderer {
             // Draw canvas plugins below outline editor
             this.drawCanvasPluginsBelow();
 
-            const outlineFade = this.getFeatureChangeOutlineFadeAlpha();
+            const outlineFade =
+                this.getFeatureChangeOutlineFadeAlpha() *
+                this.glyphCanvas.previewChromeOpacity;
             if (outlineFade > 0) {
                 this.ctx.save();
                 this.ctx.globalAlpha *= outlineFade;
@@ -700,6 +702,7 @@ export class GlyphCanvasRenderer {
             : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
         const featureChangeDraw =
             this.glyphCanvas.featureChangeAnimator?.getDrawState() ?? null;
+        const previewFillAlpha = this.glyphCanvas.getPreviewFillAlpha();
 
         this.textRunEditor.shapedGlyphs.forEach(
             (glyph: any, glyphIndex: number) => {
@@ -779,9 +782,10 @@ export class GlyphCanvasRenderer {
                     glyphIndex === this.textRunEditor.selectedGlyphIndex;
                 const isExplicitToken = !!explicitGlyphName;
 
-                // Check if we should skip HarfBuzz rendering for selected glyph
-                // Skip HarfBuzz only in edit mode when NOT in preview mode
-                // In preview mode, always use HarfBuzz (shows final rendered font)
+                // Selected glyph: compiled fill only while Space preview is
+                // on (including fade-in). Fade-off uses the outline editor
+                // instead so component fills and path strokes do not sit on
+                // top of a second fading HarfBuzz fill.
                 const skipHarfBuzz =
                     isSelected &&
                     this.glyphCanvas.outlineEditor.active &&
@@ -797,8 +801,13 @@ export class GlyphCanvasRenderer {
                     // Set color based on mode and state
                     if (
                         this.glyphCanvas.outlineEditor.active &&
-                        !this.glyphCanvas.outlineEditor.isPreviewMode
+                        (this.glyphCanvas.outlineEditor.isPreviewMode ||
+                            previewFillAlpha > 0)
                     ) {
+                        fillColor = isNotdef
+                            ? colors.GLYPH_NOTDEF
+                            : colors.GLYPH_NORMAL;
+                    } else if (this.glyphCanvas.outlineEditor.active) {
                         inEditingMode = true;
                         // Glyph edit mode (not preview): active glyph in solid color, others dimmed
                         if (isSelected) {
@@ -810,14 +819,6 @@ export class GlyphCanvasRenderer {
                             // Dim other glyphs
                             fillColor = colors.GLYPH_INACTIVE_IN_EDITOR;
                         }
-                    } else if (
-                        this.glyphCanvas.outlineEditor.active &&
-                        this.glyphCanvas.outlineEditor.isPreviewMode
-                    ) {
-                        // Preview mode: all glyphs in normal color (or faded for .notdef)
-                        fillColor = isNotdef
-                            ? colors.GLYPH_NOTDEF
-                            : colors.GLYPH_NORMAL;
                     } else {
                         inTextMode = true;
                         // Text edit mode: normal coloring
@@ -852,25 +853,62 @@ export class GlyphCanvasRenderer {
                         }
                     }
 
-                    this.ctx.fillStyle = fillColor;
-
-                    if (useExplicitOutline && explicitOutline?.shapes) {
-                        this.drawCachedExplicitGlyphOutline(
-                            explicitOutline,
-                            x,
-                            y
+                    const previewColor = isNotdef
+                        ? colors.GLYPH_NOTDEF
+                        : colors.GLYPH_NORMAL;
+                    let restColor = isHovered
+                        ? colors.GLYPH_HOVERED_IN_EDITOR
+                        : colors.GLYPH_INACTIVE_IN_EDITOR;
+                    if (isExplicitToken) {
+                        restColor = adjustGlyphRestingColor(
+                            restColor,
+                            isDarkTheme ? -40 : 40
                         );
-                    } else if (glyphData && !isVisuallyEmpty) {
+                    }
+
+                    const paintFill = (color: string, alpha: number): void => {
+                        if (alpha <= 0) {
+                            return;
+                        }
                         this.ctx.save();
-                        this.ctx.translate(x, y);
-
-                        // Parse the SVG path data
-                        const path = new Path2D(glyphData);
-
-                        // Draw the fill
-                        this.ctx.fill(path);
-
+                        this.ctx.globalAlpha *= alpha;
+                        this.ctx.fillStyle = color;
+                        if (useExplicitOutline && explicitOutline?.shapes) {
+                            this.drawCachedExplicitGlyphOutline(
+                                explicitOutline,
+                                x,
+                                y
+                            );
+                        } else if (glyphData && !isVisuallyEmpty) {
+                            this.ctx.save();
+                            this.ctx.translate(x, y);
+                            this.ctx.fill(new Path2D(glyphData));
+                            this.ctx.restore();
+                        }
                         this.ctx.restore();
+                    };
+
+                    const blending =
+                        previewFillAlpha > 0 && previewFillAlpha < 1;
+                    if (
+                        this.glyphCanvas.outlineEditor.active &&
+                        !isSelected &&
+                        blending &&
+                        !this.glyphCanvas.outlineEditor.isPreviewMode
+                    ) {
+                        paintFill(previewColor, previewFillAlpha);
+                        paintFill(
+                            restColor,
+                            this.glyphCanvas.previewChromeOpacity
+                        );
+                    } else {
+                        const fillAlpha =
+                            this.glyphCanvas.outlineEditor.active &&
+                            isSelected &&
+                            blending
+                                ? previewFillAlpha
+                                : 1;
+                        paintFill(fillColor, fillAlpha);
                     }
                 }
 
@@ -1065,6 +1103,7 @@ export class GlyphCanvasRenderer {
         if (
             !outlineEditor.active ||
             outlineEditor.isPreviewMode ||
+            this.glyphCanvas.previewChromeOpacity < 1 ||
             !outlineEditor.isEditingBackgroundLayer()
         ) {
             return;
@@ -1108,7 +1147,8 @@ export class GlyphCanvasRenderer {
     private drawEditingMetricsUnderlay(): void {
         if (
             !this.glyphCanvas.outlineEditor.active ||
-            this.glyphCanvas.outlineEditor.isPreviewMode
+            this.glyphCanvas.outlineEditor.isPreviewMode ||
+            this.glyphCanvas.previewChromeOpacity < 1
         ) {
             return;
         }
@@ -1934,8 +1974,10 @@ export class GlyphCanvasRenderer {
             return;
         }
 
-        // Draw outline editor when a layer is selected (skip in preview mode)
-        // During interpolation without preview mode, layerData exists without selectedLayerId
+        // Draw outline editor when a layer is selected (skip while Space
+        // preview is on). During interpolation without preview mode,
+        // layerData exists without selectedLayerId. Fade-off multiplies
+        // this pass by previewChromeOpacity in render().
         if (
             !this.glyphCanvas.outlineEditor.layerData ||
             this.glyphCanvas.outlineEditor.isPreviewMode
@@ -2263,7 +2305,6 @@ export class GlyphCanvasRenderer {
                 )
             );
 
-            // Draw components
             currentLayerData.shapes.forEach((shape, index: number) => {
                 if (!('reference' in shape)) {
                     return; // Not a component
@@ -2333,7 +2374,7 @@ export class GlyphCanvasRenderer {
 
                 this.ctx.restore();
             });
-        } // End if (this.glyphCanvas.outlineEditor.layerData.shapes)
+        }
 
         // Draw anchors
         // Skip drawing anchors if zoom is under minimum threshold
@@ -3322,13 +3363,14 @@ export class GlyphCanvasRenderer {
             rect.height > 0
         ) {
             const computedStyle = getComputedStyle(document.documentElement);
+            const cssToCanvas = this.canvas.width / rect.width;
             this.ctx.save();
             this.ctx.strokeStyle = computedStyle
                 .getPropertyValue('--text-muted')
                 .trim();
             this.ctx.globalAlpha = 0.35;
-            this.ctx.lineWidth = 1;
-            this.ctx.setLineDash([5, 5]);
+            this.ctx.lineWidth = 1 * cssToCanvas;
+            this.ctx.setLineDash([8 * cssToCanvas, 5 * cssToCanvas]);
             this.ctx.strokeRect(
                 (previewGuide.left / rect.width) * this.canvas.width,
                 (previewGuide.top / rect.height) * this.canvas.height,
@@ -3602,8 +3644,11 @@ export class GlyphCanvasRenderer {
             `[Renderer] drawCanvasPlugins${position === 'above' ? 'Above' : 'Below'} called`
         );
 
-        // Skip plugins in preview mode
-        if (this.glyphCanvas.outlineEditor.isPreviewMode) {
+        // Skip plugins during Space preview (including the shared fade)
+        if (
+            this.glyphCanvas.outlineEditor.isPreviewMode ||
+            this.glyphCanvas.previewChromeOpacity < 1
+        ) {
             console.log('[Renderer] Skipping plugins - preview mode active');
             return;
         }
@@ -3745,7 +3790,8 @@ export class GlyphCanvasRenderer {
         if (
             !this.glyphCanvas.outlineEditor.active ||
             !this.glyphCanvas.outlineEditor.layerData ||
-            this.glyphCanvas.outlineEditor.isPreviewMode
+            this.glyphCanvas.outlineEditor.isPreviewMode ||
+            this.glyphCanvas.previewChromeOpacity < 1
         ) {
             return;
         }

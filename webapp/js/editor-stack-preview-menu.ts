@@ -14,6 +14,11 @@ import {
     isShowAllMetricsEnabled,
     toggleShowAllMetricsEnabled
 } from './show-all-metrics-pref';
+import {
+    getPreviewArea,
+    setPreviewArea,
+    type PreviewArea
+} from './editor-preview-area-pref';
 import { Logger } from './logger';
 
 const console = new Logger('EditorStackPreviewMenu');
@@ -50,9 +55,20 @@ function createStackPreviewMenuHtml(): string {
     const followStackCheckmark = followStackScroll ? 'check' : '';
     const showAllMetrics = isShowAllMetricsEnabled();
     const showAllMetricsCheckmark = showAllMetrics ? 'check' : '';
+    const previewArea = getPreviewArea();
+    const previewAreaSegment = (area: PreviewArea, label: string) =>
+        `<button type="button" class="plugin-menu-segment${previewArea === area ? ' active' : ''}" data-preview-area="${area}" role="radio" aria-checked="${previewArea === area}">${label}</button>`;
 
     return `
-        <div class="plugin-menu" tabindex="0" role="menu" aria-label="Stack preview menu">
+        <div class="plugin-menu" tabindex="0" role="menu" aria-label="View menu">
+            <div class="plugin-menu-setting">
+                <span class="plugin-menu-setting-label">Preview Area</span>
+                <div class="plugin-menu-segments" role="radiogroup" aria-label="Preview Area">
+                    ${previewAreaSegment('small', 'Small')}
+                    ${previewAreaSegment('medium', 'Medium')}
+                    ${previewAreaSegment('full', 'Full')}
+                </div>
+            </div>
             <div class="plugin-menu-item" data-action="toggle-stack-preview" role="menuitemcheckbox" aria-checked="${stackPreviewActive}" tabindex="-1">
                 <span class="plugin-menu-check material-symbols-outlined${stackPreviewActive ? '' : ' empty'}">${stackPreviewCheckmark}</span>
                 <span>Stack Preview</span>
@@ -137,6 +153,24 @@ function initEditorStackPreviewMenu(): void {
         zIndex: 9999,
         onCreate: (instance) => {
             instance.popper.addEventListener('click', (e) => {
+                const segment = (e.target as HTMLElement).closest(
+                    '.plugin-menu-segment'
+                );
+                if (segment) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const area = segment.getAttribute('data-preview-area');
+                    if (
+                        area === 'small' ||
+                        area === 'medium' ||
+                        area === 'full'
+                    ) {
+                        setPreviewArea(area);
+                        refreshStackPreviewMenuContent();
+                    }
+                    return;
+                }
+
                 const item = (e.target as HTMLElement).closest(
                     '.plugin-menu-item'
                 );
@@ -171,6 +205,9 @@ function initEditorStackPreviewMenu(): void {
             if (menu) {
                 setupMenuKeyboardNav(menu);
             }
+        },
+        onHide: () => {
+            window.glyphCanvas?.restoreCanvasKeyboardFocus();
         }
     });
 
@@ -219,6 +256,10 @@ function initEditorStackPreviewMenu(): void {
     window.addEventListener('showAllMetricsChanged', () => {
         refreshStackPreviewMenuContent();
         window.glyphCanvas?.render();
+    });
+
+    window.addEventListener('editorPreviewAreaChanged', () => {
+        refreshStackPreviewMenuContent();
     });
 
     console.log('Stack preview menu initialized');

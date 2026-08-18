@@ -71,6 +71,7 @@ import {
     type KerningContainer
 } from './kerning-utils';
 import { KeyboardPreviewEditFunnel } from './keyboard-preview-edit-funnel';
+import { getPreviewArea } from './editor-preview-area-pref';
 import tippy from 'tippy.js';
 import {
     applyPasteGlyphsDocument,
@@ -385,6 +386,8 @@ class GlyphCanvas {
     previewChromeOpacity: number = 1;
     previewChromeTarget: number = 1;
     previewChromeRaf: number | null = null;
+    private previewChromeAnimating: boolean = false;
+    private previewChromeSettledCallbacks: Array<() => void> = [];
     previewViewportGuide: ViewportFrame | null = null;
     ctx: CanvasRenderingContext2D | null = null;
     outlineEditor: OutlineEditor = new OutlineEditor(this);
@@ -1450,6 +1453,62 @@ class GlyphCanvas {
     }
 
     /**
+     * Screen-fixed dotted rectangle for Space preview, in canvas CSS pixels.
+     * Small uses the editor view box minus the overlay property panel;
+     * Medium and Full use the canvas drawing slot (cutout minus that panel).
+     */
+    getPreviewViewportGuide(): ViewportFrame {
+        if (getPreviewArea() !== 'small') {
+            return this.getCanvasContentFrameAsViewport();
+        }
+
+        const canvasRect = this.canvas?.getBoundingClientRect();
+        const viewRect = document
+            .getElementById('view-editor')
+            ?.getBoundingClientRect();
+        if (
+            !canvasRect ||
+            canvasRect.width <= 0 ||
+            canvasRect.height <= 0 ||
+            !viewRect ||
+            viewRect.width <= 0 ||
+            viewRect.height <= 0
+        ) {
+            return this.getCanvasContentFrameAsViewport();
+        }
+
+        const panelInset = this.getPropertyPanelBottomInset(viewRect.height);
+        return {
+            left: viewRect.left - canvasRect.left,
+            top: viewRect.top - canvasRect.top,
+            width: viewRect.width,
+            height: Math.max(0, viewRect.height - panelInset)
+        };
+    }
+
+    private getCanvasContentFrameAsViewport(): ViewportFrame {
+        const frame = this.getCanvasContentFrame();
+        return {
+            left: frame.left,
+            top: frame.top,
+            width: frame.width,
+            height: frame.height
+        };
+    }
+
+    private getPropertyPanelBottomInset(maxHeight: number): number {
+        const panel = this.propertyPanel;
+        const panelHidden = !panel || panel.classList.contains('hidden');
+        if (panelHidden) {
+            return 0;
+        }
+        return Math.min(
+            Math.max(0, panel.getBoundingClientRect().height),
+            Math.max(0, maxHeight)
+        );
+    }
+
+    /**
      * Usable camera box in canvas CSS pixels: the chrome cutout minus the
      * overlay property panel at the bottom. Hidden panels contribute no
      * bottom inset. Pointer mapping still uses the full canvas
@@ -1464,12 +1523,7 @@ class GlyphCanvas {
         height: number;
     } {
         const cutout = this.getCanvasCutoutFrame();
-        const panel = this.propertyPanel;
-        const panelHidden = !panel || panel.classList.contains('hidden');
-        const panelHeight = panelHidden
-            ? 0
-            : Math.max(0, panel.getBoundingClientRect().height);
-        const bottomInset = Math.min(panelHeight, cutout.height);
+        const bottomInset = this.getPropertyPanelBottomInset(cutout.height);
         const canvasRect = this.canvas?.getBoundingClientRect();
         const canvasWidth =
             (canvasRect && canvasRect.width > 0 ? canvasRect.width : 0) ||
@@ -1493,7 +1547,7 @@ class GlyphCanvas {
         const wasActive = this.outlineEditor.isPreviewMode;
         this.outlineEditor.isPreviewMode = active;
         if (active && !wasActive) {
-            this.previewViewportGuide = this.getCanvasCutoutFrame();
+            this.previewViewportGuide = this.getPreviewViewportGuide();
             this.animatePreviewChrome(0);
         } else if (!active && wasActive) {
             this.animatePreviewChrome(1);
@@ -1504,33 +1558,58 @@ class GlyphCanvas {
 
     private animatePreviewChrome(target: number): void {
         this.previewChromeTarget = target;
-        if (target < 1) {
-            document.body.classList.add('preview-mode-chrome');
-        }
-        if (this.previewChromeRaf !== null) {
+        this.applyPreviewChromeClasses();
+        if (this.previewChromeAnimating) {
             return;
         }
-        const step = () => {
+        this.previewChromeAnimating = true;
+        const increment = 1 / PREVIEW_CHROME_ANIMATION_FRAMES;
+        const tick = (): boolean => {
             const delta = this.previewChromeTarget - this.previewChromeOpacity;
-            const increment = 1 / PREVIEW_CHROME_ANIMATION_FRAMES;
             if (Math.abs(delta) <= increment) {
                 this.previewChromeOpacity = this.previewChromeTarget;
                 this.previewChromeRaf = null;
+                this.previewChromeAnimating = false;
                 this.applyPreviewChromeOpacity();
                 if (this.previewChromeOpacity === 1) {
-                    document.body.classList.remove('preview-mode-chrome');
                     this.previewViewportGuide = null;
                 }
                 this.render();
-                return;
+                this.flushPreviewChromeSettled();
+                return false;
             }
             this.previewChromeOpacity += Math.sign(delta) * increment;
             this.applyPreviewChromeOpacity();
             this.render();
-            this.previewChromeRaf = requestAnimationFrame(step);
+            return true;
         };
-        this.applyPreviewChromeOpacity();
-        this.previewChromeRaf = requestAnimationFrame(step);
+        if (tick()) {
+            const step = () => {
+                if (tick()) {
+                    this.previewChromeRaf = requestAnimationFrame(step);
+                }
+            };
+            this.previewChromeRaf = requestAnimationFrame(step);
+        }
+    }
+
+    runAfterPreviewChromeSettled(callback: () => void): void {
+        if (
+            !this.previewChromeAnimating &&
+            this.previewChromeOpacity === this.previewChromeTarget
+        ) {
+            callback();
+            return;
+        }
+        this.previewChromeSettledCallbacks.push(callback);
+    }
+
+    private flushPreviewChromeSettled(): void {
+        const callbacks = this.previewChromeSettledCallbacks;
+        this.previewChromeSettledCallbacks = [];
+        for (const callback of callbacks) {
+            callback();
+        }
     }
 
     private applyPreviewChromeOpacity(): void {
@@ -1538,7 +1617,48 @@ class GlyphCanvas {
             '--preview-chrome-opacity',
             String(this.previewChromeOpacity)
         );
+        this.applyPreviewChromeClasses();
     }
+
+    private applyPreviewChromeClasses(): void {
+        const keepPreviewVisuals =
+            this.previewChromeOpacity < 1 || this.previewChromeTarget < 1;
+        const area = getPreviewArea();
+        const fadeChrome = keepPreviewVisuals && area !== 'small';
+        document.body.classList.toggle('preview-mode-chrome', fadeChrome);
+        document.body.classList.remove(
+            'preview-area-small',
+            'preview-area-medium',
+            'preview-area-full'
+        );
+        if (fadeChrome) {
+            document.body.classList.add(`preview-area-${area}`);
+        }
+    }
+
+    getPreviewFillAlpha(): number {
+        return Math.max(0, Math.min(1, 1 - this.previewChromeOpacity));
+    }
+
+    restoreCanvasKeyboardFocus(): void {
+        const editorView = document.getElementById('view-editor');
+        if (!editorView?.classList.contains('focused') || !this.canvas) {
+            return;
+        }
+        this.canvas.focus({ preventScroll: true });
+    }
+
+    private handlePreviewAreaChanged = (): void => {
+        if (
+            this.outlineEditor.isPreviewMode ||
+            this.previewChromeOpacity < 1 ||
+            this.previewChromeTarget < 1
+        ) {
+            this.previewViewportGuide = this.getPreviewViewportGuide();
+        }
+        this.applyPreviewChromeClasses();
+        this.render();
+    };
 
     setupEventListeners(): void {
         window.addEventListener(
@@ -1546,6 +1666,10 @@ class GlyphCanvas {
             this.handleLayerFingerprintChanged
         );
         window.addEventListener('fontModelSync', this.handleFontModelSync);
+        window.addEventListener(
+            'editorPreviewAreaChanged',
+            this.handlePreviewAreaChanged
+        );
 
         // Mouse events for panning
         this.canvas!.addEventListener('mousedown', (e) => this.onMouseDown(e));
@@ -10895,21 +11019,23 @@ class GlyphCanvas {
                     ? 'canvas.render.deferredSuppressed'
                     : 'canvas.render.deferredIdleViewLock'
             );
-            recordLiveTextDiagnostic(
-                'canvas.render.deferred',
-                this.textRunEditor,
-                {
-                    reason: deferReason,
-                    viewport: {
-                        panX: this.viewportManager?.panX ?? null,
-                        panY: this.viewportManager?.panY ?? null,
-                        scale: this.viewportManager?.scale ?? null
-                    },
-                    pendingIdleViewLock: this.hasPendingIdleViewLock(),
-                    idleViewLockUsesBbox: this.idleViewLockUsesBbox,
-                    renderSuppressed: this.renderSuppressed
-                }
-            );
+            if (!this.previewChromeAnimating) {
+                recordLiveTextDiagnostic(
+                    'canvas.render.deferred',
+                    this.textRunEditor,
+                    {
+                        reason: deferReason,
+                        viewport: {
+                            panX: this.viewportManager?.panX ?? null,
+                            panY: this.viewportManager?.panY ?? null,
+                            scale: this.viewportManager?.scale ?? null
+                        },
+                        pendingIdleViewLock: this.hasPendingIdleViewLock(),
+                        idleViewLockUsesBbox: this.idleViewLockUsesBbox,
+                        renderSuppressed: this.renderSuppressed
+                    }
+                );
+            }
             return;
         }
 
@@ -10918,6 +11044,7 @@ class GlyphCanvas {
             this.syncCanvasBackingStore();
         }
         this.featureChangeAnimator?.applyViewportAnchor(this.viewportManager);
+        const recordRenderDiagnostics = !this.previewChromeAnimating;
 
         // Update glyph_stack label if it exists (development mode only, not in test mode)
         if (window.isDevelopment?.() && !window.isTestMode?.()) {
@@ -10934,46 +11061,50 @@ class GlyphCanvas {
         }
 
         this.renderer!.render();
-        const renderVerticalMetrics =
-            this.outlineEditor.renderVerticalMetrics ?? {};
-        const renderVerticalMetricEntries = Object.entries(
-            renderVerticalMetrics
-        );
-        const lastRenderState =
-            ((window as any).__glyphCanvasRenderState as
-                { sequence?: number } | undefined) ?? undefined;
-        const nextRenderState = {
-            sequence: (lastRenderState?.sequence ?? 0) + 1,
-            mode: this.outlineEditor.active ? 'edit' : 'text',
-            selectedGlyphIndex: this.textRunEditor?.selectedGlyphIndex ?? -1,
-            selectedLayerId: this.outlineEditor.selectedLayerId ?? null,
-            glyphStack: this.outlineEditor.glyphStack || '',
-            hasLayerData: Boolean(this.outlineEditor.layerData),
-            isInterpolated: Boolean(
-                this.outlineEditor.layerData?.isInterpolated
-            ),
-            isPreviewMode: this.outlineEditor.isPreviewMode,
-            hasRenderVerticalMetrics: renderVerticalMetricEntries.length > 0,
-            renderVerticalMetricCount: renderVerticalMetricEntries.length,
-            renderVerticalMetrics
-        };
-        (window as any).__glyphCanvasRenderState = nextRenderState;
-        recordLiveTextDiagnostic('canvas.render', this.textRunEditor, {
-            render: nextRenderState,
-            viewport: {
-                panX: this.viewportManager?.panX ?? null,
-                panY: this.viewportManager?.panY ?? null,
-                scale: this.viewportManager?.scale ?? null
-            },
-            pendingIdleViewLock: this.hasPendingIdleViewLock(),
-            idleViewLockUsesBbox: this.idleViewLockUsesBbox,
-            renderSuppressed: this.renderSuppressed
-        });
-        window.dispatchEvent(
-            new CustomEvent('glyphCanvasRendered', {
-                detail: nextRenderState
-            })
-        );
+        if (recordRenderDiagnostics) {
+            const renderVerticalMetrics =
+                this.outlineEditor.renderVerticalMetrics ?? {};
+            const renderVerticalMetricEntries = Object.entries(
+                renderVerticalMetrics
+            );
+            const lastRenderState =
+                ((window as any).__glyphCanvasRenderState as
+                    { sequence?: number } | undefined) ?? undefined;
+            const nextRenderState = {
+                sequence: (lastRenderState?.sequence ?? 0) + 1,
+                mode: this.outlineEditor.active ? 'edit' : 'text',
+                selectedGlyphIndex:
+                    this.textRunEditor?.selectedGlyphIndex ?? -1,
+                selectedLayerId: this.outlineEditor.selectedLayerId ?? null,
+                glyphStack: this.outlineEditor.glyphStack || '',
+                hasLayerData: Boolean(this.outlineEditor.layerData),
+                isInterpolated: Boolean(
+                    this.outlineEditor.layerData?.isInterpolated
+                ),
+                isPreviewMode: this.outlineEditor.isPreviewMode,
+                hasRenderVerticalMetrics:
+                    renderVerticalMetricEntries.length > 0,
+                renderVerticalMetricCount: renderVerticalMetricEntries.length,
+                renderVerticalMetrics
+            };
+            (window as any).__glyphCanvasRenderState = nextRenderState;
+            recordLiveTextDiagnostic('canvas.render', this.textRunEditor, {
+                render: nextRenderState,
+                viewport: {
+                    panX: this.viewportManager?.panX ?? null,
+                    panY: this.viewportManager?.panY ?? null,
+                    scale: this.viewportManager?.scale ?? null
+                },
+                pendingIdleViewLock: this.hasPendingIdleViewLock(),
+                idleViewLockUsesBbox: this.idleViewLockUsesBbox,
+                renderSuppressed: this.renderSuppressed
+            });
+            window.dispatchEvent(
+                new CustomEvent('glyphCanvasRendered', {
+                    detail: nextRenderState
+                })
+            );
+        }
         timelineMark('canvas.render.completed');
     }
 
@@ -11031,6 +11162,10 @@ class GlyphCanvas {
             this.handleLayerFingerprintChanged
         );
         window.removeEventListener('fontModelSync', this.handleFontModelSync);
+        window.removeEventListener(
+            'editorPreviewAreaChanged',
+            this.handlePreviewAreaChanged
+        );
 
         this.clearTextModeKerningLivePreview({ cancelCommit: true });
         this.textModeKerningPreviewFunnel.reset();
@@ -11055,9 +11190,14 @@ class GlyphCanvas {
             cancelAnimationFrame(this.previewChromeRaf);
             this.previewChromeRaf = null;
         }
+        this.previewChromeAnimating = false;
+        this.previewChromeSettledCallbacks = [];
         document.body.classList.remove(
             'has-full-window-glyph-canvas',
-            'preview-mode-chrome'
+            'preview-mode-chrome',
+            'preview-area-small',
+            'preview-area-medium',
+            'preview-area-full'
         );
         document.documentElement.style.removeProperty(
             '--preview-chrome-opacity'

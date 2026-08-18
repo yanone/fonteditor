@@ -20125,20 +20125,8 @@ export class OutlineEditor {
             this.cursorStyleBeforePreview = null;
         }
 
-        // Check if current axis position matches an exact layer
-        this.autoSelectMatchingLayer().then(async () => {
-            if (this.selectedLayerId !== null) {
-                // On an exact layer - fetch that layer's data
-                await this.fetchLayerData();
-                this.glyphCanvas.render();
-            } else {
-                // Between layers - need to interpolate
-                if (this.currentGlyphName) {
-                    await this.interpolateCurrentGlyph(true);
-                } else {
-                    this.glyphCanvas.render();
-                }
-            }
+        this.glyphCanvas.runAfterPreviewChromeSettled(() => {
+            void this.autoSelectMatchingLayer();
         });
     }
 
