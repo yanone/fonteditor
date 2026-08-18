@@ -3010,6 +3010,42 @@ describe('handleRemoteChangeRefresh', () => {
             expect(glyphCanvas.reapplyIdleViewLock).toHaveBeenCalled();
         });
 
+        test('local component drag commit with keyed visualAnchorSide locks origin', async () => {
+            const { glyphCanvas } = installReceiverHarness({
+                activeGlyphName: 'adieresis',
+                activeLayerId: 'master-regular',
+                currentLayerWidth: 560,
+                initialPanX: 200,
+                initialScale: 2
+            });
+
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Drag component',
+                        path: 'glyphs.adieresis:layers.master-regular:',
+                        visualAnchorSide: 'left',
+                        editSource: 'mouse-drag-outline',
+                        compileChangeSource: 'mouse-drag-outline',
+                        compileEditType: 'outline',
+                        oldValue: { width: 500 },
+                        newValue: { width: 560 }
+                    }
+                ],
+                'local',
+                {
+                    requestCompile: jest.fn(async () => {}),
+                    awaitWorkerSync: jest.fn(async () => {})
+                }
+            );
+
+            expect(glyphCanvas.captureIdleViewLock).toHaveBeenCalledWith({
+                kerningPair: false,
+                bboxCenter: false
+            });
+            expect(glyphCanvas.reapplyIdleViewLock).toHaveBeenCalled();
+        });
+
         test('a live drag on this window bypasses the idle viewer lock', async () => {
             const { glyphCanvas } = installReceiverHarness({
                 activeGlyphName: 'a',

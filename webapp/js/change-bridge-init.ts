@@ -1825,11 +1825,7 @@ function isDirectSidebearingUndoRedo(
             (entry.semanticChangeLogEntries?.length
                 ? entry.semanticChangeLogEntries
                 : [entry]
-            ).some(
-                (semanticEntry) =>
-                    semanticEntry.visualAnchorSide === 'left' ||
-                    semanticEntry.visualAnchorSide === 'right'
-            )
+            ).some(isIdleSidebearingLockEntry)
         ) === true
     );
 }
@@ -2038,16 +2034,8 @@ function shouldApplyCommittedLiveAdvanceRefresh(
 }
 
 function hasSidebearingVisualAnchor(entries: ChangeLogEntry[]): boolean {
-    return entries.some((entry) =>
-        (entry.semanticChangeLogEntries?.length
-            ? entry.semanticChangeLogEntries
-            : [entry]
-        ).some(
-            (semanticEntry) =>
-                semanticEntry.visualAnchorSide === 'left' ||
-                semanticEntry.visualAnchorSide === 'right' ||
-                semanticEntry.editSource === 'mouse-drag-sidebearing'
-        )
+    return flattenCommittedSemanticEntries(entries).some(
+        isIdleSidebearingLockEntry
     );
 }
 
@@ -2252,14 +2240,20 @@ function flattenCommittedSemanticEntries(
     return flattened;
 }
 
+function isExplicitSidebearingCompileSource(
+    source: string | null | undefined
+): boolean {
+    return (
+        source === 'mouse-drag-sidebearing' || source === 'keyboard-sidebearing'
+    );
+}
+
 function isIdleSidebearingLockEntry(entry: ChangeLogEntry): boolean {
     return (
         isDirectSidebearingTransactionLabel(entry.transactionLabel) ||
         isSidebearingKeyCommittedEntry(entry) ||
-        entry.visualAnchorSide === 'left' ||
-        entry.visualAnchorSide === 'right' ||
-        entry.editSource === 'mouse-drag-sidebearing' ||
-        entry.compileChangeSource === 'mouse-drag-sidebearing'
+        isExplicitSidebearingCompileSource(entry.editSource) ||
+        isExplicitSidebearingCompileSource(entry.compileChangeSource)
     );
 }
 

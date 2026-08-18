@@ -4890,6 +4890,22 @@ pub fn prime_preview_layout_closure_cache(
     Ok(result.len() as u32)
 }
 
+/// Point the live-drag preview compile lane at the already-primed
+/// authoritative layout closure. Visual edits must not re-compute the closed
+/// glyph set; a cold preview sentinel after overlay-clear would otherwise
+/// rebuild a different subset and scramble HarfBuzz glyph IDs.
+#[wasm_bindgen]
+pub fn adopt_preview_layout_closure_from_last() -> bool {
+    let last = LAST_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap().clone();
+    match last {
+        Some(key) => {
+            *LAST_PREVIEW_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = Some(key);
+            true
+        }
+        None => false,
+    }
+}
+
 /// Prime the committed-state debug layout-closure cache on a lane isolated
 /// from the normal editing compile's last-closure pointer.
 #[wasm_bindgen]
@@ -4912,15 +4928,18 @@ pub fn compile_preview_cached_font_from_last_layout_closure(
     let _compile_span =
         PerfSpan::start("compile_preview_cached_font_from_last_layout_closure.total");
 
-    let cache_key = LAST_PREVIEW_LAYOUT_CLOSURE_CACHE_KEY
-        .lock()
-        .unwrap()
-        .clone()
-        .ok_or_else(|| {
+    let cache_key = {
+        let last_layout = LAST_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap().clone();
+        let mut preview_key = LAST_PREVIEW_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap();
+        if preview_key.is_none() {
+            *preview_key = last_layout;
+        }
+        preview_key.clone().ok_or_else(|| {
             JsValue::from_str(
-            "No primed preview layout closure. Call prime_preview_layout_closure_cache() first.",
-        )
-        })?;
+                "No primed preview layout closure. Call prime_preview_layout_closure_cache() first.",
+            )
+        })?
+    };
     let closure_subset = LAYOUT_CLOSURE_CACHE
         .lock()
         .unwrap()
@@ -5780,6 +5799,31 @@ mod tests {
         *CANONICAL_GLYPH_INDEX_CACHE.lock().unwrap() = previous_index;
         *PREVIEW_OVERLAY.lock().unwrap() = previous_overlay;
         *LAST_PREVIEW_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = previous_preview_closure_key;
+    }
+
+    #[test]
+    fn adopt_preview_layout_closure_copies_authoritative_key() {
+        let previous_last = LAST_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap().take();
+        let previous_preview = LAST_PREVIEW_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap().take();
+
+        *LAST_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = Some("closure-key".to_string());
+        *LAST_PREVIEW_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = None;
+
+        assert!(adopt_preview_layout_closure_from_last());
+        assert_eq!(
+            LAST_PREVIEW_LAYOUT_CLOSURE_CACHE_KEY
+                .lock()
+                .unwrap()
+                .as_deref(),
+            Some("closure-key")
+        );
+        assert_eq!(
+            LAST_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap().as_deref(),
+            Some("closure-key")
+        );
+
+        *LAST_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = previous_last;
+        *LAST_PREVIEW_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = previous_preview;
     }
 
     #[test]

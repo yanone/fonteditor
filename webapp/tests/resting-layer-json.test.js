@@ -71,6 +71,50 @@ describe('resting-layer-json', () => {
         expect(replaced.shapes).toEqual(existing.shapes);
     });
 
+    test('applyRestingShapeGeometryToEditorLayer keeps nested component layerData', () => {
+        const {
+            applyRestingShapeGeometryToEditorLayer
+        } = require('../js/resting-layer-json');
+        const nested = { shapes: [{ nodes: [{ x: 0, y: 0, type: 'Line' }] }] };
+        const editorLayer = {
+            width: 500,
+            shapes: [
+                {
+                    reference: 'a',
+                    transform: {
+                        translation: [10, 20],
+                        rotation: 0,
+                        scale: [1, 1],
+                        skew: [0, 0]
+                    },
+                    layerData: nested,
+                    isInterpolated: false
+                }
+            ]
+        };
+        const restingLayer = {
+            width: 540,
+            shapes: [
+                {
+                    reference: 'a',
+                    transform: {
+                        translation: [40, 20],
+                        rotation: 0,
+                        scale: [1, 1],
+                        skew: [0, 0]
+                    }
+                }
+            ]
+        };
+
+        applyRestingShapeGeometryToEditorLayer(editorLayer, restingLayer);
+
+        expect(editorLayer.shapes[0].layerData).toBe(nested);
+        expect(editorLayer.shapes[0].isInterpolated).toBe(false);
+        expect(editorLayer.shapes[0].transform.translation).toEqual([40, 20]);
+        expect(editorLayer.shapes[0]).not.toBe(restingLayer.shapes[0]);
+    });
+
     test('omitRestingLayerRuntimeKeys leaves identity fields', () => {
         const next = omitRestingLayerRuntimeKeys({
             width: 10,

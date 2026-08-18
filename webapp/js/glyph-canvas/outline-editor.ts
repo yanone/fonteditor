@@ -1,5 +1,9 @@
 import { LayerDataNormalizer } from '../layer-data-normalizer';
-import { stripInterpolatorRequestId } from '../resting-layer-json';
+import {
+    applyRestingShapeGeometryToEditorLayer,
+    stripInterpolatorRequestId,
+    toRestingLayerJson
+} from '../resting-layer-json';
 import { fontInterpolation } from '../font-interpolation';
 import { GlyphCanvas } from '../glyph-canvas';
 import fontManager from '../font-manager';
@@ -4756,19 +4760,45 @@ export class OutlineEditor {
         const previousSidebearings =
             this.getDirectSidebearingsForLayerData(currentLayerData);
 
-        rawLayer.width = currentLayerData.width;
-        rawLayer.height = currentLayerData.height;
-        rawLayer.vertWidth = currentLayerData.vertWidth;
-        rawLayer.shapes = currentLayerData.shapes;
+        const restingLayer = toRestingLayerJson(
+            {
+                width: currentLayerData.width,
+                height: currentLayerData.height,
+                vertWidth: currentLayerData.vertWidth,
+                shapes: currentLayerData.shapes,
+                anchors: currentLayerData.anchors,
+                guides: currentLayerData.guides,
+                format_specific: currentLayerData.format_specific
+            },
+            {
+                existing: rawLayer,
+                mode: 'delta',
+                allowWrapped: true,
+                context: 'metrics key writeback'
+            }
+        );
+        rawLayer.width =
+            typeof restingLayer.width === 'number'
+                ? restingLayer.width
+                : currentLayerData.width;
+        if (restingLayer.height !== undefined) {
+            rawLayer.height = restingLayer.height;
+        }
+        if (restingLayer.vertWidth !== undefined) {
+            rawLayer.vertWidth = restingLayer.vertWidth;
+        }
+        if (Array.isArray(restingLayer.shapes)) {
+            rawLayer.shapes = restingLayer.shapes;
+        }
 
-        if (currentLayerData.anchors !== undefined) {
-            rawLayer.anchors = currentLayerData.anchors;
+        if (restingLayer.anchors !== undefined) {
+            rawLayer.anchors = restingLayer.anchors;
         }
-        if (currentLayerData.guides !== undefined) {
-            rawLayer.guides = currentLayerData.guides;
+        if (restingLayer.guides !== undefined) {
+            rawLayer.guides = restingLayer.guides;
         }
-        if (currentLayerData.format_specific !== undefined) {
-            rawLayer.format_specific = currentLayerData.format_specific;
+        if (restingLayer.format_specific !== undefined) {
+            rawLayer.format_specific = restingLayer.format_specific;
         }
 
         // Force shape wrapper rebuild so setDirectSidebearing operates
@@ -4907,7 +4937,7 @@ export class OutlineEditor {
         currentLayerData.width = rawLayer.width;
         currentLayerData.height = rawLayer.height;
         currentLayerData.vertWidth = rawLayer.vertWidth;
-        currentLayerData.shapes = rawLayer.shapes;
+        applyRestingShapeGeometryToEditorLayer(currentLayerData, rawLayer);
         if (rawLayer.anchors !== undefined) {
             currentLayerData.anchors = rawLayer.anchors;
         }

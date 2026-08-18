@@ -26,6 +26,7 @@ import init, {
     prime_layout_closure_cache,
     prime_debug_layout_closure_cache,
     prime_preview_layout_closure_cache,
+    adopt_preview_layout_closure_from_last,
     interpolate_glyph,
     reinterpolate_layer_yjs,
     reinterpolate_master_layers_yjs,
@@ -977,12 +978,27 @@ self.onmessage = async (event) => {
                 const currentCachedClosureGlyphCount = _usePreviewLayerOverlay
                     ? cachedPreviewClosureGlyphCount
                     : cachedClosureGlyphCount;
-                const needsPrimeClosure =
+                let needsPrimeClosure =
                     currentCachedBaseSubsetKey !== effectiveSubsetKey ||
                     currentCachedClosureGlyphCount === null;
                 const isOutlineIncrementalCompile =
                     String(_compileSource || '').startsWith('mouse-drag') ||
                     String(_compileSource || '').startsWith('keyboard');
+
+                if (
+                    needsPrimeClosure &&
+                    _usePreviewLayerOverlay &&
+                    isOutlineIncrementalCompile &&
+                    adopt_preview_layout_closure_from_last()
+                ) {
+                    cachedPreviewBaseSubsetKey =
+                        cachedBaseSubsetKey ?? effectiveSubsetKey;
+                    cachedPreviewClosureGlyphCount = cachedClosureGlyphCount;
+                    needsPrimeClosure = false;
+                    timelineMark(
+                        'font.worker.compileEditingCached.primeLayoutClosure.adoptedAuthoritative'
+                    );
+                }
 
                 if (needsPrimeClosure && isOutlineIncrementalCompile) {
                     timelineMark(

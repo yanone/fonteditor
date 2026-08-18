@@ -19,6 +19,18 @@ export function add_master_with_interpolated_layers_yjs(master_json) {
 }
 
 /**
+ * Point the live-drag preview compile lane at the already-primed
+ * authoritative layout closure. Visual edits must not re-compute the closed
+ * glyph set; a cold preview sentinel after overlay-clear would otherwise
+ * rebuild a different subset and scramble HarfBuzz glyph IDs.
+ * @returns {boolean}
+ */
+export function adopt_preview_layout_closure_from_last() {
+    const ret = wasm.adopt_preview_layout_closure_from_last();
+    return ret !== 0;
+}
+
+/**
  * Apply live-drag layer replacements to a transient preview overlay. This
  * keeps the authoritative Rust Y.Doc and committed caches untouched until
  * mouseup sends the real bridge packet through `apply_yjs_update`.

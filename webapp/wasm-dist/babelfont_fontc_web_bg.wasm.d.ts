@@ -1,6 +1,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const adopt_preview_layout_closure_from_last: () => number;
 export const apply_preview_layer_overlay: (
     a: number,
     b: number,

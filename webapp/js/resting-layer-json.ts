@@ -257,6 +257,57 @@ function sanitizeShapes(
     return sanitized;
 }
 
+/**
+ * Copy resting path/component geometry onto an editor working copy
+ * without replacing the editor shape objects. Nested `layerData` and
+ * interpolator flags stay on the canvas copy.
+ */
+export function applyRestingShapeGeometryToEditorLayer(
+    editorLayer: unknown,
+    restingLayer: unknown
+): void {
+    if (!isPlainObject(editorLayer) || !isPlainObject(restingLayer)) {
+        return;
+    }
+    const editorShapes = editorLayer.shapes;
+    const restingShapes = restingLayer.shapes;
+    if (!Array.isArray(editorShapes) || !Array.isArray(restingShapes)) {
+        return;
+    }
+
+    const count = Math.min(editorShapes.length, restingShapes.length);
+    for (let index = 0; index < count; index++) {
+        const editorShape = editorShapes[index];
+        const restingShape = restingShapes[index];
+        if (!isPlainObject(editorShape) || !isPlainObject(restingShape)) {
+            continue;
+        }
+
+        if ('reference' in editorShape && 'reference' in restingShape) {
+            editorShape.reference = restingShape.reference;
+            if (restingShape.transform !== undefined) {
+                editorShape.transform = toRestingComponentTransform(
+                    restingShape.transform
+                );
+            }
+            if ('alignment' in restingShape) {
+                editorShape.alignment = restingShape.alignment;
+            }
+            if ('anchor' in restingShape) {
+                editorShape.anchor = restingShape.anchor;
+            }
+            continue;
+        }
+
+        if ('nodes' in editorShape && 'nodes' in restingShape) {
+            editorShape.nodes = restingShape.nodes;
+            if (restingShape.closed !== undefined) {
+                editorShape.closed = restingShape.closed;
+            }
+        }
+    }
+}
+
 export type RestingLayerWriteOptions = {
     existing?: unknown;
     mode?: 'delta' | 'replace';
