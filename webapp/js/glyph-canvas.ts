@@ -709,7 +709,7 @@ class GlyphCanvas {
         }
 
         const width = this.container.clientWidth;
-        const height = this.container.clientHeight;
+        const height = this.getCanvasContentFrame().height;
         if (
             width <= GlyphCanvas.COLLAPSED_EDITOR_VIEWPORT_FREEZE_WIDTH ||
             height <= 0
@@ -1346,6 +1346,48 @@ class GlyphCanvas {
         this.ctx!.scale(dpr, dpr);
         this.pendingCanvasBackingStoreSync = false;
         return true;
+    }
+
+    /**
+     * Usable camera box in canvas CSS pixels: full canvas minus the overlay
+     * property panel at the bottom. Left/top/right insets are 0. Hidden
+     * panels contribute no bottom inset. Pointer mapping still uses the
+     * full canvas `getBoundingClientRect()`.
+     */
+    getCanvasContentFrame(): {
+        left: number;
+        top: number;
+        right: number;
+        bottom: number;
+        width: number;
+        height: number;
+    } {
+        const canvasRect = this.canvas?.getBoundingClientRect();
+        const host = this.canvasHost || this.container;
+        const canvasWidth =
+            (canvasRect && canvasRect.width > 0 ? canvasRect.width : 0) ||
+            host?.clientWidth ||
+            this.container?.clientWidth ||
+            0;
+        const canvasHeight =
+            (canvasRect && canvasRect.height > 0 ? canvasRect.height : 0) ||
+            host?.clientHeight ||
+            this.container?.clientHeight ||
+            0;
+        const panel = this.propertyPanel;
+        const panelHidden = !panel || panel.classList.contains('hidden');
+        const panelHeight = panelHidden
+            ? 0
+            : Math.max(0, panel.getBoundingClientRect().height);
+        const bottom = Math.min(panelHeight, canvasHeight);
+        return {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom,
+            width: Math.max(0, canvasWidth),
+            height: Math.max(0, canvasHeight - bottom)
+        };
     }
 
     setupEventListeners(): void {
@@ -2614,7 +2656,7 @@ class GlyphCanvas {
                         this.viewportManager.panToGlyph(
                             bounds,
                             this.textRunEditor!._getGlyphPosition(ix),
-                            this.canvas.getBoundingClientRect(),
+                            this.getCanvasContentFrame(),
                             () => this.render()
                         );
                     }
@@ -10224,7 +10266,7 @@ class GlyphCanvas {
             return;
         }
 
-        const rect = this.canvas!.getBoundingClientRect();
+        const rect = this.getCanvasContentFrame();
 
         // Get glyph position in text run
         const glyphPosition = this.textRunEditor!._getGlyphPosition(
@@ -10302,7 +10344,7 @@ class GlyphCanvas {
             return null;
         }
 
-        const rect = this.canvas.getBoundingClientRect();
+        const rect = this.getCanvasContentFrame();
         const glyphPosition = this.textRunEditor!._getGlyphPosition(
             this.textRunEditor!.selectedGlyphIndex
         );
@@ -10549,7 +10591,7 @@ class GlyphCanvas {
             ? settings.ZOOM_KEYBOARD_FACTOR
             : 1 / settings.ZOOM_KEYBOARD_FACTOR;
 
-        const rect = this.canvas!.getBoundingClientRect();
+        const rect = this.getCanvasContentFrame();
         let centerX: number;
         let centerY: number;
 
@@ -11077,7 +11119,7 @@ class GlyphCanvas {
         leftMargin: number = CURSOR_VIEW_MARGIN,
         rightMargin: number = CURSOR_VIEW_MARGIN
     ): boolean {
-        const rect = this.canvas!.getBoundingClientRect();
+        const rect = this.getCanvasContentFrame();
         const screenX =
             this.textRunEditor!.cursorX * this.viewportManager!.scale +
             this.viewportManager!.panX;
@@ -11133,7 +11175,7 @@ class GlyphCanvas {
             return;
         }
 
-        const rect = this.canvas!.getBoundingClientRect();
+        const rect = this.getCanvasContentFrame();
         const scale = this.viewportManager!.scale;
         let leftMargin = CURSOR_VIEW_MARGIN;
         let rightMargin = CURSOR_VIEW_MARGIN;
@@ -11343,7 +11385,7 @@ class GlyphCanvas {
             return;
         }
 
-        const rect = this.canvas.getBoundingClientRect();
+        const rect = this.getCanvasContentFrame();
         if (rect.width <= 0 || rect.height <= 0) {
             onComplete?.();
             return;

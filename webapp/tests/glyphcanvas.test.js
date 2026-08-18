@@ -546,6 +546,46 @@ describe('GlyphCanvas initialization', () => {
         ).toBeTruthy();
     });
 
+    test('getCanvasContentFrame subtracts a visible property panel from the bottom', () => {
+        canvas = new GlyphCanvas('test-container');
+        canvas.canvas.getBoundingClientRect = () => ({
+            width: 800,
+            height: 600,
+            top: 0,
+            left: 0,
+            right: 800,
+            bottom: 600,
+            x: 0,
+            y: 0,
+            toJSON() {}
+        });
+        canvas.propertyPanel.classList.remove('hidden');
+        canvas.propertyPanel.getBoundingClientRect = () => ({
+            width: 800,
+            height: 80,
+            top: 520,
+            left: 0,
+            right: 800,
+            bottom: 600,
+            x: 0,
+            y: 520,
+            toJSON() {}
+        });
+
+        expect(canvas.getCanvasContentFrame()).toEqual({
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 80,
+            width: 800,
+            height: 520
+        });
+
+        canvas.propertyPanel.classList.add('hidden');
+        expect(canvas.getCanvasContentFrame().bottom).toBe(0);
+        expect(canvas.getCanvasContentFrame().height).toBe(600);
+    });
+
     test('should initialize viewport manager with default values', () => {
         canvas = new GlyphCanvas('test-container');
         expect(canvas.viewportManager).toBeTruthy();

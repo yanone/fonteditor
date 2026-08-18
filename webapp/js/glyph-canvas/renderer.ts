@@ -1526,8 +1526,9 @@ export class GlyphCanvasRenderer {
         const screenMaxY = -(labelMinY + offsetY) * scale + panY; // Bottom edge in screen space
 
         // Canvas dimensions
-        const canvasWidth = this.canvas.width / window.devicePixelRatio;
-        const canvasHeight = this.canvas.height / window.devicePixelRatio;
+        const contentFrame = this.glyphCanvas.getCanvasContentFrame();
+        const canvasWidth = contentFrame.width;
+        const canvasHeight = contentFrame.height;
 
         // Use 1/3 of panToGlyph margin for tighter label constraint
         const margin = APP_SETTINGS.OUTLINE_EDITOR.CANVAS_MARGIN / 3;

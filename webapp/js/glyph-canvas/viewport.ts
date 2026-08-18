@@ -13,6 +13,12 @@ export interface ViewportPanLockTarget {
     ): { x: number; y: number };
 }
 
+/** Usable camera box in canvas CSS pixels (top-left origin). */
+export type ViewportFrame = {
+    width: number;
+    height: number;
+};
+
 /**
  * Shift pan so `fontX`/`fontY` maps to the captured screen point.
  * Default is X-only; pass `{ lockY: true }` to also lock vertical.
@@ -265,14 +271,14 @@ export class ViewportManager {
      * Uses animated camera movement (10 frames).
      * @param {Object} bounds - The glyph bounding box {minX, maxX, minY, maxY, width, height}
      * @param {Object} glyphPosition - Glyph position in text run {xPosition, xOffset, yOffset}
-     * @param {DOMRect} canvasRect - The canvas bounding rectangle
+     * @param {ViewportFrame} canvasRect - Usable camera box in canvas CSS pixels
      * @param {Function} renderCallback - Callback to render after each frame
      * @param {number} margin - Canvas margin in pixels (defaults to CANVAS_MARGIN setting)
      */
     frameGlyph(
         bounds: RectWithWidthHeight,
         glyphPosition: { xPosition: number; xOffset: number; yOffset: number },
-        canvasRect: DOMRect,
+        canvasRect: ViewportFrame,
         renderCallback: Function,
         margin: number | null = null
     ) {
@@ -327,14 +333,14 @@ export class ViewportManager {
      * Pan to show a specific glyph (used when switching glyphs with keyboard shortcuts).
      * @param {Object} bounds - The glyph bounding box {minX, maxX, minY, maxY, width, height}
      * @param {Object} glyphPosition - Glyph position in text run {xPosition, xOffset, yOffset}
-     * @param {DOMRect} canvasRect - The canvas bounding rectangle
+     * @param {ViewportFrame} canvasRect - Usable camera box in canvas CSS pixels
      * @param {Function} renderCallback - Callback to render after each frame
      * @param {number} margin - Canvas margin in pixels (defaults to CANVAS_MARGIN setting)
      */
     panToGlyph(
         bounds: RectWithWidthHeight,
         glyphPosition: { xPosition: number; xOffset: number; yOffset: number },
-        canvasRect: DOMRect,
+        canvasRect: ViewportFrame,
         renderCallback: Function,
         margin: number | null = null
     ) {
@@ -470,7 +476,7 @@ export class ViewportManager {
      * - Shift + wheel (or trackpad horizontal): pan horizontally
      * - Wheel alone: pan vertically
      * @param {WheelEvent} e - The wheel event
-     * @param {DOMRect} canvasRect - The canvas bounding rectangle
+     * @param {DOMRect} canvasRect - The canvas bounding rectangle (pointer mapping)
      * @param {Function} renderCallback - Callback to render after change
      * @returns {boolean} - True if viewport changed, false otherwise
      */
@@ -654,7 +660,7 @@ export class ViewportManager {
         maxX: number,
         minY: number,
         maxY: number,
-        canvasRect: DOMRect,
+        canvasRect: ViewportFrame,
         renderCallback: Function,
         margin: number | null = null,
         onComplete?: () => void
@@ -703,7 +709,7 @@ export class ViewportManager {
      */
     zoomToFitText(
         shapedGlyphs: ShapedGlyph[] | null,
-        canvasRect: DOMRect,
+        canvasRect: ViewportFrame,
         renderCallback: Function,
         margin: number | null = null,
         onComplete?: () => void,
@@ -752,7 +758,7 @@ export class ViewportManager {
      */
     zoomToFitCursor(
         cursorX: number,
-        canvasRect: DOMRect,
+        canvasRect: ViewportFrame,
         renderCallback: Function,
         verticalBounds: { minY: number; maxY: number } | null = null,
         margin: number | null = null,
