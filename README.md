@@ -48,7 +48,7 @@ Coverage: 🟢 Should work · 🟡 Partial · 🔴 Missing
 | In-place component editing | 🟢 | 🔥 |
 | Outline drawing and editing | 🟢 | Basic drawing tools, no multi-line text yet |
 | Variable fonts | 🟢 | No `avar2` support yet |
-| Components | 🟢 | No variable components yet |
+| Components | 🟢 | No variable components yet, maybe not all composition types implemented yet |
 | Sidebearings | 🟢 | Maybe not all metrics key types implemented yet |
 | Kerning | 🟢 | |
 | Python scripting | 🟢 | |
