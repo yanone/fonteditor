@@ -46,7 +46,7 @@ Coverage: 🟢 Should work · 🟡 Partial · 🔴 Missing
 | Live font compilation + Harfbuzz shaping | 🟢 | 🔥 |
 | Bi-directional text support | 🟢 | 🔥 |
 | In-place component editing | 🟢 | 🔥 |
-| Outline drawing and editing | 🟢 | Basic drawing tools |
+| Outline drawing and editing | 🟢 | Basic drawing tools, no multi-line text yet |
 | Variable fonts | 🟢 | No `avar2` support yet |
 | Components | 🟢 | No variable components yet |
 | Sidebearings | 🟢 | Maybe not all metrics key types implemented yet |
