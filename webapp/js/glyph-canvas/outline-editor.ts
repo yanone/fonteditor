@@ -3600,6 +3600,7 @@ export class OutlineEditor {
                 detail: { glyphStack: this.glyphStack }
             })
         );
+        this.updateEditorTitleBar();
     }
 
     setRootFeatureVariationSelection(
@@ -3859,6 +3860,12 @@ export class OutlineEditor {
         }
 
         const pathData: Babelfont.Path[] = [];
+        const componentShapes: Array<{
+            reference: string;
+            transform?: Babelfont.DecomposedAffine;
+            anchor?: string;
+            automaticAlignment: boolean;
+        }> = [];
         selectedShapeIndexes.forEach((shapeIndex) => {
             const shape = sourceLayer.shapes?.[shapeIndex];
             if (!shape) {
@@ -3866,18 +3873,37 @@ export class OutlineEditor {
             }
             if (shape.isPath?.()) {
                 pathData.push(shape.asPath().toJSON());
-            } else if (!targetLayer.is_background && shape.isComponent?.()) {
-                pathData.push(...shape.asComponent().getTransformedPaths());
-            } else if (targetLayer.is_background && shape.isComponent?.()) {
-                pathData.push(...shape.asComponent().getTransformedPaths());
+            } else if (shape.isComponent?.()) {
+                const component = shape.asComponent();
+                componentShapes.push({
+                    reference: component.reference,
+                    transform: component.transform,
+                    anchor: component.anchor,
+                    automaticAlignment: !!component.automaticAlignment
+                });
             }
         });
 
-        pathData.forEach((pathData) => {
-            const path = targetLayer.addPath(Boolean(pathData.closed));
-            path.nodes = JSON.parse(JSON.stringify(pathData.nodes || []));
+        pathData.forEach((copiedPath) => {
+            const path = targetLayer.addPath(Boolean(copiedPath.closed));
+            path.nodes = JSON.parse(JSON.stringify(copiedPath.nodes || []));
         });
-        if (pathData.length === 0) {
+        componentShapes.forEach((componentShape) => {
+            const added = targetLayer.addComponent(
+                componentShape.reference,
+                componentShape.transform
+            );
+            if (componentShape.anchor) {
+                added.anchor = componentShape.anchor;
+            }
+            if (
+                !targetLayer.is_background &&
+                componentShape.automaticAlignment
+            ) {
+                added.automaticAlignment = true;
+            }
+        });
+        if (pathData.length === 0 && componentShapes.length === 0) {
             return false;
         }
 
@@ -4072,12 +4098,6 @@ export class OutlineEditor {
                 fontModel
             );
             const layerWidth = Number(activeLayer.width) || 0;
-            const structuralLayerTargets = [activeLayer, ...linkedLayers]
-                .filter((layerModel: Layer) => !!layerModel.id)
-                .map((layerModel: Layer) => ({
-                    glyphName: glyph.name,
-                    layerId: layerModel.id!
-                }));
             activePasteAnchorNames = parsed.fragment.anchors.map(
                 (anchor) => anchor.name
             );
@@ -4089,6 +4109,20 @@ export class OutlineEditor {
                 verticalMetrics,
                 glyphExists
             });
+            if (
+                activeLayer.is_background &&
+                activeLayer.id &&
+                this.selectedLayerId !== activeLayer.id
+            ) {
+                this.selectedLayerId = activeLayer.id;
+                this.rebuildGlyphStackWithNewLayer(activeLayer.id);
+            }
+            const structuralLayerTargets = [activeLayer, ...linkedLayers]
+                .filter((layerModel: Layer) => !!layerModel.id)
+                .map((layerModel: Layer) => ({
+                    glyphName: glyph.name,
+                    layerId: layerModel.id!
+                }));
             this.prepareCommittedStructuralOutlineChange('keyboard', {
                 layerTargets: structuralLayerTargets
             });
@@ -8492,7 +8526,7 @@ export class OutlineEditor {
     ): boolean {
         const currentLayerData = this.getCurrentLayerDataFromStack();
         if (!currentLayerData) {
-            return false;
+            return this.attachCurrentLayerDataInStack(layerData);
         }
 
         Object.assign(currentLayerData, layerData);
@@ -8500,6 +8534,53 @@ export class OutlineEditor {
         stripInterpolatorRequestId(currentLayerData);
         parseComponentNodes(currentLayerData.shapes || []);
         return true;
+    }
+
+    /**
+     * Create the innermost component `layerData` when the stack can navigate
+     * to the host shape but that shape has no nested snapshot yet.
+     */
+    private attachCurrentLayerDataInStack(layerData: Babelfont.Layer): boolean {
+        if (!this.layerData || !this.glyphStack) {
+            return false;
+        }
+
+        const parsed = this.parseGlyphStack();
+        const componentItems = parsed.filter(
+            (item) => item.componentIndex !== undefined
+        );
+        if (componentItems.length === 0) {
+            return false;
+        }
+
+        let currentLayerData: Babelfont.Layer | null = this.layerData;
+        for (let index = 0; index < componentItems.length; index++) {
+            const shapeIndex = componentItems[index].componentIndex!;
+            const hostShapes = (currentLayerData?.shapes ||
+                []) as Babelfont.Shape[];
+            const candidate = hostShapes[shapeIndex];
+            if (!candidate || !('reference' in candidate)) {
+                return false;
+            }
+
+            if (index === componentItems.length - 1) {
+                candidate.layerData = layerData;
+                candidate.layerData.isInterpolated = false;
+                stripInterpolatorRequestId(candidate.layerData);
+                parseComponentNodes(candidate.layerData.shapes || []);
+                return true;
+            }
+
+            if (!candidate.layerData) {
+                candidate.layerData = {
+                    width: currentLayerData?.width ?? 0,
+                    shapes: []
+                };
+            }
+            currentLayerData = candidate.layerData || null;
+        }
+
+        return false;
     }
 
     private preserveMissingLayerFields(
@@ -8686,7 +8767,10 @@ export class OutlineEditor {
         );
 
         if (this.isEditingComponent() && preservedExactNormalized) {
-            const rootLayerData = interpolatedNormalized
+            const useInterpolatedRoot =
+                !!interpolatedNormalized &&
+                !this.getRootLayerModel()?.is_background;
+            const rootLayerData = useInterpolatedRoot
                 ? this.cloneLayerData(interpolatedNormalized)
                 : this.layerData
                   ? this.cloneLayerData(this.layerData)
@@ -8728,7 +8812,10 @@ export class OutlineEditor {
             }
         }
 
-        if (this.getCurrentLayerModel()?.is_background) {
+        if (
+            !this.isEditingComponent() &&
+            this.getCurrentLayerModel()?.is_background
+        ) {
             const backgroundLayerData = this.cloneLayerData(
                 preservedExactNormalized || exactNormalized || {}
             );
@@ -9128,7 +9215,7 @@ export class OutlineEditor {
     private resolveComponentLayerDataFromModel(
         shapes: any[] | undefined,
         fontModel: any,
-        masterId: string | null | undefined,
+        hostLayer: any,
         visited: Set<string>
     ): any[] {
         const flattenedShapes = this.flattenNestedShapes(shapes);
@@ -9152,7 +9239,7 @@ export class OutlineEditor {
                         shapes: this.resolveComponentLayerDataFromModel(
                             resolvedShape.layerData.shapes,
                             fontModel,
-                            masterId,
+                            hostLayer,
                             visited
                         )
                     };
@@ -9173,7 +9260,11 @@ export class OutlineEditor {
             visited.add(reference);
 
             const componentLayer =
-                this.getPreferredComponentLayer(componentGlyph, masterId) ||
+                hostLayer?.getMatchingLayerOnGlyph?.(reference) ||
+                this.getPreferredComponentLayer(
+                    componentGlyph,
+                    hostLayer?.master?.master
+                ) ||
                 componentGlyph.layers[0];
 
             if (componentLayer?.isAutomaticAlignedLayer?.()) {
@@ -9199,7 +9290,7 @@ export class OutlineEditor {
                     this.resolveComponentLayerDataFromModel(
                         nestedLayerData.shapes,
                         fontModel,
-                        componentLayer?.master?.master ?? masterId,
+                        componentLayer,
                         visited
                     );
             }
@@ -9242,7 +9333,7 @@ export class OutlineEditor {
         exactLayerData.shapes = this.resolveComponentLayerDataFromModel(
             exactLayerData.shapes,
             fontModel,
-            layer?.master?.master,
+            layer,
             new Set([glyphName])
         );
 
@@ -10541,6 +10632,7 @@ export class OutlineEditor {
                 detail: { glyphStack: this.glyphStack }
             })
         );
+        this.updateEditorTitleBar();
     }
 
     /**
@@ -10587,6 +10679,7 @@ export class OutlineEditor {
                 detail: { glyphStack: this.glyphStack }
             })
         );
+        this.updateEditorTitleBar();
     }
 
     async reconcileSelectionAfterModelSync(options?: {
@@ -16611,29 +16704,27 @@ export class OutlineEditor {
         const currentLayer = this.getCurrentLayerModel();
         const currentLayerData = this.getCurrentLayerDataFromStack();
 
-        if (
-            currentLayer &&
-            !currentLayer.is_background &&
-            !currentLayerData?.isInterpolated
-        ) {
+        if (currentLayer && !currentLayerData?.isInterpolated) {
             items.push(`
                 <div class="plugin-menu-item" data-action="add-component">
                     <span class="material-symbols-outlined">add_box</span>
                     <span>Add component</span>
                 </div>
             `);
-            items.push(`
+            if (!currentLayer.is_background) {
+                items.push(`
                 <div class="plugin-menu-item" data-action="add-anchor">
                     <span class="material-symbols-outlined">anchor</span>
                     <span>Add anchor</span>
                 </div>
             `);
-            items.push(`
+                items.push(`
                 <div class="plugin-menu-item" data-action="add-guideline">
                     <span class="material-symbols-outlined">straighten</span>
                     <span>Add guideline</span>
                 </div>
             `);
+            }
         }
 
         if (target?.canSetStartNode) {
@@ -20955,6 +21046,10 @@ export class OutlineEditor {
             this.finalizeFetchedLayerData(glyphName, skipRender);
         }
 
+        if (this.getRootLayerModel()?.is_background) {
+            return;
+        }
+
         try {
             // Compute the userspace location for this layer
             const userspaceLocation = this.getUserspaceLocationForLayer(
@@ -21872,20 +21967,8 @@ export class OutlineEditor {
 
         const parsedStack = this.parseGlyphStack();
 
-        // Build breadcrumb trail from glyphStack
-        const trail: string[] = [];
-
-        if (this.glyphStack && this.glyphStack !== '') {
-            // Add each glyph name from the stack
-            for (const item of parsedStack) {
-                trail.push(item.glyphName);
-            }
-        }
-
-        // If we have a breadcrumb trail (in component editing mode), show it
-        if (trail.length > 0) {
-            // Add breadcrumb trail as clickable text
-            trail.forEach((componentName, index) => {
+        if (parsedStack.length > 0) {
+            parsedStack.forEach((stackItem, index) => {
                 if (index > 0) {
                     const arrow = document.createElement('span');
                     arrow.className =
@@ -21895,24 +21978,36 @@ export class OutlineEditor {
                 }
 
                 const item = document.createElement('span');
-                item.textContent = componentName;
                 item.classList.add('editor-glyph-chip');
+                const name = document.createElement('span');
+                name.textContent = stackItem.glyphName;
+                item.appendChild(name);
+                if (this.isBackgroundLayerStackId(stackItem.layerId)) {
+                    item.appendChild(this.createBackgroundLayerBadge());
+                } else if (
+                    index > 0 &&
+                    parsedStack
+                        .slice(0, index)
+                        .some((ancestor) =>
+                            this.isBackgroundLayerStackId(ancestor.layerId)
+                        )
+                ) {
+                    item.appendChild(
+                        this.createBackgroundNestedComponentWarningBadge()
+                    );
+                }
 
-                // Current level is highlighted
-                if (index === trail.length - 1) {
+                if (index === parsedStack.length - 1) {
                     item.classList.add('active');
                 } else {
                     item.classList.add('inactive');
                 }
 
-                // Click to navigate to that level
                 item.addEventListener('click', () => {
-                    const levelsToExit = trail.length - 1 - index;
-                    // Skip UI updates during batch exit to avoid duplicate layer interfaces
+                    const levelsToExit = parsedStack.length - 1 - index;
                     for (let i = 0; i < levelsToExit; i++) {
-                        this.exitComponentEditing(true); // Skip UI updates
+                        this.exitComponentEditing(true);
                     }
-                    // Update UI once after all exits
                     if (levelsToExit > 0) {
                         this.glyphCanvas.doUIUpdate();
                     }
@@ -21920,15 +22015,52 @@ export class OutlineEditor {
 
                 glyphNameElement.appendChild(item);
             });
-        } else {
-            // Not in component editing - just show main glyph name
-            const mainGlyphName = this.glyphCanvas.getCurrentGlyphName();
-            const mainNameSpan = document.createElement('span');
-            mainNameSpan.textContent = mainGlyphName;
-            mainNameSpan.className = 'editor-glyph-name-single';
-
-            glyphNameElement.appendChild(mainNameSpan);
+            return;
         }
+
+        const mainGlyphName = this.glyphCanvas.getCurrentGlyphName();
+        const mainNameSpan = document.createElement('span');
+        mainNameSpan.className = 'editor-glyph-name-single';
+        const name = document.createElement('span');
+        name.textContent = mainGlyphName;
+        mainNameSpan.appendChild(name);
+        if (this.isEditingBackgroundLayer()) {
+            mainNameSpan.appendChild(this.createBackgroundLayerBadge());
+        }
+        glyphNameElement.appendChild(mainNameSpan);
+    }
+
+    private createBackgroundLayerBadge(): HTMLSpanElement {
+        const badge = document.createElement('span');
+        badge.className = 'editor-glyph-bg-badge';
+        badge.textContent = 'BG';
+        badge.title = 'Background layer';
+        return badge;
+    }
+
+    private createBackgroundNestedComponentWarningBadge(): HTMLSpanElement {
+        const badge = document.createElement('span');
+        badge.className =
+            'material-symbols-outlined editor-glyph-live-ref-warning';
+        badge.textContent = 'warning';
+        badge.title =
+            'This is a live reference. Editing it will alter the referenced main glyph.';
+        return badge;
+    }
+
+    private isBackgroundLayerStackId(
+        layerId: string | null | undefined
+    ): boolean {
+        if (!layerId || this.isMissingInterpolationLayerId(layerId)) {
+            return false;
+        }
+
+        if (layerId.startsWith('background-') || layerId.endsWith('.bg')) {
+            return true;
+        }
+
+        const owning = this.resolveOwningGlyphForLayer(layerId);
+        return !!owning?.glyph?.findLayerById?.(layerId)?.is_background;
     }
 
     extractComponentTransformFromInterpolatedLayer(

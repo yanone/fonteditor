@@ -3044,6 +3044,67 @@ describe('GlyphCanvas onMouseUp', () => {
         }
     });
 
+    test('applyExactSelectedLayerData keeps a background root when entering a nested component', () => {
+        const backgroundShapes = [
+            {
+                reference: 'a'
+            }
+        ];
+        canvas.outlineEditor.layerData = {
+            id: 'master-layer.bg',
+            width: 500,
+            shapes: backgroundShapes,
+            isInterpolated: false
+        };
+        canvas.outlineEditor.glyphStack = 'b@master-layer.bg>0:a@master-layer';
+        canvas.outlineEditor.selectedLayerId = 'master-layer';
+        jest.spyOn(canvas.outlineEditor, 'getRootLayerModel').mockReturnValue({
+            id: 'master-layer.bg',
+            is_background: true
+        });
+        jest.spyOn(
+            canvas.outlineEditor,
+            'getCurrentLayerModel'
+        ).mockReturnValue({
+            id: 'master-layer',
+            is_background: false
+        });
+
+        canvas.outlineEditor.applyExactSelectedLayerData(
+            {
+                id: 'master-layer',
+                width: 400,
+                shapes: [
+                    {
+                        nodes: [
+                            { x: 0, y: 0, nodetype: 'Line' },
+                            { x: 80, y: 0, nodetype: 'Line' },
+                            { x: 80, y: 80, nodetype: 'Line' }
+                        ],
+                        closed: true
+                    }
+                ]
+            },
+            {
+                id: 'master-layer',
+                width: 500,
+                shapes: []
+            }
+        );
+
+        expect(canvas.outlineEditor.layerData.id).toBe('master-layer.bg');
+        expect(canvas.outlineEditor.layerData.shapes[0].reference).toBe('a');
+        const nestedShapes =
+            canvas.outlineEditor.getCurrentLayerDataFromStack().shapes;
+        expect(nestedShapes).toHaveLength(1);
+        expect(nestedShapes[0].closed).toBe(true);
+        expect(nestedShapes[0].nodes).toEqual([
+            { x: 0, y: 0, nodetype: 'Line' },
+            { x: 80, y: 0, nodetype: 'Line' },
+            { x: 80, y: 80, nodetype: 'Line' }
+        ]);
+    });
+
     test('serializeLayerDataAsInterpolationPayload preserves omitted nested component layer fields', () => {
         const serialized =
             canvas.outlineEditor.serializeLayerDataAsInterpolationPayload({
@@ -13620,6 +13681,102 @@ describe('GlyphCanvas component editing stack', () => {
         expect(result).toBe(false);
         expect(canvas.outlineEditor.isEditingComponent()).toBe(false);
     });
+
+    test('title-bar breadcrumb shows a BG badge on a background stack segment', () => {
+        document.body.innerHTML = `
+            <div id="view-editor">
+                <div class="view-title-bar">
+                    <div class="view-title-left"></div>
+                </div>
+            </div>
+            <div id="test-container"></div>
+        `;
+        canvas.destroy();
+        canvas = new GlyphCanvas('test-container');
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.glyphStack = 'b@master-layer.bg>0:a@master-layer';
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.textRunEditor.shapedGlyphs = [{ glyphName: 'b' }];
+
+        canvas.outlineEditor.updateEditorTitleBar();
+
+        const chips = document.querySelectorAll('.editor-glyph-chip');
+        expect(chips).toHaveLength(2);
+        expect(chips[0].textContent).toContain('b');
+        expect(
+            chips[0].querySelector('.editor-glyph-bg-badge').textContent
+        ).toBe('BG');
+        expect(chips[1].textContent).toContain('a');
+        expect(chips[1].querySelector('.editor-glyph-bg-badge')).toBeNull();
+        const liveRefWarning = chips[1].querySelector(
+            '.editor-glyph-live-ref-warning'
+        );
+        expect(liveRefWarning).not.toBeNull();
+        expect(liveRefWarning.textContent).toBe('warning');
+        expect(liveRefWarning.title).toBe(
+            'This is a live reference. Editing it will alter the referenced main glyph.'
+        );
+        expect(
+            chips[0].querySelector('.editor-glyph-live-ref-warning')
+        ).toBeNull();
+    });
+
+    test('title-bar breadcrumb omits live-reference warning for nested foreground components', () => {
+        document.body.innerHTML = `
+            <div id="view-editor">
+                <div class="view-title-bar">
+                    <div class="view-title-left"></div>
+                </div>
+            </div>
+            <div id="test-container"></div>
+        `;
+        canvas.destroy();
+        canvas = new GlyphCanvas('test-container');
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.glyphStack = 'b@master-layer>0:a@master-layer';
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.textRunEditor.shapedGlyphs = [{ glyphName: 'b' }];
+
+        canvas.outlineEditor.updateEditorTitleBar();
+
+        const chips = document.querySelectorAll('.editor-glyph-chip');
+        expect(chips).toHaveLength(2);
+        expect(
+            document.querySelector('.editor-glyph-live-ref-warning')
+        ).toBeNull();
+    });
+
+    test('rebuilding glyph stack refreshes the BG badge in the title bar', () => {
+        document.body.innerHTML = `
+            <div id="view-editor">
+                <div class="view-title-bar">
+                    <div class="view-title-left"></div>
+                </div>
+            </div>
+            <div id="test-container"></div>
+        `;
+        canvas.destroy();
+        canvas = new GlyphCanvas('test-container');
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.glyphStack = 'b@master-layer';
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.textRunEditor.shapedGlyphs = [{ glyphName: 'b' }];
+
+        canvas.outlineEditor.updateEditorTitleBar();
+        expect(document.querySelector('.editor-glyph-bg-badge')).toBeNull();
+
+        canvas.outlineEditor.rebuildGlyphStackWithNewLayer('master-layer.bg');
+
+        expect(canvas.outlineEditor.glyphStack).toBe('b@master-layer.bg');
+        expect(
+            document.querySelector('.editor-glyph-bg-badge').textContent
+        ).toBe('BG');
+
+        canvas.outlineEditor.rebuildGlyphStackWithNewLayer('master-layer');
+
+        expect(canvas.outlineEditor.glyphStack).toBe('b@master-layer');
+        expect(document.querySelector('.editor-glyph-bg-badge')).toBeNull();
+    });
 });
 
 // ==================== Cursor Tests ====================
@@ -14338,6 +14495,21 @@ describe('GlyphCanvas property panel', () => {
 
         expect(html).toContain('data-action="add-guideline"');
         expect(html).toContain('Add guideline');
+    });
+
+    test('context menu offers Add component on background layers', () => {
+        canvas.outlineEditor.getCurrentLayerModel = jest.fn(() => ({
+            is_background: true
+        }));
+        canvas.outlineEditor.getCurrentLayerDataFromStack = jest.fn(() => ({
+            isInterpolated: false
+        }));
+
+        const html = canvas.outlineEditor.buildCanvasContextMenuHtml(null);
+
+        expect(html).toContain('data-action="add-component"');
+        expect(html).not.toContain('data-action="add-anchor"');
+        expect(html).not.toContain('data-action="add-guideline"');
     });
 
     test('rejects adding an anchor when the name already exists', async () => {

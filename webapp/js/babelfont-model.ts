@@ -5349,9 +5349,6 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
         const font = glyph.parent() as Font;
         if (!font) return paths;
 
-        // Get the master ID from the layer
-        const masterId = (layer.master as Unsafe)?.master;
-
         // Helper to transform a node
         const transformNode = (node: Unsafe, transform: number[]): Unsafe => {
             const [a, b, c, d, tx, ty] = transform;
@@ -5383,15 +5380,9 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
         const componentGlyph = font.findGlyph(this.reference);
         if (!componentGlyph || !componentGlyph.layers) return paths;
 
-        let componentLayer;
-        if (masterId) {
-            componentLayer = componentGlyph.layers.find(
-                (l) => l.master && (l.master as Unsafe).master === masterId
-            );
-        }
-        if (!componentLayer) {
-            componentLayer = componentGlyph.layers[0];
-        }
+        const componentLayer =
+            layer.getMatchingLayerOnGlyph(this.reference) ??
+            componentGlyph.layers[0];
         if (!componentLayer) return paths;
 
         // Process shapes from the component layer
@@ -6439,7 +6430,23 @@ export class Layer extends ArrayElementBase {
                     anchors: background.anchors || [],
                     getPathNodes: (shape) =>
                         shape.isPath() ? shape.asPath().nodes : null,
-                    getOrCreateComponentTransform: () => null,
+                    getOrCreateComponentTransform: (shape) => {
+                        if (!shape.isComponent()) {
+                            return null;
+                        }
+
+                        const component = shape.asComponent();
+                        if (!component.transform) {
+                            component.transform =
+                                DecomposedAffineTransform.identity();
+                        } else if (Array.isArray(component.transform)) {
+                            component.transform =
+                                DecomposedAffineTransform.fromAffine(
+                                    component.transform
+                                );
+                        }
+                        return component.transform;
+                    },
                     shiftAnchor: (anchor, offset) => {
                         anchor.x += offset;
                     }
@@ -8227,7 +8234,8 @@ export class Layer extends ArrayElementBase {
 
     /**
      * The paired background layer. Empty backgrounds are transient until a path
-     * is added, so merely accessing this property does not alter the glyph.
+     * or component is added, so merely accessing this property does not alter
+     * the glyph.
      */
     get backgroundLayer(): Layer {
         if (this.is_background) {
@@ -8325,8 +8333,14 @@ export class Layer extends ArrayElementBase {
         assertModelMutationAllowed();
         return this.withFingerprintChangeEvent(() => {
             assertModelMutationAllowed();
-            if (this.is_background && !('nodes' in shape)) {
-                throw new Error('Background layers can only contain paths');
+            if (
+                this.is_background &&
+                !('nodes' in shape) &&
+                !('reference' in shape)
+            ) {
+                throw new Error(
+                    'Background layers can only contain paths and components'
+                );
             }
             this.ensureMaterializedBackgroundLayer();
             if (!this.data.shapes) {
@@ -8386,9 +8400,6 @@ export class Layer extends ArrayElementBase {
         transform?: number[] | Babelfont.DecomposedAffine
     ): Component {
         assertModelMutationAllowed();
-        if (this.is_background) {
-            throw new Error('Background layers cannot contain components');
-        }
         const componentData: Babelfont.Component = {
             id: generateStableId(),
             reference,
@@ -9169,7 +9180,8 @@ export class Layer extends ArrayElementBase {
     private static flattenComponents(
         layerData: Unsafe,
         font?: Font,
-        masterId?: string
+        masterId?: string,
+        matchingSource?: Layer
     ): Babelfont.Path[] {
         const flattenedPaths: Babelfont.Path[] = [];
 
@@ -9214,7 +9226,8 @@ export class Layer extends ArrayElementBase {
         // Helper function to process shapes recursively (for components)
         const processShapes = (
             shapes: Unsafe[],
-            transform: number[] = [1, 0, 0, 1, 0, 0]
+            transform: number[] = [1, 0, 0, 1, 0, 0],
+            sourceLayer?: Layer
         ) => {
             if (!shapes || !Array.isArray(shapes)) return;
 
@@ -9238,16 +9251,17 @@ export class Layer extends ArrayElementBase {
                     // Get component's layer data - either from pre-populated layerData
                     // or by looking up the component glyph in the font
                     let componentLayerData = componentData.layerData;
+                    let nestedSource = sourceLayer;
 
                     if (!componentLayerData && font) {
-                        // Look up the component glyph and get the matching layer for the current master
                         const componentGlyph = font.findGlyph(
                             componentData.reference
                         );
                         if (componentGlyph && componentGlyph.layers) {
-                            let layer;
-                            if (masterId) {
-                                // Find the layer that matches the current master
+                            let layer = sourceLayer?.getMatchingLayerOnGlyph(
+                                componentData.reference
+                            );
+                            if (!layer && masterId) {
                                 layer = componentGlyph.layers.find(
                                     (l) =>
                                         l.data.master &&
@@ -9255,12 +9269,12 @@ export class Layer extends ArrayElementBase {
                                             masterId
                                 );
                             }
-                            // Fallback to first layer if no matching master found
                             if (!layer) {
                                 layer = componentGlyph.layers[0];
                             }
                             if (layer) {
                                 componentLayerData = layer.toJSON();
+                                nestedSource = layer;
                             }
                         }
                     }
@@ -9269,7 +9283,8 @@ export class Layer extends ArrayElementBase {
                     if (componentLayerData && componentLayerData.shapes) {
                         processShapes(
                             componentLayerData.shapes,
-                            combinedTransform
+                            combinedTransform,
+                            nestedSource
                         );
                     }
                 } else if ('Path' in shape && shape.Path?.nodes) {
@@ -9309,7 +9324,7 @@ export class Layer extends ArrayElementBase {
 
         // Process all shapes
         if (layerData.shapes) {
-            processShapes(layerData.shapes);
+            processShapes(layerData.shapes, [1, 0, 0, 1, 0, 0], matchingSource);
         }
 
         return flattenedPaths;
@@ -9367,13 +9382,15 @@ export class Layer extends ArrayElementBase {
      * @param includeAnchors - If true, include anchors in the bounding box calculation (default: false)
      * @param font - Font object for component lookup (optional)
      * @param masterId - Master ID for finding matching component layers (optional)
+     * @param matchingSource - Layer whose designspace location selects component layers
      * @returns Bounding box {minX, minY, maxX, maxY, width, height} or null if no geometry
      */
     static calculateBoundingBox(
         layerData: Unsafe,
         includeAnchors: boolean = false,
         font?: Font,
-        masterId?: string
+        masterId?: string,
+        matchingSource?: Layer
     ): {
         minX: number;
         minY: number;
@@ -9386,7 +9403,12 @@ export class Layer extends ArrayElementBase {
 
         // Get all paths (we need to use the static flattenComponents for compatibility)
         // since we're working with raw layer data, not a Layer instance
-        const paths = Layer.flattenComponents(layerData, font, masterId);
+        const paths = Layer.flattenComponents(
+            layerData,
+            font,
+            masterId,
+            matchingSource
+        );
 
         // Process all paths
         for (const path of paths) {
@@ -9498,14 +9520,13 @@ export class Layer extends ArrayElementBase {
         const glyph = this.parent() as Glyph;
         const font = glyph ? (glyph.parent() as Font) : undefined;
 
-        // Get the master ID from tagged layer data
-        const masterId = this.data.master?.master;
-
+        const matchingSource = this.getComponentResolutionLayer();
         return Layer.calculateBoundingBox(
             this.data,
             includeAnchors,
             font,
-            masterId
+            matchingSource.getMasterId(),
+            matchingSource
         );
     }
 
@@ -9750,10 +9771,29 @@ export class Layer extends ArrayElementBase {
     }
 
     /**
+     * Background layers resolve component references through their partner
+     * foreground layer so painted geometry matches that foreground's
+     * master-bound neighbour on the referenced glyph.
+     */
+    private getComponentResolutionLayer(): Layer {
+        if (!this.is_background) {
+            return this;
+        }
+        const partner = this.backgroundLayer;
+        return partner && !partner.is_background ? partner : this;
+    }
+
+    /**
      * Find the exact matching stored layer on another glyph for this layer's
      * effective designspace location.
+     * Background layers resolve through their partner foreground layer.
      */
     getMatchingLayerOnGlyph(glyphName: string): Layer | undefined {
+        const source = this.getComponentResolutionLayer();
+        if (source !== this) {
+            return source.getMatchingLayerOnGlyph(glyphName);
+        }
+
         const font = this.getFont();
         const designspaceLocation = this.getEffectiveDesignspaceLocation();
         if (!font || !designspaceLocation) {

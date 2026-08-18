@@ -1896,15 +1896,197 @@ describe('Babelfont Object Model', () => {
             expect(background.master).toEqual(foreground.master);
             expect(background.location).toEqual(foreground.location);
             expect(background.paths).toHaveLength(1);
-            expect(() => background.addComponent('A')).toThrow(
-                'Background layers cannot contain components'
-            );
             expect(() => background.addAnchor(0, 0, 'top')).toThrow(
                 'Background layers cannot contain anchors'
             );
             expect(() => background.addGuide({ x: 0, y: 0 })).toThrow(
                 'Background layers cannot contain guides'
             );
+        });
+
+        test('materializes a paired background when it receives a component', () => {
+            const testFont = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                instances: [],
+                masters: [
+                    {
+                        id: 'master-1',
+                        name: { en: 'Regular' },
+                        location: {},
+                        guides: [],
+                        metrics: {},
+                        kerning: new Map()
+                    }
+                ],
+                glyphs: [
+                    {
+                        name: 'A',
+                        layers: [
+                            {
+                                id: 'foreground',
+                                width: 500,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                location: { wght: 400 },
+                                shapes: []
+                            }
+                        ]
+                    },
+                    {
+                        name: 'B',
+                        layers: [
+                            {
+                                id: 'b-foreground',
+                                width: 200,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                location: { wght: 400 },
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            { x: 0, y: 0, nodetype: 'Line' },
+                                            { x: 40, y: 0, nodetype: 'Line' },
+                                            { x: 40, y: 40, nodetype: 'Line' }
+                                        ],
+                                        closed: true
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            });
+            const glyph = testFont.findGlyph('A');
+            const foreground = glyph.findLayerById('foreground');
+            const background = foreground.backgroundLayer;
+            const virtualBackgroundId = background.id;
+
+            const component = background.addComponent('B');
+
+            expect(glyph.toJSON().layers).toHaveLength(2);
+            expect(background.id).not.toBe(virtualBackgroundId);
+            expect(foreground.background_layer_id).toBe(background.id);
+            expect(background.components).toHaveLength(1);
+            expect(background.components[0].reference).toBe('B');
+            expect(background.getMatchingLayerOnGlyph('B').id).toBe(
+                'b-foreground'
+            );
+            expect(component.getTransformedPaths()[0].nodes[2].x).toBe(40);
+
+            background.removeShape(0);
+            expect(background.components).toHaveLength(0);
+        });
+
+        test('background components paint the partner foreground matching layer', () => {
+            const testFont = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [
+                    {
+                        name: { en: 'Weight' },
+                        tag: 'wght',
+                        min: 400,
+                        default: 400,
+                        max: 700,
+                        map: [
+                            [400, 400],
+                            [700, 700]
+                        ]
+                    }
+                ],
+                instances: [],
+                masters: [
+                    {
+                        id: 'master-1',
+                        name: { en: 'Regular' },
+                        location: { wght: 400 },
+                        guides: [],
+                        metrics: {},
+                        kerning: new Map()
+                    }
+                ],
+                glyphs: [
+                    {
+                        name: 'A',
+                        layers: [
+                            {
+                                id: 'a-default',
+                                width: 500,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: []
+                            },
+                            {
+                                id: 'a-brace',
+                                width: 500,
+                                master: {
+                                    type: 'AssociatedWithMaster',
+                                    master: 'master-1'
+                                },
+                                location: { wght: 700 },
+                                shapes: []
+                            }
+                        ]
+                    },
+                    {
+                        name: 'B',
+                        layers: [
+                            {
+                                id: 'b-default',
+                                width: 200,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            { x: 0, y: 0, nodetype: 'Line' },
+                                            { x: 100, y: 0, nodetype: 'Line' },
+                                            { x: 100, y: 100, nodetype: 'Line' }
+                                        ],
+                                        closed: true
+                                    }
+                                ]
+                            },
+                            {
+                                id: 'b-brace',
+                                width: 200,
+                                master: {
+                                    type: 'AssociatedWithMaster',
+                                    master: 'master-1'
+                                },
+                                location: { wght: 700 },
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            { x: 0, y: 0, nodetype: 'Line' },
+                                            { x: 200, y: 0, nodetype: 'Line' },
+                                            { x: 200, y: 200, nodetype: 'Line' }
+                                        ],
+                                        closed: true
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            });
+            const glyphA = testFont.findGlyph('A');
+            const brace = glyphA.findLayerById('a-brace');
+            const background = brace.backgroundLayer;
+            const component = background.addComponent('B');
+
+            expect(background.getMatchingLayerOnGlyph('B').id).toBe('b-brace');
+            expect(component.getTransformedPaths()[0].nodes[2].x).toBe(200);
         });
 
         test('getComputedName returns Intermediate Layer for intermediate layers', () => {

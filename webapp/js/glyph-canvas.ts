@@ -5931,7 +5931,7 @@ class GlyphCanvas {
      */
     public openAddComponentDialogAt(position: { x: number; y: number }): void {
         const layer = this.getCurrentEditingLayerModel();
-        if (!layer || layer.is_background) {
+        if (!layer) {
             return;
         }
 
@@ -6060,9 +6060,12 @@ class GlyphCanvas {
                 ? hostLayer.master.master || null
                 : null;
         const componentLayer =
+            (hostLayer.getMatchingLayerOnGlyph?.(reference) as
+                Layer | undefined) ||
             (masterId
                 ? componentGlyph?.findLayerByMasterId?.(masterId)
-                : undefined) || componentGlyph?.layers?.[0];
+                : undefined) ||
+            componentGlyph?.layers?.[0];
         const hasOutlineGeometry = (componentLayer?.shapes?.length ?? 0) > 0;
         const bbox = hasOutlineGeometry
             ? componentLayer?.getBoundingBox?.(false)
@@ -6108,18 +6111,28 @@ class GlyphCanvas {
             activeLayer,
             position
         );
-        const structuralLayerTargets = [activeLayer, ...linkedLayers]
-            .filter((targetLayer) => !!targetLayer.id)
-            .map((targetLayer) => ({
-                glyphName,
-                layerId: targetLayer.id!
-            }));
         const affectedGlyphNames = new Set<string>([glyphName]);
         window.patchSyncEngine?.beginTransaction('Add component');
         try {
             for (const targetLayer of [activeLayer, ...linkedLayers]) {
                 targetLayer.addComponent(reference, transform);
             }
+            if (
+                activeLayer.is_background &&
+                activeLayer.id &&
+                this.outlineEditor.selectedLayerId !== activeLayer.id
+            ) {
+                this.outlineEditor.selectedLayerId = activeLayer.id;
+                this.outlineEditor.rebuildGlyphStackWithNewLayer(
+                    activeLayer.id
+                );
+            }
+            const structuralLayerTargets = [activeLayer, ...linkedLayers]
+                .filter((targetLayer) => !!targetLayer.id)
+                .map((targetLayer) => ({
+                    glyphName,
+                    layerId: targetLayer.id!
+                }));
             for (const affectedGlyphName of fontManager.currentFont?.fontModel?.recomputeMetricsKeys(
                 new Set([glyphName])
             ) || []) {

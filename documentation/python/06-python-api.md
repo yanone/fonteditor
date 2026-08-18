@@ -451,7 +451,8 @@ Assign a node, anchor, component, guide, or a list of them to replace the select
 - **`components`** (list[[Component](#component)]): Direct component objects in this layer, ready to use without Shape.asComponent()
 - **`anchors`** (list[[Anchor](#anchor)] | None)
 - **`backgroundLayer`** ([Layer](#layer)): The paired background layer. Empty backgrounds are transient until a path
-is added, so merely accessing this property does not alter the glyph.
+or component is added, so merely accessing this property does not alter
+the glyph.
 - **`fingerprint`** (str): Returns a normalized outline-compatibility fingerprint for this layer.
 The fingerprint includes components, paths, and anchors, with anchors
 sorted by name and guides excluded.
@@ -582,7 +583,7 @@ Handles the babelfont node format where:
 #### `getAllPaths() -> list[Babelfont.Path]`
 Get all paths in this layer including transformed paths from components (recursively flattened)
 
-#### `calculateBoundingBox(layerData: Unsafe, includeAnchors: bool, font: [Font](#font) | None = None, masterId: str | None = None) -> { minX: number; minY: number; maxX: number; maxY: number; width: number; height: number; } | None`
+#### `calculateBoundingBox(layerData: Unsafe, includeAnchors: bool, font: [Font](#font) | None = None, masterId: str | None = None, matchingSource: [Layer](#layer) | None = None) -> { minX: number; minY: number; maxX: number; maxY: number; width: number; height: number; } | None`
 Calculate bounding box for layer data
 
 #### `getBoundingBox(includeAnchors: bool) -> { minX: number; minY: number; maxX: number; maxY: number; width: number; height: number; } | None`
@@ -597,6 +598,7 @@ Calculate sidebearings at a given Y height by measuring distance from glyph edge
 #### `getMatchingLayerOnGlyph(glyphName: str) -> [Layer](#layer) | None`
 Find the exact matching stored layer on another glyph for this layer's
 effective designspace location.
+Background layers resolve through their partner foreground layer.
 
 #### `toString() -> str`
 ---

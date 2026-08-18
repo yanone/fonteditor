@@ -1499,6 +1499,50 @@ kbd + kbd {
     cursor: default;
 }
 
+.editor-glyph-chip,
+.editor-glyph-name-single {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 4px;
+    border: 1px solid color-mix(in srgb, var(--border-primary) 40%, transparent);
+    line-height: 16px;
+    border-radius: 3px;
+}
+
+.editor-glyph-chip.active,
+.editor-glyph-name-single {
+    background-color: color-mix(
+        in srgb,
+        var(--background-hover) 55%,
+        transparent
+    );
+}
+
+.editor-glyph-chip-separator {
+    position: relative;
+    top: 3px;
+    margin-left: -2px;
+    margin-right: -2px;
+}
+
+.editor-glyph-bg-badge {
+    font-size: 8px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    line-height: 1;
+    padding: 1px 3px;
+    border: 1px solid
+        color-mix(in srgb, var(--accent-yellow) 45%, var(--border-primary));
+    color: var(--accent-yellow);
+    text-transform: uppercase;
+}
+
+.editor-glyph-live-ref-warning {
+    font-size: 11px;
+    color: var(--accent-orange);
+}
+
 .view-title-window-actions {
     display: flex;
     align-items: center;

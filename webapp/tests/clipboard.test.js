@@ -556,6 +556,41 @@ describe('applyPasteFragment', () => {
         expect(active.components[0].automaticAlignment).toBe(false);
         expect(active.components[0].anchor).toBe('top');
     });
+
+    test('pastes components onto a background layer and skips anchors', () => {
+        const background = makeLayer({ linked: false, background: true });
+        applyPasteFragment(
+            {
+                format: 'counterpunch-json',
+                keepAbsoluteCoords: true,
+                paths: [],
+                components: [
+                    {
+                        reference: 'dieresiscomb',
+                        x: 10,
+                        y: 20,
+                        alignment: 1,
+                        transform: [1, 0, 0, 1, 10, 20]
+                    }
+                ],
+                anchors: [{ name: 'top', x: 50, y: 200 }],
+                guides: []
+            },
+            {
+                activeLayer: background,
+                linkedLayers: [],
+                master: null,
+                layerWidth: 600,
+                verticalMetrics: null,
+                glyphExists: () => true
+            }
+        );
+
+        expect(background.components).toHaveLength(1);
+        expect(background.components[0].reference).toBe('dieresiscomb');
+        expect(background.components[0].automaticAlignment).toBe(false);
+        expect(background.anchors).toHaveLength(0);
+    });
 });
 
 describe('applyReplaceSelectedPaths', () => {

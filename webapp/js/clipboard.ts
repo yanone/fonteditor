@@ -518,17 +518,18 @@ export function applyPasteFragment(
     }
     result.addedPathCount = working.paths.length * targetLayers.length;
 
-    if (!isBackground) {
-        applyNonPathObjectsToLayers(
-            working,
-            foregroundTargets,
-            options.activeLayer,
-            options.master ?? null,
-            options.glyphExists,
-            result,
-            { fanOutAnchors: true }
-        );
-    }
+    applyNonPathObjectsToLayers(
+        working,
+        isBackground ? targetLayers : foregroundTargets,
+        options.activeLayer,
+        options.master ?? null,
+        options.glyphExists,
+        result,
+        {
+            fanOutAnchors: !isBackground,
+            includeAnchorsAndGuides: !isBackground
+        }
+    );
 
     return result;
 }
@@ -1101,7 +1102,7 @@ function applyNonPathObjectsToLayers(
     master: Master | null,
     glyphExists: (name: string) => boolean,
     result: ApplyPasteResult,
-    options: { fanOutAnchors: boolean }
+    options: { fanOutAnchors: boolean; includeAnchorsAndGuides?: boolean }
 ): void {
     for (const component of working.components) {
         if (!glyphExists(component.reference)) {
@@ -1122,7 +1123,7 @@ function applyNonPathObjectsToLayers(
             const added = layer.addComponent(component.reference, [
                 ...transform
             ]);
-            if (component.alignment === 1) {
+            if (component.alignment === 1 && !layer.is_background) {
                 added.automaticAlignment = true;
             }
             if (component.anchor) {
@@ -1133,6 +1134,10 @@ function applyNonPathObjectsToLayers(
             }
         }
         result.addedComponentCount += targetLayers.length;
+    }
+
+    if (options.includeAnchorsAndGuides === false) {
+        return;
     }
 
     for (const anchor of working.anchors) {

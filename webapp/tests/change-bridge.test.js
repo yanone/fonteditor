@@ -385,7 +385,7 @@ const GENERIC_MUTABLE_GETTER_EXCLUSIONS = new Set([
     'paths',
     'rsb',
     'shapes',
-    'backgroundLayer', // lazy transient wrapper, materialized only after a path edit
+    'backgroundLayer', // lazy transient wrapper, materialized only after a path or component edit
     'selection' // UI/editor selection snapshot on Layer
 ]);
 
