@@ -337,58 +337,59 @@ export class GlyphCanvasRenderer {
             this.ctx.transform(1, 0, Math.tan(slantAngle), 1, 0, 0);
         }
 
+        const editOverlayFade =
+            this.getFeatureChangeOutlineFadeAlpha() *
+            this.glyphCanvas.previewChromeOpacity;
+
         // Check if stack preview mode is active
         if (this.glyphCanvas.stackPreviewAnimator.shouldRenderStackPreview()) {
             // In stack preview mode, render other glyphs normally but replace selected glyph with stack preview
-            this.drawBackgroundEditingTint();
-            this.drawEditingMetricsUnderlay();
             this.drawSelection();
             this.drawShapedGlyphsWithStackPreview();
-            this.drawCanvasPluginsBelow();
-            this.drawCanvasPluginsAbove();
+            if (editOverlayFade > 0) {
+                this.ctx.save();
+                this.ctx.globalAlpha *= editOverlayFade;
+                this.drawBackgroundEditingTint();
+                this.drawEditingMetricsUnderlay();
+                this.drawCanvasPluginsBelow();
+                this.drawCanvasPluginsAbove();
+                this.ctx.restore();
+            }
         } else {
             // Normal rendering
-            this.drawBackgroundEditingTint();
-            this.drawEditingMetricsUnderlay();
-            // Draw selection highlight
             this.drawSelection();
 
             // Draw shaped glyphs
             this.drawShapedGlyphs();
             this.drawTextModeKerningOverlay();
 
-            // Draw canvas plugins below outline editor
-            this.drawCanvasPluginsBelow();
-
-            const outlineFade =
-                this.getFeatureChangeOutlineFadeAlpha() *
-                this.glyphCanvas.previewChromeOpacity;
-            if (outlineFade > 0) {
+            if (editOverlayFade > 0) {
                 this.ctx.save();
-                this.ctx.globalAlpha *= outlineFade;
+                this.ctx.globalAlpha *= editOverlayFade;
+                this.drawBackgroundEditingTint();
+                this.drawEditingMetricsUnderlay();
+                this.drawCanvasPluginsBelow();
                 this.drawOutlineEditor();
                 this.drawSnapVisualization();
+                this.drawCanvasPluginsAbove();
                 this.ctx.restore();
             }
-
-            // Draw canvas plugins above outline editor
-            this.drawCanvasPluginsAbove();
         }
 
-        // Draw measurement tool intersections (in transformed space)
-        this.drawMeasurementIntersections();
+        if (editOverlayFade > 0) {
+            this.ctx.save();
+            this.ctx.globalAlpha *= editOverlayFade;
+            this.drawMeasurementIntersections();
+            this.drawGlyphTooltip();
+            this.drawStackPreviewHoverLabel();
+            this.ctx.restore();
+        }
 
         // Draw text mode measurement tool
         this.drawTextModeMeasurements();
 
         // Draw cursor
         this.drawCursor();
-
-        // Draw glyph name tooltip (still in transformed space)
-        this.drawGlyphTooltip();
-
-        // Draw stack preview layer hover label (still in transformed space)
-        this.drawStackPreviewHoverLabel();
 
         this.ctx.restore();
 
@@ -1102,8 +1103,6 @@ export class GlyphCanvasRenderer {
         const outlineEditor = this.glyphCanvas.outlineEditor;
         if (
             !outlineEditor.active ||
-            outlineEditor.isPreviewMode ||
-            this.glyphCanvas.previewChromeOpacity < 1 ||
             !outlineEditor.isEditingBackgroundLayer()
         ) {
             return;
@@ -1139,17 +1138,13 @@ export class GlyphCanvasRenderer {
 
         this.ctx.save();
         this.ctx.fillStyle = accentYellow;
-        this.ctx.globalAlpha = 0.1;
+        this.ctx.globalAlpha *= 0.1;
         this.ctx.fillRect(widthOriginX, bottomY, width, topY - bottomY);
         this.ctx.restore();
     }
 
     private drawEditingMetricsUnderlay(): void {
-        if (
-            !this.glyphCanvas.outlineEditor.active ||
-            this.glyphCanvas.outlineEditor.isPreviewMode ||
-            this.glyphCanvas.previewChromeOpacity < 1
-        ) {
+        if (!this.glyphCanvas.outlineEditor.active) {
             return;
         }
 
@@ -1974,14 +1969,9 @@ export class GlyphCanvasRenderer {
             return;
         }
 
-        // Draw outline editor when a layer is selected (skip while Space
-        // preview is on). During interpolation without preview mode,
-        // layerData exists without selectedLayerId. Fade-off multiplies
-        // this pass by previewChromeOpacity in render().
-        if (
-            !this.glyphCanvas.outlineEditor.layerData ||
-            this.glyphCanvas.outlineEditor.isPreviewMode
-        ) {
+        // Draw outline editor when a layer is selected. Space preview
+        // multiplies this pass by previewChromeOpacity in render().
+        if (!this.glyphCanvas.outlineEditor.layerData) {
             return;
         }
 
@@ -2226,7 +2216,8 @@ export class GlyphCanvasRenderer {
                 this.ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${baseAlpha * gridOpacity})`;
             } else {
                 this.ctx.strokeStyle = gridColor;
-                this.ctx.globalAlpha = gridOpacity;
+                this.ctx.save();
+                this.ctx.globalAlpha *= gridOpacity;
             }
 
             this.ctx.lineWidth = 1 * invScale;
@@ -2243,9 +2234,8 @@ export class GlyphCanvasRenderer {
             }
             this.ctx.stroke();
 
-            // Reset global alpha if it was used
             if (!rgbaMatch) {
-                this.ctx.globalAlpha = 1.0;
+                this.ctx.restore();
             }
         }
 
@@ -2305,75 +2295,79 @@ export class GlyphCanvasRenderer {
                 )
             );
 
-            currentLayerData.shapes.forEach((shape, index: number) => {
-                if (!('reference' in shape)) {
-                    return; // Not a component
-                }
+            if (!this.glyphCanvas.outlineEditor.isPreviewMode) {
+                currentLayerData.shapes.forEach((shape, index: number) => {
+                    if (!('reference' in shape)) {
+                        return; // Not a component
+                    }
 
-                // Disable selection/hover highlighting for interpolated data
-                const isInterpolated =
-                    this.glyphCanvas.outlineEditor.isInterpolating ||
-                    (this.glyphCanvas.outlineEditor.selectedLayerId === null &&
-                        this.glyphCanvas.outlineEditor.layerData
-                            ?.isInterpolated);
-                const isHovered =
-                    !isInterpolated &&
-                    this.glyphCanvas.outlineEditor.hoveredComponentIndex ===
-                        index;
-                const isSelected =
-                    !isInterpolated &&
-                    this.glyphCanvas.outlineEditor.selectedComponents.includes(
-                        index
-                    );
-
-                // Get full transform matrix [a, b, c, d, tx, ty]
-                const transformRaw =
-                    'reference' in shape && shape.transform
-                        ? shape.transform
-                        : undefined;
-                const transform = normalizeAffineTransform(transformRaw);
-                const [a, b, c, d, tx, ty] = transform;
-
-                this.ctx.save();
-
-                // Apply component transform
-                this.ctx.transform(a, b, c, d, tx, ty);
-
-                // Draw the component's outline shapes if they were fetched
-                if (
-                    'reference' in shape &&
-                    shape.layerData &&
-                    shape.layerData.shapes
-                ) {
-                    this.drawComponentWithOutlines(
-                        shape.layerData.shapes,
-                        isSelected,
-                        isHovered,
-                        isAutomaticComponentLayer,
-                        !!isInterpolated,
-                        invScale,
-                        isDarkTheme
-                    );
-
-                    // Collect component label data for later drawing (on top of everything)
-                    // Only show on hover
-                    if (isHovered) {
-                        const componentName = shape.reference || 'component';
-                        const bounds = this.getComponentBounds(
-                            shape.layerData.shapes
+                    // Disable selection/hover highlighting for interpolated data
+                    const isInterpolated =
+                        this.glyphCanvas.outlineEditor.isInterpolating ||
+                        (this.glyphCanvas.outlineEditor.selectedLayerId ===
+                            null &&
+                            this.glyphCanvas.outlineEditor.layerData
+                                ?.isInterpolated);
+                    const isHovered =
+                        !isInterpolated &&
+                        this.glyphCanvas.outlineEditor.hoveredComponentIndex ===
+                            index;
+                    const isSelected =
+                        !isInterpolated &&
+                        this.glyphCanvas.outlineEditor.selectedComponents.includes(
+                            index
                         );
-                        if (bounds.hasPoints) {
-                            componentLabels.push({
-                                componentName,
-                                bounds,
-                                transform: [a, b, c, d, tx, ty]
-                            });
+
+                    // Get full transform matrix [a, b, c, d, tx, ty]
+                    const transformRaw =
+                        'reference' in shape && shape.transform
+                            ? shape.transform
+                            : undefined;
+                    const transform = normalizeAffineTransform(transformRaw);
+                    const [a, b, c, d, tx, ty] = transform;
+
+                    this.ctx.save();
+
+                    // Apply component transform
+                    this.ctx.transform(a, b, c, d, tx, ty);
+
+                    // Draw the component's outline shapes if they were fetched
+                    if (
+                        'reference' in shape &&
+                        shape.layerData &&
+                        shape.layerData.shapes
+                    ) {
+                        this.drawComponentWithOutlines(
+                            shape.layerData.shapes,
+                            isSelected,
+                            isHovered,
+                            isAutomaticComponentLayer,
+                            !!isInterpolated,
+                            invScale,
+                            isDarkTheme
+                        );
+
+                        // Collect component label data for later drawing (on top of everything)
+                        // Only show on hover
+                        if (isHovered) {
+                            const componentName =
+                                shape.reference || 'component';
+                            const bounds = this.getComponentBounds(
+                                shape.layerData.shapes
+                            );
+                            if (bounds.hasPoints) {
+                                componentLabels.push({
+                                    componentName,
+                                    bounds,
+                                    transform: [a, b, c, d, tx, ty]
+                                });
+                            }
                         }
                     }
-                }
 
-                this.ctx.restore();
-            });
+                    this.ctx.restore();
+                });
+            }
         }
 
         // Draw anchors
@@ -2765,7 +2759,7 @@ export class GlyphCanvasRenderer {
         }
 
         this.ctx.save();
-        this.ctx.globalAlpha = 0.35;
+        this.ctx.globalAlpha *= 0.35;
         this.ctx.strokeStyle = getComputedStyle(
             document.documentElement
         ).getPropertyValue('--accent-yellow');
@@ -3405,8 +3399,10 @@ export class GlyphCanvasRenderer {
                 );
                 this.ctx.clip();
             }
-            this.ctx.globalAlpha =
-                APP_SETTINGS.OUTLINE_EDITOR.MEASUREMENT_TOOL_GUIDE_LINES_OPACITY;
+            this.ctx.globalAlpha *=
+                APP_SETTINGS.OUTLINE_EDITOR
+                    .MEASUREMENT_TOOL_GUIDE_LINES_OPACITY *
+                this.glyphCanvas.previewChromeOpacity;
             this.ctx.strokeStyle = colors.MEASUREMENT_TOOL_CROSSHAIR;
             this.ctx.lineWidth = 1;
             this.ctx.beginPath();
@@ -3465,8 +3461,10 @@ export class GlyphCanvasRenderer {
                 const diagonal = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
                 this.ctx.save();
-                this.ctx.globalAlpha =
-                    APP_SETTINGS.OUTLINE_EDITOR.MEASUREMENT_TOOL_GUIDE_LINES_OPACITY;
+                this.ctx.globalAlpha *=
+                    APP_SETTINGS.OUTLINE_EDITOR
+                        .MEASUREMENT_TOOL_GUIDE_LINES_OPACITY *
+                    this.glyphCanvas.previewChromeOpacity;
                 this.ctx.fillStyle = isDarkTheme ? '#FFFFFF' : '#000000';
                 this.ctx.font = '18px system-ui, -apple-system, sans-serif';
                 this.ctx.textBaseline = 'bottom';
@@ -3644,15 +3642,6 @@ export class GlyphCanvasRenderer {
             `[Renderer] drawCanvasPlugins${position === 'above' ? 'Above' : 'Below'} called`
         );
 
-        // Skip plugins during Space preview (including the shared fade)
-        if (
-            this.glyphCanvas.outlineEditor.isPreviewMode ||
-            this.glyphCanvas.previewChromeOpacity < 1
-        ) {
-            console.log('[Renderer] Skipping plugins - preview mode active');
-            return;
-        }
-
         // Only draw plugins when we have an active outline editor with layer data
         if (
             !this.glyphCanvas.outlineEditor.layerData ||
@@ -3789,9 +3778,7 @@ export class GlyphCanvasRenderer {
         // Only render when editing mode is active and we have a selected glyph
         if (
             !this.glyphCanvas.outlineEditor.active ||
-            !this.glyphCanvas.outlineEditor.layerData ||
-            this.glyphCanvas.outlineEditor.isPreviewMode ||
-            this.glyphCanvas.previewChromeOpacity < 1
+            !this.glyphCanvas.outlineEditor.layerData
         ) {
             return;
         }

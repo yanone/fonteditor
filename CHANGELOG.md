@@ -1,5 +1,6 @@
 # Unreleased
 
+- **Preview Area Options**: Implemented three differently sizes preview areas (on space key). Medium and Full options fade out the UI chrome.
 - **Decompose components**: Decompose components into flat outlines in place.
 - **Components in background layers**: Components in background layers are now fully editable, including nested editing (with a warning in the breadcrumb).
 - **Undo resettle**: Undo/redo of edits that recompose other layers (like an anchor move) does not wholesale return all cascading layers to their state at the time of the edit. Instead, the base layer’s edit is undone, and the cascading recomposition resettled on the current font state. Consequently, component’s automatic composition status that may have changed after the anchor move is respected; only automatic layers return to their previous state.
