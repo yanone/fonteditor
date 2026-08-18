@@ -746,6 +746,19 @@ describe('GlyphCanvas initialization', () => {
         localStorage.clear();
     });
 
+    test('Medium Space preview is click-through before the fade starts', () => {
+        const { setPreviewArea } = require('../js/editor-preview-area-pref');
+        setPreviewArea('medium');
+        canvas = new GlyphCanvas('test-container');
+        jest.spyOn(canvas, 'animatePreviewChrome').mockImplementation(() => {});
+        canvas.setPreviewMode(true);
+        expect(canvas.previewChromeOpacity).toBe(1);
+        expect(document.body.classList.contains('preview-mode-chrome')).toBe(
+            true
+        );
+        localStorage.clear();
+    });
+
     test('Space preview fade does not record live text diagnostics', () => {
         canvas = new GlyphCanvas('test-container');
         const before = window.__liveTextDiagnostics?.entries?.length ?? 0;

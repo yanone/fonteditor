@@ -1721,6 +1721,9 @@ class GlyphCanvas {
         this.outlineEditor.isPreviewMode = active;
         if (active && !wasActive) {
             this.previewViewportGuide = this.getPreviewViewportGuide();
+            // Punch chrome hits through before the fade ticks so pan can
+            // start on the first Space frame, not after opacity hits 0.
+            this.applyPreviewChromeClasses();
             this.animatePreviewChrome(0);
         } else if (!active && wasActive) {
             this.animatePreviewChrome(1);
@@ -1795,7 +1798,9 @@ class GlyphCanvas {
 
     private applyPreviewChromeClasses(): void {
         const keepPreviewVisuals =
-            this.previewChromeOpacity < 1 || this.previewChromeTarget < 1;
+            this.outlineEditor.isPreviewMode ||
+            this.previewChromeOpacity < 1 ||
+            this.previewChromeTarget < 1;
         const area = getPreviewArea();
         const fadeChrome = keepPreviewVisuals && area !== 'small';
         document.body.classList.toggle('preview-mode-chrome', fadeChrome);

@@ -6399,7 +6399,6 @@ kbd + kbd {
 body.preview-mode-chrome.preview-area-full .toolbar,
 body.preview-mode-chrome.preview-area-full .app-shell {
     opacity: var(--preview-chrome-opacity, 1);
-    pointer-events: none;
     transition: none;
 }
 
@@ -6410,11 +6409,23 @@ body.preview-mode-chrome.preview-area-medium #view-editor {
     transition: none;
 }
 
+/* Click-through from the first Space-preview frame, including hole
+   descendants that otherwise set pointer-events: auto. */
+body.preview-mode-chrome.preview-area-full .toolbar,
+body.preview-mode-chrome.preview-area-full .app-shell,
+body.preview-mode-chrome.preview-area-full .toolbar *,
+body.preview-mode-chrome.preview-area-full .app-shell *,
 body.preview-mode-chrome.preview-area-medium #view-editor .view-title-bar,
 body.preview-mode-chrome.preview-area-medium #view-editor .view-sidebar,
 body.preview-mode-chrome.preview-area-medium
     #glyph-canvas-container
-    > .glyph-property-panel {
+    > .glyph-property-panel,
+body.preview-mode-chrome.preview-area-medium #view-editor .view-title-bar *,
+body.preview-mode-chrome.preview-area-medium #view-editor .view-sidebar *,
+body.preview-mode-chrome.preview-area-medium
+    #glyph-canvas-container
+    > .glyph-property-panel
+    * {
     pointer-events: none;
 }
 
