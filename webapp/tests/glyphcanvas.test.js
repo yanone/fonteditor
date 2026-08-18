@@ -21698,6 +21698,7 @@ describe('GlyphCanvas keyboard handling', () => {
 // ==================== Resize Tests ====================
 
 describe('GlyphCanvas resize handling', () => {
+    const textCaretCenterY = (1000 + -300) / 2;
     let canvas;
 
     beforeEach(() => {
@@ -21796,13 +21797,19 @@ describe('GlyphCanvas resize handling', () => {
         canvas.outlineEditor.active = false;
         canvas.textRunEditor.cursorX = 200;
 
-        const before = canvas.viewportManager.fontToScreenCoordinates(200, 0);
+        const before = canvas.viewportManager.fontToScreenCoordinates(
+            200,
+            textCaretCenterY
+        );
         canvas.beginKeyboardViewportResizePreservation();
         setContainerSize(800, 300);
         canvas.onResize();
         canvas.endKeyboardViewportResizePreservation();
 
-        const after = canvas.viewportManager.fontToScreenCoordinates(200, 0);
+        const after = canvas.viewportManager.fontToScreenCoordinates(
+            200,
+            textCaretCenterY
+        );
         expect(after.x).toBeCloseTo(before.x * 2, 5);
         expect(after.y).toBeCloseTo(before.y, 5);
     });
@@ -21842,7 +21849,7 @@ describe('GlyphCanvas resize handling', () => {
 
         const largeScreen = canvas.viewportManager.fontToScreenCoordinates(
             2000,
-            0
+            textCaretCenterY
         );
         expect(largeScreen.x).toBeGreaterThan(1000);
         expect(largeScreen.x).toBeLessThan(1200);
@@ -21857,12 +21864,118 @@ describe('GlyphCanvas resize handling', () => {
         canvas.onResize();
         canvas.endKeyboardViewportResizePreservation();
 
-        const after = canvas.viewportManager.fontToScreenCoordinates(2000, 0);
+        const after = canvas.viewportManager.fontToScreenCoordinates(
+            2000,
+            textCaretCenterY
+        );
         expect(after.x).toBeGreaterThanOrEqual(30);
         expect(after.x).toBeLessThanOrEqual(400 - 30);
     });
 
-    test('mouse-style resize still recenters the old screen-center font point', () => {
+    test('opening the overlay property panel keeps the caret at the same relative inset position', () => {
+        canvas.lastContainerWidth = 800;
+        canvas.lastContainerHeight = 600;
+        canvas.lastCutoutLeft = 0;
+        canvas.lastCutoutTop = 0;
+        canvas.lastContentFrame = {
+            left: 0,
+            top: 0,
+            width: 800,
+            height: 600
+        };
+        canvas.viewportManager.scale = 0.5;
+        canvas.viewportManager.panX = 40;
+        canvas.viewportManager.panY = 150;
+        canvas.outlineEditor.active = false;
+        canvas.textRunEditor.cursorX = 200;
+        canvas.getCanvasCutoutFrame = () => ({
+            left: 0,
+            top: 0,
+            width: 800,
+            height: 600
+        });
+        canvas.getCanvasContentFrame = () => ({
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 80,
+            width: 800,
+            height: 520
+        });
+
+        const before = canvas.viewportManager.fontToScreenCoordinates(
+            200,
+            textCaretCenterY
+        );
+        const fractionY = before.y / 600;
+        canvas.onResize();
+        const after = canvas.viewportManager.fontToScreenCoordinates(
+            200,
+            textCaretCenterY
+        );
+
+        expect(after.x).toBeCloseTo(before.x, 5);
+        expect(after.y).toBeCloseTo(fractionY * 520, 5);
+    });
+
+    test('edit-mode resize anchors a visible glyph when the active glyph is off-screen', () => {
+        canvas.lastContainerWidth = 800;
+        canvas.lastContainerHeight = 600;
+        canvas.lastCutoutLeft = 0;
+        canvas.lastCutoutTop = 0;
+        canvas.lastContentFrame = {
+            left: 0,
+            top: 0,
+            width: 800,
+            height: 600
+        };
+        canvas.viewportManager.scale = 0.5;
+        canvas.viewportManager.panX = 40;
+        canvas.viewportManager.panY = 150;
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.getBoundingBoxCenterFontPosition = jest
+            .fn()
+            .mockReturnValue({ x: 100, y: -2000 });
+        canvas.textRunEditor.shapedGlyphs = [
+            { ax: 100, dx: 0, dy: 0, g: 1 },
+            { ax: 100, dx: 0, dy: 0, g: 2 }
+        ];
+        canvas.textRunEditor._getGlyphPosition = jest.fn((index) => ({
+            xPosition: index * 100,
+            xOffset: 0,
+            yOffset: 0
+        }));
+        canvas.glyphBounds = [];
+        canvas.getCanvasCutoutFrame = () => ({
+            left: 0,
+            top: 0,
+            width: 800,
+            height: 600
+        });
+        canvas.getCanvasContentFrame = () => ({
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 80,
+            width: 800,
+            height: 520
+        });
+
+        const visibleBefore = canvas.viewportManager.fontToScreenCoordinates(
+            0,
+            0
+        );
+        const fractionY = visibleBefore.y / 600;
+        canvas.onResize();
+        const visibleAfter = canvas.viewportManager.fontToScreenCoordinates(
+            0,
+            0
+        );
+
+        expect(visibleAfter.y).toBeCloseTo(fractionY * 520, 5);
+    });
+
+    test('mouse-style resize keeps the caret at the same relative inset position', () => {
         setContainerSize(400, 300);
         canvas.lastContainerWidth = 400;
         canvas.lastContainerHeight = 300;
@@ -21872,19 +21985,19 @@ describe('GlyphCanvas resize handling', () => {
         canvas.outlineEditor.active = false;
         canvas.textRunEditor.cursorX = 200;
 
-        const oldCenterFont = canvas.viewportManager.getFontSpaceCoordinates(
+        const before = canvas.viewportManager.fontToScreenCoordinates(
             200,
-            150
+            textCaretCenterY
         );
         setContainerSize(800, 300);
         canvas.onResize();
 
-        const recentered = canvas.viewportManager.fontToScreenCoordinates(
-            oldCenterFont.x,
-            oldCenterFont.y
+        const after = canvas.viewportManager.fontToScreenCoordinates(
+            200,
+            textCaretCenterY
         );
-        expect(recentered.x).toBeCloseTo(400, 5);
-        expect(recentered.y).toBeCloseTo(150, 5);
+        expect(after.x).toBeCloseTo(before.x * 2, 5);
+        expect(after.y).toBeCloseTo(before.y, 5);
     });
 });
 
@@ -21921,6 +22034,86 @@ describe('GlyphCanvas animation setup', () => {
         expect(canvas.zoomAnimation.active).toBe(true);
         // currentFrame starts incrementing immediately
         expect(canvas.zoomAnimation.currentFrame).toBeGreaterThanOrEqual(0);
+    });
+
+    test('text-mode keyboard zoom keeps the caret center on the same canvas point', () => {
+        const originalRequestAnimationFrame = global.requestAnimationFrame;
+        const queued = [];
+        global.requestAnimationFrame = jest.fn((callback) => {
+            queued.push(callback);
+            return queued.length;
+        });
+
+        canvas.outlineEditor.active = false;
+        canvas.textRunEditor.cursorX = 200;
+        canvas.viewportManager.scale = 0.5;
+        canvas.viewportManager.panX = 40;
+        canvas.viewportManager.panY = 150;
+        canvas.render = jest.fn();
+
+        const caretCenterY = (1000 + -300) / 2;
+        const before = canvas.viewportManager.fontToScreenCoordinates(
+            200,
+            caretCenterY
+        );
+        const baselineBefore = canvas.viewportManager.fontToScreenCoordinates(
+            200,
+            0
+        );
+
+        canvas.startKeyboardZoom(true);
+        while (queued.length > 0) {
+            queued.shift()();
+        }
+
+        const after = canvas.viewportManager.fontToScreenCoordinates(
+            200,
+            caretCenterY
+        );
+        const baselineAfter = canvas.viewportManager.fontToScreenCoordinates(
+            200,
+            0
+        );
+
+        expect(after.x).toBeCloseTo(before.x, 5);
+        expect(after.y).toBeCloseTo(before.y, 5);
+        expect(baselineAfter.y).not.toBeCloseTo(baselineBefore.y, 5);
+        expect(canvas.viewportManager.scale).toBeCloseTo(0.75, 5);
+        expect(canvas.zoomAnimation.active).toBe(false);
+
+        global.requestAnimationFrame = originalRequestAnimationFrame;
+    });
+
+    test('edit-mode keyboard zoom keeps the glyph bbox center on the same canvas point', () => {
+        const originalRequestAnimationFrame = global.requestAnimationFrame;
+        const queued = [];
+        global.requestAnimationFrame = jest.fn((callback) => {
+            queued.push(callback);
+            return queued.length;
+        });
+
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.getBoundingBoxCenterFontPosition = jest
+            .fn()
+            .mockReturnValue({ x: 120, y: 40 });
+        canvas.viewportManager.scale = 0.5;
+        canvas.viewportManager.panX = 20;
+        canvas.viewportManager.panY = 180;
+        canvas.render = jest.fn();
+
+        const before = canvas.viewportManager.fontToScreenCoordinates(120, 40);
+
+        canvas.startKeyboardZoom(true);
+        while (queued.length > 0) {
+            queued.shift()();
+        }
+
+        const after = canvas.viewportManager.fontToScreenCoordinates(120, 40);
+        expect(after.x).toBeCloseTo(before.x, 5);
+        expect(after.y).toBeCloseTo(before.y, 5);
+        expect(canvas.viewportManager.scale).toBeCloseTo(0.75, 5);
+
+        global.requestAnimationFrame = originalRequestAnimationFrame;
     });
 });
 

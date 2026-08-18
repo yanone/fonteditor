@@ -371,6 +371,11 @@ function compareLocationMaps(
  */
 const TEXT_INTERACTION_Y_MAX = 1400;
 const TEXT_INTERACTION_Y_MIN = -700;
+/** Drawn text caret in font space (renderer `drawCursor`). */
+const TEXT_CARET_FONT_Y_TOP = 1000;
+const TEXT_CARET_FONT_Y_BOTTOM = -300;
+const TEXT_CARET_FONT_Y_CENTER =
+    (TEXT_CARET_FONT_Y_TOP + TEXT_CARET_FONT_Y_BOTTOM) / 2;
 const CURSOR_VIEW_MARGIN = 30;
 const BACKSPACE_PRECEDING_GLYPH_COUNT = 2;
 const BACKSPACE_SAFE_VIEWPORT_FRACTION = 1 / 5;
@@ -431,12 +436,14 @@ class GlyphCanvas {
     textInputFullCompileTimer: any = null; // Deferred full compilation after typing stops
 
     resizeObserver: ResizeObserver | null = null;
+    private propertyPanelClassObserver: MutationObserver | null = null;
 
     // Track previous container dimensions for resize handling
     lastContainerWidth: number = 0;
     lastContainerHeight: number = 0;
     lastCutoutLeft: number = 0;
     lastCutoutTop: number = 0;
+    lastContentFrame: ViewportFrame | null = null;
     lastStableViewportSnapshot: {
         scale: number;
         panX: number;
@@ -482,10 +489,17 @@ class GlyphCanvas {
             return null;
         }
 
+        const contentFrame = this.getCanvasContentFrameAsViewport();
         const viewportWidth =
-            this.container.clientWidth || this.lastContainerWidth || 0;
+            contentFrame.width ||
+            this.container.clientWidth ||
+            this.lastContainerWidth ||
+            0;
         const viewportHeight =
-            this.container.clientHeight || this.lastContainerHeight || 0;
+            contentFrame.height ||
+            this.container.clientHeight ||
+            this.lastContainerHeight ||
+            0;
         const snapshot: {
             scale: number;
             panX: number;
@@ -504,7 +518,7 @@ class GlyphCanvas {
             viewportHeight
         };
 
-        const anchor = this.getKeyboardResizeContentAnchorFontPosition();
+        const anchor = this.getResizeViewportAnchorFontPosition(contentFrame);
         if (anchor && viewportWidth > 0 && viewportHeight > 0) {
             const screen = this.viewportManager.fontToScreenCoordinates(
                 anchor.x,
@@ -512,8 +526,10 @@ class GlyphCanvas {
             );
             snapshot.contentAnchorFontX = anchor.x;
             snapshot.contentAnchorFontY = anchor.y;
-            snapshot.contentAnchorScreenFractionX = screen.x / viewportWidth;
-            snapshot.contentAnchorScreenFractionY = screen.y / viewportHeight;
+            snapshot.contentAnchorScreenFractionX =
+                (screen.x - contentFrame.left) / viewportWidth;
+            snapshot.contentAnchorScreenFractionY =
+                (screen.y - contentFrame.top) / viewportHeight;
         }
 
         return snapshot;
@@ -535,8 +551,8 @@ class GlyphCanvas {
     }
 
     /**
-     * Content lock point for keyboard view resizes: edit-mode glyph bbox
-     * center, otherwise the text-mode caret.
+     * Content lock point: edit-mode glyph bbox center, otherwise the
+     * drawn text caret's vertical center.
      */
     getKeyboardResizeContentAnchorFontPosition(): {
         x: number;
@@ -551,10 +567,153 @@ class GlyphCanvas {
         }
 
         if (this.textRunEditor) {
-            return { x: this.textRunEditor.cursorX, y: 0 };
+            return {
+                x:
+                    this.featureChangeAnimator?.getInterpolatedAnchorFontX() ??
+                    this.textRunEditor.cursorX,
+                y: TEXT_CARET_FONT_Y_CENTER
+            };
         }
 
         return null;
+    }
+
+    /**
+     * Resize lock: preferred focus point when it is inside the inset,
+     * otherwise a visible point in the text run (edit mode).
+     */
+    getResizeViewportAnchorFontPosition(
+        frame: ViewportFrame
+    ): { x: number; y: number } | null {
+        const preferred = this.getKeyboardResizeContentAnchorFontPosition();
+        if (preferred && this.isFontPointInContentFrame(preferred, frame)) {
+            return preferred;
+        }
+        if (this.outlineEditor?.active) {
+            const visible = this.findVisibleTextRunAnchorFontPosition(
+                frame,
+                preferred
+            );
+            if (visible) {
+                return visible;
+            }
+        }
+        return preferred;
+    }
+
+    private isFontPointInContentFrame(
+        fontPosition: { x: number; y: number },
+        frame: ViewportFrame
+    ): boolean {
+        if (!this.viewportManager || frame.width <= 0 || frame.height <= 0) {
+            return false;
+        }
+        const screen = this.viewportManager.fontToScreenCoordinates(
+            fontPosition.x,
+            fontPosition.y
+        );
+        return (
+            screen.x >= frame.left &&
+            screen.x <= frame.left + frame.width &&
+            screen.y >= frame.top &&
+            screen.y <= frame.top + frame.height
+        );
+    }
+
+    private findVisibleTextRunAnchorFontPosition(
+        frame: ViewportFrame,
+        preferred: { x: number; y: number } | null
+    ): { x: number; y: number } | null {
+        const shapedGlyphs = this.textRunEditor?.shapedGlyphs;
+        if (
+            !shapedGlyphs ||
+            shapedGlyphs.length === 0 ||
+            !this.viewportManager
+        ) {
+            return null;
+        }
+
+        let best: { x: number; y: number } | null = null;
+        let bestDistance = Infinity;
+        const frameCenterX = frame.left + frame.width / 2;
+        const frameCenterY = frame.top + frame.height / 2;
+
+        for (let index = 0; index < shapedGlyphs.length; index++) {
+            const bounds = this.glyphBounds[index];
+            const position = this.textRunEditor!._getGlyphPosition(index);
+            const fontX = bounds
+                ? bounds.x + (bounds.x1 + bounds.x2) / 2
+                : position.xPosition + position.xOffset;
+            const fontY = bounds
+                ? bounds.y + (bounds.y1 + bounds.y2) / 2
+                : position.yOffset || 0;
+            const fontPosition = { x: fontX, y: fontY };
+            if (!this.isFontPointInContentFrame(fontPosition, frame)) {
+                continue;
+            }
+            const screen = this.viewportManager.fontToScreenCoordinates(
+                fontX,
+                fontY
+            );
+            const distance = preferred
+                ? Math.hypot(fontX - preferred.x, fontY - preferred.y)
+                : Math.hypot(screen.x - frameCenterX, screen.y - frameCenterY);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = fontPosition;
+            }
+        }
+        return best;
+    }
+
+    private applyContentInsetRelativeLock(
+        oldFrame: ViewportFrame,
+        newFrame: ViewportFrame,
+        fontPosition: { x: number; y: number },
+        preZoomScreen?: { x: number; y: number }
+    ): void {
+        if (
+            !this.viewportManager ||
+            oldFrame.width <= 0 ||
+            oldFrame.height <= 0 ||
+            newFrame.width <= 0 ||
+            newFrame.height <= 0
+        ) {
+            return;
+        }
+        const screen =
+            preZoomScreen ||
+            this.viewportManager.fontToScreenCoordinates(
+                fontPosition.x,
+                fontPosition.y
+            );
+        const fractionX = (screen.x - oldFrame.left) / oldFrame.width;
+        const fractionY = (screen.y - oldFrame.top) / oldFrame.height;
+        applyFontPointScreenLock(
+            this.viewportManager,
+            {
+                x: newFrame.left + fractionX * newFrame.width,
+                y: newFrame.top + fractionY * newFrame.height
+            },
+            fontPosition.x,
+            fontPosition.y,
+            { lockY: true }
+        );
+    }
+
+    private contentFramesMatch(
+        left: ViewportFrame | null,
+        right: ViewportFrame
+    ): boolean {
+        if (!left) {
+            return false;
+        }
+        return (
+            left.left === right.left &&
+            left.top === right.top &&
+            left.width === right.width &&
+            left.height === right.height
+        );
     }
 
     /**
@@ -821,18 +980,25 @@ class GlyphCanvas {
         if (width > 0 && height > 0) {
             snapshot.viewportWidth = width;
             snapshot.viewportHeight = height;
-            const anchor = this.getKeyboardResizeContentAnchorFontPosition();
+            const anchor = this.getResizeViewportAnchorFontPosition(
+                this.getCanvasContentFrameAsViewport()
+            );
             if (anchor) {
                 const screen = this.viewportManager.fontToScreenCoordinates(
                     anchor.x,
                     anchor.y
                 );
+                const contentFrame = this.getCanvasContentFrameAsViewport();
                 snapshot.contentAnchorFontX = anchor.x;
                 snapshot.contentAnchorFontY = anchor.y;
                 snapshot.contentAnchorScreenFractionX =
-                    (screen.x - this.lastCutoutLeft) / width;
+                    contentFrame.width > 0
+                        ? (screen.x - contentFrame.left) / contentFrame.width
+                        : 0.5;
                 snapshot.contentAnchorScreenFractionY =
-                    (screen.y - this.lastCutoutTop) / height;
+                    contentFrame.height > 0
+                        ? (screen.y - contentFrame.top) / contentFrame.height
+                        : 0.5;
             }
         }
 
@@ -911,6 +1077,9 @@ class GlyphCanvas {
         endScale: number;
         centerX: number;
         centerY: number;
+        fontX: number;
+        fontY: number;
+        lockFontPoint: boolean;
     } = {
         active: false,
         currentFrame: 0,
@@ -918,7 +1087,10 @@ class GlyphCanvas {
         startScale: 0,
         endScale: 0,
         centerX: 0,
-        centerY: 0
+        centerY: 0,
+        fontX: 0,
+        fontY: 0,
+        lockFontPoint: false
     };
 
     // Internal state properties not in constructor
@@ -1309,6 +1481,7 @@ class GlyphCanvas {
         this.lastContainerHeight = cutout.height;
         this.lastCutoutLeft = cutout.left;
         this.lastCutoutTop = cutout.top;
+        this.lastContentFrame = this.getCanvasContentFrameAsViewport();
 
         // Set initial scale and position with deterministic values
         // Using fixed values instead of getBoundingClientRect() for consistency
@@ -2228,10 +2401,20 @@ class GlyphCanvas {
         // Window resize
         window.addEventListener('resize', () => this.onResize());
 
-        // Viewport resize (window and splitters). The property panel overlays
-        // the canvas and does not change the host box.
+        // Viewport resize (window and splitters) plus overlay chrome (property
+        // panel). The panel does not change the host box, so observe it too.
         this.resizeObserver = new ResizeObserver(() => this.onResize());
         this.resizeObserver.observe(this.canvasHost || this.container);
+        if (this.propertyPanel) {
+            this.resizeObserver.observe(this.propertyPanel);
+            this.propertyPanelClassObserver = new MutationObserver(() =>
+                this.onResize()
+            );
+            this.propertyPanelClassObserver.observe(this.propertyPanel, {
+                attributes: true,
+                attributeFilter: ['class']
+            });
+        }
 
         // Sidebar click handlers to restore canvas focus in editor mode
         this.setupSidebarFocusHandlers();
@@ -3524,9 +3707,11 @@ class GlyphCanvas {
         }
 
         const lowest =
-            getLowestVisibleVerticalMetricValue(verticalMetrics) ?? -300;
+            getLowestVisibleVerticalMetricValue(verticalMetrics) ??
+            TEXT_CARET_FONT_Y_BOTTOM;
         const highest =
-            getHighestVisibleVerticalMetricValue(verticalMetrics) ?? 1000;
+            getHighestVisibleVerticalMetricValue(verticalMetrics) ??
+            TEXT_CARET_FONT_Y_TOP;
         return {
             lowest: Math.min(lowest, highest),
             highest: Math.max(lowest, highest)
@@ -3579,24 +3764,35 @@ class GlyphCanvas {
 
     onResize(): void {
         // Splitter/collapse sizing is based on the editor cutout, not the
-        // full-window bitmap.
+        // full-window bitmap. Camera anchoring uses the overlay inset.
         const cutout = this.getCanvasCutoutFrame();
+        const contentFrame = this.getCanvasContentFrameAsViewport();
         const newWidth = cutout.width || this.container.clientWidth;
         const newHeight = cutout.height || this.container.clientHeight;
         const newLeft = cutout.left;
         const newTop = cutout.top;
 
-        // Use stored previous dimensions (or current if first resize)
         const oldWidth = this.lastContainerWidth || newWidth;
         const oldHeight = this.lastContainerHeight || newHeight;
         const oldLeft = this.lastCutoutLeft;
         const oldTop = this.lastCutoutTop;
+        const oldContentFrame =
+            this.lastContentFrame &&
+            this.lastContentFrame.width > 0 &&
+            this.lastContentFrame.height > 0
+                ? this.lastContentFrame
+                : {
+                      left: oldLeft,
+                      top: oldTop,
+                      width: oldWidth,
+                      height: oldHeight
+                  };
 
-        // Store new dimensions for next resize
         this.lastContainerWidth = newWidth;
         this.lastContainerHeight = newHeight;
         this.lastCutoutLeft = newLeft;
         this.lastCutoutTop = newTop;
+        this.lastContentFrame = contentFrame;
 
         this.syncCanvasBackingStore();
 
@@ -3673,83 +3869,61 @@ class GlyphCanvas {
             return;
         }
 
-        // Skip viewport adjustment if no viewportManager or dimensions unchanged
+        // Skip viewport adjustment if the cutout and overlay inset are unchanged
         if (
             oldWidth === newWidth &&
             oldHeight === newHeight &&
             oldLeft === newLeft &&
-            oldTop === newTop
+            oldTop === newTop &&
+            this.contentFramesMatch(oldContentFrame, contentFrame)
         ) {
             this.lastStableViewportSnapshot = this.snapshotCurrentViewport();
-            this.render();
             return;
         }
 
-        const preserveKeyboardContentAnchor =
-            this.isKeyboardViewportResizePreservationActive();
-        const contentAnchor = preserveKeyboardContentAnchor
-            ? this.getKeyboardResizeContentAnchorFontPosition()
-            : null;
+        const cutoutSizeChanged =
+            oldWidth !== newWidth || oldHeight !== newHeight;
+        const contentAnchor =
+            this.getResizeViewportAnchorFontPosition(oldContentFrame);
         const contentAnchorScreen = contentAnchor
             ? this.viewportManager.fontToScreenCoordinates(
                   contentAnchor.x,
                   contentAnchor.y
               )
             : null;
-        const contentAnchorScreenFractionX =
-            contentAnchorScreen && oldWidth > 0
-                ? (contentAnchorScreen.x - oldLeft) / oldWidth
-                : null;
-        const contentAnchorScreenFractionY =
-            contentAnchorScreen && oldHeight > 0
-                ? (contentAnchorScreen.y - oldTop) / oldHeight
-                : null;
 
-        // Get the font-space point that was at the old cutout center
-        const oldCenterX = oldLeft + oldWidth / 2;
-        const oldCenterY = oldTop + oldHeight / 2;
-        const fontSpaceCenter = this.viewportManager.getFontSpaceCoordinates(
-            oldCenterX,
-            oldCenterY
-        );
-
-        // Calculate zoom adjustment based on both width and height change (dampened by 30%)
-        const oldScale = this.viewportManager.scale;
-        const widthRatio = newWidth / oldWidth;
-        const heightRatio = newHeight / oldHeight;
-        // Use whichever dimension changed more
-        const sizeRatio =
-            Math.abs(widthRatio - 1) > Math.abs(heightRatio - 1)
-                ? widthRatio
-                : heightRatio;
-        const dampenedRatio = 1 + (sizeRatio - 1) * 0.7; // 30% less zoom change
-        const newScale = oldScale * dampenedRatio;
-
-        // Only apply if within zoom limits
-        if (newScale >= 0.01 && newScale <= 100) {
-            this.viewportManager.scale = newScale;
+        if (cutoutSizeChanged && oldWidth > 0 && oldHeight > 0) {
+            const oldScale = this.viewportManager.scale;
+            const widthRatio = newWidth / oldWidth;
+            const heightRatio = newHeight / oldHeight;
+            const sizeRatio =
+                Math.abs(widthRatio - 1) > Math.abs(heightRatio - 1)
+                    ? widthRatio
+                    : heightRatio;
+            const dampenedRatio = 1 + (sizeRatio - 1) * 0.7;
+            const newScale = oldScale * dampenedRatio;
+            if (newScale >= 0.01 && newScale <= 100) {
+                this.viewportManager.scale = newScale;
+            }
         }
 
-        if (
-            contentAnchor &&
-            typeof contentAnchorScreenFractionX === 'number' &&
-            typeof contentAnchorScreenFractionY === 'number'
-        ) {
-            // Keyboard view resizes: keep caret / glyph bbox at the same
-            // relative canvas position, clamped so a smaller first-stage
-            // reopen cannot leave it outside the visible panel.
-            this.ensureKeyboardResizeContentAnchorVisible({
-                screenFractionX: contentAnchorScreenFractionX,
-                screenFractionY: contentAnchorScreenFractionY
-            });
+        if (contentAnchor && contentAnchorScreen) {
+            this.applyContentInsetRelativeLock(
+                oldContentFrame,
+                contentFrame,
+                contentAnchor,
+                contentAnchorScreen
+            );
         } else {
-            // Mouse / window resizes: keep the old screen-center font point
-            // at the new screen center.
-            // screen = scale * fontX + panX  =>  panX = screen - scale * fontX
-            // For Y axis (flipped): screenY = -scale * fontY + panY
-            //   =>  panY = screenY + scale * fontY
-            const newCenterX = newLeft + newWidth / 2;
-            const newCenterY = newTop + newHeight / 2;
+            const oldCenterX = oldContentFrame.left + oldContentFrame.width / 2;
+            const oldCenterY = oldContentFrame.top + oldContentFrame.height / 2;
+            const fontSpaceCenter =
+                this.viewportManager.getFontSpaceCoordinates(
+                    oldCenterX,
+                    oldCenterY
+                );
+            const newCenterX = contentFrame.left + contentFrame.width / 2;
+            const newCenterY = contentFrame.top + contentFrame.height / 2;
             this.viewportManager.panX =
                 newCenterX - this.viewportManager.scale * fontSpaceCenter.x;
             this.viewportManager.panY =
@@ -10900,64 +11074,21 @@ class GlyphCanvas {
             : 1 / settings.ZOOM_KEYBOARD_FACTOR;
 
         const rect = this.getCanvasContentFrame();
-        let centerX: number;
-        let centerY: number;
+        const fontPos = this.getKeyboardResizeContentAnchorFontPosition();
+        let centerX = viewportFrameCenterX(rect);
+        let centerY = viewportFrameCenterY(rect);
+        let lockFontPoint = false;
 
-        // Determine zoom center based on mode
-        if (this.outlineEditor.active) {
-            // Editing mode: zoom towards bbox center
-            const bounds = this.outlineEditor.calculateGlyphBoundingBox();
-            if (bounds) {
-                // Get bbox center in glyph coordinates
-                const bboxCenterX = (bounds.minX + bounds.maxX) / 2;
-                const bboxCenterY = (bounds.minY + bounds.maxY) / 2;
-
-                // Get glyph position in text run
-                const glyphPosition = this.textRunEditor!._getGlyphPosition(
-                    this.textRunEditor!.selectedGlyphIndex
-                );
-
-                // If editing inside a component, transform bbox center to glyph space
-                let glyphSpaceX = bboxCenterX;
-                let glyphSpaceY = bboxCenterY;
-                if (this.outlineEditor.isEditingComponent()) {
-                    const transform =
-                        this.outlineEditor.getAccumulatedTransform();
-                    const [a, b, c, d, tx, ty] = transform;
-                    glyphSpaceX = a * bboxCenterX + c * bboxCenterY + tx;
-                    glyphSpaceY = b * bboxCenterX + d * bboxCenterY + ty;
-                }
-
-                // Convert to screen coordinates
-                const fontX =
-                    glyphSpaceX +
-                    glyphPosition.xPosition +
-                    glyphPosition.xOffset;
-                const fontY = glyphSpaceY + glyphPosition.yOffset;
-                const screenPoint =
-                    this.viewportManager!.fontToScreenCoordinates(fontX, fontY);
-                centerX = screenPoint.x;
-                centerY = screenPoint.y;
-            } else {
-                // Fallback to canvas center if no bounds
-                centerX = viewportFrameCenterX(rect);
-                centerY = viewportFrameCenterY(rect);
-            }
-        } else {
-            // Text mode: zoom towards cursor center
-            const cursorGlyphX = this.textRunEditor!.cursorX;
-            const cursorGlyphY = 0; // Cursor is at baseline
-
-            // Convert cursor position to screen coordinates
-            const screenPoint = this.viewportManager!.fontToScreenCoordinates(
-                cursorGlyphX,
-                cursorGlyphY
+        if (fontPos && this.viewportManager) {
+            const screenPoint = this.viewportManager.fontToScreenCoordinates(
+                fontPos.x,
+                fontPos.y
             );
             centerX = screenPoint.x;
             centerY = screenPoint.y;
+            lockFontPoint = true;
         }
 
-        // Set up animation
         this.zoomAnimation.active = true;
         this.zoomAnimation.currentFrame = 0;
         this.zoomAnimation.totalFrames = 10;
@@ -10965,8 +11096,10 @@ class GlyphCanvas {
         this.zoomAnimation.endScale = this.viewportManager!.scale * zoomFactor;
         this.zoomAnimation.centerX = centerX;
         this.zoomAnimation.centerY = centerY;
+        this.zoomAnimation.fontX = fontPos?.x ?? 0;
+        this.zoomAnimation.fontY = fontPos?.y ?? 0;
+        this.zoomAnimation.lockFontPoint = lockFontPoint;
 
-        // Start animation loop
         this.animateKeyboardZoom();
     }
 
@@ -10975,7 +11108,6 @@ class GlyphCanvas {
 
         this.zoomAnimation.currentFrame++;
 
-        // Calculate progress (ease-in-out)
         const progress =
             this.zoomAnimation.currentFrame / this.zoomAnimation.totalFrames;
         const easedProgress =
@@ -10983,24 +11115,29 @@ class GlyphCanvas {
                 ? 2 * progress * progress
                 : 1 - Math.pow(-2 * progress + 2, 2) / 2;
 
-        // Interpolate scale
         const currentScale =
             this.zoomAnimation.startScale +
             (this.zoomAnimation.endScale - this.zoomAnimation.startScale) *
                 easedProgress;
 
-        // Apply zoom
         const zoomFactor = currentScale / this.viewportManager!.scale;
-        this.viewportManager!.zoom(
-            zoomFactor,
-            this.zoomAnimation.centerX,
-            this.zoomAnimation.centerY
-        );
+        const screen = {
+            x: this.zoomAnimation.centerX,
+            y: this.zoomAnimation.centerY
+        };
+        this.viewportManager!.zoom(zoomFactor, screen.x, screen.y);
+        if (this.zoomAnimation.lockFontPoint) {
+            applyFontPointScreenLock(
+                this.viewportManager!,
+                screen,
+                this.zoomAnimation.fontX,
+                this.zoomAnimation.fontY,
+                { lockY: true }
+            );
+        }
 
-        // Render
         this.render();
 
-        // Continue or finish animation
         if (this.zoomAnimation.currentFrame < this.zoomAnimation.totalFrames) {
             requestAnimationFrame(() => this.animateKeyboardZoom());
         } else {
@@ -11180,6 +11317,10 @@ class GlyphCanvas {
         if (this.resizeObserver) {
             this.resizeObserver.disconnect();
             this.resizeObserver = null;
+        }
+        if (this.propertyPanelClassObserver) {
+            this.propertyPanelClassObserver.disconnect();
+            this.propertyPanelClassObserver = null;
         }
 
         // Clean up HarfBuzz resources

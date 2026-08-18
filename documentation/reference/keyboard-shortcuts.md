@@ -73,7 +73,7 @@ Each view title bar shows the same shortcut.
 
 ### Panning and zooming
 
-- `Cmd/Ctrl++` / `Cmd/Ctrl+-` — zoom in or out
+- `Cmd/Ctrl++` / `Cmd/Ctrl+-` — zoom in or out (text mode: caret center; edit mode: glyph bbox center)
 - `Cmd/Ctrl+0` — frame the current glyph in outline mode; reset zoom and position in text mode
 - `Space` + drag — pan
 - `Alt/Option` + wheel or trackpad — zoom
