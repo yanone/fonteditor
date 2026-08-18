@@ -76,6 +76,22 @@ export function createStackPreviewMenuHtml(): string {
                     ${previewAreaSegment('full', 'Full')}
                 </div>
             </div>
+            <div class="plugin-menu-item" data-action="zoom-in" role="menuitem" tabindex="-1">
+                <span class="plugin-menu-check material-symbols-outlined empty"></span>
+                <span>Zoom In</span>
+                <span class="plugin-menu-shortcut">⌘+</span>
+            </div>
+            <div class="plugin-menu-item" data-action="zoom-out" role="menuitem" tabindex="-1">
+                <span class="plugin-menu-check material-symbols-outlined empty"></span>
+                <span>Zoom Out</span>
+                <span class="plugin-menu-shortcut">⌘-</span>
+            </div>
+            <div class="plugin-menu-item" data-action="zoom-to-fit" role="menuitem" tabindex="-1">
+                <span class="plugin-menu-check material-symbols-outlined empty"></span>
+                <span>Zoom to Fit</span>
+                <span class="plugin-menu-shortcut">⌘0 1-2×</span>
+            </div>
+            <div class="plugin-menu-separator"></div>
             <div class="plugin-menu-item${viewMenuItemClass(isEditMode)}" data-action="toggle-stack-preview" role="menuitemcheckbox" aria-checked="${stackPreviewActive}"${viewMenuItemDisabledAttr(isEditMode)} tabindex="-1">
                 <span class="plugin-menu-check material-symbols-outlined${stackPreviewActive ? '' : ' empty'}">${stackPreviewCheckmark}</span>
                 <span>Stack Preview</span>
@@ -211,6 +227,12 @@ function initEditorStackPreviewMenu(): void {
                     toggleShowAllMetricsEnabled();
                     window.glyphCanvas?.render();
                     refreshStackPreviewMenuContent();
+                } else if (action === 'zoom-in') {
+                    window.glyphCanvas?.startKeyboardZoom(true);
+                } else if (action === 'zoom-out') {
+                    window.glyphCanvas?.startKeyboardZoom(false);
+                } else if (action === 'zoom-to-fit') {
+                    window.glyphCanvas?.handleCmdZeroFit();
                 }
             });
         },

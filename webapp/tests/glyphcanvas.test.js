@@ -14239,6 +14239,125 @@ describe('GlyphCanvas viewport management', () => {
         // Just verify the method can be called without errors
         expect(canvas.viewportManager).toBeTruthy();
     });
+
+    function syncViewportAnimation(canvas) {
+        canvas.viewportManager.animateZoomAndPan = jest.fn(
+            (scale, panX, panY, render, onComplete) => {
+                canvas.viewportManager.scale = scale;
+                canvas.viewportManager.panX = panX;
+                canvas.viewportManager.panY = panY;
+                render?.();
+                onComplete?.();
+            }
+        );
+    }
+
+    test('edit Cmd+0 frames the glyph then 25% line overview if the camera did not move', () => {
+        canvas.outlineEditor.active = true;
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.textRunEditor._getGlyphPosition = jest.fn(() => ({
+            xPosition: 100,
+            xOffset: 0,
+            yOffset: 0
+        }));
+        canvas.getTextModeVerticalMetricsBand = jest.fn(() => ({
+            lowest: -300,
+            highest: 1000
+        }));
+        canvas.getCanvasContentFrame = () => ({
+            left: 0,
+            top: 0,
+            width: 800,
+            height: 600
+        });
+        canvas.getCmdZeroViewportTarget = jest
+            .fn()
+            .mockReturnValue({ scale: 1.2, panX: 10, panY: 20 });
+        syncViewportAnimation(canvas);
+
+        canvas.handleCmdZeroFit();
+        expect(canvas.viewportManager.scale).toBeCloseTo(1.2);
+        expect(canvas.viewportManager.panX).toBeCloseTo(10);
+        expect(canvas.viewportManager.panY).toBeCloseTo(20);
+
+        canvas.handleCmdZeroFit();
+        expect(canvas.viewportManager.scale).toBeCloseTo(0.25);
+        expect(canvas.viewportManager.panY).toBeCloseTo(387.5, 5);
+    });
+
+    test('text Cmd+0 uses 25% line overview then fits the whole run', () => {
+        canvas.outlineEditor.active = false;
+        canvas.textRunEditor.cursorX = 200;
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.textRunEditor.shapedGlyphs = [{ ax: 400, dx: 0, dy: 0 }];
+        canvas.getTextModeVerticalMetricsBand = jest.fn(() => ({
+            lowest: -300,
+            highest: 1000
+        }));
+        canvas.getCanvasContentFrame = () => ({
+            left: 0,
+            top: 0,
+            width: 800,
+            height: 600
+        });
+        canvas.viewportManager.scale = 0.5;
+        canvas.viewportManager.panX = 40;
+        canvas.viewportManager.panY = 150;
+        syncViewportAnimation(canvas);
+        canvas.viewportManager.zoomToFitText = jest.fn(
+            (_glyphs, _rect, _render, _margin, onComplete, _bounds, limits) => {
+                onComplete?.();
+                return limits;
+            }
+        );
+
+        canvas.handleCmdZeroFit();
+        expect(canvas.viewportManager.scale).toBeCloseTo(0.25);
+        expect(canvas.viewportManager.zoomToFitText).not.toHaveBeenCalled();
+
+        canvas.handleCmdZeroFit();
+        expect(canvas.viewportManager.zoomToFitText).toHaveBeenCalledTimes(1);
+        expect(canvas.viewportManager.zoomToFitText.mock.calls[0][6]).toEqual({
+            min: 0.025,
+            max: 0.15
+        });
+
+        canvas.handleCmdZeroFit();
+        expect(canvas.viewportManager.zoomToFitText).toHaveBeenCalledTimes(1);
+        expect(canvas.viewportManager.scale).toBeCloseTo(0.25);
+    });
+
+    test('Cmd+0 starts over after a pan', () => {
+        canvas.outlineEditor.active = false;
+        canvas.textRunEditor.cursorX = 0;
+        canvas.getTextModeVerticalMetricsBand = jest.fn(() => ({
+            lowest: -300,
+            highest: 1000
+        }));
+        canvas.getCanvasContentFrame = () => ({
+            left: 0,
+            top: 0,
+            width: 800,
+            height: 600
+        });
+        syncViewportAnimation(canvas);
+        canvas.viewportManager.zoomToFitText = jest.fn();
+
+        canvas.handleCmdZeroFit();
+        canvas.viewportManager.pan(20, 0);
+        canvas.isDraggingCanvas = true;
+        canvas.lastMouseX = 0;
+        canvas.lastMouseY = 0;
+        canvas.onMouseMove({
+            clientX: 20,
+            clientY: 0
+        });
+        canvas.viewportManager.zoomToFitText.mockClear();
+
+        canvas.handleCmdZeroFit();
+        expect(canvas.viewportManager.zoomToFitText).not.toHaveBeenCalled();
+        expect(canvas.viewportManager.scale).toBeCloseTo(0.25);
+    });
 });
 
 // ==================== Component Stack Tests ====================

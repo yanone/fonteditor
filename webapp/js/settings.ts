@@ -73,7 +73,12 @@ const APP_SETTINGS = {
 
         // Canvas margins
         CANVAS_MARGIN: 50, // px - margin around glyphs when framing or panning
-        MAX_ZOOM_FOR_CMD_ZERO: 1.5, // maximum zoom level (150%) when framing glyph with Cmd+0
+        CMD_ZERO_FRAME_MARGIN: 100, // px - extra Cmd+0 glyph-frame padding
+        MAX_ZOOM_FOR_CMD_ZERO: 2.5, // 250% cap when framing a glyph with Cmd+0
+        CMD_ZERO_LINE_SCALE: 0.25, // 25% line-overview Cmd+0 stage
+        CMD_ZERO_TEXT_FIT_MIN: 0.025, // 2.5% floor when fitting the whole run
+        CMD_ZERO_TEXT_FIT_MAX: 0.15, // 15% cap when fitting the whole run
+        MAX_ZOOM_FOR_TEXT_FIT: 1.5, // initial / default text-run zoom-to-fit cap
 
         // Zoom settings
         ZOOM_SPEED_MOUSE: 0.015, // zoom speed for mouse wheel (per deltaY unit)

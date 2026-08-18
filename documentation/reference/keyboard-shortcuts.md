@@ -73,8 +73,8 @@ Each view title bar shows the same shortcut.
 
 ### Panning and zooming
 
-- `Cmd/Ctrl++` / `Cmd/Ctrl+-` — zoom in or out (text mode: caret center; edit mode: glyph bbox center)
-- `Cmd/Ctrl+0` — frame the current glyph in outline mode; reset zoom and position in text mode
+- `Cmd/Ctrl++` / `Cmd/Ctrl+-` — zoom in or out (text mode: caret center; edit mode: glyph bbox center). Also in Editing View → View.
+- `Cmd/Ctrl+0` — two-stage zoom-to-fit (View menu: Zoom to Fit, `⌘0 1-2×`). Edit: frame the glyph (extra margin, max 250%), then 25% line overview if pan/zoom did not change. Text: 25% line overview, then fit the whole run (2.5%–15%)
 - `Space` + drag — pan
 - `Alt/Option` + wheel or trackpad — zoom
 - Wheel pans vertically; `Shift`+wheel pans horizontally

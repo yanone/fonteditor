@@ -22,19 +22,19 @@ export type ViewportFrame = {
 };
 
 export function viewportFrameRight(frame: ViewportFrame): number {
-    return frame.left + frame.width;
+    return (frame.left ?? 0) + frame.width;
 }
 
 export function viewportFrameBottom(frame: ViewportFrame): number {
-    return frame.top + frame.height;
+    return (frame.top ?? 0) + frame.height;
 }
 
 export function viewportFrameCenterX(frame: ViewportFrame): number {
-    return frame.left + frame.width / 2;
+    return (frame.left ?? 0) + frame.width / 2;
 }
 
 export function viewportFrameCenterY(frame: ViewportFrame): number {
-    return frame.top + frame.height / 2;
+    return (frame.top ?? 0) + frame.height / 2;
 }
 
 /**
@@ -291,7 +291,7 @@ export class ViewportManager {
      * @param {Object} glyphPosition - Glyph position in text run {xPosition, xOffset, yOffset}
      * @param {ViewportFrame} canvasRect - Usable camera box in canvas CSS pixels
      * @param {Function} renderCallback - Callback to render after each frame
-     * @param {number} margin - Canvas margin in pixels (defaults to CANVAS_MARGIN setting)
+     * @param {number} margin - Canvas margin in pixels (defaults to Cmd+0 frame margin)
      */
     frameGlyph(
         bounds: RectWithWidthHeight,
@@ -302,7 +302,7 @@ export class ViewportManager {
     ) {
         // Use setting if no margin specified
         if (margin === null) {
-            margin = APP_SETTINGS.OUTLINE_EDITOR.CANVAS_MARGIN;
+            margin = APP_SETTINGS.OUTLINE_EDITOR.CMD_ZERO_FRAME_MARGIN;
         }
 
         // Calculate the full bounding box in font space (same approach as panToGlyph)
@@ -327,7 +327,7 @@ export class ViewportManager {
             0.01,
             Math.min(
                 APP_SETTINGS.OUTLINE_EDITOR.MAX_ZOOM_FOR_CMD_ZERO,
-                targetScale
+                Number.isFinite(targetScale) ? targetScale : 0.01
             )
         );
 
@@ -683,7 +683,8 @@ export class ViewportManager {
         canvasRect: ViewportFrame,
         renderCallback: Function,
         margin: number | null = null,
-        onComplete?: () => void
+        onComplete?: () => void,
+        scaleLimits?: { min: number; max: number }
     ) {
         if (margin === null) {
             margin = APP_SETTINGS.OUTLINE_EDITOR.CANVAS_MARGIN;
@@ -701,10 +702,14 @@ export class ViewportManager {
                 : Number.POSITIVE_INFINITY;
         const scaleY = availableHeight / textHeight;
         const targetScale = Math.min(scaleX, scaleY);
+        const minScale = scaleLimits?.min ?? 0.01;
+        const maxScale =
+            scaleLimits?.max ??
+            APP_SETTINGS.OUTLINE_EDITOR.MAX_ZOOM_FOR_TEXT_FIT;
         const clampedScale = Math.max(
-            0.01,
+            minScale,
             Math.min(
-                APP_SETTINGS.OUTLINE_EDITOR.MAX_ZOOM_FOR_CMD_ZERO,
+                maxScale,
                 Number.isFinite(targetScale) ? targetScale : scaleY
             )
         );
@@ -735,7 +740,8 @@ export class ViewportManager {
         renderCallback: Function,
         margin: number | null = null,
         onComplete?: () => void,
-        verticalBounds: { minY: number; maxY: number } | null = null
+        verticalBounds: { minY: number; maxY: number } | null = null,
+        scaleLimits?: { min: number; max: number }
     ) {
         if (!shapedGlyphs || shapedGlyphs.length === 0) {
             return;
@@ -771,7 +777,8 @@ export class ViewportManager {
             canvasRect,
             renderCallback,
             margin,
-            onComplete
+            onComplete,
+            scaleLimits
         );
     }
 
@@ -784,7 +791,8 @@ export class ViewportManager {
         renderCallback: Function,
         verticalBounds: { minY: number; maxY: number } | null = null,
         margin: number | null = null,
-        onComplete?: () => void
+        onComplete?: () => void,
+        scaleLimits?: { min: number; max: number }
     ) {
         const minY = verticalBounds?.minY ?? -200;
         const maxY = verticalBounds?.maxY ?? 800;
@@ -796,7 +804,8 @@ export class ViewportManager {
             canvasRect,
             renderCallback,
             margin,
-            onComplete
+            onComplete,
+            scaleLimits
         );
     }
 }

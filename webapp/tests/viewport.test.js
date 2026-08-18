@@ -3,7 +3,7 @@ const { ViewportManager } = require('../js/glyph-canvas/viewport');
 describe('ViewportManager keyboard glyph framing', () => {
     test('centers the newly selected glyph instead of retaining prior glyph bounds', () => {
         const viewport = new ViewportManager(1, 0, 0);
-        const canvasRect = { width: 1000, height: 800 };
+        const canvasRect = { left: 0, top: 0, width: 1000, height: 800 };
         const render = jest.fn();
         viewport.animatePan = jest.fn((panX, panY) => {
             viewport.panX = panX;
@@ -83,6 +83,26 @@ describe('ViewportManager zoom to fit', () => {
         expect(scale).toBeCloseTo(0.7);
         expect(panX).toBeCloseTo(500);
         expect(panY).toBeCloseTo(610);
+    });
+
+    test('zoomToFitText clamps to Cmd+0 whole-run limits', () => {
+        const viewport = new ViewportManager(1, 0, 0);
+        const render = jest.fn();
+        viewport.animateZoomAndPan = jest.fn();
+
+        viewport.zoomToFitText(
+            [{ ax: 1000, dx: 0, dy: 0 }],
+            { left: 0, top: 0, width: 1000, height: 800 },
+            render,
+            50,
+            undefined,
+            { minY: -400, maxY: 1600 },
+            { min: 0.025, max: 0.15 }
+        );
+
+        expect(viewport.animateZoomAndPan).toHaveBeenCalledTimes(1);
+        const [scale] = viewport.animateZoomAndPan.mock.calls[0];
+        expect(scale).toBeCloseTo(0.15);
     });
 });
 

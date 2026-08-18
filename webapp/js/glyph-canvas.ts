@@ -1092,6 +1092,12 @@ class GlyphCanvas {
         fontY: 0,
         lockFontPoint: false
     };
+    private cmdZeroStage1Target: {
+        scale: number;
+        panX: number;
+        panY: number;
+    } | null = null;
+    private cmdZeroStage1Pending: boolean = false;
 
     // Internal state properties not in constructor
     measurementKeyPressed: boolean = false;
@@ -3290,6 +3296,7 @@ class GlyphCanvas {
             const deltaX = e.clientX - this.lastMouseX;
             const deltaY = e.clientY - this.lastMouseY;
 
+            this.clearCmdZeroStage1();
             this.viewportManager!.pan(deltaX, deltaY);
 
             // Update mouse position for hit-testing during pan
@@ -3414,6 +3421,7 @@ class GlyphCanvas {
         this.mouseCanvasY = (this.mouseY * this.canvas!.height) / rect.height;
 
         // Perform viewport pan/zoom (will call render callback)
+        this.clearCmdZeroStage1();
         this.viewportManager!.handleWheel(e, rect, () => {
             // After pan/zoom, perform hit-testing since content moved under static cursor
             if (!this.measurementTool.shouldBlockHitDetection()) {
@@ -10752,6 +10760,8 @@ class GlyphCanvas {
         }
 
         const rect = this.getCanvasContentFrame();
+        const frameMargin =
+            margin === null ? this.getCmdZeroFrameMargin(rect) : margin;
 
         // Get glyph position in text run
         const glyphPosition = this.textRunEditor!._getGlyphPosition(
@@ -10802,7 +10812,7 @@ class GlyphCanvas {
             glyphPosition,
             rect,
             this.render.bind(this),
-            margin
+            frameMargin
         );
     }
 
@@ -10835,9 +10845,7 @@ class GlyphCanvas {
         );
 
         const effectiveMargin =
-            margin === null
-                ? APP_SETTINGS.OUTLINE_EDITOR.CANVAS_MARGIN
-                : margin;
+            margin === null ? this.getCmdZeroFrameMargin(rect) : margin;
         const fontSpaceMinX =
             glyphPosition.xPosition + glyphPosition.xOffset + bounds.minX;
         const fontSpaceMaxX =
@@ -10855,7 +10863,7 @@ class GlyphCanvas {
             0.01,
             Math.min(
                 APP_SETTINGS.OUTLINE_EDITOR.MAX_ZOOM_FOR_CMD_ZERO,
-                targetScale
+                Number.isFinite(targetScale) ? targetScale : 0.01
             )
         );
 
@@ -10869,6 +10877,130 @@ class GlyphCanvas {
             panX: targetPanX,
             panY: targetPanY
         };
+    }
+
+    getCmdZeroFrameMargin(frame: ViewportFrame): number {
+        const settings = APP_SETTINGS.OUTLINE_EDITOR;
+        return Math.max(
+            settings.CMD_ZERO_FRAME_MARGIN,
+            Math.min(frame.width, frame.height) * 0.12
+        );
+    }
+
+    getLineOverviewViewportTarget(): {
+        scale: number;
+        panX: number;
+        panY: number;
+    } | null {
+        if (!this.viewportManager || !this.textRunEditor) {
+            return null;
+        }
+
+        const rect = this.getCanvasContentFrame();
+        if (rect.width <= 0 || rect.height <= 0) {
+            return null;
+        }
+
+        const scale = APP_SETTINGS.OUTLINE_EDITOR.CMD_ZERO_LINE_SCALE;
+        const band = this.getTextModeVerticalMetricsBand();
+        const lineCenterY = (band.lowest + band.highest) / 2;
+        let lockX = this.textRunEditor.cursorX;
+        if (
+            this.outlineEditor.active &&
+            this.textRunEditor.selectedGlyphIndex >= 0
+        ) {
+            const position = this.textRunEditor._getGlyphPosition(
+                this.textRunEditor.selectedGlyphIndex
+            );
+            lockX = position.xPosition + position.xOffset;
+        }
+
+        const currentScreenX = this.viewportManager.fontToScreenCoordinates(
+            lockX,
+            lineCenterY
+        ).x;
+        return {
+            scale,
+            panX: currentScreenX - lockX * scale,
+            panY: viewportFrameCenterY(rect) + lineCenterY * scale
+        };
+    }
+
+    private viewportMatchesCmdZeroStage1(): boolean {
+        if (this.cmdZeroStage1Pending) {
+            return true;
+        }
+        const target = this.cmdZeroStage1Target;
+        const viewport = this.viewportManager;
+        if (!target || !viewport) {
+            return false;
+        }
+        return (
+            Math.abs(viewport.scale - target.scale) < 0.0005 &&
+            Math.abs(viewport.panX - target.panX) < 1 &&
+            Math.abs(viewport.panY - target.panY) < 1
+        );
+    }
+
+    private clearCmdZeroStage1(): void {
+        this.cmdZeroStage1Target = null;
+        this.cmdZeroStage1Pending = false;
+    }
+
+    private applyCmdZeroViewportTarget(
+        target: { scale: number; panX: number; panY: number },
+        rememberAsStage1: boolean
+    ): void {
+        this.cmdZeroStage1Target = rememberAsStage1 ? target : null;
+        this.cmdZeroStage1Pending = rememberAsStage1;
+        this.viewportManager!.animateZoomAndPan(
+            target.scale,
+            target.panX,
+            target.panY,
+            this.render.bind(this),
+            rememberAsStage1
+                ? () => {
+                      this.cmdZeroStage1Pending = false;
+                  }
+                : undefined
+        );
+    }
+
+    handleCmdZeroFit(): void {
+        const inEditMode =
+            !!this.outlineEditor.active &&
+            (this.textRunEditor?.selectedGlyphIndex ?? -1) >= 0;
+
+        if (this.viewportMatchesCmdZeroStage1()) {
+            if (inEditMode) {
+                const lineTarget = this.getLineOverviewViewportTarget();
+                if (lineTarget) {
+                    this.applyCmdZeroViewportTarget(lineTarget, false);
+                }
+                return;
+            }
+
+            this.cmdZeroStage1Target = null;
+            this.cmdZeroStage1Pending = false;
+            this.fitViewportToCurrentText(undefined, {
+                min: APP_SETTINGS.OUTLINE_EDITOR.CMD_ZERO_TEXT_FIT_MIN,
+                max: APP_SETTINGS.OUTLINE_EDITOR.CMD_ZERO_TEXT_FIT_MAX
+            });
+            return;
+        }
+
+        if (inEditMode) {
+            const frameTarget = this.getCmdZeroViewportTarget();
+            if (frameTarget) {
+                this.applyCmdZeroViewportTarget(frameTarget, true);
+            }
+            return;
+        }
+
+        const lineTarget = this.getLineOverviewViewportTarget();
+        if (lineTarget) {
+            this.applyCmdZeroViewportTarget(lineTarget, true);
+        }
     }
 
     async updatePropertiesUI(options?: {
@@ -11072,6 +11204,7 @@ class GlyphCanvas {
     startKeyboardZoom(zoomIn: boolean): void {
         // Don't start a new animation if one is already in progress
         if (this.zoomAnimation.active) return;
+        this.clearCmdZeroStage1();
 
         const settings = APP_SETTINGS.OUTLINE_EDITOR;
         const zoomFactor = zoomIn
@@ -11456,19 +11589,10 @@ class GlyphCanvas {
         // Handle cursor navigation and text editing
         // Note: Escape key is handled globally in constructor for better focus handling
 
-        // Cmd+0 / Ctrl+0 - Frame current glyph (in edit mode) or reset zoom (in text mode)
+        // Cmd+0 / Ctrl+0 — two-stage zoom-to-fit
         if ((e.metaKey || e.ctrlKey) && e.key === '0') {
             e.preventDefault();
-            if (
-                this.outlineEditor.active &&
-                this.textRunEditor!.selectedGlyphIndex >= 0
-            ) {
-                // In glyph edit mode: frame the current glyph
-                this.frameCurrentGlyph();
-            } else {
-                // In text mode: reset zoom and position
-                this.resetZoomAndPosition();
-            }
+            this.handleCmdZeroFit();
             return;
         }
 
@@ -11867,7 +11991,10 @@ class GlyphCanvas {
      * Frame the current text run (or the caret when the buffer is empty).
      * Used after startup URL restore and for Cmd+0 in text mode.
      */
-    fitViewportToCurrentText(onComplete?: () => void): number | undefined {
+    fitViewportToCurrentText(
+        onComplete?: () => void,
+        scaleLimits?: { min: number; max: number }
+    ): number | undefined {
         if (!this.canvas || !this.viewportManager || !this.textRunEditor) {
             onComplete?.();
             return;
@@ -11889,7 +12016,8 @@ class GlyphCanvas {
                 this.render.bind(this),
                 null,
                 onComplete,
-                verticalBounds
+                verticalBounds,
+                scaleLimits
             );
         }
 
@@ -11899,7 +12027,8 @@ class GlyphCanvas {
             this.render.bind(this),
             verticalBounds,
             null,
-            onComplete
+            onComplete,
+            scaleLimits
         );
     }
 

@@ -40,6 +40,16 @@ describe('editor View menu', () => {
         expect(html).not.toMatch(
             /data-action="toggle-follow-stack-scroll"[^>]*aria-disabled="true"/
         );
+        expect(html).toContain('data-action="zoom-in"');
+        expect(html).toContain('data-action="zoom-out"');
+        expect(html).toContain('data-action="zoom-to-fit"');
+        expect(html).toContain('⌘0 1-2×');
+        expect(html).not.toMatch(
+            /data-action="zoom-in"[^>]*aria-disabled="true"/
+        );
+        expect(html).not.toMatch(
+            /data-action="zoom-to-fit"[^>]*aria-disabled="true"/
+        );
     });
 
     test('enables outline items in edit mode', () => {
