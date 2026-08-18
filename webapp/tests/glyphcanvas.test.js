@@ -540,6 +540,10 @@ describe('GlyphCanvas initialization', () => {
         canvas = new GlyphCanvas('test-container');
         const container = document.getElementById('test-container');
         expect(container.querySelector('.glyph-property-panel')).toBeTruthy();
+        expect(
+            canvas.canvasHost.compareDocumentPosition(canvas.propertyPanel) &
+                Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy();
     });
 
     test('should initialize viewport manager with default values', () => {
@@ -569,7 +573,7 @@ describe('GlyphCanvas initialization', () => {
         expect(canvas.renderer).toBeTruthy();
     });
 
-    test('should set up HiDPI canvas correctly', () => {
+    test('should match the canvas backing store to the container size', () => {
         canvas = new GlyphCanvas('test-container');
         const dpr = window.devicePixelRatio || 1;
         const container = document.getElementById('test-container');
@@ -21431,6 +21435,59 @@ describe('GlyphCanvas resize handling', () => {
 
         expect(canvas.canvas).toBeTruthy();
         expect(canvas.ctx).toBeTruthy();
+    });
+
+    function setCanvasHostSize(width, height) {
+        Object.defineProperty(canvas.canvasHost, 'clientWidth', {
+            configurable: true,
+            get: () => width
+        });
+        Object.defineProperty(canvas.canvasHost, 'clientHeight', {
+            configurable: true,
+            get: () => height
+        });
+    }
+
+    test('does not reallocate the backing store when the host size is unchanged', () => {
+        const dpr = window.devicePixelRatio || 1;
+        setCanvasHostSize(400, 300);
+        canvas.renderSuppressed = false;
+        canvas.onResize();
+        expect(canvas.canvas.width).toBe(400 * dpr);
+        expect(canvas.pendingCanvasBackingStoreSync).toBe(false);
+
+        const width = canvas.canvas.width;
+        const height = canvas.canvas.height;
+        const ctx = canvas.ctx;
+        expect(canvas.syncCanvasBackingStore()).toBe(false);
+        expect(canvas.canvas.width).toBe(width);
+        expect(canvas.canvas.height).toBe(height);
+        expect(canvas.ctx).toBe(ctx);
+        expect(canvas.pendingCanvasBackingStoreSync).toBe(false);
+    });
+
+    test('defers backing-store reallocation until the next real paint', () => {
+        const dpr = window.devicePixelRatio || 1;
+        setCanvasHostSize(400, 300);
+        canvas.renderSuppressed = false;
+        canvas.onResize();
+        expect(canvas.canvas.width).toBe(400 * dpr);
+
+        canvas.renderSuppressed = true;
+        setCanvasHostSize(800, 240);
+        canvas.onResize();
+
+        expect(canvas.canvas.width).toBe(400 * dpr);
+        expect(canvas.canvas.height).toBe(300 * dpr);
+        expect(canvas.pendingCanvasBackingStoreSync).toBe(true);
+        expect(canvas.hasDeferredRenderRequest).toBe(true);
+
+        canvas.renderSuppressed = false;
+        canvas.render();
+
+        expect(canvas.canvas.width).toBe(800 * dpr);
+        expect(canvas.canvas.height).toBe(240 * dpr);
+        expect(canvas.pendingCanvasBackingStoreSync).toBe(false);
     });
 
     function setContainerSize(width, height) {

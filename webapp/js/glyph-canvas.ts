@@ -953,6 +953,7 @@ class GlyphCanvas {
     // Flag to suppress rendering during critical operations (e.g., layer data swap)
     renderSuppressed: boolean = false;
     hasDeferredRenderRequest: boolean = false;
+    pendingCanvasBackingStoreSync: boolean = false;
     editModeGlyphResyncInProgress: boolean = false;
 
     // Flag to prevent overlapping updatePropertiesUI calls
@@ -1283,8 +1284,7 @@ class GlyphCanvas {
 
         this.outlineEditor.canvas = this.canvas;
 
-        // Set up HiDPI canvas
-        this.setupHiDPI();
+        this.syncCanvasBackingStore();
 
         // Set initial scale and position with deterministic values
         // Using fixed values instead of getBoundingClientRect() for consistency
@@ -1309,25 +1309,43 @@ class GlyphCanvas {
         this.textRunEditor!.init();
     }
 
-    setupHiDPI(): void {
+    /**
+     * Match the canvas bitmap to the host CSS size × device pixel ratio.
+     * Assigning `canvas.width` clears the buffer, so skip when the size is
+     * unchanged, and postpone reallocation while paint is deferred.
+     */
+    syncCanvasBackingStore(): boolean {
+        if (!this.canvas) {
+            return false;
+        }
+
         const dpr = window.devicePixelRatio || 1;
-
-        // Get the container size (not the canvas bounding rect, which might be stale)
         const measurementTarget = this.canvasHost || this.container;
-        const containerWidth = measurementTarget.clientWidth;
-        const containerHeight = measurementTarget.clientHeight;
+        const nextWidth = measurementTarget.clientWidth * dpr;
+        const nextHeight = measurementTarget.clientHeight * dpr;
+        const sizeUnchanged =
+            this.canvas.width === (nextWidth | 0) &&
+            this.canvas.height === (nextHeight | 0);
 
-        // Set the canvas size in actual pixels (accounting for DPR).
-        // Keep CSS size at 100% of the viewport so a stale pixel height
-        // cannot overflow into the property panel and inflate screenshots.
-        this.canvas!.width = containerWidth * dpr;
-        this.canvas!.height = containerHeight * dpr;
-        this.canvas!.style.width = '100%';
-        this.canvas!.style.height = '100%';
+        this.canvas.style.width = '100%';
+        this.canvas.style.height = '100%';
 
-        // Get context again and scale for DPR
-        this.ctx = this.canvas!.getContext('2d');
+        if (sizeUnchanged) {
+            this.pendingCanvasBackingStoreSync = false;
+            return false;
+        }
+
+        if (this.shouldDeferCanvasPaint()) {
+            this.pendingCanvasBackingStoreSync = true;
+            return false;
+        }
+
+        this.canvas.width = nextWidth;
+        this.canvas.height = nextHeight;
+        this.ctx = this.canvas.getContext('2d');
         this.ctx!.scale(dpr, dpr);
+        this.pendingCanvasBackingStoreSync = false;
+        return true;
     }
 
     setupEventListeners(): void {
@@ -1894,8 +1912,8 @@ class GlyphCanvas {
         // Window resize
         window.addEventListener('resize', () => this.onResize());
 
-        // Viewport resize (splitters, and property-panel height changes
-        // inside the container that do not change the container box).
+        // Viewport resize (window and splitters). The property panel overlays
+        // the canvas and does not change the host box.
         this.resizeObserver = new ResizeObserver(() => this.onResize());
         this.resizeObserver.observe(this.canvasHost || this.container);
 
@@ -3226,8 +3244,6 @@ class GlyphCanvas {
 
     onResize(): void {
         // Splitter/collapse sizing is based on the outer canvas container.
-        // Property-panel height changes are handled by setupHiDPI measuring
-        // the viewport host; do not treat those as a viewport zoom/pan resize.
         const newWidth = this.container.clientWidth;
         const newHeight = this.container.clientHeight;
 
@@ -3239,7 +3255,7 @@ class GlyphCanvas {
         this.lastContainerWidth = newWidth;
         this.lastContainerHeight = newHeight;
 
-        this.setupHiDPI();
+        this.syncCanvasBackingStore();
 
         if (!this.viewportManager) {
             this.render();
@@ -10672,6 +10688,9 @@ class GlyphCanvas {
         }
 
         this.hasDeferredRenderRequest = false;
+        if (this.pendingCanvasBackingStoreSync) {
+            this.syncCanvasBackingStore();
+        }
         this.featureChangeAnimator?.applyViewportAnchor(this.viewportManager);
 
         // Update glyph_stack label if it exists (development mode only, not in test mode)
