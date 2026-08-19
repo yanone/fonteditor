@@ -314,6 +314,25 @@ type AutomaticCompositionLayout = {
     baseAdvanceWidth: number;
 };
 
+type AutomaticCompositionComponentInput = {
+    reference: string | null;
+    originalTransform: number[];
+    overrideAnchorName?: string;
+};
+
+function parseAutomaticCompositionAffine(transformRaw: Unsafe): {
+    affine: number[];
+    usesArrayTransform: boolean;
+} {
+    const usesArrayTransform = Array.isArray(transformRaw);
+    const affine = !transformRaw
+        ? ([1, 0, 0, 1, 0, 0] as number[])
+        : usesArrayTransform
+          ? ([...transformRaw] as number[])
+          : Array.from(DecomposedAffineTransform.toAffine(transformRaw));
+    return { affine, usesArrayTransform };
+}
+
 function getAutomaticAnchorFamily(
     anchorName: string | undefined
 ): string | null {
@@ -5952,9 +5971,7 @@ export class Layer extends ArrayElementBase {
             }
         }
 
-        layerData.width = roundMetricValue(
-            layout.baseAdvanceWidth + leftAdjustment + rightAdjustment
-        );
+        layerData.width = this.getAutomaticCompositionDerivedWidth(layout);
         return layerData;
     }
 
@@ -6648,11 +6665,7 @@ export class Layer extends ArrayElementBase {
             }
         }
 
-        const leftAdjustment = this.getAutomaticSidebearingAdjustment('left');
-        const rightAdjustment = this.getAutomaticSidebearingAdjustment('right');
-        const nextWidth = roundMetricValue(
-            layout.baseAdvanceWidth + leftAdjustment + rightAdjustment
-        );
+        const nextWidth = this.getAutomaticCompositionDerivedWidth(layout);
         return Math.abs(this.width - nextWidth) <= METRIC_UPDATE_EPSILON;
     }
 
@@ -6701,41 +6714,25 @@ export class Layer extends ArrayElementBase {
             return [];
         }
 
-        const baseGlyphNames: string[] = [];
-        const availableAnchors = new Map<
-            string,
-            AutomaticCompositionAnchorPoint
-        >();
+        const layout = this.getAutomaticCompositionLayout();
+        if (!layout) {
+            return [];
+        }
 
-        for (const component of this.components) {
-            const componentLayer = this.getAutomaticComponentLayer(component);
-            if (!componentLayer) {
+        const baseGlyphNames: string[] = [];
+        const components = this.components;
+        for (let index = 0; index < components.length; index++) {
+            const component = components[index];
+            const placement = layout.placements[index];
+            if (
+                !placement ||
+                placement.attached ||
+                !component.reference ||
+                !this.getAutomaticComponentLayer(component)
+            ) {
                 continue;
             }
-
-            const sourceData =
-                this.getAutomaticCompositionSourceData(componentLayer);
-            const attachment = this.resolveAutomaticComponentAttachment(
-                component,
-                sourceData,
-                availableAnchors
-            );
-            const contributesBaseMetrics =
-                !attachment || attachment.kind === 'chained-base';
-            if (contributesBaseMetrics && component.reference) {
-                baseGlyphNames.push(component.reference);
-            }
-
-            for (const anchor of sourceData.outgoingAnchors) {
-                if (!anchor.name) {
-                    continue;
-                }
-                availableAnchors.set(anchor.name, {
-                    name: anchor.name,
-                    x: 0,
-                    y: 0
-                });
-            }
+            baseGlyphNames.push(component.reference);
         }
 
         return baseGlyphNames;
@@ -6829,9 +6826,9 @@ export class Layer extends ArrayElementBase {
     }
 
     private resolveAutomaticComponentAttachment(
-        component: Component,
         sourceData: AutomaticCompositionSourceData,
-        availableAnchors: Map<string, AutomaticCompositionAnchorPoint>
+        availableAnchors: Map<string, AutomaticCompositionAnchorPoint>,
+        overrideAnchorName?: string
     ): AutomaticCompositionAttachment | null {
         const chainedBaseEntryAnchor = sourceData.chainedBaseEntryAnchor;
         if (chainedBaseEntryAnchor) {
@@ -6856,15 +6853,15 @@ export class Layer extends ArrayElementBase {
             const choices = this.getAutomaticComponentAnchorChoices(
                 incomingAnchor.name,
                 availableAnchors,
-                component.anchor
+                overrideAnchorName
             );
             if (choices.length === 0) {
                 continue;
             }
 
             const preferredTargetName =
-                component.anchor && choices.includes(component.anchor)
-                    ? component.anchor
+                overrideAnchorName && choices.includes(overrideAnchorName)
+                    ? overrideAnchorName
                     : choices[0];
             const targetAnchor = availableAnchors.get(preferredTargetName);
             if (!targetAnchor) {
@@ -6983,31 +6980,11 @@ export class Layer extends ArrayElementBase {
         return true;
     }
 
-    private getAutomaticCompositionLayout(
-        sourceDataCache?: WeakMap<object, AutomaticCompositionSourceData>,
-        options?: { allowManualComponents?: boolean }
+    private computeAutomaticCompositionLayoutFromInputs(
+        inputs: AutomaticCompositionComponentInput[],
+        sourceDataCache?: WeakMap<object, AutomaticCompositionSourceData>
     ): AutomaticCompositionLayout | null {
-        const allowManualComponents = options?.allowManualComponents === true;
-        if (!allowManualComponents) {
-            if (this._cachedLayout !== undefined) {
-                return this._cachedLayout;
-            }
-
-            if (!this.isAutomaticAlignedLayer()) {
-                this._cachedLayout = null;
-                return null;
-            }
-        }
-
-        const components = this.components;
-        const shapes = this.shapes || [];
-        if (
-            components.length === 0 ||
-            (allowManualComponents && components.length !== shapes.length)
-        ) {
-            if (!allowManualComponents) {
-                this._cachedLayout = null;
-            }
+        if (inputs.length === 0) {
             return null;
         }
 
@@ -7021,13 +6998,13 @@ export class Layer extends ArrayElementBase {
         let baseAdvanceCursor = 0;
         let baseAdvanceMinX: number | null = null;
         let baseAdvanceMaxX: number | null = null;
-        // A prior compile-facing writeback can leave the first base translate
-        // equal to the automatic left bake. Treat that as poisoned logical
-        // state and start at 0; keep any other sticky first-base nudge.
         const leftAdjustment = this.getAutomaticSidebearingAdjustment('left');
 
-        for (const component of components) {
-            const componentLayer = this.getAutomaticComponentLayer(component);
+        for (const input of inputs) {
+            const componentLayer = input.reference
+                ? (this.getMatchingLayerOnGlyph(input.reference) ??
+                  this.getFont()?.findGlyph(input.reference)?.layers?.[0])
+                : undefined;
             if (!componentLayer) {
                 placements.push({
                     translationX: 0,
@@ -7043,19 +7020,15 @@ export class Layer extends ArrayElementBase {
                 sourceDataCache
             );
 
-            const originalTransform = Array.from(
-                DecomposedAffineTransform.toAffine(
-                    getAutomaticComponentTransform(component)
-                )
-            );
+            const originalTransform = [...input.originalTransform];
             const baseTransform = [...originalTransform];
             baseTransform[4] = 0;
             baseTransform[5] = 0;
 
             const attachment = this.resolveAutomaticComponentAttachment(
-                component,
                 sourceData,
-                availableAnchors
+                availableAnchors,
+                input.overrideAnchorName
             );
 
             let stickyFirstBaseX = originalTransform[4];
@@ -7171,11 +7144,58 @@ export class Layer extends ArrayElementBase {
             baseBounds.height = baseBounds.maxY - baseBounds.minY;
         }
 
-        const layout: AutomaticCompositionLayout = {
+        return {
             placements,
             baseBounds,
             baseAdvanceWidth: roundMetricValue(baseAdvanceWidth)
         };
+    }
+
+    private getAutomaticCompositionInputsFromComponents(): AutomaticCompositionComponentInput[] {
+        return this.components.map((component) => {
+            const { affine } = parseAutomaticCompositionAffine(
+                getAutomaticComponentTransform(component)
+            );
+            return {
+                reference: component.reference ?? null,
+                originalTransform: affine,
+                overrideAnchorName: component.anchor
+            };
+        });
+    }
+
+    private getAutomaticCompositionLayout(
+        sourceDataCache?: WeakMap<object, AutomaticCompositionSourceData>,
+        options?: { allowManualComponents?: boolean }
+    ): AutomaticCompositionLayout | null {
+        const allowManualComponents = options?.allowManualComponents === true;
+        if (!allowManualComponents) {
+            if (this._cachedLayout !== undefined) {
+                return this._cachedLayout;
+            }
+
+            if (!this.isAutomaticAlignedLayer()) {
+                this._cachedLayout = null;
+                return null;
+            }
+        }
+
+        const components = this.components;
+        const shapes = this.shapes || [];
+        if (
+            components.length === 0 ||
+            (allowManualComponents && components.length !== shapes.length)
+        ) {
+            if (!allowManualComponents) {
+                this._cachedLayout = null;
+            }
+            return null;
+        }
+
+        const layout = this.computeAutomaticCompositionLayoutFromInputs(
+            this.getAutomaticCompositionInputsFromComponents(),
+            sourceDataCache
+        );
         if (!allowManualComponents) {
             this._cachedLayout = layout;
         }
@@ -7208,6 +7228,16 @@ export class Layer extends ArrayElementBase {
         return parsed.delta;
     }
 
+    private getAutomaticCompositionDerivedWidth(
+        layout: AutomaticCompositionLayout
+    ): number {
+        return roundMetricValue(
+            layout.baseAdvanceWidth +
+                this.getAutomaticSidebearingAdjustment('left') +
+                this.getAutomaticSidebearingAdjustment('right')
+        );
+    }
+
     getAutomaticComponentTargetAnchorOptions(component: Component): string[] {
         if (!this.isAutomaticAlignedLayer()) {
             return [];
@@ -7221,6 +7251,11 @@ export class Layer extends ArrayElementBase {
             return [];
         }
 
+        const layout = this.getAutomaticCompositionLayout();
+        if (!layout) {
+            return [];
+        }
+
         const availableAnchors = new Map<
             string,
             AutomaticCompositionAnchorPoint
@@ -7230,30 +7265,23 @@ export class Layer extends ArrayElementBase {
             const currentComponent = components[index];
             const componentLayer =
                 this.getAutomaticComponentLayer(currentComponent);
-            if (!componentLayer) {
+            const placement = layout.placements[index];
+            if (!componentLayer || !placement) {
                 continue;
             }
 
-            const layout = this.getAutomaticCompositionLayout();
-            const placement = layout?.placements[index];
-            if (!placement) {
-                continue;
-            }
-
-            const transform = Array.from(
-                DecomposedAffineTransform.toAffine(
-                    getAutomaticComponentTransform(currentComponent)
-                )
+            const { affine } = parseAutomaticCompositionAffine(
+                getAutomaticComponentTransform(currentComponent)
             );
-            transform[4] = placement.translationX;
-            transform[5] = placement.translationY;
+            affine[4] = placement.translationX;
+            affine[5] = placement.translationY;
 
             const sourceData =
                 this.getAutomaticCompositionSourceData(componentLayer);
 
             for (const anchorPoint of this.collectAutomaticComponentAnchors(
                 sourceData,
-                transform
+                affine
             )) {
                 availableAnchors.set(anchorPoint.name, anchorPoint);
             }
@@ -7264,11 +7292,9 @@ export class Layer extends ArrayElementBase {
             return [];
         }
 
-        for (const incomingAnchor of componentLayer.anchors || []) {
-            if (!isAutomaticAttachmentAnchor(incomingAnchor.name)) {
-                continue;
-            }
-
+        const sourceData =
+            this.getAutomaticCompositionSourceData(componentLayer);
+        for (const incomingAnchor of sourceData.incomingAnchors) {
             if (!incomingAnchor.name) {
                 continue;
             }
@@ -7313,11 +7339,7 @@ export class Layer extends ArrayElementBase {
             }
         }
 
-        const leftAdjustment = this.getAutomaticSidebearingAdjustment('left');
-        const rightAdjustment = this.getAutomaticSidebearingAdjustment('right');
-        const nextWidth = roundMetricValue(
-            layout.baseAdvanceWidth + leftAdjustment + rightAdjustment
-        );
+        const nextWidth = this.getAutomaticCompositionDerivedWidth(layout);
         if (Math.abs(this.width - nextWidth) > METRIC_UPDATE_EPSILON) {
             this.width = nextWidth;
             changed = true;
@@ -7348,221 +7370,45 @@ export class Layer extends ArrayElementBase {
             return false;
         }
 
-        const componentShapes = layerData.shapes.filter(
-            (shape) =>
-                shape &&
-                typeof shape === 'object' &&
-                ('reference' in shape || 'Component' in shape)
-        );
-        if (
-            componentShapes.length === 0 ||
-            componentShapes.length !== layerData.shapes.length
-        ) {
+        const parsed = this.parseLayerDataCompositionInputs(layerData.shapes);
+        if (!parsed) {
             return false;
         }
 
-        const availableAnchors = new Map<
-            string,
-            AutomaticCompositionAnchorPoint
-        >();
-        let baseAdvanceCursor = 0;
-        let baseAdvanceMinX: number | null = null;
-        let baseAdvanceMaxX: number | null = null;
-        let baseAdvanceWidth = 0;
+        const layout = this.computeAutomaticCompositionLayoutFromInputs(
+            parsed.inputs,
+            sourceDataCache
+        );
+        if (!layout || layout.placements.length !== parsed.entries.length) {
+            return false;
+        }
+
         let changed = false;
-
-        for (const shape of componentShapes) {
-            const componentData = (
-                'Component' in shape ? shape.Component : shape
-            ) as Unsafe;
-            const reference =
-                typeof componentData.reference === 'string'
-                    ? componentData.reference
-                    : null;
-            if (!reference) {
+        for (let index = 0; index < parsed.entries.length; index++) {
+            const entry = parsed.entries[index];
+            const placement = layout.placements[index];
+            if (!placement) {
                 continue;
             }
 
-            const componentLayer =
-                this.getMatchingLayerOnGlyph(reference) ??
-                this.getFont()?.findGlyph(reference)?.layers?.[0];
-            if (!componentLayer) {
-                continue;
-            }
-
-            const sourceData = this.getAutomaticCompositionSourceData(
-                componentLayer,
-                sourceDataCache
-            );
-
-            const transformRaw = componentData.transform;
-            const usesArrayTransform = Array.isArray(transformRaw);
-            const originalTransform = !transformRaw
-                ? ([1, 0, 0, 1, 0, 0] as number[])
-                : usesArrayTransform
-                  ? ([...transformRaw] as number[])
-                  : Array.from(
-                        DecomposedAffineTransform.toAffine(transformRaw)
-                    );
-            const baseTransform = [...originalTransform];
-            baseTransform[4] = 0;
-            baseTransform[5] = 0;
-
-            const overrideAnchorName =
-                typeof componentData.format_specific?.[
-                    GLYPHS_COMPONENT_ANCHOR_KEY
-                ] === 'string'
-                    ? (componentData.format_specific[
-                          GLYPHS_COMPONENT_ANCHOR_KEY
-                      ] as string)
-                    : undefined;
-
-            let attachment: AutomaticCompositionAttachment | null = null;
-            const chainedBaseEntryAnchor = sourceData.chainedBaseEntryAnchor;
-            if (chainedBaseEntryAnchor) {
-                const chainedBaseTargetAnchor = availableAnchors.get(
-                    CHAINED_BASE_EXIT_ANCHOR
-                );
-                if (chainedBaseTargetAnchor) {
-                    attachment = {
-                        sourceAnchor: chainedBaseEntryAnchor,
-                        targetAnchorName: CHAINED_BASE_EXIT_ANCHOR,
-                        targetAnchor: chainedBaseTargetAnchor,
-                        kind: 'chained-base'
-                    };
-                }
-            }
-
-            if (!attachment) {
-                for (const incomingAnchor of sourceData.incomingAnchors) {
-                    if (!incomingAnchor.name) {
-                        continue;
-                    }
-
-                    const choices = this.getAutomaticComponentAnchorChoices(
-                        incomingAnchor.name,
-                        availableAnchors,
-                        overrideAnchorName
-                    );
-                    if (choices.length === 0) {
-                        continue;
-                    }
-
-                    const preferredTargetName =
-                        overrideAnchorName &&
-                        choices.includes(overrideAnchorName)
-                            ? overrideAnchorName
-                            : choices[0];
-                    const targetAnchor =
-                        availableAnchors.get(preferredTargetName);
-                    if (!targetAnchor) {
-                        continue;
-                    }
-
-                    attachment = {
-                        sourceAnchor: incomingAnchor,
-                        targetAnchorName: preferredTargetName,
-                        targetAnchor,
-                        kind: 'mark'
-                    };
-                    break;
-                }
-            }
-
-            let translationX =
-                baseAdvanceCursor === 0
-                    ? originalTransform[4]
-                    : baseAdvanceCursor;
-            let translationY = originalTransform[5];
-            const contributesBaseMetrics =
-                !attachment || attachment.kind === 'chained-base';
-
-            if (attachment) {
-                const sourcePosition = transformPointWithAffine(
-                    baseTransform,
-                    attachment.sourceAnchor.x,
-                    attachment.sourceAnchor.y
-                );
-                translationX = attachment.targetAnchor.x - sourcePosition.x;
-                translationY = attachment.targetAnchor.y - sourcePosition.y;
-            }
-
-            const nextTranslationX = roundMetricValue(translationX);
-            const nextTranslationY = roundMetricValue(translationY);
             if (
-                Math.abs(originalTransform[4] - nextTranslationX) >
+                Math.abs(entry.originalAffine[4] - placement.translationX) >
                     METRIC_UPDATE_EPSILON ||
-                Math.abs(originalTransform[5] - nextTranslationY) >
+                Math.abs(entry.originalAffine[5] - placement.translationY) >
                     METRIC_UPDATE_EPSILON
             ) {
                 changed = true;
             }
 
-            const appliedTransform = [...baseTransform];
-            appliedTransform[4] = nextTranslationX;
-            appliedTransform[5] = nextTranslationY;
-            componentData.transform = usesArrayTransform
+            const appliedTransform = [...entry.originalAffine];
+            appliedTransform[4] = placement.translationX;
+            appliedTransform[5] = placement.translationY;
+            entry.componentData.transform = entry.usesArrayTransform
                 ? appliedTransform
                 : DecomposedAffineTransform.fromAffine(appliedTransform);
-
-            if (contributesBaseMetrics) {
-                const componentShapesData = sourceData.shapes;
-                if (componentShapesData) {
-                    const componentBounds = Layer.calculateShapeBounds(
-                        componentShapesData,
-                        appliedTransform
-                    );
-                    if (componentBounds) {
-                        const advanceStart = transformPointWithAffine(
-                            appliedTransform,
-                            0,
-                            0
-                        );
-                        const advanceEnd = transformPointWithAffine(
-                            appliedTransform,
-                            sourceData.width,
-                            0
-                        );
-                        const advanceMin = Math.min(
-                            advanceStart.x,
-                            advanceEnd.x
-                        );
-                        const advanceMax = Math.max(
-                            advanceStart.x,
-                            advanceEnd.x
-                        );
-
-                        baseAdvanceMinX =
-                            baseAdvanceMinX === null
-                                ? advanceMin
-                                : Math.min(baseAdvanceMinX, advanceMin);
-                        baseAdvanceMaxX =
-                            baseAdvanceMaxX === null
-                                ? advanceMax
-                                : Math.max(baseAdvanceMaxX, advanceMax);
-                        baseAdvanceCursor = roundMetricValue(
-                            Math.max(baseAdvanceCursor, advanceMax)
-                        );
-                        baseAdvanceWidth = roundMetricValue(
-                            (baseAdvanceMaxX ?? 0) - (baseAdvanceMinX ?? 0)
-                        );
-                    }
-                }
-            }
-
-            for (const anchorPoint of this.collectAutomaticComponentAnchors(
-                sourceData,
-                appliedTransform
-            )) {
-                availableAnchors.set(anchorPoint.name, anchorPoint);
-            }
         }
 
-        const leftAdjustment = this.getAutomaticSidebearingAdjustment('left');
-        const rightAdjustment = this.getAutomaticSidebearingAdjustment('right');
-        const nextWidth = roundMetricValue(
-            baseAdvanceWidth + leftAdjustment + rightAdjustment
-        );
+        const nextWidth = this.getAutomaticCompositionDerivedWidth(layout);
         if (
             layerData.width === undefined ||
             Math.abs(layerData.width - nextWidth) > METRIC_UPDATE_EPSILON
@@ -7572,6 +7418,66 @@ export class Layer extends ArrayElementBase {
         }
 
         return changed;
+    }
+
+    private parseLayerDataCompositionInputs(shapes: Unsafe[]): {
+        inputs: AutomaticCompositionComponentInput[];
+        entries: {
+            componentData: Unsafe;
+            originalAffine: number[];
+            usesArrayTransform: boolean;
+        }[];
+    } | null {
+        const entries: {
+            componentData: Unsafe;
+            originalAffine: number[];
+            usesArrayTransform: boolean;
+        }[] = [];
+        const inputs: AutomaticCompositionComponentInput[] = [];
+
+        for (const shape of shapes) {
+            if (
+                !shape ||
+                typeof shape !== 'object' ||
+                !('reference' in shape || 'Component' in shape)
+            ) {
+                return null;
+            }
+
+            const componentData = (
+                'Component' in shape ? shape.Component : shape
+            ) as Unsafe;
+            const { affine, usesArrayTransform } =
+                parseAutomaticCompositionAffine(componentData.transform);
+            const overrideAnchorName =
+                typeof componentData.format_specific?.[
+                    GLYPHS_COMPONENT_ANCHOR_KEY
+                ] === 'string'
+                    ? (componentData.format_specific[
+                          GLYPHS_COMPONENT_ANCHOR_KEY
+                      ] as string)
+                    : undefined;
+
+            entries.push({
+                componentData,
+                originalAffine: affine,
+                usesArrayTransform
+            });
+            inputs.push({
+                reference:
+                    typeof componentData.reference === 'string'
+                        ? componentData.reference
+                        : null,
+                originalTransform: affine,
+                overrideAnchorName
+            });
+        }
+
+        if (entries.length === 0) {
+            return null;
+        }
+
+        return { inputs, entries };
     }
 
     private getPrimaryAutoAlignedComponentLayer(): Layer | undefined {
