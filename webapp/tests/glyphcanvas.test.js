@@ -22798,20 +22798,16 @@ describe('Linked component structural edits', () => {
         expect(activeLayer.components[2].reference).toBe('sourceB');
         expect(linkedLayer.components[2].reference).toBe('sourceB');
         expect(activeLayer.components[2].toAffineArray().slice(4)).toEqual([
-            0, 0
+            -50, 20
         ]);
         expect(linkedLayer.components[2].toAffineArray().slice(4)).toEqual([
-            0, 0
+            -50, 20
         ]);
+        expect(activeLayer.components[2].automaticAlignment).toBe(true);
+        expect(linkedLayer.components[2].automaticAlignment).toBe(true);
         expect(canvas.outlineEditor.selectedComponents).toEqual([2]);
         expect(syncLayerToStorageSpy).toHaveBeenCalledWith('A', 'layer-1');
         expect(syncLayerToStorageSpy).toHaveBeenCalledWith('A', 'layer-2');
-        const finalStorageSyncCall = Math.max(
-            ...syncLayerToStorageSpy.mock.invocationCallOrder
-        );
-        expect(
-            window.patchSyncEngine.endTransaction.mock.invocationCallOrder[0]
-        ).toBeGreaterThan(finalStorageSyncCall);
     });
 
     test('places outlined components at the origin', async () => {

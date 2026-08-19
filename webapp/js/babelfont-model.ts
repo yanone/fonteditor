@@ -3556,6 +3556,8 @@ const MUTATING_ARRAY_METHODS = new Set([
     'splice',
     'unshift'
 ]);
+const MUTATING_MAP_METHODS = new Set(['set', 'delete', 'clear']);
+const MUTATING_SET_METHODS = new Set(['add', 'delete', 'clear']);
 
 const liveMutableProxyTargets = new WeakMap<object, object>();
 const readOnlyCollectionProxyCache = new WeakMap<object, object>();
@@ -3563,6 +3565,10 @@ const readOnlyCollectionProxyCache = new WeakMap<object, object>();
 function cloneForHistory<T>(value: T): T {
     if (value === undefined) {
         return value;
+    }
+
+    if (value instanceof Map || value instanceof Set) {
+        return cloneSerializableHistoryValue(value) as T;
     }
 
     try {
@@ -3610,6 +3616,27 @@ function cloneSerializableHistoryValue(
         seen.set(value, clone);
         for (const item of value) {
             clone.push(cloneSerializableHistoryValue(item, seen));
+        }
+        return clone;
+    }
+
+    if (value instanceof Map) {
+        const clone: Record<string, unknown> = {};
+        seen.set(value, clone);
+        for (const [key, entryValue] of value) {
+            const clonedValue = cloneSerializableHistoryValue(entryValue, seen);
+            if (clonedValue !== undefined) {
+                clone[String(key)] = clonedValue;
+            }
+        }
+        return clone;
+    }
+
+    if (value instanceof Set) {
+        const clone: unknown[] = [];
+        seen.set(value, clone);
+        for (const entryValue of value) {
+            clone.push(cloneSerializableHistoryValue(entryValue, seen));
         }
         return clone;
     }
@@ -3691,12 +3718,16 @@ function getLiveMutableValue<T>(
             get(target, key, receiver) {
                 const result = Reflect.get(target, key, receiver);
 
-                if (
-                    Array.isArray(target) &&
+                const isMutatingCollectionMethod =
                     typeof key === 'string' &&
-                    MUTATING_ARRAY_METHODS.has(key) &&
-                    typeof result === 'function'
-                ) {
+                    typeof result === 'function' &&
+                    ((Array.isArray(target) &&
+                        MUTATING_ARRAY_METHODS.has(key)) ||
+                        (target instanceof Map &&
+                            MUTATING_MAP_METHODS.has(key)) ||
+                        (target instanceof Set &&
+                            MUTATING_SET_METHODS.has(key)));
+                if (isMutatingCollectionMethod) {
                     return (...args: unknown[]) => {
                         assertModelMutationAllowed();
                         const oldValue = cloneForHistory(getCurrentValue());
@@ -3720,7 +3751,9 @@ function getLiveMutableValue<T>(
                     return (...args: unknown[]) =>
                         Reflect.apply(
                             result,
-                            receiver,
+                            target instanceof Map || target instanceof Set
+                                ? target
+                                : receiver,
                             args.map(unwrapLiveMutableValue)
                         );
                 }
