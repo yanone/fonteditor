@@ -574,7 +574,9 @@ Returns a Master only when this layer is a DefaultForMaster layer.
 Anchors inherited from this layer's component stack, in this layer's
 coordinate space. Stored anchors on this layer are not included; later
 components overwrite earlier names. Nested components are walked
-recursively.
+recursively unless this layer already stores an incoming attachment
+anchor (`_top`, `_bottom`, …): those nested shapes are drawings, not
+identity, so their anchors are omitted.
 
 **Example:**
 ```python

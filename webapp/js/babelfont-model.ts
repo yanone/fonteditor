@@ -6843,9 +6843,22 @@ export class Layer extends ArrayElementBase {
         return anchors;
     }
 
+    private hasStoredIncomingAttachmentAnchors(): boolean {
+        return (this.anchors || []).some((anchor) =>
+            isAutomaticAttachmentAnchor(anchor.name)
+        );
+    }
+
     private collectComputedAnchors(visited: Set<string>): ComputedAnchorMap {
         const glyphName = this.getGlyphName();
         if (glyphName && visited.has(glyphName)) {
+            return {};
+        }
+
+        // A layer that already stores attachment anchors (`_top`, `_bottom`,
+        // …) is a complete composition source. Nested components are drawings
+        // (dotbelow-ar → dotabove-ar) and must not contribute `_top` / `top`.
+        if (this.hasStoredIncomingAttachmentAnchors()) {
             return {};
         }
 
@@ -8346,7 +8359,9 @@ export class Layer extends ArrayElementBase {
      * Anchors inherited from this layer's component stack, in this layer's
      * coordinate space. Stored anchors on this layer are not included; later
      * components overwrite earlier names. Nested components are walked
-     * recursively.
+     * recursively unless this layer already stores an incoming attachment
+     * anchor (`_top`, `_bottom`, …): those nested shapes are drawings, not
+     * identity, so their anchors are omitted.
      * @example
      * anchors = layer.computedAnchors()
      * top = anchors["top"]

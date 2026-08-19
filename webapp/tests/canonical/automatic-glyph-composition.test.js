@@ -3375,4 +3375,141 @@ describe('Recursive computed anchors', () => {
             y: 0
         });
     });
+
+    test('does not inherit _top from a nested mark drawing such as Fustat dotbelow-ar', () => {
+        // Fustat Regular: dotbelow-ar is a shifted dotabove-ar with its own
+        // `_bottom`. beh-ar is behDotless-ar plus that below dot at (418, -96).
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [makeMaster()],
+            glyphs: [
+                {
+                    name: 'behDotless-ar',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'BD0',
+                            width: 881,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'M0'
+                            },
+                            shapes: [makeRectPath(40, 0, 840, 338)],
+                            anchors: [
+                                { name: 'bottom', x: 443, y: -96 },
+                                { name: 'ring', x: 443, y: 28 },
+                                { name: 'top', x: 443, y: 338 }
+                            ],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: {}
+                },
+                {
+                    name: 'dotabove-ar',
+                    category: 'Mark',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'DA0',
+                            width: 50,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'M0'
+                            },
+                            shapes: [makeRectPath(0, 428, 50, 528)],
+                            anchors: [
+                                { name: '_top', x: 25, y: 428 },
+                                { name: 'top', x: 25, y: 528 }
+                            ],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: {}
+                },
+                {
+                    name: 'dotbelow-ar',
+                    category: 'Mark',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'DB0',
+                            width: 50,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'M0'
+                            },
+                            shapes: [
+                                makeComponent('dotabove-ar', {
+                                    x: 0,
+                                    y: -478
+                                })
+                            ],
+                            anchors: [
+                                { name: '_bottom', x: 25, y: 0 },
+                                { name: 'bottom', x: 25, y: -100 }
+                            ],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: {}
+                },
+                {
+                    name: 'beh-ar',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'BEH0',
+                            width: 881,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'M0'
+                            },
+                            shapes: [
+                                makeComponent('behDotless-ar'),
+                                makeComponent('dotbelow-ar', {
+                                    x: 418,
+                                    y: -96
+                                })
+                            ],
+                            anchors: [],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: {}
+                }
+            ],
+            names: { family_name: { en: 'Fustat Beh-ar' } },
+            note: '',
+            date: '2026-08-19',
+            features: { classes: {}, prefixes: {}, features: [] },
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        const dotbelowLayer = font.findGlyph('dotbelow-ar').layers[0];
+        expect(dotbelowLayer.computedAnchors()).toEqual({});
+
+        const layer = font.findGlyph('beh-ar').layers[0];
+        expect(layer.computedAnchors().top).toEqual({ x: 443, y: 338 });
+        expect(layer.computedAnchors()._top).toBeUndefined();
+
+        const before = componentTranslations(layer);
+        layer.rebuildAutomaticComposition();
+        expect(componentTranslations(layer)).toEqual(before);
+        expect(layer.components[1].toAffineArray()[4]).toBeCloseTo(418, 5);
+        expect(layer.components[1].toAffineArray()[5]).toBeCloseTo(-96, 5);
+    });
 });
