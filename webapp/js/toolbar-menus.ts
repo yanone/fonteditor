@@ -481,6 +481,7 @@ function createToolbarMenu(
         arrow: false,
         offset: [0, 4],
         hideOnClick: false,
+        appendTo: () => document.body,
         zIndex: 10001,
         onShow: (currentInstance) => {
             currentItems = itemFactory();

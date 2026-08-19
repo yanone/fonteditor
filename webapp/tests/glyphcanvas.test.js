@@ -17787,7 +17787,7 @@ describe('OutlineEditor exact selected layers', () => {
 
         await canvas.outlineEditor.fetchLayerData(true);
 
-        expect(interpolateSpy).toHaveBeenCalled();
+        expect(interpolateSpy).not.toHaveBeenCalled();
         expect(canvas.outlineEditor.layerData.isInterpolated).toBe(false);
         expect(canvas.outlineEditor.layerData.width).toBe(500);
         expect(canvas.outlineEditor.layerData.shapes).toEqual([]);

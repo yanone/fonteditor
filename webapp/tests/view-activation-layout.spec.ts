@@ -477,8 +477,14 @@ test('editor collapse and reopen restores the previous canvas viewport', async (
         canvas.freezeViewportForCollapse?.();
         canvas.render();
 
-        const width = canvas.container?.clientWidth || 0;
-        const height = canvas.container?.clientHeight || 0;
+        const snapshot =
+            canvas.collapsedViewportSnapshot ||
+            canvas.lastStableViewportSnapshot;
+        const frame = canvas.getCanvasContentFrame?.();
+        const width = frame?.width || canvas.container?.clientWidth || 0;
+        const height = frame?.height || canvas.container?.clientHeight || 0;
+        const left = frame?.left || 0;
+        const top = frame?.top || 0;
         const anchor =
             canvas.getKeyboardResizeContentAnchorFontPosition?.() || null;
         const screen = anchor
@@ -487,8 +493,18 @@ test('editor collapse and reopen restores the previous canvas viewport', async (
 
         return {
             scale: canvas.viewportManager.scale,
-            screenFractionX: screen && width > 0 ? screen.x / width : null,
-            screenFractionY: screen && height > 0 ? screen.y / height : null
+            screenFractionX:
+                typeof snapshot?.contentAnchorScreenFractionX === 'number'
+                    ? snapshot.contentAnchorScreenFractionX
+                    : screen && width > 0
+                      ? (screen.x - left) / width
+                      : null,
+            screenFractionY:
+                typeof snapshot?.contentAnchorScreenFractionY === 'number'
+                    ? snapshot.contentAnchorScreenFractionY
+                    : screen && height > 0
+                      ? (screen.y - top) / height
+                      : null
         };
     });
 
@@ -545,8 +561,14 @@ test('editor collapse and reopen restores the previous canvas viewport', async (
                 return true;
             }
 
-            const width = canvas.container?.clientWidth || 0;
-            const height = canvas.container?.clientHeight || 0;
+            const frame = canvas.getCanvasContentFrame?.() || {
+                left: 0,
+                top: 0,
+                width: canvas.container?.clientWidth || 0,
+                height: canvas.container?.clientHeight || 0
+            };
+            const width = frame.width || 0;
+            const height = frame.height || 0;
             if (width <= 0 || height <= 0) {
                 return false;
             }
@@ -564,12 +586,18 @@ test('editor collapse and reopen restores the previous canvas viewport', async (
             const marginX = Math.min(30, Math.max(8, width / 4));
             const marginY = Math.min(30, Math.max(8, height / 4));
             const targetX = Math.min(
-                width - marginX,
-                Math.max(marginX, screenFractionX * width)
+                frame.left + width - marginX,
+                Math.max(
+                    frame.left + marginX,
+                    frame.left + screenFractionX * width
+                )
             );
             const targetY = Math.min(
-                height - marginY,
-                Math.max(marginY, screenFractionY * height)
+                frame.top + height - marginY,
+                Math.max(
+                    frame.top + marginY,
+                    frame.top + screenFractionY * height
+                )
             );
 
             return (

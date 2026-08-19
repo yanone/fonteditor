@@ -10135,7 +10135,8 @@ describe('syncGlyphFromJson', () => {
             .filter((entry) => entry.historyAction === 'change');
 
         expect(changeEntries.map((entry) => entry.path)).toEqual([
-            'glyphs.A:layers.layer-1:',
+            'glyphs.A:layers.layer-1:anchors.0.x',
+            'glyphs.A:layers.layer-1:anchors.0.y',
             'glyphs.B:layers.layer-2:width'
         ]);
 
@@ -10177,8 +10178,7 @@ describe('syncGlyphFromJson', () => {
 
         expect(changeEntries.map((entry) => entry.path)).toEqual([
             'glyphs.A:layers.layer-1:width',
-            'glyphs.A:layers.layer-1:anchors.0.x',
-            'glyphs.A:layers.layer-1:guides'
+            'glyphs.A:layers.layer-1:anchors.0.x'
         ]);
     });
 

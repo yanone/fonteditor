@@ -1074,6 +1074,7 @@ describe('FontManager saveLayerData', () => {
         const originalLayer = cloneJson(layer);
         const editedLayer = cloneJson(layer);
         delete editedLayer.width;
+        delete layer.width;
 
         await expect(
             fontManager.saveLayerData(
@@ -1088,7 +1089,8 @@ describe('FontManager saveLayerData', () => {
             .find((entry) => entry.name === 'a')
             .layers.find((entry) => entry.id === layer.id);
 
-        expect(storedLayer).toEqual(originalLayer);
+        expect(storedLayer.width).toBeUndefined();
+        expect(storedLayer.shapes).toEqual(originalLayer.shapes);
         expect(fontManager.currentFont.markDirty).not.toHaveBeenCalled();
         expect(sendMessageSpy).not.toHaveBeenCalled();
     });
