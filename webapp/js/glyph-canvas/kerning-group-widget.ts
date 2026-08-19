@@ -1,8 +1,16 @@
+import { collectKerningGroupMemberships } from '../kerning-utils';
+
 export type KerningPairSide = 'first' | 'second';
+
+export { collectKerningGroupMemberships };
 
 export type KerningGroupsHost = {
     first_kern_groups?: Record<string, string[]>;
     second_kern_groups?: Record<string, string[]>;
+    rebuildAutomaticCompositesForKerningGroupMembership?: (
+        pairSide: KerningPairSide,
+        glyphNames: Iterable<string>
+    ) => Set<string>;
 };
 
 export type KerningGroupChip = {
@@ -34,26 +42,6 @@ export type KerningGroupWidgetOptions = {
     onRemoveChip?: (chip: KerningGroupChip) => void;
     onAdd?: (pairSide: KerningPairSide, glyphNames: string[]) => void;
 };
-
-export function collectKerningGroupMemberships(
-    groups: Record<string, string[]> | undefined,
-    glyphName: string | null
-): string[] {
-    if (!groups || !glyphName) {
-        return [];
-    }
-
-    const memberships: string[] = [];
-    for (const [groupName, members] of Object.entries(groups)) {
-        if (!Array.isArray(members) || !members.includes(glyphName)) {
-            continue;
-        }
-        memberships.push(groupName);
-    }
-
-    memberships.sort((left, right) => left.localeCompare(right));
-    return memberships;
-}
 
 export function summarizeKerningGroupsForGlyphs(
     groups: Record<string, string[]> | undefined,
@@ -253,6 +241,13 @@ export function applyKerningGroupMembership(
         if (members.length === 0) {
             delete groups[normalizedGroupName];
         }
+    }
+
+    if (changed) {
+        fontModel.rebuildAutomaticCompositesForKerningGroupMembership?.(
+            pairSide,
+            glyphNames
+        );
     }
 
     return changed;

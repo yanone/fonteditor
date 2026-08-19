@@ -108,6 +108,38 @@ export function getOrderedKerningPairKey(
     return `${firstKey}\u0000${secondKey}`;
 }
 
+export function collectKerningGroupMemberships(
+    groups: Record<string, string[]> | undefined,
+    glyphName: string | null
+): string[] {
+    if (!groups || !glyphName) {
+        return [];
+    }
+
+    const memberships: string[] = [];
+    for (const [groupName, members] of Object.entries(groups)) {
+        if (!Array.isArray(members) || !members.includes(glyphName)) {
+            continue;
+        }
+        memberships.push(groupName);
+    }
+
+    memberships.sort((left, right) => left.localeCompare(right));
+    return memberships;
+}
+
+export function getKerningOperandKeys(
+    glyphName: string,
+    groups: Record<string, string[]> | undefined
+): string[] {
+    return [
+        glyphName,
+        ...collectKerningGroupMemberships(groups, glyphName).map(
+            (name) => `@${name}`
+        )
+    ];
+}
+
 /**
  * Glyph-vs-class precedence for resolving which kerning rule applies:
  * glyph–glyph, glyph–group, group–glyph, then group–group.
@@ -179,6 +211,48 @@ export function resolvePreferredKerningPairValue(
     return null;
 }
 
+/**
+ * Overlay kerning for two glyph names: glyph keys first, then `@group`
+ * memberships, using the same preference as text-mode overlays.
+ */
+export function resolveKerningValueForGlyphPair(
+    kerning: KerningContainer | undefined,
+    firstGlyphName: string,
+    secondGlyphName: string,
+    firstGroups: Record<string, string[]> | undefined,
+    secondGroups: Record<string, string[]> | undefined
+): number {
+    return (
+        resolvePreferredKerningPairValue(
+            kerning,
+            getKerningOperandKeys(firstGlyphName, firstGroups),
+            getKerningOperandKeys(secondGlyphName, secondGroups)
+        ) ?? 0
+    );
+}
+
+type KerningLigatureRebuildHost = {
+    parent?: () => unknown;
+    rebuildAutomaticCompositesForKerningPair?: (
+        firstKey: string,
+        secondKey: string
+    ) => Set<string>;
+};
+
+function rebuildAutomaticLigaturesAfterKerningPair(
+    master: Master,
+    firstKey: string,
+    secondKey: string,
+    isRTL: boolean
+): void {
+    if (isRTL) {
+        return;
+    }
+    const parent = (master as KerningLigatureRebuildHost).parent?.();
+    const host = parent as KerningLigatureRebuildHost | undefined;
+    host?.rebuildAutomaticCompositesForKerningPair?.(firstKey, secondKey);
+}
+
 export function setKerningPairValueOnMaster(
     master: Master,
     firstKey: string,
@@ -186,38 +260,88 @@ export function setKerningPairValueOnMaster(
     nextValue: number | null,
     isRTL: boolean = false
 ): void {
-    const kerning = (isRTL ? master.kerning_rtl : master.kerning) as
-        KerningContainer | undefined;
-    const setKerning = (value: KerningContainer) => {
+    try {
+        const kerning = (isRTL ? master.kerning_rtl : master.kerning) as
+            KerningContainer | undefined;
+        const setKerning = (value: KerningContainer) => {
+            if (isRTL) {
+                master.kerning_rtl = value as Record<string, number>;
+            } else {
+                master.kerning = value as unknown as Master['kerning'];
+            }
+        };
+        const flatKey = getFlatKerningPairKey(firstKey, secondKey);
+
         if (isRTL) {
-            master.kerning_rtl = value as Record<string, number>;
-        } else {
-            master.kerning = value as unknown as Master['kerning'];
-        }
-    };
-    const flatKey = getFlatKerningPairKey(firstKey, secondKey);
+            const nextKerning =
+                kerning && !(kerning instanceof Map) ? { ...kerning } : {};
 
-    if (isRTL) {
-        const nextKerning =
-            kerning && !(kerning instanceof Map) ? { ...kerning } : {};
+            if (nextValue === null) {
+                delete nextKerning[flatKey];
+            } else {
+                nextKerning[flatKey] = nextValue;
+            }
 
-        if (nextValue === null) {
-            delete nextKerning[flatKey];
-        } else {
-            nextKerning[flatKey] = nextValue;
+            setKerning(nextKerning as unknown as Master['kerning']);
+            return;
         }
 
-        setKerning(nextKerning as unknown as Master['kerning']);
-        return;
-    }
+        if (!kerning || usesFlatKerningPairs(kerning)) {
+            if (kerning instanceof Map) {
+                if (nextValue === null) {
+                    kerning.delete(flatKey);
+                } else {
+                    kerning.set(flatKey, nextValue);
+                }
+                return;
+            }
 
-    if (!kerning || usesFlatKerningPairs(kerning)) {
+            if (!kerning) {
+                if (nextValue === null) {
+                    return;
+                }
+                setKerning({
+                    [flatKey]: nextValue
+                } as unknown as Master['kerning']);
+                return;
+            }
+
+            if (nextValue === null) {
+                delete kerning[flatKey];
+            } else {
+                kerning[flatKey] = nextValue;
+            }
+            return;
+        }
+
         if (kerning instanceof Map) {
             if (nextValue === null) {
-                kerning.delete(flatKey);
-            } else {
-                kerning.set(flatKey, nextValue);
+                const row = kerning.get(firstKey);
+                if (row instanceof Map) {
+                    row.delete(secondKey);
+                    if (row.size === 0) {
+                        kerning.delete(firstKey);
+                    }
+                } else if (isKerningRow(row) && secondKey in row) {
+                    delete row[secondKey];
+                    if (Object.keys(row).length === 0) {
+                        kerning.delete(firstKey);
+                    }
+                }
+                return;
             }
+
+            const existingRow = kerning.get(firstKey);
+            if (existingRow instanceof Map) {
+                existingRow.set(secondKey, nextValue);
+                return;
+            }
+            if (isKerningRow(existingRow)) {
+                existingRow[secondKey] = nextValue;
+                return;
+            }
+
+            kerning.set(firstKey, new Map([[secondKey, nextValue]]));
             return;
         }
 
@@ -226,91 +350,50 @@ export function setKerningPairValueOnMaster(
                 return;
             }
             setKerning({
-                [flatKey]: nextValue
+                [firstKey]: {
+                    [secondKey]: nextValue
+                }
             } as unknown as Master['kerning']);
             return;
         }
 
         if (nextValue === null) {
-            delete kerning[flatKey];
-        } else {
-            kerning[flatKey] = nextValue;
-        }
-        return;
-    }
-
-    if (kerning instanceof Map) {
-        if (nextValue === null) {
-            const row = kerning.get(firstKey);
+            const row = kerning[firstKey];
+            if (!isKerningRow(row)) {
+                return;
+            }
             if (row instanceof Map) {
                 row.delete(secondKey);
                 if (row.size === 0) {
-                    kerning.delete(firstKey);
+                    delete kerning[firstKey];
                 }
-            } else if (isKerningRow(row) && secondKey in row) {
-                delete row[secondKey];
-                if (Object.keys(row).length === 0) {
-                    kerning.delete(firstKey);
-                }
+                return;
             }
-            return;
-        }
 
-        const existingRow = kerning.get(firstKey);
-        if (existingRow instanceof Map) {
-            existingRow.set(secondKey, nextValue);
-            return;
-        }
-        if (isKerningRow(existingRow)) {
-            existingRow[secondKey] = nextValue;
-            return;
-        }
-
-        kerning.set(firstKey, new Map([[secondKey, nextValue]]));
-        return;
-    }
-
-    if (!kerning) {
-        if (nextValue === null) {
-            return;
-        }
-        setKerning({
-            [firstKey]: {
-                [secondKey]: nextValue
-            }
-        } as unknown as Master['kerning']);
-        return;
-    }
-
-    if (nextValue === null) {
-        const row = kerning[firstKey];
-        if (!isKerningRow(row)) {
-            return;
-        }
-        if (row instanceof Map) {
-            row.delete(secondKey);
-            if (row.size === 0) {
+            delete row[secondKey];
+            if (Object.keys(row).length === 0) {
                 delete kerning[firstKey];
             }
             return;
         }
 
-        delete row[secondKey];
-        if (Object.keys(row).length === 0) {
-            delete kerning[firstKey];
+        if (!kerning[firstKey]) {
+            kerning[firstKey] = {};
         }
-        return;
-    }
 
-    if (!kerning[firstKey]) {
-        kerning[firstKey] = {};
-    }
-
-    const row = kerning[firstKey];
-    if (row instanceof Map) {
-        row.set(secondKey, nextValue);
-    } else if (isKerningRow(row)) {
-        row[secondKey] = nextValue;
+        const row = kerning[firstKey];
+        if (row instanceof Map) {
+            row.set(secondKey, nextValue);
+        } else if (isKerningRow(row)) {
+            row[secondKey] = nextValue;
+        }
+    } finally {
+        rebuildAutomaticLigaturesAfterKerningPair(
+            master,
+            firstKey,
+            secondKey,
+            isRTL
+        );
     }
 }
 

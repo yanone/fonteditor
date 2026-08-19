@@ -2548,6 +2548,9 @@ describe('Convert matching manual components to automatic', () => {
     });
 
     test('converts a glyph only when every component attaches and positions match', () => {
+        const { glyphDataIndex } = require('../../js/glyph-data.ts');
+        glyphDataIndex.resetForTests();
+
         const font = Font.fromData({
             upm: 1000,
             version: [1, 0],
@@ -3627,6 +3630,312 @@ describe('Add component enables automatic composition', () => {
             expect(layer.components[0].toAffineArray()[4]).toBeCloseTo(0, 5);
             expect(layer.components[1].toAffineArray()[4]).toBeCloseTo(500, 5);
             expect(layer.width).toBeCloseTo(800, 5);
+        } finally {
+            glyphDataIndex.resetForTests();
+        }
+    });
+});
+
+function loadLatinABGlyphData() {
+    const { glyphDataIndex } = require('../../js/glyph-data.ts');
+    glyphDataIndex.resetForTests();
+    glyphDataIndex.loadRecordsForTests([
+        {
+            codepoint: 0x41,
+            glyph_name: 'A',
+            name: 'LATIN CAPITAL LETTER A',
+            general_category: 'Lu',
+            script: 'Latn'
+        },
+        {
+            codepoint: 0x42,
+            glyph_name: 'B',
+            name: 'LATIN CAPITAL LETTER B',
+            general_category: 'Lu',
+            script: 'Latn'
+        }
+    ]);
+    return glyphDataIndex;
+}
+
+describe('Ligature kerning in automatic composition', () => {
+    const {
+        setKerningPairValueOnMaster
+    } = require('../../js/kerning-utils.ts');
+    const {
+        applyKerningGroupMembership
+    } = require('../../js/glyph-canvas/kerning-group-widget.ts');
+
+    test('places the second unattached base using glyph-pair kerning', () => {
+        const font = makeAutomaticCompositionFont();
+        const layer = font.findGlyph('AB').layers[0];
+        layer.rebuildAutomaticComposition();
+        expect(layer.components[1].toAffineArray()[4]).toBeCloseTo(500, 5);
+
+        setKerningPairValueOnMaster(font.masters[0], 'A', 'B', -50);
+
+        expect(layer.components[1].toAffineArray()[4]).toBeCloseTo(450, 5);
+        expect(layer.width).toBeCloseTo(750, 5);
+    });
+
+    test('prefers a non-zero glyph pair over a group pair', () => {
+        const font = makeAutomaticCompositionFont();
+        applyKerningGroupMembership(font, 'first', ['A'], 'ALeft', true);
+        applyKerningGroupMembership(font, 'second', ['B'], 'BRight', true);
+        setKerningPairValueOnMaster(font.masters[0], '@ALeft', '@BRight', -50);
+        setKerningPairValueOnMaster(font.masters[0], 'A', 'B', -20);
+
+        const layer = font.findGlyph('AB').layers[0];
+        expect(layer.components[1].toAffineArray()[4]).toBeCloseTo(480, 5);
+        expect(layer.width).toBeCloseTo(780, 5);
+    });
+
+    test('uses the group pair when no non-zero glyph pair exists', () => {
+        const font = makeAutomaticCompositionFont();
+        applyKerningGroupMembership(font, 'first', ['A'], 'ALeft', true);
+        applyKerningGroupMembership(font, 'second', ['B'], 'BRight', true);
+        setKerningPairValueOnMaster(font.masters[0], '@ALeft', '@BRight', -50);
+
+        const layer = font.findGlyph('AB').layers[0];
+        expect(layer.components[1].toAffineArray()[4]).toBeCloseTo(450, 5);
+        expect(layer.width).toBeCloseTo(750, 5);
+    });
+
+    test('does not kern an attached mark or a chained #entry/#exit base', () => {
+        const letterFont = makeAutomaticCompositionFont();
+        const adieresis = letterFont.findGlyph('adieresis').layers[0];
+        adieresis.rebuildAutomaticComposition();
+        const markX = adieresis.components[1].toAffineArray()[4];
+        const markY = adieresis.components[1].toAffineArray()[5];
+        setKerningPairValueOnMaster(
+            letterFont.masters[0],
+            'A',
+            'acutecomb',
+            -80
+        );
+        expect(adieresis.components[1].toAffineArray()[4]).toBeCloseTo(
+            markX,
+            5
+        );
+        expect(adieresis.components[1].toAffineArray()[5]).toBeCloseTo(
+            markY,
+            5
+        );
+
+        const chainedFont = makeChainedBaseAutomaticFont();
+        const chained = chainedFont.findGlyph('chainedWord').layers[0];
+        chained.rebuildAutomaticComposition();
+        const middleX = chained.components[1].toAffineArray()[4];
+        setKerningPairValueOnMaster(
+            chainedFont.masters[0],
+            'leftBase',
+            'middleBase',
+            -80
+        );
+        expect(chained.components[1].toAffineArray()[4]).toBeCloseTo(
+            middleX,
+            5
+        );
+    });
+
+    test('converts a kerned ligature only when stored positions already match', () => {
+        const glyphDataIndex = loadLatinABGlyphData();
+        try {
+            const matching = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                instances: [],
+                masters: [
+                    {
+                        ...makeMaster(),
+                        kerning: { A: { B: -50 } }
+                    }
+                ],
+                glyphs: [
+                    {
+                        name: 'A',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                id: 'A0',
+                                width: 500,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'M0'
+                                },
+                                shapes: [makeRectPath(50, 0, 450, 700)],
+                                anchors: [],
+                                guides: [],
+                                format_specific: {}
+                            }
+                        ],
+                        format_specific: {}
+                    },
+                    {
+                        name: 'B',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                id: 'B0',
+                                width: 300,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'M0'
+                                },
+                                shapes: [makeRectPath(20, 0, 280, 650)],
+                                anchors: [],
+                                guides: [],
+                                format_specific: {}
+                            }
+                        ],
+                        format_specific: {}
+                    },
+                    {
+                        name: 'AB',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                id: 'AB0',
+                                width: 750,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'M0'
+                                },
+                                shapes: [
+                                    makeComponent('A', { auto: false }),
+                                    makeComponent('B', {
+                                        auto: false,
+                                        x: 450,
+                                        y: 0
+                                    })
+                                ],
+                                anchors: [],
+                                guides: [],
+                                format_specific: {}
+                            }
+                        ],
+                        format_specific: {}
+                    }
+                ],
+                names: { family_name: { en: 'Kerned Ligature Convert' } },
+                note: '',
+                date: '2026-08-19',
+                features: { classes: {}, prefixes: {}, features: [] },
+                first_kern_groups: {},
+                second_kern_groups: {},
+                custom_ot_values: [],
+                variation_sequences: [],
+                format_specific: {}
+            });
+
+            const converted =
+                matching.convertMatchingManualComponentsToAutomatic();
+            expect([...converted.convertedGlyphNames]).toEqual(['AB']);
+            expect(
+                matching.findGlyph('AB').layers[0].isAutomaticAlignedLayer()
+            ).toBe(true);
+
+            const mismatched = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                instances: [],
+                masters: [
+                    {
+                        ...makeMaster(),
+                        kerning: { A: { B: -50 } }
+                    }
+                ],
+                glyphs: [
+                    {
+                        name: 'A',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                id: 'A0',
+                                width: 500,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'M0'
+                                },
+                                shapes: [makeRectPath(50, 0, 450, 700)],
+                                anchors: [],
+                                guides: [],
+                                format_specific: {}
+                            }
+                        ],
+                        format_specific: {}
+                    },
+                    {
+                        name: 'B',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                id: 'B0',
+                                width: 300,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'M0'
+                                },
+                                shapes: [makeRectPath(20, 0, 280, 650)],
+                                anchors: [],
+                                guides: [],
+                                format_specific: {}
+                            }
+                        ],
+                        format_specific: {}
+                    },
+                    {
+                        name: 'AB',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                id: 'AB0',
+                                width: 800,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'M0'
+                                },
+                                shapes: [
+                                    makeComponent('A', { auto: false }),
+                                    makeComponent('B', {
+                                        auto: false,
+                                        x: 500,
+                                        y: 0
+                                    })
+                                ],
+                                anchors: [],
+                                guides: [],
+                                format_specific: {}
+                            }
+                        ],
+                        format_specific: {}
+                    }
+                ],
+                names: { family_name: { en: 'Unkerned Ligature Convert' } },
+                note: '',
+                date: '2026-08-19',
+                features: { classes: {}, prefixes: {}, features: [] },
+                first_kern_groups: {},
+                second_kern_groups: {},
+                custom_ot_values: [],
+                variation_sequences: [],
+                format_specific: {}
+            });
+
+            const refused =
+                mismatched.convertMatchingManualComponentsToAutomatic();
+            expect([...refused.convertedGlyphNames]).toEqual([]);
+            expect(
+                mismatched.findGlyph('AB').layers[0].isAutomaticAlignedLayer()
+            ).toBe(false);
         } finally {
             glyphDataIndex.resetForTests();
         }

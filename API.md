@@ -140,10 +140,19 @@ font = Font()
 ### Methods
 
 #### `rebuildAutomaticCompositesForGlyphs(changedGlyphNames: Set<string> | None = None, options: { allowedGlyphNames?: Set<string>; preferredLayerId?: string | null; preferredSourceGlyphName?: string | null; } | None = None) -> Set<string>`
+#### `rebuildAutomaticCompositesForKerningPair(firstKey: str, secondKey: str) -> Set<string>`
+Rebuild automatic ligatures whose unattached consecutive bases resolve
+to this kerning pair (glyph or `@group` keys, overlay precedence).
+
+#### `rebuildAutomaticCompositesForKerningGroupMembership(pairSide: 'first' | 'second', glyphNames: Iterable<string>) -> Set<string>`
+Rebuild automatic ligatures that use one of these glyphs as the
+corresponding unattached-base operand after a kern-group membership edit.
+
 #### `convertMatchingManualComponentsToAutomatic() -> { convertedGlyphNames: Set<string>; compositeGlyphCount: number; }`
 Enable automatic alignment only on glyphs where every non-empty
 foreground layer preflights: the composition engine can place every
-component (anchor attachment, or a single non-mark component), and the
+component (anchor attachment, unattached non-mark bases including
+ligatures with LTR kerning, or a single non-mark component), and the
 result matches stored translations and width on all of those layers.
 Manual components that would move, or layers whose advance would
 change, stay manual.
@@ -542,9 +551,10 @@ without scanning the full font. Use during interactive editing
 #### `matchesAutomaticCompositionPreflight(sourceDataCache: WeakMap<object | None = None, AutomaticCompositionSourceData>) -> bool`
 In-memory preflight for migrating manual composites. The composition
 engine must be able to place every component, and the result must match
-stored translations and width. Eligible layouts today: two or more
-components where every non-base attaches by anchors, or a single
-component whose referenced glyph is not a mark (Unicode general
+stored translations and width. Eligible layouts today: unattached
+non-mark bases (including ligatures, using LTR kerning between them),
+two or more components where every non-base attaches by anchors, or a
+single component whose referenced glyph is not a mark (Unicode general
 category does not start with M). Does not mutate the layer.
 
 #### `assignAutomaticCompositeKerningGroups() -> bool`
@@ -568,6 +578,11 @@ the automatic translations and width need to be refreshed.
 Get the resolved master object for this layer.
 Returns a Master only when this layer is a DefaultForMaster layer.
 
+#### `usesAutomaticLigatureKerningPair(firstKey: str, secondKey: str) -> bool`
+True when this automatic layer stacks unattached bases that resolve to
+the kerning pair (`glyph` or `@group` keys).
+
+#### `usesAutomaticLigatureKerningGroupMembership(pairSide: 'first' | 'second', glyphNames: Iterable<string>) -> bool`
 #### `getComputedName() -> str`
 #### `findAnchor(anchorName: str) -> [Anchor](#anchor) | None`
 #### `computedAnchors() -> ComputedAnchorMap`

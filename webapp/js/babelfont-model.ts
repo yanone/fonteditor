@@ -30,6 +30,10 @@ import {
     filterKerningMap,
     type GlyphDeletePreflight
 } from './delete-glyphs-preflight';
+import {
+    getKerningOperandKeys,
+    resolveKerningValueForGlyphPair
+} from './kerning-utils';
 
 export type { GlyphDeletePreflight };
 
@@ -6631,9 +6635,10 @@ export class Layer extends ArrayElementBase {
     /**
      * In-memory preflight for migrating manual composites. The composition
      * engine must be able to place every component, and the result must match
-     * stored translations and width. Eligible layouts today: two or more
-     * components where every non-base attaches by anchors, or a single
-     * component whose referenced glyph is not a mark (Unicode general
+     * stored translations and width. Eligible layouts today: unattached
+     * non-mark bases (including ligatures, using LTR kerning between them),
+     * two or more components where every non-base attaches by anchors, or a
+     * single component whose referenced glyph is not a mark (Unicode general
      * category does not start with M). Does not mutate the layer.
      */
     matchesAutomaticCompositionPreflight(
@@ -6643,8 +6648,10 @@ export class Layer extends ArrayElementBase {
             return true;
         }
 
-        const layout =
-            this.getAutomaticCompositionEligibilityLayout(sourceDataCache);
+        const layout = this.getAutomaticCompositionEligibilityLayout(
+            sourceDataCache,
+            { allowUnattachedStandaloneComponents: true }
+        );
         if (!layout) {
             return false;
         }
@@ -6678,8 +6685,8 @@ export class Layer extends ArrayElementBase {
 
     /**
      * Whether the composition engine can place this component-only layer.
-     * Convert preflight requires every non-first component to attach.
-     * Adding a component also allows unattached non-mark bases (ligatures).
+     * Convert preflight and adding a component also allow unattached non-mark
+     * bases (ligatures). Later unattached bases must still be non-marks.
      */
     private getAutomaticCompositionEligibilityLayout(
         sourceDataCache?: WeakMap<object, AutomaticCompositionSourceData>,
@@ -6731,6 +6738,7 @@ export class Layer extends ArrayElementBase {
                 return null;
             }
             if (
+                index > 0 &&
                 !this.referencedGlyphIsAutomaticStandaloneCategory(
                     components[index]
                 )
@@ -7187,6 +7195,9 @@ export class Layer extends ArrayElementBase {
         let baseAdvanceMinX: number | null = null;
         let baseAdvanceMaxX: number | null = null;
         const leftAdjustment = this.getAutomaticSidebearingAdjustment('left');
+        const font = this.getFont();
+        const kerningMaster = this.getKerningMasterForComposition();
+        let previousUnattachedBaseReference: string | null = null;
 
         for (const input of inputs) {
             const componentLayer = input.reference
@@ -7228,8 +7239,27 @@ export class Layer extends ArrayElementBase {
             ) {
                 stickyFirstBaseX = 0;
             }
+            const isUnattachedBase = !attachment;
+            const kerningDelta =
+                isUnattachedBase &&
+                previousUnattachedBaseReference &&
+                input.reference &&
+                font &&
+                kerningMaster
+                    ? resolveKerningValueForGlyphPair(
+                          kerningMaster.kerning as
+                              | Record<string, Record<string, number>>
+                              | undefined,
+                          previousUnattachedBaseReference,
+                          input.reference,
+                          font.first_kern_groups,
+                          font.second_kern_groups
+                      )
+                    : 0;
             let translationX =
-                baseAdvanceCursor === 0 ? stickyFirstBaseX : baseAdvanceCursor;
+                baseAdvanceCursor === 0
+                    ? stickyFirstBaseX
+                    : roundMetricValue(baseAdvanceCursor + kerningDelta);
             let translationY = originalTransform[5];
             let attached = false;
             const contributesBaseMetrics =
@@ -7252,6 +7282,10 @@ export class Layer extends ArrayElementBase {
                 attached,
                 hasAttachment: Boolean(attachment)
             });
+
+            if (isUnattachedBase && input.reference) {
+                previousUnattachedBaseReference = input.reference;
+            }
 
             const appliedTransform = [...baseTransform];
             appliedTransform[4] = translationX;
@@ -8135,6 +8169,111 @@ export class Layer extends ArrayElementBase {
         if (!font) return undefined;
 
         return font.findMaster(layerMaster.master);
+    }
+
+    private getKerningMasterForComposition(): Master | undefined {
+        const layerMaster = this.master;
+        if (
+            !layerMaster ||
+            (layerMaster.type !== 'DefaultForMaster' &&
+                layerMaster.type !== 'AssociatedWithMaster')
+        ) {
+            return undefined;
+        }
+
+        return this.getFont()?.findMaster(layerMaster.master);
+    }
+
+    private collectUnattachedAutomaticBaseReferencePairs(): Array<
+        [string, string]
+    > {
+        if (!this.isAutomaticAlignedLayer()) {
+            return [];
+        }
+
+        const layout = this.getAutomaticCompositionLayout();
+        if (!layout) {
+            return [];
+        }
+
+        const pairs: Array<[string, string]> = [];
+        let previousReference: string | null = null;
+        const components = this.components;
+        for (let index = 0; index < components.length; index++) {
+            const placement = layout.placements[index];
+            const reference = components[index]?.reference;
+            if (!placement || placement.hasAttachment || !reference) {
+                continue;
+            }
+            if (previousReference) {
+                pairs.push([previousReference, reference]);
+            }
+            previousReference = reference;
+        }
+        return pairs;
+    }
+
+    /**
+     * True when this automatic layer stacks unattached bases that resolve to
+     * the kerning pair (`glyph` or `@group` keys).
+     */
+    usesAutomaticLigatureKerningPair(
+        firstKey: string,
+        secondKey: string
+    ): boolean {
+        const font = this.getFont();
+        if (!font) {
+            return false;
+        }
+
+        for (const [
+            leftRef,
+            rightRef
+        ] of this.collectUnattachedAutomaticBaseReferencePairs()) {
+            const leftKeys = getKerningOperandKeys(
+                leftRef,
+                font.first_kern_groups
+            );
+            const rightKeys = getKerningOperandKeys(
+                rightRef,
+                font.second_kern_groups
+            );
+            if (leftKeys.includes(firstKey) && rightKeys.includes(secondKey)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * True when an unattached ligature operand is one of the glyphs whose
+     * kern-group membership just changed (`first` = left of the pair).
+     */
+    usesAutomaticLigatureKerningGroupMembership(
+        pairSide: 'first' | 'second',
+        glyphNames: Iterable<string>
+    ): boolean {
+        const names = new Set(
+            [...glyphNames].filter(
+                (name) => typeof name === 'string' && name.length > 0
+            )
+        );
+        if (names.size === 0) {
+            return false;
+        }
+
+        for (const [
+            leftRef,
+            rightRef
+        ] of this.collectUnattachedAutomaticBaseReferencePairs()) {
+            if (pairSide === 'first' && names.has(leftRef)) {
+                return true;
+            }
+            if (pairSide === 'second' && names.has(rightRef)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     getComputedName(): string {
@@ -12453,9 +12592,75 @@ export class Font extends ModelBase {
     }
 
     /**
+     * Rebuild automatic ligatures whose unattached consecutive bases resolve
+     * to this kerning pair (glyph or `@group` keys, overlay precedence).
+     */
+    rebuildAutomaticCompositesForKerningPair(
+        firstKey: string,
+        secondKey: string
+    ): Set<string> {
+        const seeds = new Set<string>();
+        for (const glyph of this.glyphs) {
+            for (const layer of glyph.layers || []) {
+                if (
+                    layer.usesAutomaticLigatureKerningPair(firstKey, secondKey)
+                ) {
+                    seeds.add(glyph.name);
+                    break;
+                }
+            }
+        }
+        if (seeds.size === 0) {
+            return new Set();
+        }
+        const rebuiltGlyphNames = this.rebuildAutomaticComposites(seeds);
+        if (rebuiltGlyphNames.size > 0) {
+            this.recomputeMetricsKeys(rebuiltGlyphNames, {
+                skipInitialAutomaticCompositeRebuild: true
+            });
+        }
+        return rebuiltGlyphNames;
+    }
+
+    /**
+     * Rebuild automatic ligatures that use one of these glyphs as the
+     * corresponding unattached-base operand after a kern-group membership edit.
+     */
+    rebuildAutomaticCompositesForKerningGroupMembership(
+        pairSide: 'first' | 'second',
+        glyphNames: Iterable<string>
+    ): Set<string> {
+        const seeds = new Set<string>();
+        for (const glyph of this.glyphs) {
+            for (const layer of glyph.layers || []) {
+                if (
+                    layer.usesAutomaticLigatureKerningGroupMembership(
+                        pairSide,
+                        glyphNames
+                    )
+                ) {
+                    seeds.add(glyph.name);
+                    break;
+                }
+            }
+        }
+        if (seeds.size === 0) {
+            return new Set();
+        }
+        const rebuiltGlyphNames = this.rebuildAutomaticComposites(seeds);
+        if (rebuiltGlyphNames.size > 0) {
+            this.recomputeMetricsKeys(rebuiltGlyphNames, {
+                skipInitialAutomaticCompositeRebuild: true
+            });
+        }
+        return rebuiltGlyphNames;
+    }
+
+    /**
      * Enable automatic alignment only on glyphs where every non-empty
      * foreground layer preflights: the composition engine can place every
-     * component (anchor attachment, or a single non-mark component), and the
+     * component (anchor attachment, unattached non-mark bases including
+     * ligatures with LTR kerning, or a single non-mark component), and the
      * result matches stored translations and width on all of those layers.
      * Manual components that would move, or layers whose advance would
      * change, stay manual.
