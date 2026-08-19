@@ -18,6 +18,14 @@ export type SystemNotificationResult = {
     reason?: 'unsupported' | 'denied' | 'permission-pending' | 'empty-title';
 };
 
+type DisplayNotificationOptions = NotificationOptions & {
+    tag?: string;
+    renotify?: boolean;
+    timestamp?: number;
+};
+
+const lastNotificationsByTag = new Map<string, Notification>();
+
 function notificationsSupported(): boolean {
     return typeof Notification !== 'undefined';
 }
@@ -50,23 +58,66 @@ function resolveBody(options: SystemNotificationOptions | string | undefined): {
     };
 }
 
+function resolveOpenFontFamilyName(): string {
+    const names = window.currentFontModel?.names?.family_name;
+    if (!names || typeof names !== 'object') {
+        return '';
+    }
+
+    const dictionary = names as Record<string, string | undefined>;
+    const preferred =
+        dictionary.dflt ||
+        dictionary.en ||
+        Object.values(dictionary).find(
+            (value) => typeof value === 'string' && value.trim()
+        );
+
+    return typeof preferred === 'string' ? preferred.trim() : '';
+}
+
+function composeNotificationBody(userBody: string): string {
+    const fontName = resolveOpenFontFamilyName();
+    const trimmedBody = String(userBody ?? '').trim();
+    return [fontName, trimmedBody].filter(Boolean).join('\n');
+}
+
+function notificationTagForWording(title: string, body: string): string {
+    const wording = `${title}\n${body}`;
+    let hash = 2166136261;
+    for (let i = 0; i < wording.length; i++) {
+        hash ^= wording.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+    }
+    return `cp-notify-${(hash >>> 0).toString(16)}`;
+}
+
 async function displayNotification(
     title: string,
-    notificationOptions: NotificationOptions
+    notificationOptions: DisplayNotificationOptions
 ): Promise<void> {
+    const tag = notificationOptions.tag;
     if (
-        document.visibilityState === 'hidden' &&
+        tag &&
         typeof navigator !== 'undefined' &&
         'serviceWorker' in navigator
     ) {
         const registration = await navigator.serviceWorker.getRegistration();
         if (registration) {
+            const previous = await registration.getNotifications({ tag });
+            previous.forEach((item) => item.close());
             await registration.showNotification(title, notificationOptions);
             return;
         }
     }
 
+    if (tag) {
+        lastNotificationsByTag.get(tag)?.close();
+    }
+
     const notification = new Notification(title, notificationOptions);
+    if (tag) {
+        lastNotificationsByTag.set(tag, notification);
+    }
     notification.onclick = () => {
         window.focus();
         notification.close();
@@ -118,13 +169,14 @@ export async function showSystemNotification(
         };
     }
 
-    const notificationOptions: NotificationOptions = {
-        body: String(body ?? ''),
-        icon: new URL(DEFAULT_ICON, window.location.href).href
+    const composedBody = composeNotificationBody(body);
+    const notificationOptions: DisplayNotificationOptions = {
+        body: composedBody,
+        icon: new URL(DEFAULT_ICON, window.location.href).href,
+        tag: tag || notificationTagForWording(normalizedTitle, composedBody),
+        renotify: true,
+        timestamp: Date.now()
     };
-    if (tag) {
-        notificationOptions.tag = tag;
-    }
 
     try {
         await displayNotification(normalizedTitle, notificationOptions);

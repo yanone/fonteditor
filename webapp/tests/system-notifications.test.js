@@ -11,6 +11,7 @@ function mockNotification(permission) {
             this.title = title;
             this.options = options;
             this.onclick = null;
+            this.closed = false;
             instances.push(this);
         }
 
@@ -28,8 +29,10 @@ function mockNotification(permission) {
 
 describe('system notifications', () => {
     const originalNotification = global.Notification;
+    const originalFontModel = window.currentFontModel;
 
     afterEach(() => {
+        window.currentFontModel = originalFontModel;
         if (originalNotification === undefined) {
             delete global.Notification;
         } else {
@@ -90,6 +93,23 @@ describe('system notifications', () => {
         expect(global.Notification.instances[0].options.body).toBe(
             'MyFont.otf written'
         );
+        expect(global.Notification.instances[0].options.renotify).toBe(true);
+        expect(global.Notification.instances[0].options.tag).toMatch(
+            /^cp-notify-/
+        );
+    });
+
+    test('prepends the open font family name to the body', async () => {
+        mockNotification('granted');
+        window.currentFontModel = {
+            names: { family_name: { dflt: 'Source Sans 3' } }
+        };
+
+        await showSystemNotification('Export complete', 'MyFont.otf written');
+
+        expect(global.Notification.instances[0].options.body).toBe(
+            'Source Sans 3\nMyFont.otf written'
+        );
     });
 
     test('accepts a string body', async () => {
@@ -98,5 +118,32 @@ describe('system notifications', () => {
         await showSystemNotification('Done', 'Finished');
 
         expect(global.Notification.instances[0].options.body).toBe('Finished');
+    });
+
+    test('reuses a tag and closes the previous identically worded notification', async () => {
+        mockNotification('granted');
+
+        await showSystemNotification('Export complete', 'Done');
+        await showSystemNotification('Export complete', 'Done');
+
+        expect(global.Notification.instances).toHaveLength(2);
+        expect(global.Notification.instances[0].closed).toBe(true);
+        expect(global.Notification.instances[1].closed).toBe(false);
+        expect(global.Notification.instances[0].options.tag).toBe(
+            global.Notification.instances[1].options.tag
+        );
+        expect(global.Notification.instances[1].options.renotify).toBe(true);
+    });
+
+    test('uses a different tag for different wording', async () => {
+        mockNotification('granted');
+
+        await showSystemNotification('Export complete', 'Done');
+        await showSystemNotification('Export complete', 'Also done');
+
+        expect(global.Notification.instances[0].options.tag).not.toBe(
+            global.Notification.instances[1].options.tag
+        );
+        expect(global.Notification.instances[0].closed).toBe(false);
     });
 });

@@ -550,7 +550,7 @@ kerning_snapshot = master.kerning.as_dict()
 
 ### System Notifications
 
-\`Notification(title, body="")\` posts an OS notification. The first call may ask the browser for permission.
+\`Notification(title, body="")\` posts an OS notification. The first call may ask the browser for permission. The open font family name is included when a font is open. Repeating the same title and body shows the banner again without stacking a new Notification Center item.
 
 \`\`\`python
 Notification("Export complete", "MyFont.otf written")

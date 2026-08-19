@@ -456,6 +456,8 @@ Python (already in scope, no import):
 Notification('Export complete', 'MyFont.otf written')
 ```
 
+The open font’s family name is prepended to the body when a font is open. Identically worded notifications reuse a tag and `renotify: true` so they banner again without stacking in Notification Center.
+
 **Policy:** implement system notifications only for actions the developer explicitly requested (for example a long-running export or script finishing). Never fire them automatically as confirmation of routine edits, saves, compiles, or other implicit success.
 
 ## Deployment
