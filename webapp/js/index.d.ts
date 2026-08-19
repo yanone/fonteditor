@@ -262,6 +262,18 @@ declare global {
         ) => string;
         countCodeLines: (code: string) => number;
 
+        // From system-notifications.ts
+        getSystemNotificationPermission: () => import('./system-notifications').SystemNotificationPermission;
+        requestSystemNotificationPermission: () => Promise<
+            import('./system-notifications').SystemNotificationPermission
+        >;
+        showSystemNotification: (
+            title: string,
+            options?:
+                | import('./system-notifications').SystemNotificationOptions
+                | string
+        ) => Promise<import('./system-notifications').SystemNotificationResult>;
+
         // From critical-error-handler.ts
         showCriticalError: (
             title: string,

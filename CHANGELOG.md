@@ -1,5 +1,6 @@
 # Unreleased
 
+- **System notifications**: JavaScript `showSystemNotification()` and Python `Notification()` can post an OS notification after a requested action finishes. The first call may ask the browser for permission.
 - **Zoom-to-fit**: Implemented two-stage zoom-to-fit (both on cmd+0) that zooms to two different situations in text and edit mode.
 - **Preview Area Options**: Implemented three differently sizes preview areas (on space key). Medium and Full options fade out the UI chrome.
 - **Decompose components**: Decompose components into flat outlines in place.

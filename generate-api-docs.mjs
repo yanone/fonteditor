@@ -548,6 +548,16 @@ master.name["ar"] = "قياسي"
 kerning_snapshot = master.kerning.as_dict()
 \`\`\`
 
+### System Notifications
+
+\`Notification(title, body="")\` posts an OS notification. The first call may ask the browser for permission.
+
+\`\`\`python
+Notification("Export complete", "MyFont.otf written")
+\`\`\`
+
+Use this for a requested action finishing, not as automatic confirmation of routine edits.
+
 ### Shared Plugin Context
 
 \`\`\`python

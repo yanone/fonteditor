@@ -744,3 +744,19 @@ def SetContextPatch(patch):
     if hasattr(host, 'setPendingContextPatch'):
         host.setPendingContextPatch(_unwrap_py_value(patch))
 
+
+def Notification(title, body=''):
+    """Show an OS system notification.
+
+    The first call may ask the browser for notification permission.
+    Use this for a requested action finishing, not as automatic
+    confirmation of routine edits.
+    """
+    host = _cp_get_host_object()
+    if host is None or not hasattr(host, 'showSystemNotification'):
+        raise RuntimeError('System notifications are not available')
+
+    title_text = '' if title is None else str(title)
+    body_text = '' if body is None else str(body)
+    host.showSystemNotification(title_text, body_text)
+

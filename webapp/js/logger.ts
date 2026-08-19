@@ -74,6 +74,7 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     StateManager: false,
     StateRestore: false,
     StateSync: false,
+    SystemNotifications: false,
     TextRun: false,
     TippyUtils: false,
     UndoManager: false,

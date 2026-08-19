@@ -22,6 +22,12 @@ Keep a script self-contained and focused on one operation. Start with a small re
 
 Use `print()` for results, counts, skipped items, and next steps.
 
+When a requested script or export finishes and you want an OS notification even if the editor is in the background, call `Notification()`. The first call may ask the browser for permission. Use it for work the user asked to run, not as automatic confirmation of routine edits.
+
+```python
+Notification('Kerning report finished', 'Wrote 12 pairs')
+```
+
 ```python
 # List glyphs without Unicode values
 #

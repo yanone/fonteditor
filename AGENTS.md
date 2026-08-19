@@ -438,6 +438,26 @@ Key globals exposed on `window` (see `js/index.d.ts` for full list):
 - `window.pyodide` - Python runtime
 - `window.aiAssistant` - AI assistant integration
 
+## OS System Notifications
+
+Use the shared API in `js/system-notifications.ts`. Do not call `new Notification()` elsewhere.
+
+JavaScript:
+
+```javascript
+await window.showSystemNotification('Export complete', {
+    body: 'MyFont.otf written'
+});
+```
+
+Python (already in scope, no import):
+
+```python
+Notification('Export complete', 'MyFont.otf written')
+```
+
+**Policy:** implement system notifications only for actions the developer explicitly requested (for example a long-running export or script finishing). Never fire them automatically as confirmation of routine edits, saves, compiles, or other implicit success.
+
 ## Deployment
 
 - **Production**: https://editor.counterpunch.space

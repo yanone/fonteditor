@@ -11,9 +11,10 @@ font = Font()      # open font; fails if none is open
 glyph = Glyph()    # glyph being edited in edit mode
 layer = Layer()    # layer being edited in edit mode
 master = Master()  # selected master in edit or text mode
+Notification('Title', 'Optional body')  # OS notification
 ```
 
-`Glyph()` and `Layer()` raise when outline editing is inactive. `Master()` uses the active layer in outline mode, or the selected master in text mode.
+`Glyph()` and `Layer()` raise when outline editing is inactive. `Master()` uses the active layer in outline mode, or the selected master in text mode. `Notification(title, body="")` posts an OS notification. The first call may ask the browser for permission.
 
 ![Scripts view next to Konsole](images/python-views.png)
 

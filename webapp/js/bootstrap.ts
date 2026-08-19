@@ -517,6 +517,7 @@ import './keyboard-navigation';
 import './matplotlib-handler';
 import './memory-monitor';
 import './python-utils';
+import './system-notifications';
 import './pyodide-official-console';
 import './python-execution-wrapper';
 import './python-package-lazy-loader';
