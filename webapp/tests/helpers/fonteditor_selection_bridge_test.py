@@ -83,6 +83,19 @@ class FakeJsObjectProxy(JsProxy):
         self.constructor = FakeConstructor(self.constructor_name)
         self._data = dict(data or {})
 
+    def to_py(self):
+        result = {}
+        for key, item in self._data.items():
+            if hasattr(item, 'to_py'):
+                result[key] = item.to_py()
+            else:
+                result[key] = item
+        return result
+
+
+class FakeJsOpaqueObject(FakeJsObjectProxy):
+    constructor_name = 'LiveMutableProxy'
+
 
 class FakeAnchor(FakeJsBase):
     constructor_name = 'Anchor'
@@ -142,10 +155,15 @@ class FakeMaster(FakeJsBase):
 class FakeGlyph(FakeJsBase):
     constructor_name = 'Glyph'
 
-    def __init__(self, name, layers):
+    def __init__(self, name, layers, category='Base', glyph_data=None):
         super().__init__()
         self.name = name
         self.layers = FakeJsArray(layers)
+        self.category = category
+        self.glyphData = glyph_data if glyph_data is not None else JsNull()
+
+    def addLayer(self, *args):
+        return None
 
 
 class FakeFont(FakeJsBase):
@@ -314,6 +332,25 @@ def _install_stub_modules():
         if isinstance(target, dict)
         else False
     )
+
+    def _fake_json_stringify(value):
+        import json as json_module
+
+        if isinstance(value, FakeJsObjectProxy):
+            if value._data.get('__empty_json__'):
+                return '{}'
+            return json_module.dumps(
+                {
+                    key: item
+                    for key, item in value._data.items()
+                    if key != '__empty_json__'
+                }
+            )
+        if isinstance(value, dict):
+            return json_module.dumps(value)
+        raise TypeError('Cannot stringify value')
+
+    js_module.JSON = types.SimpleNamespace(stringify=_fake_json_stringify)
     sys.modules['js'] = js_module
 
 
@@ -480,6 +517,92 @@ class FontEditorSelectionBridgeTest(unittest.TestCase):
         self.fonteditor.js.window = host
 
         self.assertIsNone(self.fonteditor.Master())
+
+    def test_glyph_category_string_stays_a_python_string(self):
+        glyph = FakeGlyph('A', [], category='Mark')
+        proxy = self.fonteditor.ModelObjectProxy(glyph)
+
+        self.assertEqual(proxy.category, 'Mark')
+        proxy.category = 'Ligature'
+        self.assertEqual(glyph.category, 'Ligature')
+
+    def test_glyph_custom_category_is_wrapped_as_native_python_mapping(self):
+        category = FakeJsOpaqueObject({'Custom': 'Letter'})
+        glyph = FakeGlyph('custom', [], category=category)
+        proxy = self.fonteditor.ModelObjectProxy(glyph)
+
+        wrapped = proxy.category
+        self.assertEqual(wrapped, {'Custom': 'Letter'})
+        self.assertNotIn('[object Object]', repr(wrapped))
+
+    def test_glyph_data_is_wrapped_as_native_python_mapping(self):
+        glyph_data = FakeJsOpaqueObject(
+            {
+                'glyph_name': 'A',
+                'script': 'Latn',
+                'character': 'A',
+            }
+        )
+        glyph = FakeGlyph('A', [], glyph_data=glyph_data)
+        proxy = self.fonteditor.ModelObjectProxy(glyph)
+
+        wrapped = proxy.glyphData
+        self.assertEqual(
+            wrapped,
+            {
+                'glyph_name': 'A',
+                'script': 'Latn',
+                'character': 'A',
+            },
+        )
+        self.assertEqual(wrapped['script'], 'Latn')
+        self.assertNotIn('[object Object]', repr(wrapped))
+
+    def test_glyph_data_prefers_to_py_when_json_stringify_is_empty(self):
+        glyph_data = FakeJsOpaqueObject(
+            {
+                '__empty_json__': True,
+                'glyph_name': 'A',
+                'script': 'Latn',
+            }
+        )
+        glyph = FakeGlyph('A', [], glyph_data=glyph_data)
+        proxy = self.fonteditor.ModelObjectProxy(glyph)
+
+        wrapped = proxy.glyphData
+        self.assertEqual(wrapped['script'], 'Latn')
+        self.assertEqual(wrapped['glyph_name'], 'A')
+
+    def test_glyph_helper_converts_fields_when_js_constructor_is_proxy(self):
+        glyph = FakeGlyph(
+            'A',
+            [],
+            category=FakeJsOpaqueObject({'Custom': 'Letter'}),
+            glyph_data=FakeJsOpaqueObject({'script': 'Latn'}),
+        )
+        glyph.constructor = FakeConstructor('Proxy')
+        font = FakeFont([glyph], [])
+        font.constructor = FakeConstructor('Proxy')
+        host = FakeHost(
+            font_model=font,
+            glyph_canvas=FakeGlyphCanvas(
+                outline_editor=FakeOutlineEditor(
+                    active=True,
+                    stack_entries=[
+                        types.SimpleNamespace(glyphName='A', layerId='layer-1')
+                    ],
+                ),
+            ),
+        )
+        self.fonteditor.js.window = host
+
+        resolved = self.fonteditor.Glyph()
+
+        self.assertIsInstance(resolved, self.fonteditor.ModelObjectProxy)
+        self.assertEqual(resolved.category, {'Custom': 'Letter'})
+        self.assertEqual(resolved.glyphData['script'], 'Latn')
+        self.assertNotIn('[object Object]', repr(resolved.category))
+        self.assertNotIn('[object Object]', repr(resolved.glyphData))
 
 
 if __name__ == '__main__':

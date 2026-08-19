@@ -51,7 +51,7 @@ Coverage: 🟢 Should work · 🟡 Partial · 🔴 Missing
 | Components | 🟢 | No variable components yet, maybe not all composition types implemented yet |
 | Sidebearings | 🟢 | Maybe not all metrics key types implemented yet |
 | Kerning | 🟢 | |
-| Python scripting | 🟢 | |
+| Python scripting | 🟢 | API and docs need some work |
 | AI assistant | 🟢 | |
 | Undo and history | 🟢 | |
 | Multiple windows | 🟢 | Panel arrangement saved and restored only for main window currently |

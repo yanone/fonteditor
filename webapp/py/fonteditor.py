@@ -20,6 +20,7 @@ Core functionality for font editing operations
 
 from collections.abc import MutableMapping, MutableSequence
 from keyword import iskeyword
+import json
 
 import js
 import pyodide.ffi
@@ -65,6 +66,15 @@ _DICT_LIKE_FIELDS_BY_CLASS = {
     'Shape': set(),
 }
 
+# Object-valued fields that should wrap as live mappings even when Pyodide
+# reports a Proxy constructor (for example Glyph.category's Custom object).
+# Keep these out of _DICT_LIKE_FIELDS_BY_CLASS so string assignment still works
+# for union types such as Glyph.category.
+_WRAPPED_OBJECT_FIELDS_BY_CLASS = {
+    'Glyph': {'category', 'glyphData'},
+}
+_SNAPSHOT_OBJECT_ATTRS = frozenset({'category', 'glyphData'})
+
 
 def _is_js_null_or_undefined(value):
     if type(value) is pyodide.ffi.JsNull:
@@ -81,11 +91,122 @@ def _get_constructor_name(value):
         return ''
 
 
+def _infer_model_class_name(value):
+    name = _get_constructor_name(value)
+    if name in _DICT_LIKE_FIELDS_BY_CLASS:
+        return name
+    try:
+        find_glyph = getattr(value, 'findGlyph', None)
+        if _is_js_function(find_glyph) or callable(find_glyph):
+            return 'Font'
+        add_layer = getattr(value, 'addLayer', None)
+        if _is_js_function(add_layer) or callable(add_layer):
+            return 'Glyph'
+    except Exception:
+        pass
+    return name
+
+
+def _as_model_proxy(value):
+    if value is None or _is_js_null_or_undefined(value):
+        return None
+    if isinstance(value, ModelObjectProxy):
+        return value
+    return ModelObjectProxy(_unwrap_py_value(value))
+
+
 def _get_object_tag(value):
     try:
         return str(js.Object.prototype.toString.call(value))
     except Exception:
         return ''
+
+
+def _is_js_function(value):
+    if isinstance(
+        value, (ModelObjectProxy, LiveDictProxy, LiveMapProxy, LiveListProxy)
+    ):
+        return False
+    if isinstance(value, pyodide.ffi.JsProxy):
+        try:
+            return str(getattr(value, 'typeof', '')) == 'function'
+        except Exception:
+            return _get_object_tag(value) in (
+                '[object Function]',
+                '[object AsyncFunction]',
+            )
+    return callable(value)
+
+
+def _is_plain_python_json_value(value):
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return True
+    if isinstance(value, dict):
+        return all(
+            isinstance(key, str) and _is_plain_python_json_value(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, (list, tuple)):
+        return all(_is_plain_python_json_value(item) for item in value)
+    return False
+
+
+def _js_proxy_to_py_dict(value):
+    candidates = []
+
+    to_py = getattr(value, 'to_py', None)
+    if to_py is not None:
+        try:
+            converted = to_py()
+            if isinstance(converted, dict) and _is_plain_python_json_value(
+                converted
+            ):
+                candidates.append(converted)
+        except Exception:
+            pass
+
+    try:
+        json_text = js.JSON.stringify(value)
+        if json_text is not None and not _is_js_null_or_undefined(json_text):
+            text = str(json_text)
+            if text not in ('', 'null', 'undefined'):
+                converted = json.loads(text)
+                if isinstance(converted, dict):
+                    candidates.append(converted)
+    except Exception:
+        pass
+
+    try:
+        keys = js.Object.keys(value).to_py()
+        copied = {}
+        for key in keys:
+            item = _js_get(value, key)
+            if _is_js_null_or_undefined(item):
+                copied[key] = None
+                continue
+            nested = (
+                _js_proxy_to_py_dict(item)
+                if isinstance(item, pyodide.ffi.JsProxy)
+                and not _is_js_array(item)
+                and not _is_js_function(item)
+                else None
+            )
+            if nested is not None:
+                copied[key] = nested
+            elif _is_js_array(item) and hasattr(item, 'to_py'):
+                copied[key] = item.to_py()
+            else:
+                copied[key] = item
+        candidates.append(copied)
+    except Exception:
+        pass
+
+    nonempty = [candidate for candidate in candidates if candidate]
+    if nonempty:
+        return max(nonempty, key=len)
+    if candidates:
+        return candidates[0]
+    return None
 
 
 def _is_js_array(value):
@@ -189,14 +310,28 @@ def _wrap_js_value(value, owner_class_name=None, attr_name=None):
     if not isinstance(value, pyodide.ffi.JsProxy):
         return value
 
-    constructor_name = _get_constructor_name(value)
-    dict_fields = _DICT_LIKE_FIELDS_BY_CLASS.get(owner_class_name, set())
+    constructor_name = _infer_model_class_name(value)
+    dict_fields = _DICT_LIKE_FIELDS_BY_CLASS.get(constructor_name, set())
+    wrap_object_fields = _WRAPPED_OBJECT_FIELDS_BY_CLASS.get(
+        owner_class_name or constructor_name, set()
+    )
     force_dict_wrap = attr_name in dict_fields
+    snapshot_object = (
+        attr_name in _SNAPSHOT_OBJECT_ATTRS or attr_name in wrap_object_fields
+    )
+
+    if snapshot_object:
+        converted = _js_proxy_to_py_dict(value)
+        if converted is not None:
+            return converted
 
     if force_dict_wrap and _is_js_map(value):
         return LiveMapProxy(value)
 
     if force_dict_wrap and _is_plain_js_object(value):
+        return LiveDictProxy(value)
+
+    if force_dict_wrap:
         return LiveDictProxy(value)
 
     if _is_js_map(value):
@@ -524,12 +659,12 @@ class ModelObjectProxy:
         object.__setattr__(self, '_js_obj', js_obj)
 
     def __getattr__(self, name):
-        owner_class_name = _get_constructor_name(self._js_obj)
+        owner_class_name = _infer_model_class_name(self._js_obj)
         if owner_class_name == 'Layer' and name == 'selection':
             return LayerSelectionProxy(self._js_obj)
 
         raw = getattr(self._js_obj, name)
-        if callable(raw):
+        if _is_js_function(raw):
             def method(*args, **kwargs):
                 if kwargs:
                     raise TypeError('Keyword arguments are not supported')
@@ -541,7 +676,7 @@ class ModelObjectProxy:
         return _wrap_js_value(raw, owner_class_name, name)
 
     def __setattr__(self, name, value):
-        owner_class_name = _get_constructor_name(self._js_obj)
+        owner_class_name = _infer_model_class_name(self._js_obj)
         if owner_class_name == 'Layer' and name == 'selection':
             setattr(self._js_obj, name, _unwrap_layer_selection_value(value))
             return
@@ -557,7 +692,7 @@ class ModelObjectProxy:
         setattr(self._js_obj, name, _unwrap_py_value(value))
 
     def __getitem__(self, key):
-        owner_class_name = _get_constructor_name(self._js_obj)
+        owner_class_name = _infer_model_class_name(self._js_obj)
         if owner_class_name == 'Layer' and key == 'selection':
             return LayerSelectionProxy(self._js_obj)
 
@@ -647,7 +782,7 @@ def Font():
     host = _cp_get_host_object()
     if type(host.currentFontModel) is pyodide.ffi.JsNull:
         raise RuntimeError("No font is currently open")
-    return _wrap_js_value(host.currentFontModel)
+    return _as_model_proxy(host.currentFontModel)
 
 
 def Glyph():
@@ -664,7 +799,7 @@ def Glyph():
     glyph = Font().findGlyph(glyph_name)
     if glyph is None:
         raise RuntimeError(f'Active glyph "{glyph_name}" is not available')
-    return glyph
+    return _as_model_proxy(glyph)
 
 
 def Layer():

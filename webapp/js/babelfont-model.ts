@@ -10381,13 +10381,13 @@ export class Glyph extends ArrayElementBase {
         const baseGlyph =
             baseName !== this.name ? font?.findGlyph(baseName) : this;
         const target = baseGlyph || this;
-        return (
+        const record =
             glyphDataIndex.getGlyphDataForUnicode(target.codepoints) ||
             glyphDataIndex.getGlyphDataForName(target.name) ||
             (baseGlyph
                 ? undefined
-                : glyphDataIndex.getGlyphDataForName(baseName))
-        );
+                : glyphDataIndex.getGlyphDataForName(baseName));
+        return record;
     }
 
     get layers(): Layer[] | undefined {

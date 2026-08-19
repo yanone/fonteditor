@@ -2370,8 +2370,8 @@ export class GlyphOverviewFilterManager {
                     pyodide._originalRunPythonAsync || pyodide.runPythonAsync
                 )(
                     plugin.isUserFilter
-                        ? '_fn = globals()[__glyph_filter_namespace].get(__glyph_filter_function)\n_filter_result = __glyph_filter_fallback if _fn is None else _fn(__glyph_filter_glyph)\n_filter_result'
-                        : '_fn = getattr(__glyph_filter_instance, __glyph_filter_function, None)\n_filter_result = __glyph_filter_fallback if _fn is None else _fn(__glyph_filter_glyph)\n_filter_result'
+                        ? '_fn = globals()[__glyph_filter_namespace].get(__glyph_filter_function)\n_glyph = _cp_wrap_js_value(__glyph_filter_glyph)\n_filter_result = __glyph_filter_fallback if _fn is None else _fn(_glyph)\n_filter_result'
+                        : '_fn = getattr(__glyph_filter_instance, __glyph_filter_function, None)\n_glyph = _cp_wrap_js_value(__glyph_filter_glyph)\n_filter_result = __glyph_filter_fallback if _fn is None else _fn(_glyph)\n_filter_result'
                 );
                 try {
                     return result?.toJs

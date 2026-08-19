@@ -132,7 +132,9 @@ async function initFontEditor() {
         if (window.updateLoadingStatus) {
             window.updateLoadingStatus('Loading font editor...');
         }
-        const fonteditorModule = await fetch('./py/fonteditor.py');
+        const fonteditorModule = await fetch(
+            './py/fonteditor.py?rev=glyph-data-wrap-2'
+        );
         const fonteditorCode = await fonteditorModule.text();
         await window.pyodide.runPython(fonteditorCode);
         timelineSpanEnd(fonteditorModuleSpanId);
