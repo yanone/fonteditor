@@ -30,9 +30,19 @@ function mockNotification(permission) {
 describe('system notifications', () => {
     const originalNotification = global.Notification;
     const originalFontModel = window.currentFontModel;
+    const originalGetRegistration = navigator.serviceWorker?.getRegistration;
+
+    beforeEach(() => {
+        if (navigator.serviceWorker) {
+            navigator.serviceWorker.getRegistration = async () => undefined;
+        }
+    });
 
     afterEach(() => {
         window.currentFontModel = originalFontModel;
+        if (navigator.serviceWorker && originalGetRegistration) {
+            navigator.serviceWorker.getRegistration = originalGetRegistration;
+        }
         if (originalNotification === undefined) {
             delete global.Notification;
         } else {
@@ -120,7 +130,7 @@ describe('system notifications', () => {
         expect(global.Notification.instances[0].options.body).toBe('Finished');
     });
 
-    test('reuses a tag and closes the previous identically worded notification', async () => {
+    test('closes the previous identically worded notification and uses a new tag', async () => {
         mockNotification('granted');
 
         await showSystemNotification('Export complete', 'Done');
@@ -129,7 +139,7 @@ describe('system notifications', () => {
         expect(global.Notification.instances).toHaveLength(2);
         expect(global.Notification.instances[0].closed).toBe(true);
         expect(global.Notification.instances[1].closed).toBe(false);
-        expect(global.Notification.instances[0].options.tag).toBe(
+        expect(global.Notification.instances[0].options.tag).not.toBe(
             global.Notification.instances[1].options.tag
         );
         expect(global.Notification.instances[1].options.renotify).toBe(true);
