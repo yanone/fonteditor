@@ -142,9 +142,10 @@ font = Font()
 #### `rebuildAutomaticCompositesForGlyphs(changedGlyphNames: Set<string> | None = None, options: { allowedGlyphNames?: Set<string>; preferredLayerId?: string | null; preferredSourceGlyphName?: string | null; } | None = None) -> Set<string>`
 #### `convertMatchingManualComponentsToAutomatic() -> { convertedGlyphNames: Set<string>; compositeGlyphCount: number; }`
 Enable automatic alignment only on glyphs where every non-empty
-foreground layer preflights: the composition engine can attach every
-non-base component by anchors, and the result matches stored positions
-on all of those layers. Manual components that would move stay manual.
+foreground layer preflights: the composition engine can place every
+component (anchor attachment, or a single letter component), and the
+result matches stored positions on all of those layers. Manual
+components that would move stay manual.
 
 `compositeGlyphCount` is how many glyphs have at least one component.
 `convertedGlyphNames` is the subset that this run marked automatic.
@@ -527,10 +528,12 @@ without scanning the full font. Use during interactive editing
 
 #### `isAutomaticAlignedLayer() -> bool`
 #### `matchesAutomaticCompositionPreflight(sourceDataCache: WeakMap<object | None = None, AutomaticCompositionSourceData>) -> bool`
-In-memory preflight for migrating manual composites. Every non-base
-component must attach through the composition engine, and the resulting
-translations and width must match what is already stored. Does not
-mutate the layer.
+In-memory preflight for migrating manual composites. The composition
+engine must be able to place every component, and the result must match
+stored translations and width. Eligible layouts today: two or more
+components where every non-base attaches by anchors, or a single
+component whose referenced glyph is a letter (Unicode general category
+L*). Does not mutate the layer.
 
 #### `assignAutomaticCompositeKerningGroups() -> bool`
 Copy kerning groups from resolved automatic bases onto this glyph.

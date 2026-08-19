@@ -2901,4 +2901,161 @@ describe('Convert matching manual components to automatic', () => {
             componentTranslations(font.findGlyph('Aacute').layers[1])
         ).toEqual(boldBefore);
     });
+
+    test('converts a single letter component and skips a single mark component', () => {
+        const { glyphDataIndex } = require('../../js/glyph-data.ts');
+        glyphDataIndex.resetForTests();
+        glyphDataIndex.loadRecordsForTests([
+            {
+                codepoint: 0x41,
+                glyph_name: 'A',
+                name: 'LATIN CAPITAL LETTER A',
+                general_category: 'Lu',
+                script: 'Latn'
+            },
+            {
+                codepoint: 0x301,
+                glyph_name: 'acutecomb',
+                name: 'COMBINING ACUTE ACCENT',
+                general_category: 'Mn',
+                script: 'Zinh'
+            }
+        ]);
+
+        try {
+            const font = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                instances: [],
+                masters: [makeMaster()],
+                glyphs: [
+                    {
+                        name: 'A',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                id: 'A0',
+                                width: 500,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'M0'
+                                },
+                                shapes: [makeRectPath(50, 0, 450, 700)],
+                                anchors: [],
+                                guides: [],
+                                format_specific: {}
+                            }
+                        ],
+                        format_specific: {}
+                    },
+                    {
+                        name: 'acutecomb',
+                        category: 'Mark',
+                        exported: true,
+                        layers: [
+                            {
+                                id: 'AC0',
+                                width: 180,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'M0'
+                                },
+                                shapes: [makeRectPath(-40, 680, 40, 780)],
+                                anchors: [{ name: '_top', x: 0, y: 720 }],
+                                guides: [],
+                                format_specific: {}
+                            }
+                        ],
+                        format_specific: {}
+                    },
+                    {
+                        name: 'A.ss01',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                id: 'ASS0',
+                                width: 500,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'M0'
+                                },
+                                shapes: [makeComponent('A', { auto: false })],
+                                anchors: [],
+                                guides: [],
+                                format_specific: {}
+                            }
+                        ],
+                        format_specific: {}
+                    },
+                    {
+                        name: 'acutecomb.case',
+                        category: 'Mark',
+                        exported: true,
+                        layers: [
+                            {
+                                id: 'ACC0',
+                                width: 180,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'M0'
+                                },
+                                shapes: [
+                                    makeComponent('acutecomb', {
+                                        auto: false,
+                                        y: 80
+                                    })
+                                ],
+                                anchors: [],
+                                guides: [],
+                                format_specific: {}
+                            }
+                        ],
+                        format_specific: {}
+                    }
+                ],
+                names: { family_name: { en: 'Standalone Letter Convert' } },
+                note: '',
+                date: '2026-08-19',
+                features: { classes: {}, prefixes: {}, features: [] },
+                first_kern_groups: {},
+                second_kern_groups: {},
+                custom_ot_values: [],
+                variation_sequences: [],
+                format_specific: {}
+            });
+
+            const letterBefore = componentTranslations(
+                font.findGlyph('A.ss01').layers[0]
+            );
+            const markBefore = componentTranslations(
+                font.findGlyph('acutecomb.case').layers[0]
+            );
+
+            const converted = font.convertMatchingManualComponentsToAutomatic();
+
+            expect([...converted.convertedGlyphNames]).toEqual(['A.ss01']);
+            expect(converted.compositeGlyphCount).toBe(2);
+            expect(
+                font.findGlyph('A.ss01').layers[0].isAutomaticAlignedLayer()
+            ).toBe(true);
+            expect(
+                componentTranslations(font.findGlyph('A.ss01').layers[0])
+            ).toEqual(letterBefore);
+            expect(
+                font
+                    .findGlyph('acutecomb.case')
+                    .layers[0].isAutomaticAlignedLayer()
+            ).toBe(false);
+            expect(
+                componentTranslations(
+                    font.findGlyph('acutecomb.case').layers[0]
+                )
+            ).toEqual(markBefore);
+        } finally {
+            glyphDataIndex.resetForTests();
+        }
+    });
 });

@@ -357,6 +357,19 @@ function isAutomaticAttachmentAnchor(anchorName: string | undefined): boolean {
     return Boolean(anchorName && anchorName.startsWith('_'));
 }
 
+/**
+ * Unicode general categories allowed as a standalone automatic composite
+ * (exactly one component, no attachment). Extend the predicate as more
+ * categories become eligible.
+ */
+function isAutomaticStandaloneComponentCategory(
+    generalCategory: string | undefined
+): boolean {
+    return (
+        typeof generalCategory === 'string' && generalCategory.startsWith('L')
+    );
+}
+
 function isChainedBaseEntryAnchor(anchorName: string | undefined): boolean {
     return anchorName === CHAINED_BASE_ENTRY_ANCHOR;
 }
@@ -6612,10 +6625,12 @@ export class Layer extends ArrayElementBase {
     }
 
     /**
-     * In-memory preflight for migrating manual composites. Every non-base
-     * component must attach through the composition engine, and the resulting
-     * translations and width must match what is already stored. Does not
-     * mutate the layer.
+     * In-memory preflight for migrating manual composites. The composition
+     * engine must be able to place every component, and the result must match
+     * stored translations and width. Eligible layouts today: two or more
+     * components where every non-base attaches by anchors, or a single
+     * component whose referenced glyph is a letter (Unicode general category
+     * L*). Does not mutate the layer.
      */
     matchesAutomaticCompositionPreflight(
         sourceDataCache?: WeakMap<object, AutomaticCompositionSourceData>
@@ -6626,7 +6641,13 @@ export class Layer extends ArrayElementBase {
 
         const shapes = this.shapes || [];
         const components = this.components;
-        if (components.length < 2 || components.length !== shapes.length) {
+        if (components.length === 0 || components.length !== shapes.length) {
+            return false;
+        }
+        if (
+            components.length === 1 &&
+            !this.referencedGlyphIsAutomaticStandaloneCategory(components[0])
+        ) {
             return false;
         }
 
@@ -6667,6 +6688,19 @@ export class Layer extends ArrayElementBase {
 
         const nextWidth = this.getAutomaticCompositionDerivedWidth(layout);
         return Math.abs(this.width - nextWidth) <= METRIC_UPDATE_EPSILON;
+    }
+
+    /**
+     * Whether this component's referenced glyph may stand alone as an
+     * automatic one-component composite under the current category rules.
+     */
+    private referencedGlyphIsAutomaticStandaloneCategory(
+        component: Component
+    ): boolean {
+        const referenced = this.getFont()?.findGlyph(component.reference);
+        return isAutomaticStandaloneComponentCategory(
+            referenced?.glyphData?.general_category
+        );
     }
 
     /**
@@ -12179,9 +12213,10 @@ export class Font extends ModelBase {
 
     /**
      * Enable automatic alignment only on glyphs where every non-empty
-     * foreground layer preflights: the composition engine can attach every
-     * non-base component by anchors, and the result matches stored positions
-     * on all of those layers. Manual components that would move stay manual.
+     * foreground layer preflights: the composition engine can place every
+     * component (anchor attachment, or a single letter component), and the
+     * result matches stored positions on all of those layers. Manual
+     * components that would move stay manual.
      *
      * `compositeGlyphCount` is how many glyphs have at least one component.
      * `convertedGlyphNames` is the subset that this run marked automatic.

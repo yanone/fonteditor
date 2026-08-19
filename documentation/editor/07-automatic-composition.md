@@ -10,6 +10,8 @@ Turn automatic alignment on from the component property panel. That flag is writ
 
 These are the placements the engine can produce today.
 
+**Single letter component.** A layer whose only component references a letter (Unicode general category starting with `L`) can be automatic. The engine keeps the stored offset and derives width from that letter. More categories may be added later. A single mark component is not converted this way.
+
 **Mark to base.** A base component exposes an ordinary anchor such as `top` or `bottom`. A later mark component exposes a matching attachment anchor whose name starts with an underscore, such as `_top` or `_bottom`. The engine snaps the mark so those two points coincide, the same way mark-to-base positioning would. Put the base first in the shape list, then the marks.
 
 **Mark stacking.** When several marks follow a base, they attach in shape order. A mark that should receive a later mark needs both its incoming anchor (`_top`) and an outgoing anchor (`top`) so the next mark has somewhere to land.
@@ -26,4 +28,4 @@ Moving a source anchor, or changing a base glyph’s metrics, rebuilds downstrea
 
 ## Convert from Glyphs.app
 
-Glyphs often aligns composites because anchors exist, without storing an automatic flag. **Font → Convert to Counterpunch** turns a glyph automatic only when this engine can attach every component and the result already matches the stored positions on every layer. Details are in [Glyphs.app](../migrate/01-glyphs.md).
+Glyphs often aligns composites because anchors exist, without storing an automatic flag. **Font → Convert to Counterpunch** turns a glyph automatic only when this engine can place every component (anchor attachment or a single letter component) and the result already matches the stored positions on every layer. Details are in [Glyphs.app](../migrate/01-glyphs.md).

@@ -2,7 +2,7 @@
 
 Glyphs.app usually does not save whether a component is automatically aligned. In Glyphs, composites often line up because matching anchors exist, not because the file stores an alignment flag. When Counterpunch opens that file, those components arrive as manual placements.
 
-**Font → Convert to Counterpunch** looks for glyphs where Counterpunch's composition engine can attach every component using the current anchor rules, and where that alignment matches the stored positions on every layer of the glyph. Only then does it mark those components automatic. If any layer would move, or if a component has no matching anchors for the engine, the glyph stays manual.
+**Font → Convert to Counterpunch** looks for glyphs where Counterpunch's composition engine can place every component — by the current anchor rules, or as a single letter component — and where that placement matches the stored positions on every layer of the glyph. Only then does it mark those components automatic. If any layer would move, or if a component has no matching anchors for the engine (and is not that single-letter case), the glyph stays manual.
 
 This preserves your glyph structure while allowing as many components as possible to become automatic.
 
