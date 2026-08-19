@@ -1,6 +1,19 @@
 // Global application settings
 // This file contains configuration values used across the application
 
+// Shared by the glyph canvas and overview tiles. Edit these to retint
+// auto vs manual components in both views.
+// Manual resting: desaturated mix of dark gray (#8f8f8f) and orange (#ff9933).
+// Auto resting: desaturated mix of dark gray and editing-view-border blue (#0066ff).
+const COMPONENT_FILLS = {
+    MANUAL_NORMAL: '#b6936fcc',
+    MANUAL_HOVERED: '#c79461cc',
+    MANUAL_SELECTED: '#ff9933ff',
+    AUTO_NORMAL: '#5d81b6cc',
+    AUTO_HOVERED: '#487ac7cc',
+    AUTO_SELECTED: '#0066ffff'
+};
+
 const APP_SETTINGS = {
     // App internal ID
     APP_ID: 'org.context.fonteditor',
@@ -61,6 +74,10 @@ const APP_SETTINGS = {
         OUTLINE_STROKE_WIDTH: 1, // px - width of glyph outline paths
         OUTLINE_OPACITY: 0.4, // opacity of glyph outline paths in editing mode
         HANDLE_LINE_OPACITY: 0.3, // opacity of off-curve point handle lines in editing mode
+        // Canvas component strokes are derived from fill by darkening this much.
+        // 100 would be black; keep below that so the hue still reads.
+        COMPONENT_STROKE_DARKEN_PERCENT: 60,
+        COMPONENT_FILLS,
 
         // Hit detection
         HIT_TOLERANCE: 15, // px - hit detection tolerance for glyphs and components (screen pixels)
@@ -140,13 +157,13 @@ const APP_SETTINGS = {
             ANCHOR_SELECTED: '#ff00ff',
             ANCHOR_STROKE: '#000000',
 
-            // Components
-            COMPONENT_FILL_NORMAL: '#75b5c6cc',
-            COMPONENT_FILL_HOVERED: '#75b5c6aa',
-            COMPONENT_FILL_SELECTED: '#2f8ceaff',
-            COMPONENT_FILL_AUTO_NORMAL: '#8f8f8fcc',
-            COMPONENT_FILL_AUTO_HOVERED: '#a3a3a3cc',
-            COMPONENT_FILL_AUTO_SELECTED: '#7a7a7aff',
+            // Components (aliases of COMPONENT_FILLS)
+            COMPONENT_FILL_NORMAL: COMPONENT_FILLS.MANUAL_NORMAL,
+            COMPONENT_FILL_HOVERED: COMPONENT_FILLS.MANUAL_HOVERED,
+            COMPONENT_FILL_SELECTED: COMPONENT_FILLS.MANUAL_SELECTED,
+            COMPONENT_FILL_AUTO_NORMAL: COMPONENT_FILLS.AUTO_NORMAL,
+            COMPONENT_FILL_AUTO_HOVERED: COMPONENT_FILLS.AUTO_HOVERED,
+            COMPONENT_FILL_AUTO_SELECTED: COMPONENT_FILLS.AUTO_SELECTED,
 
             // Measurement tool
             MEASUREMENT_TOOL_LINE: '#000000',
@@ -168,13 +185,11 @@ const APP_SETTINGS = {
 
         // Colors - Glyph Overview (Light Theme)
         GLYPH_OVERVIEW_COLORS_LIGHT: {
-            COMPONENT: '#4f8ea0',
             PATH: '#808080'
         },
 
         // Colors - Glyph Overview (Dark Theme)
         GLYPH_OVERVIEW_COLORS_DARK: {
-            COMPONENT: '#93cfde',
             PATH: '#9a9a9a'
         },
 
@@ -213,13 +228,13 @@ const APP_SETTINGS = {
             ANCHOR_SELECTED: '#ff00ff',
             ANCHOR_STROKE: '#ffffff',
 
-            // Components
-            COMPONENT_FILL_NORMAL: '#75b5c6cc',
-            COMPONENT_FILL_HOVERED: '#75b5c6aa',
-            COMPONENT_FILL_SELECTED: '#2f8ceaff',
-            COMPONENT_FILL_AUTO_NORMAL: '#8f8f8fcc',
-            COMPONENT_FILL_AUTO_HOVERED: '#a3a3a3cc',
-            COMPONENT_FILL_AUTO_SELECTED: '#7a7a7aff',
+            // Components (aliases of COMPONENT_FILLS)
+            COMPONENT_FILL_NORMAL: COMPONENT_FILLS.MANUAL_NORMAL,
+            COMPONENT_FILL_HOVERED: COMPONENT_FILLS.MANUAL_HOVERED,
+            COMPONENT_FILL_SELECTED: COMPONENT_FILLS.MANUAL_SELECTED,
+            COMPONENT_FILL_AUTO_NORMAL: COMPONENT_FILLS.AUTO_NORMAL,
+            COMPONENT_FILL_AUTO_HOVERED: COMPONENT_FILLS.AUTO_HOVERED,
+            COMPONENT_FILL_AUTO_SELECTED: COMPONENT_FILLS.AUTO_SELECTED,
 
             // Measurement tool
             MEASUREMENT_TOOL_LINE: '#ffffff',

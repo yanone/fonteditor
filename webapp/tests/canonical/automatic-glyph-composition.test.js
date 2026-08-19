@@ -2039,10 +2039,10 @@ describe('Automatic component editing canonical behavior', () => {
         expect(automaticStroke).not.toBe(automaticFill);
         expect(manualLineWidth).toBe(2);
         expect(automaticLineWidth).toBe(2);
-        expect(automaticFill).toContain('143');
-        expect(
-            APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT.COMPONENT_FILL_AUTO_NORMAL
-        ).toBe('#8f8f8fcc');
+        expect(automaticFill).toContain('93, 129, 182');
+        expect(APP_SETTINGS.OUTLINE_EDITOR.COMPONENT_FILLS.AUTO_NORMAL).toBe(
+            '#5d81b6cc'
+        );
     });
 
     test('renderer styles every component in a manually aligned layer as manual', () => {

@@ -13,6 +13,8 @@ import APP_SETTINGS from './settings';
 
 const console = new Logger('GlyphTileRendererFast');
 
+const GLYPHS_COMPONENT_ALIGNMENT_KEY = 'com.schriftgestalt.Glyphs.alignment';
+
 interface RenderMetrics {
     ascender: number;
     descender: number;
@@ -32,7 +34,8 @@ interface GlyphOutlineData {
 }
 
 class FastGlyphTileRenderer {
-    private componentColor: string = '';
+    private autoComponentColor: string = '';
+    private manualComponentColor: string = '';
     private pathColor: string = '';
     private colorsInitialized: boolean = false;
 
@@ -88,11 +91,13 @@ class FastGlyphTileRenderer {
     public updateThemeColors(): void {
         const isDarkTheme =
             document.documentElement.getAttribute('data-theme') !== 'light';
-        const colors = isDarkTheme
+        const overviewColors = isDarkTheme
             ? APP_SETTINGS.OUTLINE_EDITOR.GLYPH_OVERVIEW_COLORS_DARK
             : APP_SETTINGS.OUTLINE_EDITOR.GLYPH_OVERVIEW_COLORS_LIGHT;
-        this.componentColor = colors.COMPONENT;
-        this.pathColor = colors.PATH;
+        const fills = APP_SETTINGS.OUTLINE_EDITOR.COMPONENT_FILLS;
+        this.autoComponentColor = fills.AUTO_NORMAL;
+        this.manualComponentColor = fills.MANUAL_NORMAL;
+        this.pathColor = overviewColors.PATH;
         this.colorsInitialized = true;
     }
 
@@ -102,7 +107,8 @@ class FastGlyphTileRenderer {
     private ensureColorsInitialized(): void {
         if (
             !this.colorsInitialized ||
-            !this.componentColor ||
+            !this.autoComponentColor ||
+            !this.manualComponentColor ||
             !this.pathColor
         ) {
             this.updateThemeColors();
@@ -243,14 +249,7 @@ class FastGlyphTileRenderer {
 
         // Draw shapes
         const shapes = Array.isArray(glyphData?.shapes) ? glyphData.shapes : [];
-        this.drawShapes(
-            ctx,
-            shapes,
-            this.componentColor,
-            this.pathColor,
-            null,
-            false
-        );
+        this.drawShapes(ctx, shapes, this.pathColor, null);
 
         ctx.restore();
 
@@ -263,58 +262,95 @@ class FastGlyphTileRenderer {
     private drawShapes(
         ctx: CanvasRenderingContext2D,
         shapes: any[],
-        componentColor: string,
         pathColor: string,
-        parentTransform: number[] | null,
-        insideComponent: boolean
+        parentTransform: number[] | null
     ): void {
         if (!Array.isArray(shapes) || shapes.length === 0) {
             return;
         }
 
-        // First pass: draw all regular paths
         ctx.beginPath();
         this.buildPathsOnly(ctx, shapes);
-        ctx.fillStyle = insideComponent ? componentColor : pathColor;
+        ctx.fillStyle = pathColor;
         ctx.fill();
 
-        // Second pass: combine ALL component paths, then fill once
-        const hasComponents = shapes.some(
-            (shape) => this.normalizeShape(shape)?.kind === 'component'
+        this.fillComponents(
+            ctx,
+            shapes,
+            parentTransform,
+            true,
+            this.autoComponentColor
         );
-        if (hasComponents) {
-            ctx.beginPath();
-            for (const shape of shapes) {
-                const normalized = this.normalizeShape(shape);
-                if (normalized?.kind === 'component') {
-                    const component = normalized.data;
-                    const transform = this.parseTransform(component.transform);
+        this.fillComponents(
+            ctx,
+            shapes,
+            parentTransform,
+            false,
+            this.manualComponentColor
+        );
+    }
 
-                    const finalTransform = parentTransform
-                        ? this.multiplyTransforms(parentTransform, transform)
-                        : transform;
-
-                    if (component.layerData && component.layerData.shapes) {
-                        ctx.save();
-                        ctx.transform(
-                            finalTransform[0],
-                            finalTransform[1],
-                            finalTransform[2],
-                            finalTransform[3],
-                            finalTransform[4],
-                            finalTransform[5]
-                        );
-                        this.buildComponentPaths(
-                            ctx,
-                            component.layerData.shapes
-                        );
-                        ctx.restore();
-                    }
-                }
-            }
-            ctx.fillStyle = componentColor;
-            ctx.fill();
+    private isAutomaticallyAlignedComponent(component: any): boolean {
+        if (!component || typeof component !== 'object') {
+            return false;
         }
+        if (component.automaticAlignment === true) {
+            return true;
+        }
+        return (
+            component.format_specific?.[GLYPHS_COMPONENT_ALIGNMENT_KEY] === 1
+        );
+    }
+
+    private fillComponents(
+        ctx: CanvasRenderingContext2D,
+        shapes: any[],
+        parentTransform: number[] | null,
+        automatic: boolean,
+        fillColor: string
+    ): void {
+        let drewAny = false;
+        ctx.beginPath();
+        for (const shape of shapes) {
+            const normalized = this.normalizeShape(shape);
+            if (normalized?.kind !== 'component') {
+                continue;
+            }
+
+            const component = normalized.data;
+            if (this.isAutomaticallyAlignedComponent(component) !== automatic) {
+                continue;
+            }
+
+            const transform = this.parseTransform(component.transform);
+            const finalTransform = parentTransform
+                ? this.multiplyTransforms(parentTransform, transform)
+                : transform;
+
+            if (!component.layerData?.shapes) {
+                continue;
+            }
+
+            ctx.save();
+            ctx.transform(
+                finalTransform[0],
+                finalTransform[1],
+                finalTransform[2],
+                finalTransform[3],
+                finalTransform[4],
+                finalTransform[5]
+            );
+            this.buildComponentPaths(ctx, component.layerData.shapes);
+            ctx.restore();
+            drewAny = true;
+        }
+
+        if (!drewAny) {
+            return;
+        }
+
+        ctx.fillStyle = fillColor;
+        ctx.fill();
     }
 
     /**

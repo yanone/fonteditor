@@ -5918,21 +5918,19 @@ export class GlyphCanvasRenderer {
 
         if (outlineShapes.length === 0) return;
 
-        const colors = isDarkTheme
-            ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
-            : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
+        const fills = APP_SETTINGS.OUTLINE_EDITOR.COMPONENT_FILLS;
 
         let fillColor = isAutomatic
             ? isSelected
-                ? colors.COMPONENT_FILL_AUTO_SELECTED
+                ? fills.AUTO_SELECTED
                 : isHovered
-                  ? colors.COMPONENT_FILL_AUTO_HOVERED
-                  : colors.COMPONENT_FILL_AUTO_NORMAL
+                  ? fills.AUTO_HOVERED
+                  : fills.AUTO_NORMAL
             : isSelected
-              ? colors.COMPONENT_FILL_SELECTED
+              ? fills.MANUAL_SELECTED
               : isHovered
-                ? colors.COMPONENT_FILL_HOVERED
-                : colors.COMPONENT_FILL_NORMAL;
+                ? fills.MANUAL_HOVERED
+                : fills.MANUAL_NORMAL;
 
         // Convert to rgba format for consistent alpha handling
         fillColor = toRgba(fillColor);
@@ -5941,7 +5939,10 @@ export class GlyphCanvasRenderer {
             fillColor = desaturateColor(fillColor);
         }
 
-        const strokeColor = adjustGlyphRestingColor(fillColor, -35);
+        const strokeColor = adjustGlyphRestingColor(
+            fillColor,
+            -APP_SETTINGS.OUTLINE_EDITOR.COMPONENT_STROKE_DARKEN_PERCENT
+        );
 
         // Fill
         this.ctx.shadowBlur = 0;

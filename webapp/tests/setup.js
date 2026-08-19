@@ -150,6 +150,15 @@ global.fontManager = {
 if (typeof APP_SETTINGS === 'undefined') {
     global.APP_SETTINGS = {
         OUTLINE_EDITOR: {
+            COMPONENT_STROKE_DARKEN_PERCENT: 60,
+            COMPONENT_FILLS: {
+                MANUAL_NORMAL: '#b6936fcc',
+                MANUAL_HOVERED: '#c79461cc',
+                MANUAL_SELECTED: '#ff9933ff',
+                AUTO_NORMAL: '#5d81b6cc',
+                AUTO_HOVERED: '#487ac7cc',
+                AUTO_SELECTED: '#0066ffff'
+            },
             COLORS_DARK: {
                 GRID: 'rgba(255, 255, 255, 0.075)',
                 GLYPH_NORMAL: '#ffffff',
@@ -173,14 +182,15 @@ if (typeof APP_SETTINGS === 'undefined') {
                 ANCHOR_STROKE: '#ffffff',
                 COMPONENT_FILL_NORMAL: 'rgba(0, 255, 255, 0.15)',
                 COMPONENT_FILL_HOVERED: 'rgba(255, 136, 255, 0.2)',
-                COMPONENT_FILL_SELECTED: 'rgba(255, 0, 255, 0.3)'
+                COMPONENT_FILL_SELECTED: 'rgba(255, 0, 255, 0.3)',
+                COMPONENT_FILL_AUTO_NORMAL: 'rgba(93, 129, 182, 0.8)',
+                COMPONENT_FILL_AUTO_HOVERED: 'rgba(72, 122, 199, 0.8)',
+                COMPONENT_FILL_AUTO_SELECTED: 'rgba(0, 102, 255, 1)'
             },
             GLYPH_OVERVIEW_COLORS_DARK: {
-                COMPONENT: '#75b5c6',
                 PATH: '#777777'
             },
             GLYPH_OVERVIEW_COLORS_LIGHT: {
-                COMPONENT: '#75b5c6',
                 PATH: '#aaaaaa'
             },
             COLORS_LIGHT: {
@@ -206,7 +216,10 @@ if (typeof APP_SETTINGS === 'undefined') {
                 ANCHOR_STROKE: '#000000',
                 COMPONENT_FILL_NORMAL: 'rgba(0, 153, 204, 0.15)',
                 COMPONENT_FILL_HOVERED: 'rgba(204, 102, 204, 0.2)',
-                COMPONENT_FILL_SELECTED: 'rgba(204, 0, 204, 0.25)'
+                COMPONENT_FILL_SELECTED: 'rgba(204, 0, 204, 0.25)',
+                COMPONENT_FILL_AUTO_NORMAL: 'rgba(93, 129, 182, 0.8)',
+                COMPONENT_FILL_AUTO_HOVERED: 'rgba(72, 122, 199, 0.8)',
+                COMPONENT_FILL_AUTO_SELECTED: 'rgba(0, 102, 255, 1)'
             },
             MIN_ZOOM_FOR_GRID: 1,
             MIN_ZOOM_FOR_HANDLES: 0.04,
