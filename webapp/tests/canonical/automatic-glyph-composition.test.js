@@ -2902,7 +2902,7 @@ describe('Convert matching manual components to automatic', () => {
         ).toEqual(boldBefore);
     });
 
-    test('converts a single letter component and skips a single mark component', () => {
+    test('converts a single non-mark component and skips a single mark component', () => {
         const { glyphDataIndex } = require('../../js/glyph-data.ts');
         glyphDataIndex.resetForTests();
         glyphDataIndex.loadRecordsForTests([
@@ -2912,6 +2912,13 @@ describe('Convert matching manual components to automatic', () => {
                 name: 'LATIN CAPITAL LETTER A',
                 general_category: 'Lu',
                 script: 'Latn'
+            },
+            {
+                codepoint: 0x2e,
+                glyph_name: 'period',
+                name: 'FULL STOP',
+                general_category: 'Po',
+                script: 'Zyyy'
             },
             {
                 codepoint: 0x301,
@@ -2943,6 +2950,26 @@ describe('Convert matching manual components to automatic', () => {
                                     master: 'M0'
                                 },
                                 shapes: [makeRectPath(50, 0, 450, 700)],
+                                anchors: [],
+                                guides: [],
+                                format_specific: {}
+                            }
+                        ],
+                        format_specific: {}
+                    },
+                    {
+                        name: 'period',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                id: 'P0',
+                                width: 200,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'M0'
+                                },
+                                shapes: [makeRectPath(60, 0, 140, 120)],
                                 anchors: [],
                                 guides: [],
                                 format_specific: {}
@@ -2991,6 +3018,28 @@ describe('Convert matching manual components to automatic', () => {
                         format_specific: {}
                     },
                     {
+                        name: 'period.ss01',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                id: 'PSS0',
+                                width: 200,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'M0'
+                                },
+                                shapes: [
+                                    makeComponent('period', { auto: false })
+                                ],
+                                anchors: [],
+                                guides: [],
+                                format_specific: {}
+                            }
+                        ],
+                        format_specific: {}
+                    },
+                    {
                         name: 'acutecomb.case',
                         category: 'Mark',
                         exported: true,
@@ -3016,7 +3065,7 @@ describe('Convert matching manual components to automatic', () => {
                         format_specific: {}
                     }
                 ],
-                names: { family_name: { en: 'Standalone Letter Convert' } },
+                names: { family_name: { en: 'Standalone Non-Mark Convert' } },
                 note: '',
                 date: '2026-08-19',
                 features: { classes: {}, prefixes: {}, features: [] },
@@ -3030,20 +3079,34 @@ describe('Convert matching manual components to automatic', () => {
             const letterBefore = componentTranslations(
                 font.findGlyph('A.ss01').layers[0]
             );
+            const punctuationBefore = componentTranslations(
+                font.findGlyph('period.ss01').layers[0]
+            );
             const markBefore = componentTranslations(
                 font.findGlyph('acutecomb.case').layers[0]
             );
 
             const converted = font.convertMatchingManualComponentsToAutomatic();
 
-            expect([...converted.convertedGlyphNames]).toEqual(['A.ss01']);
-            expect(converted.compositeGlyphCount).toBe(2);
+            expect([...converted.convertedGlyphNames].sort()).toEqual([
+                'A.ss01',
+                'period.ss01'
+            ]);
+            expect(converted.compositeGlyphCount).toBe(3);
             expect(
                 font.findGlyph('A.ss01').layers[0].isAutomaticAlignedLayer()
             ).toBe(true);
             expect(
                 componentTranslations(font.findGlyph('A.ss01').layers[0])
             ).toEqual(letterBefore);
+            expect(
+                font
+                    .findGlyph('period.ss01')
+                    .layers[0].isAutomaticAlignedLayer()
+            ).toBe(true);
+            expect(
+                componentTranslations(font.findGlyph('period.ss01').layers[0])
+            ).toEqual(punctuationBefore);
             expect(
                 font
                     .findGlyph('acutecomb.case')

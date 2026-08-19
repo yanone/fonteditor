@@ -143,7 +143,7 @@ font = Font()
 #### `convertMatchingManualComponentsToAutomatic() -> { convertedGlyphNames: Set<string>; compositeGlyphCount: number; }`
 Enable automatic alignment only on glyphs where every non-empty
 foreground layer preflights: the composition engine can place every
-component (anchor attachment, or a single letter component), and the
+component (anchor attachment, or a single non-mark component), and the
 result matches stored positions on all of those layers. Manual
 components that would move stay manual.
 
@@ -532,8 +532,8 @@ In-memory preflight for migrating manual composites. The composition
 engine must be able to place every component, and the result must match
 stored translations and width. Eligible layouts today: two or more
 components where every non-base attaches by anchors, or a single
-component whose referenced glyph is a letter (Unicode general category
-L*). Does not mutate the layer.
+component whose referenced glyph is not a mark (Unicode general
+category does not start with M). Does not mutate the layer.
 
 #### `assignAutomaticCompositeKerningGroups() -> bool`
 Copy kerning groups from resolved automatic bases onto this glyph.
