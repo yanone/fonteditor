@@ -167,6 +167,40 @@ function restingLayerContextFromYMap(
 }
 
 /**
+ * Glyph layers must be a Y.Map keyed by layer id. Whole-glyph writes that
+ * go through generic `toYType` store `layers` as a Y.Array; the next
+ * layer delta would otherwise replace that array with an empty map and
+ * drop every other master layer.
+ */
+export function ensureGlyphLayersMap(glyphMap: Y.Map<unknown>): Y.Map<unknown> {
+    const existing = glyphMap.get('layers');
+    if (isYMap(existing)) {
+        return existing;
+    }
+
+    const migratedLayers: Array<[string, Record<string, unknown>]> = [];
+    if (isYArray(existing)) {
+        for (const layerVal of existing.toArray()) {
+            const layerJson = fromYType(layerVal);
+            if (!isPlainObject(layerJson)) {
+                continue;
+            }
+            const layerId = layerJson.id;
+            if (typeof layerId === 'string' && layerId.length) {
+                migratedLayers.push([layerId, layerJson]);
+            }
+        }
+    }
+
+    const layersMap = new Y.Map<unknown>();
+    glyphMap.set('layers', layersMap);
+    for (const [layerId, layerJson] of migratedLayers) {
+        layersMap.set(layerId, toYType(layerJson) as Y.Map<unknown>);
+    }
+    return layersMap;
+}
+
+/**
  * Deep-merge a flat layer JSON into an existing layer Y.Map in a Y.Doc.
  * Keeps shapes as an atomic ordered array, while anchors and guides use
  * indexed maps. A shape is an untagged Rust enum, so retaining fields from a
@@ -187,12 +221,7 @@ export function applyLayerDelta(
     if (!isYMap(glyphsMap)) return;
     const glyphMap = glyphsMap.get(glyphName);
     if (!isYMap(glyphMap)) return;
-    let layersMap: Y.Map<unknown> | unknown = glyphMap.get('layers');
-    if (!isYMap(layersMap)) {
-        layersMap = new Y.Map<unknown>();
-        glyphMap.set('layers', layersMap);
-    }
-    const layersMapTyped = layersMap as Y.Map<unknown>;
+    const layersMapTyped = ensureGlyphLayersMap(glyphMap);
     let layerMap = layersMapTyped.get(layerId);
     const existingLayerJson = isYMap(layerMap)
         ? restingLayerContextFromYMap(layerMap)

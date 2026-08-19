@@ -67,7 +67,7 @@ kerning_snapshot = master.kerning.as_dict()
 
 ### System Notifications
 
-`Notification(title, body="")` posts an OS notification. The first call may ask the browser for permission.
+`Notification(title, body="")` posts an OS notification. The first call may ask the browser for permission. The open font family name is included when a font is open. Repeating the same title and body shows the banner again without stacking a new Notification Center item.
 
 ```python
 Notification("Export complete", "MyFont.otf written")
@@ -259,7 +259,10 @@ with the `a` / `a.NNN` family. Prefers immediately after the last
 existing family sibling; otherwise appends.
 
 #### `addGlyph(name: str, category: Babelfont.GlyphCategory | str, options: { insertIndex?: number } | None = None) -> [Glyph](#glyph)`
-Add a new glyph to the font
+Add a new glyph to the font.
+
+Seeds one empty DefaultForMaster layer for every font master, using
+`Glyph.addLayer()` so Python and the UI share the same constructor.
 
 **Example:**
 ```python
@@ -374,11 +377,15 @@ Delete every raw layer belonging to a feature-variation family.
 
 #### `normalizeCategory(value: Babelfont.GlyphCategory | str | None) -> Babelfont.GlyphCategory`
 #### `addLayer(width: float | int, master: Babelfont.LayerType | None = None, requestedLayerId: str | None | None = None) -> [Layer](#layer)`
-Add a new layer to the glyph
+Add a new layer to the glyph.
+
+Default-for-master layers use the master id as the layer id so fontc
+can resolve each source to a master location.
 
 **Example:**
 ```python
 layer = glyph.addLayer(500)  # 500 units wide
+layer = glyph.addLayer(500, {"type": "DefaultForMaster", "master": master.id}, master.id)
 ```
 
 #### `addBackgroundLayer(foreground: [Layer](#layer)) -> [Layer](#layer)`

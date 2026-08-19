@@ -22,7 +22,8 @@ import {
     normalizeValueForYDocWrite,
     INDEXED_MAP_KEYS,
     diffYArray,
-    applyIndexedMapArray as applyIndexedMapArrayToYMap
+    applyIndexedMapArray as applyIndexedMapArrayToYMap,
+    ensureGlyphLayersMap
 } from './change-bridge-ydoc';
 import {
     omitRestingLayerRuntimeKeys,
@@ -1060,12 +1061,22 @@ export class PatchSyncEngine {
     recordAdd(path: (string | number)[], value: unknown): void {
         if (this._suppressRecording || this._isSyncing) return;
 
+        const isObjectValue =
+            !!value && typeof value === 'object' && !Array.isArray(value);
+        const isLayerRoot =
+            path.length === 4 && path[0] === 'glyphs' && path[2] === 'layers';
         const operations: TransactionBufferedOperation[] = [
             {
                 op: 'add',
                 path,
                 oldValue: undefined,
-                newValue: cloneHistoryValue(value)
+                newValue: cloneHistoryValue(value),
+                applyMode:
+                    isObjectValue && this._isGlyphRootPath(path)
+                        ? 'glyph-snapshot'
+                        : isObjectValue && isLayerRoot
+                          ? 'layer-snapshot'
+                          : 'default'
             }
         ];
 
@@ -7010,11 +7021,7 @@ export class PatchSyncEngine {
             return;
         }
 
-        let layersMap = glyphMap.get('layers') as Y.Map<unknown> | undefined;
-        if (!(layersMap instanceof Y.Map)) {
-            layersMap = new Y.Map<unknown>();
-            glyphMap.set('layers', layersMap);
-        }
+        const layersMap = ensureGlyphLayersMap(glyphMap);
 
         if (!delta || typeof delta !== 'object' || Array.isArray(delta)) {
             console.warn(

@@ -2368,7 +2368,7 @@ describe('Babelfont Object Model', () => {
             const testGlyph = font.addGlyph('FilteredEmptyGlyph', 'Base');
             const testLayer = testGlyph.addLayer(500);
 
-            expect(testLayer.shapes).toBeUndefined();
+            expect(testLayer.shapes).toEqual([]);
             expect(testLayer.paths).toEqual([]);
             expect(testLayer.components).toEqual([]);
 
@@ -5000,7 +5000,7 @@ describe('Babelfont Object Model', () => {
             const testLayer = testGlyph.addLayer(500);
 
             // Layer has no shapes
-            expect(testLayer.shapes).toBeUndefined();
+            expect(testLayer.shapes).toEqual([]);
 
             // Bounding box should handle this gracefully
             const bbox = testLayer.getBoundingBox(false);

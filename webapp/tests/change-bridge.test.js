@@ -14,12 +14,15 @@ const {
     jsonToYDoc,
     yDocToJson,
     fromYType,
+    toYType,
     getYPath,
     setYPath,
     deleteYPath,
     setJsonPath,
     deleteJsonPath,
-    getJsonPath
+    getJsonPath,
+    applyLayerDelta,
+    ensureGlyphLayersMap
 } = require('../js/change-bridge-ydoc');
 const {
     buildHistoryStackItems,
@@ -2445,6 +2448,107 @@ describe('ChangeBridge', () => {
         const log = bridge.getChangeLog();
         expect(log).toHaveLength(1);
         expect(log[0].op).toBe('add');
+    });
+
+    test('addGlyph stores DefaultForMaster layers in a Y.Map keyed by master id', () => {
+        const { bridge, font, fontJson } = createTestBridge('add-glyph-layers');
+        fontJson.masters.push({
+            name: { dflt: 'Bold' },
+            id: 'master-bold',
+            location: { wght: 700 },
+            guides: [],
+            metrics: {},
+            kerning: {}
+        });
+
+        const glyph = font.addGlyph('fi-lat');
+        const regularLayer = glyph.findLayerById('master-regular');
+        expect(regularLayer).toBeDefined();
+
+        const layersMap = getYPath(bridge.fontMap, [
+            'glyphs',
+            'fi-lat',
+            'layers'
+        ]);
+        expect(layersMap).toBeInstanceOf(Y.Map);
+        expect([...layersMap.keys()].sort()).toEqual([
+            'master-bold',
+            'master-regular'
+        ]);
+        expect(fromYType(layersMap.get('master-regular')).master).toEqual({
+            type: 'DefaultForMaster',
+            master: 'master-regular'
+        });
+        expect(fromYType(layersMap.get('master-bold')).master).toEqual({
+            type: 'DefaultForMaster',
+            master: 'master-bold'
+        });
+
+        regularLayer.addComponent('A');
+
+        expect([...layersMap.keys()].sort()).toEqual([
+            'master-bold',
+            'master-regular'
+        ]);
+        expect(fromYType(layersMap.get('master-regular')).master).toEqual({
+            type: 'DefaultForMaster',
+            master: 'master-regular'
+        });
+        expect(fromYType(layersMap.get('master-bold')).master).toEqual({
+            type: 'DefaultForMaster',
+            master: 'master-bold'
+        });
+        expect(fromYType(layersMap.get('master-regular')).shapes).toHaveLength(
+            1
+        );
+        expect(fromYType(layersMap.get('master-bold')).shapes || []).toEqual(
+            []
+        );
+    });
+
+    test('applyLayerDelta preserves sibling master layers when layers were stored as a Y.Array', () => {
+        const { bridge } = createTestBridge('array-layers-migrate');
+        const glyphMap = getYPath(bridge.fontMap, ['glyphs', 'A']);
+        const arrayLayers = new Y.Array();
+        arrayLayers.push([
+            toYType({
+                id: 'master-regular',
+                width: 500,
+                shapes: [],
+                master: {
+                    type: 'DefaultForMaster',
+                    master: 'master-regular'
+                }
+            }),
+            toYType({
+                id: 'master-bold',
+                width: 500,
+                shapes: [],
+                master: {
+                    type: 'DefaultForMaster',
+                    master: 'master-bold'
+                }
+            })
+        ]);
+        glyphMap.set('layers', arrayLayers);
+        expect(glyphMap.get('layers')).toBeInstanceOf(Y.Array);
+
+        applyLayerDelta(bridge.fontMap, 'A', 'master-regular', {
+            id: 'master-regular',
+            width: 500,
+            shapes: [{ reference: 'B' }],
+            master: {
+                type: 'DefaultForMaster',
+                master: 'master-regular'
+            }
+        });
+
+        const layersMap = ensureGlyphLayersMap(glyphMap);
+        expect(layersMap).toBeInstanceOf(Y.Map);
+        expect([...layersMap.keys()].sort()).toEqual([
+            'master-bold',
+            'master-regular'
+        ]);
     });
 
     test('recordAdd syncs glyphOrder when glyph is already in font JSON order', () => {

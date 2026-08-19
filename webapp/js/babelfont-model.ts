@@ -10574,9 +10574,13 @@ export class Glyph extends ArrayElementBase {
     }
 
     /**
-     * Add a new layer to the glyph
+     * Add a new layer to the glyph.
+     *
+     * Default-for-master layers use the master id as the layer id so fontc
+     * can resolve each source to a master location.
      * @example
      * layer = glyph.addLayer(500)  # 500 units wide
+     * layer = glyph.addLayer(500, {"type": "DefaultForMaster", "master": master.id}, master.id)
      */
     addLayer(
         width: number,
@@ -10588,12 +10592,19 @@ export class Glyph extends ArrayElementBase {
             this.data.layers = [];
         }
 
+        const defaultMasterId =
+            master?.type === 'DefaultForMaster' &&
+            typeof master.master === 'string' &&
+            master.master.length
+                ? master.master
+                : null;
         const layerData: Babelfont.Layer = {
             width,
-            id: this.createUniqueLayerId(requestedLayerId)
+            id: this.createUniqueLayerId(requestedLayerId ?? defaultMasterId),
+            shapes: []
         };
         if (master) {
-            layerData.master = master;
+            layerData.master = cloneForHistory(master);
         }
         return this.appendRawLayer(layerData);
     }
@@ -13938,7 +13949,10 @@ export class Font extends ModelBase {
     }
 
     /**
-     * Add a new glyph to the font
+     * Add a new glyph to the font.
+     *
+     * Seeds one empty DefaultForMaster layer for every font master, using
+     * `Glyph.addLayer()` so Python and the UI share the same constructor.
      * @example
      * glyph = font.addGlyph("myGlyph", "Base")
      */
@@ -13951,14 +13965,7 @@ export class Font extends ModelBase {
         const glyphData: Babelfont.Glyph = {
             name,
             category: Glyph.normalizeCategory(category),
-            layers: this._data.masters.map((master: Babelfont.Master) => ({
-                id: master.id,
-                width: 500,
-                master: {
-                    type: 'DefaultForMaster',
-                    master: master.id
-                }
-            })),
+            layers: [],
             exported: true
         };
         assertModelMutationAllowed();
@@ -13972,8 +13979,25 @@ export class Font extends ModelBase {
         this._data.glyphs.splice(insertIndex, 0, glyphData);
         this._glyphWrappers = null; // Invalidate cache
         this.invalidateReverseComponentIndex();
+        const glyph = new Glyph(this._data.glyphs, insertIndex, this);
+        withSuppressedModelRecording(() => {
+            for (const master of this._data.masters) {
+                const masterId = master?.id;
+                if (typeof masterId !== 'string' || !masterId.length) {
+                    continue;
+                }
+                glyph.addLayer(
+                    500,
+                    {
+                        type: 'DefaultForMaster',
+                        master: masterId
+                    },
+                    masterId
+                );
+            }
+        });
         recordAddAndMarkDirty(['glyphs', name], glyphData);
-        return new Glyph(this._data.glyphs, insertIndex, this);
+        return glyph;
     }
 
     /** Add several Unicode-backed glyphs as one undoable document edit. */
