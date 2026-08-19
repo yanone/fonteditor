@@ -378,6 +378,17 @@ copying each layer's materialized background when present.
 Delete every raw layer belonging to a feature-variation family.
 
 #### `normalizeCategory(value: Babelfont.GlyphCategory | str | None) -> Babelfont.GlyphCategory`
+#### `applyComputedAnchors(anchorNames: list[str]) -> bool`
+Copy computed component-stack anchors onto every foreground layer.
+An empty list writes every computed anchor; otherwise only the named
+anchors that exist in the computed set are added or updated.
+
+**Example:**
+```python
+glyph.applyComputedAnchors()
+glyph.applyComputedAnchors(["top"])
+```
+
 #### `addLayer(width: float | int, master: Babelfont.LayerType | None = None, requestedLayerId: str | None | None = None) -> [Layer](#layer)`
 Add a new layer to the glyph.
 
@@ -559,6 +570,18 @@ Returns a Master only when this layer is a DefaultForMaster layer.
 
 #### `getComputedName() -> str`
 #### `findAnchor(anchorName: str) -> [Anchor](#anchor) | None`
+#### `computedAnchors() -> ComputedAnchorMap`
+Anchors inherited from this layer's component stack, in this layer's
+coordinate space. Stored anchors on this layer are not included; later
+components overwrite earlier names. Nested components are walked
+recursively.
+
+**Example:**
+```python
+anchors = layer.computedAnchors()
+top = anchors["top"]
+```
+
 #### `addShape(shape: Babelfont.Shape) -> [Shape](#shape)`
 Add a new shape to the layer
 

@@ -12,6 +12,8 @@ These are the placements the engine can produce today.
 
 **Single non-mark component.** A layer whose only component references a non-mark glyph (Unicode general category does not start with `M`) can be automatic. The engine keeps the stored offset and derives width from that glyph. A single mark component is not converted this way.
 
+**Nested component anchors.** A source layer’s stored anchors are merged with `Layer.computedAnchors()`: anchors walked recursively through its component stack, transformed into that layer’s space. Stored names win. This is how oslashacute can attach to oslash even though `top` lives on `o`. `Glyph.applyComputedAnchors()` bakes those computed anchors onto the glyph’s layers.
+
 **Mark to base.** A base component exposes an ordinary anchor such as `top` or `bottom`. A later mark component exposes a matching attachment anchor whose name starts with an underscore, such as `_top` or `_bottom`. The engine snaps the mark so those two points coincide, the same way mark-to-base positioning would. Put the base first in the shape list, then the marks.
 
 **Mark stacking.** When several marks follow a base, they attach in shape order. A mark that should receive a later mark needs both its incoming anchor (`_top`) and an outgoing anchor (`top`) so the next mark has somewhere to land.

@@ -279,6 +279,8 @@ type AutomaticCompositionSourceAnchor = {
     y: number;
 };
 
+type ComputedAnchorMap = Record<string, { x: number; y: number }>;
+
 type AutomaticCompositionSourceData = {
     shapes: Unsafe[] | undefined;
     width: number;
@@ -6827,6 +6829,60 @@ export class Layer extends ArrayElementBase {
         );
     }
 
+    private collectOwnNamedAnchors(): ComputedAnchorMap {
+        const anchors: ComputedAnchorMap = {};
+        for (const anchor of this.anchors || []) {
+            if (!anchor.name) {
+                continue;
+            }
+            anchors[anchor.name] = {
+                x: roundMetricValue(anchor.x),
+                y: roundMetricValue(anchor.y)
+            };
+        }
+        return anchors;
+    }
+
+    private collectComputedAnchors(visited: Set<string>): ComputedAnchorMap {
+        const glyphName = this.getGlyphName();
+        if (glyphName && visited.has(glyphName)) {
+            return {};
+        }
+
+        const nextVisited = new Set(visited);
+        if (glyphName) {
+            nextVisited.add(glyphName);
+        }
+
+        const computed: ComputedAnchorMap = {};
+        for (const component of this.components) {
+            const referencedLayer = this.getAutomaticComponentLayer(component);
+            if (!referencedLayer) {
+                continue;
+            }
+
+            const { affine } = parseAutomaticCompositionAffine(
+                getAutomaticComponentTransform(component)
+            );
+            const nested: ComputedAnchorMap = {
+                ...referencedLayer.collectComputedAnchors(nextVisited),
+                ...referencedLayer.collectOwnNamedAnchors()
+            };
+            for (const [name, point] of Object.entries(nested)) {
+                const position = transformPointWithAffine(
+                    affine,
+                    point.x,
+                    point.y
+                );
+                computed[name] = {
+                    x: roundMetricValue(position.x),
+                    y: roundMetricValue(position.y)
+                };
+            }
+        }
+        return computed;
+    }
+
     private getAutomaticComponentAnchorChoices(
         incomingAnchorName: string,
         availableAnchors: Map<string, AutomaticCompositionAnchorPoint>,
@@ -6933,23 +6989,36 @@ export class Layer extends ArrayElementBase {
         let chainedBaseEntryAnchor: AutomaticCompositionSourceAnchor | null =
             null;
 
+        const mergedAnchors = new Map<
+            string,
+            AutomaticCompositionSourceAnchor
+        >();
+        for (const [name, point] of Object.entries(
+            componentLayer.computedAnchors()
+        )) {
+            mergedAnchors.set(name, {
+                name,
+                x: point.x,
+                y: point.y
+            });
+        }
         for (const anchor of componentLayer.anchors || []) {
             if (!anchor.name) {
                 continue;
             }
-
-            const anchorData = {
-                ...(anchor.id && { id: anchor.id }),
+            mergedAnchors.set(anchor.name, {
                 name: anchor.name,
                 x: anchor.x,
                 y: anchor.y
-            };
+            });
+        }
 
-            if (isChainedBaseEntryAnchor(anchor.name)) {
+        for (const anchorData of mergedAnchors.values()) {
+            if (isChainedBaseEntryAnchor(anchorData.name)) {
                 chainedBaseEntryAnchor = anchorData;
             }
 
-            if (isAutomaticAttachmentAnchor(anchor.name)) {
+            if (isAutomaticAttachmentAnchor(anchorData.name)) {
                 incomingAnchors.push(anchorData);
                 continue;
             }
@@ -8271,6 +8340,19 @@ export class Layer extends ArrayElementBase {
 
     findAnchor(anchorName: string): Anchor | undefined {
         return this.anchors?.find((anchor) => anchor.name === anchorName);
+    }
+
+    /**
+     * Anchors inherited from this layer's component stack, in this layer's
+     * coordinate space. Stored anchors on this layer are not included; later
+     * components overwrite earlier names. Nested components are walked
+     * recursively.
+     * @example
+     * anchors = layer.computedAnchors()
+     * top = anchors["top"]
+     */
+    computedAnchors(): ComputedAnchorMap {
+        return this.collectComputedAnchors(new Set());
     }
 
     get color(): Babelfont.Color | undefined {
@@ -10427,6 +10509,71 @@ export class Glyph extends ArrayElementBase {
                 ? undefined
                 : glyphDataIndex.getGlyphDataForName(baseName));
         return record;
+    }
+
+    /**
+     * Copy computed component-stack anchors onto every foreground layer.
+     * An empty list writes every computed anchor; otherwise only the named
+     * anchors that exist in the computed set are added or updated.
+     * @example
+     * glyph.applyComputedAnchors()
+     * glyph.applyComputedAnchors(["top"])
+     */
+    applyComputedAnchors(anchorNames: string[] = []): boolean {
+        assertModelMutationAllowed();
+        return withBridgeTransaction('Apply computed anchors', () => {
+            const requestedNames = new Set(
+                (anchorNames || []).filter(
+                    (name): name is string =>
+                        typeof name === 'string' && name.length > 0
+                )
+            );
+            const applyAll = requestedNames.size === 0;
+            let changed = false;
+
+            for (const layer of this.layers || []) {
+                if (layer.is_background) {
+                    continue;
+                }
+
+                const computed = layer.computedAnchors();
+                const names = applyAll
+                    ? Object.keys(computed)
+                    : [...requestedNames];
+                for (const name of names) {
+                    const point = computed[name];
+                    if (!point) {
+                        continue;
+                    }
+
+                    const existing = layer.findAnchor(name);
+                    if (existing) {
+                        if (
+                            Math.abs(existing.x - point.x) >
+                                METRIC_UPDATE_EPSILON ||
+                            Math.abs(existing.y - point.y) >
+                                METRIC_UPDATE_EPSILON
+                        ) {
+                            existing.x = point.x;
+                            existing.y = point.y;
+                            changed = true;
+                        }
+                        continue;
+                    }
+
+                    layer.addAnchor(point.x, point.y, name);
+                    changed = true;
+                }
+            }
+
+            if (changed) {
+                (
+                    this.parent() as Font | undefined
+                )?.rebuildAutomaticCompositesForGlyphs(new Set([this.name]));
+            }
+
+            return changed;
+        });
     }
 
     get layers(): Layer[] | undefined {

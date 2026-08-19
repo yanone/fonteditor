@@ -1,7 +1,8 @@
 # Unreleased
 
 - **Convert to Counterpunch**: Font menu command that preflights Glyphs-style composites and enables automatic alignment only where Counterpunch's composition engine can place every component (anchor attachment, or a single non-mark component) and the result matches stored positions and layer width on every layer. After Convert, an OS notification reports how many composite glyphs were converted out of the font’s total.
-- **Automatic composition handbook**: Editor chapter listing the alignments the composition engine currently supports (single non-mark component, mark-to-base, mark stacking, anchor families, chained `#exit`/`#entry` bases, and unattached automatic components).
+- **Recursive computed anchors**: `Layer.computedAnchors()` walks the component stack; the composition engine uses those anchors (stored names win). `Glyph.applyComputedAnchors()` bakes them onto foreground layers. Composites such as Fustat `oslashacute` can attach through `oslash` to `o`'s `top`.
+- **Automatic composition handbook**: Editor chapter listing the alignments the composition engine currently supports (single non-mark component, nested component anchors, mark-to-base, mark stacking, anchor families, chained `#exit`/`#entry` bases, and unattached automatic components).
 - **System notifications**: JavaScript `showSystemNotification()` and Python `Notification()` can post an OS notification after a requested action finishes. The first call may ask the browser for permission.
 - **Zoom-to-fit**: Implemented two-stage zoom-to-fit (both on cmd+0) that zooms to two different situations in text and edit mode.
 - **Preview Area Options**: Implemented three differently sizes preview areas (on space key). Medium and Full options fade out the UI chrome.

@@ -3211,3 +3211,168 @@ describe('Convert matching manual components to automatic', () => {
         }
     });
 });
+
+function makeFustatOslashAcuteFont() {
+    // Fustat Regular (master 3114FB65-9464-41A5-B67E-A8F9F43C0EF1):
+    // o.top = (285, 492), acutecomb._top = (47, 492), oslashacute acutecomb
+    // translation = (238, 0), width = 570. oslash has a slash path plus
+    // component o and stores no anchors of its own.
+    return Font.fromData({
+        upm: 1000,
+        version: [1, 0],
+        axes: [],
+        instances: [],
+        masters: [makeMaster()],
+        glyphs: [
+            {
+                name: 'o',
+                category: 'Base',
+                exported: true,
+                layers: [
+                    {
+                        id: 'O0',
+                        width: 570,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [makeRectPath(40, 0, 530, 492)],
+                        anchors: [
+                            { name: 'bottom', x: 285, y: 0 },
+                            { name: 'center', x: 285, y: 246 },
+                            { name: 'ogonek', x: 348, y: 0 },
+                            { name: 'top', x: 285, y: 492 },
+                            { name: 'topright', x: 550, y: 492 }
+                        ],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            },
+            {
+                name: 'oslash',
+                category: 'Base',
+                exported: true,
+                layers: [
+                    {
+                        id: 'OS0',
+                        width: 570,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [
+                            makeRectPath(77, -42, 496, 541),
+                            makeComponent('o', { auto: false })
+                        ],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            },
+            {
+                name: 'acutecomb',
+                category: 'Mark',
+                exported: true,
+                layers: [
+                    {
+                        id: 'AC0',
+                        width: 166,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [makeRectPath(0, 492, 90, 722)],
+                        anchors: [
+                            { name: '_top', x: 47, y: 492 },
+                            { name: 'top', x: 83, y: 722 }
+                        ],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            },
+            {
+                name: 'oslashacute',
+                category: 'Base',
+                exported: true,
+                layers: [
+                    {
+                        id: 'OSA0',
+                        width: 570,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [
+                            makeComponent('oslash', { auto: false }),
+                            makeComponent('acutecomb', {
+                                auto: false,
+                                x: 238,
+                                y: 0
+                            })
+                        ],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            }
+        ],
+        names: { family_name: { en: 'Fustat Oslashacute' } },
+        note: '',
+        date: '2026-08-19',
+        features: { classes: {}, prefixes: {}, features: [] },
+        first_kern_groups: {},
+        second_kern_groups: {},
+        custom_ot_values: [],
+        variation_sequences: [],
+        format_specific: {}
+    });
+}
+
+describe('Recursive computed anchors', () => {
+    test('computes nested anchors and converts Fustat oslashacute', () => {
+        const font = makeFustatOslashAcuteFont();
+        const oslash = font.findGlyph('oslash');
+        const oslashLayer = oslash.layers[0];
+        const oslashacute = font.findGlyph('oslashacute');
+        const compositeLayer = oslashacute.layers[0];
+
+        expect(oslashLayer.anchors).toEqual([]);
+        expect(oslashLayer.computedAnchors()).toEqual({
+            bottom: { x: 285, y: 0 },
+            center: { x: 285, y: 246 },
+            ogonek: { x: 348, y: 0 },
+            top: { x: 285, y: 492 },
+            topright: { x: 550, y: 492 }
+        });
+
+        const before = componentTranslations(compositeLayer);
+        const converted = font.convertMatchingManualComponentsToAutomatic();
+
+        expect(converted.convertedGlyphNames.has('oslashacute')).toBe(true);
+        expect(compositeLayer.isAutomaticAlignedLayer()).toBe(true);
+        expect(componentTranslations(compositeLayer)).toEqual(before);
+        expect(compositeLayer.width).toBe(570);
+        expect(oslashLayer.anchors).toEqual([]);
+
+        expect(oslash.applyComputedAnchors(['top'])).toBe(true);
+        expect(oslashLayer.findAnchor('top')).toMatchObject({
+            x: 285,
+            y: 492
+        });
+        expect(oslashLayer.findAnchor('bottom')).toBeUndefined();
+
+        expect(oslash.applyComputedAnchors()).toBe(true);
+        expect(oslashLayer.findAnchor('bottom')).toMatchObject({
+            x: 285,
+            y: 0
+        });
+    });
+});
