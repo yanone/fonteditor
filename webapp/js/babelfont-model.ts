@@ -6689,7 +6689,10 @@ export class Layer extends ArrayElementBase {
         }
 
         const nextWidth = this.getAutomaticCompositionDerivedWidth(layout);
-        return Math.abs(this.width - nextWidth) <= METRIC_UPDATE_EPSILON;
+        return (
+            Math.abs(roundMetricValue(this.width) - nextWidth) <=
+            METRIC_UPDATE_EPSILON
+        );
     }
 
     /**
@@ -12217,8 +12220,9 @@ export class Font extends ModelBase {
      * Enable automatic alignment only on glyphs where every non-empty
      * foreground layer preflights: the composition engine can place every
      * component (anchor attachment, or a single non-mark component), and the
-     * result matches stored positions on all of those layers. Manual
-     * components that would move stay manual.
+     * result matches stored translations and width on all of those layers.
+     * Manual components that would move, or layers whose advance would
+     * change, stay manual.
      *
      * `compositeGlyphCount` is how many glyphs have at least one component.
      * `convertedGlyphNames` is the subset that this run marked automatic.

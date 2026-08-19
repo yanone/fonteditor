@@ -3121,4 +3121,93 @@ describe('Convert matching manual components to automatic', () => {
             glyphDataIndex.resetForTests();
         }
     });
+
+    test('does not convert a single component whose stored width would change', () => {
+        const { glyphDataIndex } = require('../../js/glyph-data.ts');
+        glyphDataIndex.resetForTests();
+        glyphDataIndex.loadRecordsForTests([
+            {
+                codepoint: 0x31,
+                glyph_name: 'one',
+                name: 'DIGIT ONE',
+                general_category: 'Nd',
+                script: 'Zyyy'
+            }
+        ]);
+
+        try {
+            const font = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                instances: [],
+                masters: [makeMaster()],
+                glyphs: [
+                    {
+                        name: 'one',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                id: 'ONE0',
+                                width: 500,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'M0'
+                                },
+                                shapes: [makeRectPath(50, 0, 450, 700)],
+                                anchors: [],
+                                guides: [],
+                                format_specific: {}
+                            }
+                        ],
+                        format_specific: {}
+                    },
+                    {
+                        name: 'one.tf',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                id: 'ONETF0',
+                                width: 600,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'M0'
+                                },
+                                shapes: [makeComponent('one', { auto: false })],
+                                anchors: [],
+                                guides: [],
+                                format_specific: {}
+                            }
+                        ],
+                        format_specific: {}
+                    }
+                ],
+                names: { family_name: { en: 'Tabular Figure Convert' } },
+                note: '',
+                date: '2026-08-19',
+                features: { classes: {}, prefixes: {}, features: [] },
+                first_kern_groups: {},
+                second_kern_groups: {},
+                custom_ot_values: [],
+                variation_sequences: [],
+                format_specific: {}
+            });
+
+            const layer = font.findGlyph('one.tf').layers[0];
+            const before = componentTranslations(layer);
+            expect(layer.width).toBe(600);
+
+            const converted = font.convertMatchingManualComponentsToAutomatic();
+
+            expect([...converted.convertedGlyphNames]).toEqual([]);
+            expect(converted.compositeGlyphCount).toBe(1);
+            expect(layer.isAutomaticAlignedLayer()).toBe(false);
+            expect(layer.width).toBe(600);
+            expect(componentTranslations(layer)).toEqual(before);
+        } finally {
+            glyphDataIndex.resetForTests();
+        }
+    });
 });

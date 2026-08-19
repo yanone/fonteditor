@@ -144,8 +144,9 @@ font = Font()
 Enable automatic alignment only on glyphs where every non-empty
 foreground layer preflights: the composition engine can place every
 component (anchor attachment, or a single non-mark component), and the
-result matches stored positions on all of those layers. Manual
-components that would move stay manual.
+result matches stored translations and width on all of those layers.
+Manual components that would move, or layers whose advance would
+change, stay manual.
 
 `compositeGlyphCount` is how many glyphs have at least one component.
 `convertedGlyphNames` is the subset that this run marked automatic.

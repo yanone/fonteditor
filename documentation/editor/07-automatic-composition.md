@@ -28,4 +28,4 @@ Moving a source anchor, or changing a base glyph’s metrics, rebuilds downstrea
 
 ## Convert from Glyphs.app
 
-Glyphs often aligns composites because anchors exist, without storing an automatic flag. **Font → Convert to Counterpunch** turns a glyph automatic only when this engine can place every component (anchor attachment or a single non-mark component) and the result already matches the stored positions on every layer. Details are in [Glyphs.app](../migrate/01-glyphs.md).
+Glyphs often aligns composites because anchors exist, without storing an automatic flag. **Font → Convert to Counterpunch** turns a glyph automatic only when this engine can place every component (anchor attachment or a single non-mark component) and the result already matches the stored positions **and layer width** on every layer. A component that would stay put while the advance changed — for example a digit in a wider `.tf` slot — stays manual. Details are in [Glyphs.app](../migrate/01-glyphs.md).

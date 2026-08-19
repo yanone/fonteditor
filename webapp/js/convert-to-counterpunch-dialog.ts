@@ -71,7 +71,7 @@ export function openConvertToCounterpunchDialog(): void {
                 </button>
             </div>
             <div class="info-popup-content confirm-dialog-content">
-                <p>Glyphs.app usually does not store whether components are automatically aligned. Convert turns a glyph automatic only when the composition engine can place every component — by anchors, or as a single non-mark component — and the result matches the existing positions on every layer. Components that would move stay manual.</p>
+                <p>Glyphs.app usually does not store whether components are automatically aligned. Convert turns a glyph automatic only when the composition engine can place every component — by anchors, or as a single non-mark component — and the result matches the existing positions and layer width on every layer. Components that would move, or layers whose advance would change (for example a tabular figure whose width was set by hand), stay manual.</p>
                 <div class="confirm-dialog-actions">
                     <button type="button" class="dialog-button" data-action="cancel">Cancel</button>
                     <button type="button" class="dialog-button dialog-button-primary" data-action="convert">Convert</button>
