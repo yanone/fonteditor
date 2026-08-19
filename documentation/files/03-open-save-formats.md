@@ -10,4 +10,6 @@ Counterpunch converts opened sources into the Babelfont model for editing. After
 
 `.ttf` is not an editable source import. Use binary-font export when you need an OpenType file.
 
+Glyphs.app sources often leave component alignment implicit. After opening a `.glyphs` file, **Font → Convert to Counterpunch** can mark composites automatic only where Counterpunch's engine matches the stored positions. See [Glyphs.app](../migrate/01-glyphs.md).
+
 Drawing after a successful open is covered in [Glyph editor](../editor/01-glyph-editor.md).

@@ -85,6 +85,6 @@ Dependents recompute when a source glyph’s spacing changes. If a formula canno
 
 A useful pattern: set spacing on a few base glyphs, formula-link similar-looking other base glyphs on either side, use `==` only for a layer that must break the shared rule, and use `@height` when the optical relationship lives at a vertical slice rather than the overall margin.
 
-Automatically composed base glyphs inherit the base glyph’s sidebearings by default. Set sidebearings on composed glyphs only for overrides.
+Automatically composed base glyphs inherit the base glyph’s sidebearings by default. Set sidebearings on composed glyphs only for overrides. Which alignments the engine can produce is in [Automatic composition](07-automatic-composition.md).
 
 Related: [Glyph editor](01-glyph-editor.md), [Axes and masters](03-axes-masters.md), [Undo and history](../reference/undo-and-history-scopes.md).

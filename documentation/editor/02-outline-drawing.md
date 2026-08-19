@@ -19,7 +19,7 @@ Pen only draws. Insert only inserts. Convert only converts. Cut only cuts. Switc
 
 With Select, click a point, then drag. Handles appear on curve points. Make small moves first so you can tell whether you changed one segment or the whole rhythm.
 
-Right-click a component and choose **Decompose** to replace it with the transformed outlines in that same place. Linked layers get the same action on the matching component; a background layer stays local.
+Right-click a component and choose **Decompose** to replace it with the transformed outlines in that same place. Linked layers get the same action on the matching component; a background layer stays local. Automatic vs manual placement is in [Automatic composition](07-automatic-composition.md).
 
 Hold Tab in outline mode, then drag, to measure a custom distance.
 

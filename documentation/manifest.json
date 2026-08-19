@@ -71,6 +71,20 @@
             ]
         },
         {
+            "id": "migrate",
+            "title": "Migrate from other editors",
+            "kind": "section",
+            "path": "migrate/index.md",
+            "children": [
+                {
+                    "id": "migrate/glyphs",
+                    "title": "Glyphs.app",
+                    "kind": "page",
+                    "path": "migrate/01-glyphs.md"
+                }
+            ]
+        },
+        {
             "id": "editor",
             "title": "Editor",
             "kind": "section",
@@ -110,6 +124,12 @@
                     "title": "Text-mode kerning",
                     "kind": "page",
                     "path": "editor/06-text-mode-kerning.md"
+                },
+                {
+                    "id": "editor/automatic-composition",
+                    "title": "Automatic composition",
+                    "kind": "page",
+                    "path": "editor/07-automatic-composition.md"
                 }
             ]
         },

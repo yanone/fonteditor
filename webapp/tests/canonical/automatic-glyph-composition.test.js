@@ -2512,3 +2512,393 @@ describe('Automatic component editing canonical behavior', () => {
         }
     });
 });
+
+function makeConvertMaster(id, name) {
+    return {
+        id,
+        name: { en: name },
+        location: {},
+        guides: [],
+        metrics: {},
+        kerning: {},
+        custom_ot_values: {},
+        format_specific: {}
+    };
+}
+
+function componentTranslations(layer) {
+    return layer.components.map((component) => [
+        component.transform.translation[0],
+        component.transform.translation[1]
+    ]);
+}
+
+describe('Convert matching manual components to automatic', () => {
+    test('summarizes converted composites for the system notification', () => {
+        const {
+            formatConvertToCounterpunchNotificationBody
+        } = require('../../js/convert-to-counterpunch-dialog.ts');
+
+        expect(formatConvertToCounterpunchNotificationBody(12, 48)).toBe(
+            'Converted 12 of 48 composite glyphs to automatic.'
+        );
+        expect(formatConvertToCounterpunchNotificationBody(1, 1)).toBe(
+            'Converted 1 of 1 composite glyph to automatic.'
+        );
+    });
+
+    test('converts a glyph only when every component attaches and positions match', () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [makeMaster()],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'A0',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'M0'
+                            },
+                            shapes: [makeRectPath(50, 0, 450, 700)],
+                            anchors: [{ name: 'top', x: 250, y: 700 }],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: {}
+                },
+                {
+                    name: 'B',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'B0',
+                            width: 300,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'M0'
+                            },
+                            shapes: [makeRectPath(20, 0, 280, 650)],
+                            anchors: [],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: {}
+                },
+                {
+                    name: 'acutecomb',
+                    category: 'Mark',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'AC0',
+                            width: 180,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'M0'
+                            },
+                            shapes: [makeRectPath(-40, 680, 40, 780)],
+                            anchors: [{ name: '_top', x: 0, y: 720 }],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: {}
+                },
+                {
+                    name: 'Aacute',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'AA0',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'M0'
+                            },
+                            shapes: [
+                                makeComponent('A', { auto: false }),
+                                makeComponent('acutecomb', {
+                                    auto: false,
+                                    x: 250,
+                                    y: -20
+                                })
+                            ],
+                            anchors: [],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: {}
+                },
+                {
+                    name: 'AacuteManual',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'AAM0',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'M0'
+                            },
+                            shapes: [
+                                makeComponent('A', { auto: false }),
+                                makeComponent('acutecomb', {
+                                    auto: false,
+                                    x: 10,
+                                    y: 40
+                                })
+                            ],
+                            anchors: [],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: {}
+                },
+                {
+                    name: 'AB',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'AB0',
+                            width: 800,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'M0'
+                            },
+                            shapes: [
+                                makeComponent('A', { auto: false }),
+                                makeComponent('B', {
+                                    auto: false,
+                                    x: 500,
+                                    y: 0
+                                })
+                            ],
+                            anchors: [],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: {}
+                }
+            ],
+            names: { family_name: { en: 'Convert To Counterpunch' } },
+            note: '',
+            date: '2026-08-19',
+            features: { classes: {}, prefixes: {}, features: [] },
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        const matchingBefore = componentTranslations(
+            font.findGlyph('Aacute').layers[0]
+        );
+        const mismatchedBefore = componentTranslations(
+            font.findGlyph('AacuteManual').layers[0]
+        );
+        const stackedBefore = componentTranslations(
+            font.findGlyph('AB').layers[0]
+        );
+
+        const converted = font.convertMatchingManualComponentsToAutomatic();
+
+        expect([...converted.convertedGlyphNames]).toEqual(['Aacute']);
+        expect(converted.compositeGlyphCount).toBe(3);
+        expect(
+            font.findGlyph('Aacute').layers[0].isAutomaticAlignedLayer()
+        ).toBe(true);
+        expect(
+            componentTranslations(font.findGlyph('Aacute').layers[0])
+        ).toEqual(matchingBefore);
+
+        expect(
+            font.findGlyph('AacuteManual').layers[0].isAutomaticAlignedLayer()
+        ).toBe(false);
+        expect(
+            componentTranslations(font.findGlyph('AacuteManual').layers[0])
+        ).toEqual(mismatchedBefore);
+
+        expect(font.findGlyph('AB').layers[0].isAutomaticAlignedLayer()).toBe(
+            false
+        );
+        expect(componentTranslations(font.findGlyph('AB').layers[0])).toEqual(
+            stackedBefore
+        );
+    });
+
+    test('refuses conversion unless every layer of the glyph matches', () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                makeConvertMaster('M0', 'Regular'),
+                makeConvertMaster('M1', 'Bold')
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'A0',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'M0'
+                            },
+                            shapes: [makeRectPath(50, 0, 450, 700)],
+                            anchors: [{ name: 'top', x: 250, y: 700 }],
+                            guides: [],
+                            format_specific: {}
+                        },
+                        {
+                            id: 'A1',
+                            width: 540,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'M1'
+                            },
+                            shapes: [makeRectPath(40, 0, 500, 720)],
+                            anchors: [{ name: 'top', x: 280, y: 720 }],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: {}
+                },
+                {
+                    name: 'acutecomb',
+                    category: 'Mark',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'AC0',
+                            width: 180,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'M0'
+                            },
+                            shapes: [makeRectPath(-40, 680, 40, 780)],
+                            anchors: [{ name: '_top', x: 0, y: 720 }],
+                            guides: [],
+                            format_specific: {}
+                        },
+                        {
+                            id: 'AC1',
+                            width: 200,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'M1'
+                            },
+                            shapes: [makeRectPath(-50, 700, 50, 820)],
+                            anchors: [{ name: '_top', x: 0, y: 740 }],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: {}
+                },
+                {
+                    name: 'Aacute',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'AA0',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'M0'
+                            },
+                            shapes: [
+                                makeComponent('A', { auto: false }),
+                                makeComponent('acutecomb', {
+                                    auto: false,
+                                    x: 250,
+                                    y: -20
+                                })
+                            ],
+                            anchors: [],
+                            guides: [],
+                            format_specific: {}
+                        },
+                        {
+                            id: 'AA1',
+                            width: 540,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'M1'
+                            },
+                            shapes: [
+                                makeComponent('A', { auto: false }),
+                                makeComponent('acutecomb', {
+                                    auto: false,
+                                    x: 0,
+                                    y: 0
+                                })
+                            ],
+                            anchors: [],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: {}
+                }
+            ],
+            names: { family_name: { en: 'Convert Layers' } },
+            note: '',
+            date: '2026-08-19',
+            features: { classes: {}, prefixes: {}, features: [] },
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        const regularBefore = componentTranslations(
+            font.findGlyph('Aacute').layers[0]
+        );
+        const boldBefore = componentTranslations(
+            font.findGlyph('Aacute').layers[1]
+        );
+
+        const converted = font.convertMatchingManualComponentsToAutomatic();
+
+        expect(converted.convertedGlyphNames.size).toBe(0);
+        expect(converted.compositeGlyphCount).toBe(1);
+        expect(
+            font.findGlyph('Aacute').layers[0].isAutomaticAlignedLayer()
+        ).toBe(false);
+        expect(
+            font.findGlyph('Aacute').layers[1].isAutomaticAlignedLayer()
+        ).toBe(false);
+        expect(
+            componentTranslations(font.findGlyph('Aacute').layers[0])
+        ).toEqual(regularBefore);
+        expect(
+            componentTranslations(font.findGlyph('Aacute').layers[1])
+        ).toEqual(boldBefore);
+    });
+});

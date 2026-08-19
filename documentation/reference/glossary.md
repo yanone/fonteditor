@@ -4,7 +4,7 @@ Type design mixes geometric, typographic, and technical terms. These are the mea
 
 - **Anchor** — a named point on a layer, used for attachment and measurement. Not part of a contour.
 - **Assistant editing** — the pen toggle in the Assistant title bar. Off: inspect only. On: the assistant may mutate the font and edit an unsaved Script Editor buffer.
-- **Auto Align** — a component that follows automatic alignment (position and, when fully auto-aligned, spacing).
+- **Auto Align** — a component that follows automatic alignment (position and, when fully auto-aligned, spacing). See [Automatic composition](../editor/07-automatic-composition.md).
 - **Axis** — a variable dimension such as weight or width.
 - **Background layer** — a paired reference drawing behind a foreground layer. Paths only; it does not interpolate or own metrics.
 - **Base glyph** — a glyph’s ordinary layers, used when no feature variation is selected.

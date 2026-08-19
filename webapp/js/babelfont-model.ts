@@ -291,6 +291,7 @@ type AutomaticCompositionPlacement = {
     translationX: number;
     translationY: number;
     attached: boolean;
+    hasAttachment: boolean;
 };
 
 type AutomaticCompositionAttachment = {
@@ -6594,6 +6595,68 @@ export class Layer extends ArrayElementBase {
     }
 
     /**
+     * In-memory preflight for migrating manual composites. Every non-base
+     * component must attach through the composition engine, and the resulting
+     * translations and width must match what is already stored. Does not
+     * mutate the layer.
+     */
+    matchesAutomaticCompositionPreflight(
+        sourceDataCache?: WeakMap<object, AutomaticCompositionSourceData>
+    ): boolean {
+        if (this.isAutomaticAlignedLayer()) {
+            return true;
+        }
+
+        const shapes = this.shapes || [];
+        const components = this.components;
+        if (components.length < 2 || components.length !== shapes.length) {
+            return false;
+        }
+
+        for (const component of components) {
+            if (!this.getAutomaticComponentLayer(component)) {
+                return false;
+            }
+        }
+
+        const layout = this.getAutomaticCompositionLayout(sourceDataCache, {
+            allowManualComponents: true
+        });
+        if (!layout || layout.placements.length !== components.length) {
+            return false;
+        }
+
+        for (let index = 0; index < components.length; index++) {
+            const placement = layout.placements[index];
+            if (!placement) {
+                return false;
+            }
+            if (index > 0 && !placement.hasAttachment) {
+                return false;
+            }
+
+            const transform = getAutomaticComponentTransform(components[index]);
+            const currentX = transform.translation?.[0] ?? 0;
+            const currentY = transform.translation?.[1] ?? 0;
+            if (
+                Math.abs(currentX - placement.translationX) >
+                    METRIC_UPDATE_EPSILON ||
+                Math.abs(currentY - placement.translationY) >
+                    METRIC_UPDATE_EPSILON
+            ) {
+                return false;
+            }
+        }
+
+        const leftAdjustment = this.getAutomaticSidebearingAdjustment('left');
+        const rightAdjustment = this.getAutomaticSidebearingAdjustment('right');
+        const nextWidth = roundMetricValue(
+            layout.baseAdvanceWidth + leftAdjustment + rightAdjustment
+        );
+        return Math.abs(this.width - nextWidth) <= METRIC_UPDATE_EPSILON;
+    }
+
+    /**
      * Copy kerning groups from resolved automatic bases onto this glyph.
      * Invoked only when enabling automatic alignment makes the layer automatic.
      */
@@ -6921,20 +6984,30 @@ export class Layer extends ArrayElementBase {
     }
 
     private getAutomaticCompositionLayout(
-        sourceDataCache?: WeakMap<object, AutomaticCompositionSourceData>
+        sourceDataCache?: WeakMap<object, AutomaticCompositionSourceData>,
+        options?: { allowManualComponents?: boolean }
     ): AutomaticCompositionLayout | null {
-        if (this._cachedLayout !== undefined) {
-            return this._cachedLayout;
-        }
+        const allowManualComponents = options?.allowManualComponents === true;
+        if (!allowManualComponents) {
+            if (this._cachedLayout !== undefined) {
+                return this._cachedLayout;
+            }
 
-        if (!this.isAutomaticAlignedLayer()) {
-            this._cachedLayout = null;
-            return null;
+            if (!this.isAutomaticAlignedLayer()) {
+                this._cachedLayout = null;
+                return null;
+            }
         }
 
         const components = this.components;
-        if (components.length === 0) {
-            this._cachedLayout = null;
+        const shapes = this.shapes || [];
+        if (
+            components.length === 0 ||
+            (allowManualComponents && components.length !== shapes.length)
+        ) {
+            if (!allowManualComponents) {
+                this._cachedLayout = null;
+            }
             return null;
         }
 
@@ -6959,7 +7032,8 @@ export class Layer extends ArrayElementBase {
                 placements.push({
                     translationX: 0,
                     translationY: 0,
-                    attached: false
+                    attached: false,
+                    hasAttachment: false
                 });
                 continue;
             }
@@ -7014,7 +7088,8 @@ export class Layer extends ArrayElementBase {
             placements.push({
                 translationX: roundMetricValue(translationX),
                 translationY: roundMetricValue(translationY),
-                attached
+                attached,
+                hasAttachment: Boolean(attachment)
             });
 
             const appliedTransform = [...baseTransform];
@@ -7101,7 +7176,9 @@ export class Layer extends ArrayElementBase {
             baseBounds,
             baseAdvanceWidth: roundMetricValue(baseAdvanceWidth)
         };
-        this._cachedLayout = layout;
+        if (!allowManualComponents) {
+            this._cachedLayout = layout;
+        }
         return layout;
     }
 
@@ -12181,6 +12258,74 @@ export class Font extends ModelBase {
         }
     ): Set<string> {
         return this.rebuildAutomaticComposites(changedGlyphNames, options);
+    }
+
+    /**
+     * Enable automatic alignment only on glyphs where every non-empty
+     * foreground layer preflights: the composition engine can attach every
+     * non-base component by anchors, and the result matches stored positions
+     * on all of those layers. Manual components that would move stay manual.
+     *
+     * `compositeGlyphCount` is how many glyphs have at least one component.
+     * `convertedGlyphNames` is the subset that this run marked automatic.
+     */
+    convertMatchingManualComponentsToAutomatic(): {
+        convertedGlyphNames: Set<string>;
+        compositeGlyphCount: number;
+    } {
+        assertModelMutationAllowed();
+        const sourceDataCache = new WeakMap<
+            object,
+            AutomaticCompositionSourceData
+        >();
+        const convertedGlyphNames = new Set<string>();
+        let compositeGlyphCount = 0;
+
+        for (const glyph of this.glyphs) {
+            const layers = (glyph.layers || []).filter(
+                (layer) =>
+                    !layer.is_background && (layer.shapes?.length ?? 0) > 0
+            );
+            if (layers.length === 0) {
+                continue;
+            }
+            if (!layers.some((layer) => layer.components.length > 0)) {
+                continue;
+            }
+            compositeGlyphCount += 1;
+            if (layers.every((layer) => layer.isAutomaticAlignedLayer())) {
+                continue;
+            }
+            if (
+                !layers.every((layer) =>
+                    layer.matchesAutomaticCompositionPreflight(sourceDataCache)
+                )
+            ) {
+                continue;
+            }
+
+            let changed = false;
+            for (const layer of layers) {
+                if (layer.isAutomaticAlignedLayer()) {
+                    continue;
+                }
+                for (const component of layer.components) {
+                    if (component.automaticAlignment) {
+                        continue;
+                    }
+                    component.automaticAlignment = true;
+                    changed = true;
+                }
+            }
+            if (changed) {
+                convertedGlyphNames.add(glyph.name);
+            }
+        }
+
+        if (convertedGlyphNames.size > 0) {
+            this.recomputeMetricsKeys(convertedGlyphNames);
+        }
+        return { convertedGlyphNames, compositeGlyphCount };
     }
 
     /**

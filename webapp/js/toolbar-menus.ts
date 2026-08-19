@@ -26,6 +26,7 @@ import './delete-glyphs-dialog';
 import './kerning-editor-dialog';
 import { canDeleteSelectedGlyphs } from './delete-glyphs-dialog';
 import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
+import { openConvertToCounterpunchDialog } from './convert-to-counterpunch-dialog';
 
 const console = new Logger('ToolbarMenus');
 
@@ -262,6 +263,14 @@ function getFontMenuItems(): ToolbarMenuItem[] {
             disabled: !hasFontOpen,
             action: async () => {
                 window.kerningEditorDialog?.open();
+            }
+        },
+        {
+            label: 'Convert to Counterpunch…',
+            icon: 'sync',
+            disabled: !hasFontOpen,
+            action: async () => {
+                openConvertToCounterpunchDialog();
             }
         }
     ];

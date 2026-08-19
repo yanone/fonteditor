@@ -1,0 +1,29 @@
+# Automatic composition
+
+The composition engine places components on a layer from anchors and base advances, instead of leaving each component’s translation as a one-off coordinate. It runs only on a **component-only** layer where **every** component is marked automatic. If the layer also has paths, or any component is manual, the engine does not compose: every component stays freely movable.
+
+While a layer is fully automatic, translation in the property panel is derived and locked. Rotation, scale, and skew stay editable. Automatic components fill with a muted blue; manual ones with a muted orange to distinguish between them.
+
+Turn automatic alignment on from the component property panel. That flag is written on every linked layer of the glyph. Spacing formulas for automatic layers are in [Sidebearing arithmetics](04-sidebearing-arithmetics.md).
+
+## Supported alignments
+
+These are the placements the engine can produce today.
+
+**Mark to base.** A base component exposes an ordinary anchor such as `top` or `bottom`. A later mark component exposes a matching attachment anchor whose name starts with an underscore, such as `_top` or `_bottom`. The engine snaps the mark so those two points coincide, the same way mark-to-base positioning would. Put the base first in the shape list, then the marks.
+
+**Mark stacking.** When several marks follow a base, they attach in shape order. A mark that should receive a later mark needs both its incoming anchor (`_top`) and an outgoing anchor (`top`) so the next mark has somewhere to land.
+
+**Anchor families.** `top`, `top_alt`, and `top_viet` are one family: the unsuffixed name plus any suffix after an underscore. The default target is the unsuffixed anchor when it exists. If several targets in the family are available, the property panel’s anchor control (`Component.anchor`) picks the exact one.
+
+**Chained bases.** Consecutive automatic base components can join on `#exit` and `#entry`. The previous component’s `#exit` is aligned to the next component’s `#entry`. A middle base in a longer chain needs both anchors; the first needs `#exit` and the last needs `#entry`. Ligatures such as AE use this. Derived width uses the first base’s left side and the last base’s right side; the joins in between come from those anchors, not from adding each advance in isolation.
+
+**Unattached automatic components.** If a component is automatic but has no matching attachment in this layer, the engine does not zero it. It keeps the stored vertical offset. Horizontal offset is kept only on the leading unattached component, which starts the running base advance; later unattached bases are placed at that running advance (side by side) and still keep their stored vertical offset. A single automatic component, such as a raised mark variant, stays where it was stored.
+
+Attached marks do not widen the composite. Width and sidebearings come from the base components (or the chained-base ends). Extra spacing on an automatic layer is a signed `=+` / `=-` (or `==+` / `==-`) offset, not a typed sidebearing.
+
+Moving a source anchor, or changing a base glyph’s metrics, rebuilds downstream automatic composites. Other attachment conventions (for example alignments Glyphs performs without these anchors) are not composed yet; those components stay manual unless you place them yourself.
+
+## Convert from Glyphs.app
+
+Glyphs often aligns composites because anchors exist, without storing an automatic flag. **Font → Convert to Counterpunch** turns a glyph automatic only when this engine can attach every component and the result already matches the stored positions on every layer. Details are in [Glyphs.app](../migrate/01-glyphs.md).

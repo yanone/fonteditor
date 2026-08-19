@@ -140,6 +140,15 @@ font = Font()
 ### Methods
 
 #### `rebuildAutomaticCompositesForGlyphs(changedGlyphNames: Set<string> | None = None, options: { allowedGlyphNames?: Set<string>; preferredLayerId?: string | null; preferredSourceGlyphName?: string | null; } | None = None) -> Set<string>`
+#### `convertMatchingManualComponentsToAutomatic() -> { convertedGlyphNames: Set<string>; compositeGlyphCount: number; }`
+Enable automatic alignment only on glyphs where every non-empty
+foreground layer preflights: the composition engine can attach every
+non-base component by anchors, and the result matches stored positions
+on all of those layers. Manual components that would move stay manual.
+
+`compositeGlyphCount` is how many glyphs have at least one component.
+`convertedGlyphNames` is the subset that this run marked automatic.
+
 #### `collectMetricsKeyDependentGlyphs(sourceGlyphNames: Iterable<string>) -> Set<string>`
 Collect glyphs whose metrics keys / automatic-offset edges depend on the
 given source glyphs, whether or not their stored sidebearings currently
@@ -510,6 +519,12 @@ without scanning the full font. Use during interactive editing
 (keyboard/mouse) where only the current layer needs updating.
 
 #### `isAutomaticAlignedLayer() -> bool`
+#### `matchesAutomaticCompositionPreflight(sourceDataCache: WeakMap<object | None = None, AutomaticCompositionSourceData>) -> bool`
+In-memory preflight for migrating manual composites. Every non-base
+component must attach through the composition engine, and the resulting
+translations and width must match what is already stored. Does not
+mutate the layer.
+
 #### `assignAutomaticCompositeKerningGroups() -> bool`
 Copy kerning groups from resolved automatic bases onto this glyph.
 Invoked only when enabling automatic alignment makes the layer automatic.

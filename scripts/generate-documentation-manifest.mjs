@@ -18,6 +18,7 @@ const PREFIX_PATTERN = /^(\d+)-/;
 const ROOT_ORDER = [
     'getting-started',
     'files',
+    'migrate',
     'editor',
     'features',
     'overview',
