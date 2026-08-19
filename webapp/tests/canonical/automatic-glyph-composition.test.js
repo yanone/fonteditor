@@ -3513,3 +3513,122 @@ describe('Recursive computed anchors', () => {
         expect(layer.components[1].toAffineArray()[5]).toBeCloseTo(-96, 5);
     });
 });
+
+describe('Add component enables automatic composition', () => {
+    function makeAddComponentFont() {
+        return makeAutomaticCompositionFont();
+    }
+
+    test('adds a letter component to an empty layer as automatic', () => {
+        const { glyphDataIndex } = require('../../js/glyph-data.ts');
+        glyphDataIndex.resetForTests();
+        glyphDataIndex.loadRecordsForTests([
+            {
+                codepoint: 0x41,
+                glyph_name: 'A',
+                name: 'LATIN CAPITAL LETTER A',
+                general_category: 'Lu',
+                script: 'Latn'
+            }
+        ]);
+
+        try {
+            const font = makeAddComponentFont();
+            const layer = font.addGlyph('empty').layers[0];
+            const component = layer.addComponent('A');
+
+            expect(layer.isAutomaticAlignedLayer()).toBe(true);
+            expect(component.automaticAlignment).toBe(true);
+            expect(layer.width).toBeCloseTo(500, 5);
+        } finally {
+            glyphDataIndex.resetForTests();
+        }
+    });
+
+    test('does not auto-align a component added beside paths', () => {
+        const font = makeAutomaticCompositionFont();
+        const layer = font.findGlyph('A').layers[0];
+        const component = layer.addComponent('B');
+
+        expect(layer.isAutomaticAlignedLayer()).toBe(false);
+        expect(component.automaticAlignment).toBe(false);
+        expect(layer.paths.length).toBeGreaterThan(0);
+    });
+
+    test('auto-aligns a mark added onto a letter component', () => {
+        const { glyphDataIndex } = require('../../js/glyph-data.ts');
+        glyphDataIndex.resetForTests();
+        glyphDataIndex.loadRecordsForTests([
+            {
+                codepoint: 0x41,
+                glyph_name: 'A',
+                name: 'LATIN CAPITAL LETTER A',
+                general_category: 'Lu',
+                script: 'Latn'
+            }
+        ]);
+
+        try {
+            const font = makeAddComponentFont();
+            const layer = font.addGlyph('empty').layers[0];
+            layer.addComponent('A');
+            layer.addComponent('acutecomb');
+
+            expect(layer.isAutomaticAlignedLayer()).toBe(true);
+            expect(layer.components[1].toAffineArray()[4]).toBeCloseTo(250, 5);
+            expect(layer.components[1].toAffineArray()[5]).toBeCloseTo(-20, 5);
+            expect(layer.width).toBeCloseTo(500, 5);
+        } finally {
+            glyphDataIndex.resetForTests();
+        }
+    });
+
+    test('does not auto-align a single mark component', () => {
+        const font = makeAddComponentFont();
+        const layer = font.addGlyph('empty').layers[0];
+        const component = layer.addComponent('acutecomb');
+
+        expect(layer.isAutomaticAlignedLayer()).toBe(false);
+        expect(component.automaticAlignment).toBe(false);
+    });
+
+    test('keeps both letters automatic when adding a second ligature component', () => {
+        const { glyphDataIndex } = require('../../js/glyph-data.ts');
+        glyphDataIndex.resetForTests();
+        glyphDataIndex.loadRecordsForTests([
+            {
+                codepoint: 0x41,
+                glyph_name: 'A',
+                name: 'LATIN CAPITAL LETTER A',
+                general_category: 'Lu',
+                script: 'Latn'
+            },
+            {
+                codepoint: 0x42,
+                glyph_name: 'B',
+                name: 'LATIN CAPITAL LETTER B',
+                general_category: 'Lu',
+                script: 'Latn'
+            }
+        ]);
+
+        try {
+            const font = makeAddComponentFont();
+            const layer = font.addGlyph('AB.liga').layers[0];
+            layer.addComponent('A');
+            layer.addComponent('B');
+
+            expect(layer.isAutomaticAlignedLayer()).toBe(true);
+            expect(
+                layer.components.every(
+                    (component) => component.automaticAlignment
+                )
+            ).toBe(true);
+            expect(layer.components[0].toAffineArray()[4]).toBeCloseTo(0, 5);
+            expect(layer.components[1].toAffineArray()[4]).toBeCloseTo(500, 5);
+            expect(layer.width).toBeCloseTo(800, 5);
+        } finally {
+            glyphDataIndex.resetForTests();
+        }
+    });
+});

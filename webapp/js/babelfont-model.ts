@@ -6643,37 +6643,16 @@ export class Layer extends ArrayElementBase {
             return true;
         }
 
-        const shapes = this.shapes || [];
+        const layout =
+            this.getAutomaticCompositionEligibilityLayout(sourceDataCache);
+        if (!layout) {
+            return false;
+        }
+
         const components = this.components;
-        if (components.length === 0 || components.length !== shapes.length) {
-            return false;
-        }
-        if (
-            components.length === 1 &&
-            !this.referencedGlyphIsAutomaticStandaloneCategory(components[0])
-        ) {
-            return false;
-        }
-
-        for (const component of components) {
-            if (!this.getAutomaticComponentLayer(component)) {
-                return false;
-            }
-        }
-
-        const layout = this.getAutomaticCompositionLayout(sourceDataCache, {
-            allowManualComponents: true
-        });
-        if (!layout || layout.placements.length !== components.length) {
-            return false;
-        }
-
         for (let index = 0; index < components.length; index++) {
             const placement = layout.placements[index];
             if (!placement) {
-                return false;
-            }
-            if (index > 0 && !placement.hasAttachment) {
                 return false;
             }
 
@@ -6695,6 +6674,94 @@ export class Layer extends ArrayElementBase {
             Math.abs(roundMetricValue(this.width) - nextWidth) <=
             METRIC_UPDATE_EPSILON
         );
+    }
+
+    /**
+     * Whether the composition engine can place this component-only layer.
+     * Convert preflight requires every non-first component to attach.
+     * Adding a component also allows unattached non-mark bases (ligatures).
+     */
+    private getAutomaticCompositionEligibilityLayout(
+        sourceDataCache?: WeakMap<object, AutomaticCompositionSourceData>,
+        options?: { allowUnattachedStandaloneComponents?: boolean }
+    ): AutomaticCompositionLayout | null {
+        if (this.is_background) {
+            return null;
+        }
+
+        const shapes = this.shapes || [];
+        const components = this.components;
+        if (components.length === 0 || components.length !== shapes.length) {
+            return null;
+        }
+        if (
+            components.length === 1 &&
+            !this.referencedGlyphIsAutomaticStandaloneCategory(components[0])
+        ) {
+            return null;
+        }
+
+        for (const component of components) {
+            if (!this.getAutomaticComponentLayer(component)) {
+                return null;
+            }
+        }
+
+        const layout = this.getAutomaticCompositionLayout(sourceDataCache, {
+            allowManualComponents: true
+        });
+        if (!layout || layout.placements.length !== components.length) {
+            return null;
+        }
+
+        const allowUnattachedStandalone =
+            options?.allowUnattachedStandaloneComponents === true;
+        for (let index = 0; index < components.length; index++) {
+            const placement = layout.placements[index];
+            if (!placement) {
+                return null;
+            }
+            if (placement.hasAttachment) {
+                continue;
+            }
+            if (index === 0 && !allowUnattachedStandalone) {
+                continue;
+            }
+            if (index > 0 && !allowUnattachedStandalone) {
+                return null;
+            }
+            if (
+                !this.referencedGlyphIsAutomaticStandaloneCategory(
+                    components[index]
+                )
+            ) {
+                return null;
+            }
+        }
+
+        return layout;
+    }
+
+    private enableAutomaticCompositionIfEligible(): void {
+        if (
+            !this.getAutomaticCompositionEligibilityLayout(undefined, {
+                allowUnattachedStandaloneComponents: true
+            })
+        ) {
+            return;
+        }
+
+        for (const component of this.components) {
+            if (!component.automaticAlignment) {
+                component.automaticAlignment = true;
+            }
+        }
+
+        this.rebuildAutomaticComposition();
+        const glyphName = this.getGlyphName();
+        if (glyphName) {
+            this.getFont()?.recomputeMetricsKeys(new Set([glyphName]));
+        }
     }
 
     /**
@@ -8571,7 +8638,11 @@ export class Layer extends ArrayElementBase {
     }
 
     /**
-     * Add a new component to the layer
+     * Add a new component to the layer. If the layer is then eligible for
+     * automatic composition (component-only, and the engine can place every
+     * component — including unattached non-mark bases as a ligature), automatic
+     * alignment is enabled on every component and the layer is recomposed in
+     * the same transaction.
      * @example
      * component = layer.addComponent("A")
      * # With transformation matrix (legacy 6-element format converted to DecomposedAffine)
@@ -8582,14 +8653,17 @@ export class Layer extends ArrayElementBase {
         transform?: number[] | Babelfont.DecomposedAffine
     ): Component {
         assertModelMutationAllowed();
-        const componentData: Babelfont.Component = {
-            id: generateStableId(),
-            reference,
-            transform: this.normalizeTransform(transform)
-        };
-        const shapeData: Babelfont.Shape = componentData;
-        const shape = this.addShape(shapeData);
-        return shape.asComponent();
+        return withBridgeTransaction('Add component', () => {
+            const componentData: Babelfont.Component = {
+                id: generateStableId(),
+                reference,
+                transform: this.normalizeTransform(transform)
+            };
+            const shapeData: Babelfont.Shape = componentData;
+            const shape = this.addShape(shapeData);
+            this.enableAutomaticCompositionIfEligible();
+            return shape.asComponent();
+        });
     }
 
     /**

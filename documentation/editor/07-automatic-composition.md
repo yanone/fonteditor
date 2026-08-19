@@ -4,7 +4,7 @@ The composition engine places components on a layer from anchors and base advanc
 
 While a layer is fully automatic, translation in the property panel is derived and locked. Rotation, scale, and skew stay editable. Automatic components fill with a muted blue; manual ones with a muted orange to distinguish between them.
 
-Turn automatic alignment on from the component property panel. That flag is written on every linked layer of the glyph. Spacing formulas for automatic layers are in [Sidebearing arithmetics](04-sidebearing-arithmetics.md).
+Turn automatic alignment on from the component property panel. That flag is written on every linked layer of the glyph. Adding a component that makes the layer eligible (no paths, and the engine can place every component, including several unattached letters as a ligature) turns automatic alignment on immediately. Spacing formulas for automatic layers are in [Sidebearing arithmetics](04-sidebearing-arithmetics.md).
 
 ## Supported alignments
 

@@ -596,7 +596,11 @@ path = layer.addPath(closed=True)
 ```
 
 #### `addComponent(reference: str, transform: list[float | int] | Babelfont.DecomposedAffine | None = None) -> [Component](#component)`
-Add a new component to the layer
+Add a new component to the layer. If the layer is then eligible for
+automatic composition (component-only, and the engine can place every
+component — including unattached non-mark bases as a ligature), automatic
+alignment is enabled on every component and the layer is recomposed in
+the same transaction.
 
 **Example:**
 ```python
