@@ -574,10 +574,11 @@ async function showFontFileDialog(
     }
 
     dialog.style.display = 'flex';
-    fileDialogEscapeBinding?.release();
-    fileDialogEscapeBinding = bindModalEscape(closeFontFileDialog, {
-        isOpen: () => isFileDialogOpen()
-    });
+    if (!fileDialogEscapeBinding) {
+        fileDialogEscapeBinding = bindModalEscape(closeFontFileDialog, {
+            isOpen: () => isFileDialogOpen()
+        });
+    }
 
     if (targetPluginId !== fileSystemCache.currentPlugin.getId()) {
         await switchContext(targetPluginId);

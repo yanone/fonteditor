@@ -4,6 +4,9 @@
  * Tippy menus always win when visible (see tippy-utils). Open modals form a
  * LIFO stack so nested overlays close from the top without falling through to
  * the glyph canvas or other view-level Escape handlers.
+ *
+ * The stack and capture listener live on `window` so every webpack copy of
+ * this module (static vs async chunks) shares one order.
  */
 
 import { hasVisibleTippyMenus } from '../tippy-utils';
@@ -29,11 +32,27 @@ type ModalEscapeEntry = {
     isOpen?: () => boolean;
 };
 
-const modalEscapeStack: ModalEscapeEntry[] = [];
-let escapeListenerInstalled = false;
+type ModalEscapeRuntime = {
+    stack: ModalEscapeEntry[];
+    listenerInstalled: boolean;
+};
+
+function getRuntime(): ModalEscapeRuntime {
+    const holder = window as Window & {
+        __modalEscapeRuntime?: ModalEscapeRuntime;
+    };
+    if (!holder.__modalEscapeRuntime) {
+        holder.__modalEscapeRuntime = {
+            stack: [],
+            listenerInstalled: false
+        };
+    }
+    return holder.__modalEscapeRuntime;
+}
 
 function installEscapeListener(): void {
-    if (escapeListenerInstalled) {
+    const runtime = getRuntime();
+    if (runtime.listenerInstalled) {
         return;
     }
 
@@ -49,13 +68,14 @@ function installEscapeListener(): void {
                 return;
             }
 
-            while (modalEscapeStack.length > 0) {
-                const top = modalEscapeStack[modalEscapeStack.length - 1];
+            const { stack } = getRuntime();
+            while (stack.length > 0) {
+                const top = stack[stack.length - 1];
                 if (!top) {
                     break;
                 }
                 if (top.isOpen && !top.isOpen()) {
-                    modalEscapeStack.pop();
+                    stack.pop();
                     continue;
                 }
 
@@ -64,7 +84,7 @@ function installEscapeListener(): void {
                 event.stopImmediatePropagation();
 
                 // Pop before close so a re-entrant bind from close/open is clean.
-                modalEscapeStack.pop();
+                stack.pop();
                 top.close();
                 scheduleFocusedViewRestore();
                 return;
@@ -73,7 +93,7 @@ function installEscapeListener(): void {
         true
     );
 
-    escapeListenerInstalled = true;
+    runtime.listenerInstalled = true;
 }
 
 /**
@@ -86,13 +106,14 @@ export function bindModalEscape(
 ): ModalEscapeBinding {
     installEscapeListener();
 
+    const { stack } = getRuntime();
     const id = Symbol('modal-escape');
     const entry: ModalEscapeEntry = {
         id,
         close,
         isOpen: options?.isOpen
     };
-    modalEscapeStack.push(entry);
+    stack.push(entry);
 
     let released = false;
     return {
@@ -101,11 +122,12 @@ export function bindModalEscape(
                 return;
             }
             released = true;
-            const index = modalEscapeStack.findIndex(
+            const runtimeStack = getRuntime().stack;
+            const index = runtimeStack.findIndex(
                 (candidate) => candidate.id === id
             );
             if (index >= 0) {
-                modalEscapeStack.splice(index, 1);
+                runtimeStack.splice(index, 1);
             }
             scheduleFocusedViewRestore();
         }
@@ -123,5 +145,5 @@ function scheduleFocusedViewRestore(): void {
 
 /** Whether any modal is currently bound for Escape dismissal. */
 export function hasBoundModalEscape(): boolean {
-    return modalEscapeStack.some((entry) => !entry.isOpen || entry.isOpen());
+    return getRuntime().stack.some((entry) => !entry.isOpen || entry.isOpen());
 }

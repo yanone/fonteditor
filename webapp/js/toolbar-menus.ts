@@ -27,6 +27,7 @@ import './kerning-editor-dialog';
 import { canDeleteSelectedGlyphs } from './delete-glyphs-dialog';
 import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
 import { openConvertToCounterpunchDialog } from './convert-to-counterpunch-dialog';
+import { openTourIntro } from './tour';
 
 const console = new Logger('ToolbarMenus');
 
@@ -407,16 +408,24 @@ function openPrivacyPolicyModal(): void {
         return;
     }
     modal.style.display = 'flex';
-    privacyPolicyEscapeBinding?.release();
-    privacyPolicyEscapeBinding = bindModalEscape(closePrivacyPolicyModal, {
-        isOpen: () =>
-            document.getElementById('privacy-policy-modal')?.style.display ===
-            'flex'
-    });
+    if (!privacyPolicyEscapeBinding) {
+        privacyPolicyEscapeBinding = bindModalEscape(closePrivacyPolicyModal, {
+            isOpen: () =>
+                document.getElementById('privacy-policy-modal')?.style
+                    .display === 'flex'
+        });
+    }
 }
 
 function getHelpMenuItems(): ToolbarMenuItem[] {
     return [
+        {
+            label: 'Take a Tour',
+            icon: 'tour',
+            action: async () => {
+                openTourIntro();
+            }
+        },
         {
             label: 'Documentation',
             icon: 'menu_book',

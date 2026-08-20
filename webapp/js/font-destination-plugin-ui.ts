@@ -246,12 +246,13 @@ export async function showFontDestinationPluginManager(): Promise<void> {
         return;
     }
     elements.overlay.style.display = 'flex';
-    pluginManagerEscapeBinding?.release();
-    pluginManagerEscapeBinding = bindModalEscape(closePluginManager, {
-        isOpen: () =>
-            document.getElementById('plugin-manager-modal')?.style.display ===
-            'flex'
-    });
+    if (!pluginManagerEscapeBinding) {
+        pluginManagerEscapeBinding = bindModalEscape(closePluginManager, {
+            isOpen: () =>
+                document.getElementById('plugin-manager-modal')?.style
+                    .display === 'flex'
+        });
+    }
     elements.closeButton.onclick = closePluginManager;
     elements.overlay.onclick = (event) => {
         if (event.target === elements.overlay) {

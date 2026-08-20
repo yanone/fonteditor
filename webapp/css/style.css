@@ -1121,6 +1121,47 @@ kbd + kbd {
     filter: brightness(1.08);
 }
 
+.toolbar-tour-launch {
+    display: flex;
+    align-items: stretch;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.toolbar-tour-launch-btn,
+.toolbar-tour-launch-dismiss {
+    background-color: var(--tour-launch-button-bg);
+    border: 1px solid var(--tour-launch-button-border);
+    color: var(--tour-launch-button-text);
+    font-family: var(--font-families-sans);
+    cursor: pointer;
+}
+
+.toolbar-tour-launch-btn {
+    padding: 6px 12px;
+    font-size: 12px;
+    white-space: nowrap;
+    border-right: none;
+    border-radius: 4px 0 0 4px;
+}
+
+.toolbar-tour-launch-dismiss {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 6px;
+    border-radius: 0 4px 4px 0;
+}
+
+.toolbar-tour-launch-dismiss .material-symbols-outlined {
+    font-size: 16px;
+}
+
+.toolbar-tour-launch-btn:hover,
+.toolbar-tour-launch-dismiss:hover {
+    filter: brightness(1.08);
+}
+
 .toolbar-button {
     background-color: var(--button-bg);
     border: 1px solid var(--button-border);
@@ -4406,7 +4447,9 @@ kbd + kbd {
     display: flex;
 }
 
-#open-folder-container .folder-setup-callout {
+#open-folder-container .folder-setup-callout,
+#assistant-login-container .folder-setup-callout,
+#assistant-subscription-container .folder-setup-callout {
     max-width: 360px;
     width: 100%;
 }
@@ -4822,76 +4865,11 @@ kbd + kbd {
     line-height: 1.6;
 }
 
-/* Shared AI account gate styles */
-.ai-login-content {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    max-width: 300px;
-    gap: 12px;
-}
-
-.ai-login-icon {
-    font-size: 32px;
-    color: var(--text-secondary);
-    opacity: 0.5;
-}
-
-.ai-login-content h2 {
-    margin: 0;
-    font-size: calc(var(--size, 1) * (14px / var(--pixel-density, 1)));
-    color: var(--text-primary);
-    font-weight: 500;
-}
-
-.ai-login-content p {
-    margin: 0;
-    font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
-    color: var(--text-secondary);
-    line-height: 1.4;
-}
-
-.ai-login-button {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
-    font-family: var(--font-families-mono);
-    font-size: 11px;
-    font-weight: 600;
-    background: transparent;
-    color: var(--text-secondary);
-    border: 1px solid var(--border-primary);
-    border-radius: 3px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-}
-
-.ai-login-button:hover:not(:disabled) {
-    background: var(--button-hover);
-    border-color: var(--border-hover);
-}
-
-.ai-login-button:disabled {
-    color: var(--text-faint);
-    cursor: not-allowed;
-    opacity: 0.55;
-}
-
-.ai-login-button .material-symbols-outlined {
-    font-size: 14px;
-}
+/* Shared AI account gate styles — assistant uses .folder-setup-callout */
 
 /* Keep header button shortcuts visible */
 .view-title-bar .ai-button-shortcut {
     display: inline-flex;
-}
-
-.ai-login-note {
-    font-size: calc(var(--size, 1) * (11px / var(--pixel-density, 1)));
-    color: var(--text-faint);
-    font-style: italic;
 }
 
 /* ======================== ASSISTANT VIEW ======================== */
@@ -5488,6 +5466,17 @@ kbd + kbd {
     font-weight: 500;
 }
 
+.settings-item-label-with-icon {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.settings-item-label-with-icon .material-symbols-outlined {
+    font-size: 20px;
+    color: var(--text-secondary);
+}
+
 .settings-item-description {
     font-family: 'Inter', sans-serif;
     font-size: 12px;
@@ -5534,44 +5523,68 @@ kbd + kbd {
     gap: 8px;
 }
 
-.theme-option {
-    flex: 1;
-    background: transparent;
-    border: 1px solid var(--border-primary);
-    padding: 10px 12px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-family: 'Inter', sans-serif;
-    font-size: 13px;
-    color: var(--text-secondary);
-    transition: all 0.2s ease;
-    display: flex;
+.settings-action-btn {
+    display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 6px;
-    font-weight: 500;
+    background-color: var(--button-bg);
+    border: 1px solid var(--button-border);
+    color: var(--button-text);
+    font-family: var(--font-families-sans);
+    font-size: 12px;
+    line-height: 1.2;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
 }
 
-.theme-option:hover {
-    background-color: var(--input-bg);
-    color: var(--text-primary);
+.settings-action-btn[hidden] {
+    display: none;
+}
+
+.settings-action-btn .material-symbols-outlined {
+    font-size: 16px;
+}
+
+.settings-action-btn:hover:not(:disabled) {
+    background-color: var(--button-hover-bg);
     border-color: var(--border-secondary);
+    color: var(--text-primary);
 }
 
-.theme-option.active {
+.settings-action-btn:disabled {
+    cursor: wait;
+    opacity: 0.6;
+}
+
+.settings-action-btn.active {
     background-color: var(--background-active);
     color: var(--text-primary);
     border-color: var(--border-secondary);
 }
 
-.theme-option .material-symbols-outlined {
-    font-size: 18px;
+.theme-option {
+    flex: 1;
 }
 
 .settings-folder-control {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 8px;
+}
+
+.settings-account-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.settings-credits {
+    margin-top: 2px;
+    font-size: 11px;
 }
 
 .settings-folder-name {
@@ -5585,26 +5598,6 @@ kbd + kbd {
     line-height: 20px;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-.settings-folder-action {
-    border: 1px solid var(--border-primary);
-    border-radius: 4px;
-    background-color: var(--input-bg);
-    color: var(--text-primary);
-    cursor: pointer;
-    font-size: 13px;
-    padding: 8px 10px;
-}
-
-.settings-folder-action:hover:not(:disabled) {
-    border-color: var(--border-secondary);
-    background-color: var(--background-active);
-}
-
-.settings-folder-action:disabled {
-    cursor: wait;
-    opacity: 0.6;
 }
 
 /* Memory Display in Settings */

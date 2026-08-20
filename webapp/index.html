@@ -938,9 +938,12 @@
                                 id="assistant-login-container"
                                 style="display: none"
                             >
-                                <div class="ai-login-content">
+                                <div
+                                    class="folder-setup-callout folder-setup-callout-muted"
+                                >
                                     <span
-                                        class="material-symbols-outlined ai-login-icon"
+                                        class="material-symbols-outlined folder-setup-callout-icon"
+                                        aria-hidden="true"
                                         >lock</span
                                     >
                                     <h2>Sign In Required</h2>
@@ -949,15 +952,16 @@
                                         subscription to use the Assistant.
                                     </p>
                                     <button
+                                        type="button"
                                         id="assistant-login-btn"
-                                        class="ai-login-button"
+                                        class="settings-action-btn"
                                     >
                                         <span class="material-symbols-outlined"
                                             >login</span
                                         >
                                         Sign In
                                     </button>
-                                    <p class="ai-login-note">
+                                    <p class="folder-setup-callout-note">
                                         You'll be redirected to sign in and then
                                         brought back here.
                                     </p>
@@ -969,9 +973,12 @@
                                 id="assistant-subscription-container"
                                 style="display: none"
                             >
-                                <div class="ai-login-content">
+                                <div
+                                    class="folder-setup-callout folder-setup-callout-muted"
+                                >
                                     <span
-                                        class="material-symbols-outlined ai-login-icon"
+                                        class="material-symbols-outlined folder-setup-callout-icon"
+                                        aria-hidden="true"
                                         >workspace_premium</span
                                     >
                                     <h2>Advanced Subscription Required</h2>
@@ -980,15 +987,16 @@
                                         Advanced subscription.
                                     </p>
                                     <button
+                                        type="button"
                                         id="assistant-account-btn"
-                                        class="ai-login-button"
+                                        class="settings-action-btn"
                                     >
                                         <span class="material-symbols-outlined"
                                             >manage_accounts</span
                                         >
                                         Manage Account
                                     </button>
-                                    <p class="ai-login-note">
+                                    <p class="folder-setup-callout-note">
                                         Upgrade to Advanced to access the
                                         Assistant.
                                     </p>
@@ -1986,58 +1994,32 @@
                                 <div
                                     class="settings-item-description"
                                     id="settings-user-email"
-                                    style="margin-bottom: 4px"
                                 >
                                     <!-- Email will be inserted here -->
                                 </div>
                                 <div
-                                    class="settings-item-description"
+                                    class="settings-item-description settings-credits"
                                     id="settings-credits"
-                                    style="
-                                        margin-bottom: 12px;
-                                        font-size: 11px;
-                                        opacity: 0.7;
-                                    "
                                 >
                                     <!-- Credits will be inserted here -->
                                 </div>
-                                <div style="display: flex; gap: 8px">
+                                <div class="settings-account-actions">
                                     <button
+                                        type="button"
                                         id="settings-account-btn"
-                                        class="tag-button"
-                                        style="
-                                            flex: 1;
-                                            padding: 8px;
-                                            font-size: 12px;
-                                        "
+                                        class="settings-action-btn"
                                     >
-                                        <span
-                                            class="material-symbols-outlined"
-                                            style="
-                                                font-size: 16px;
-                                                vertical-align: middle;
-                                                margin-right: 4px;
-                                            "
+                                        <span class="material-symbols-outlined"
                                             >manage_accounts</span
                                         >
                                         Account
                                     </button>
                                     <button
+                                        type="button"
                                         id="settings-logout-btn"
-                                        class="tag-button"
-                                        style="
-                                            flex: 1;
-                                            padding: 8px;
-                                            font-size: 12px;
-                                        "
+                                        class="settings-action-btn"
                                     >
-                                        <span
-                                            class="material-symbols-outlined"
-                                            style="
-                                                font-size: 16px;
-                                                vertical-align: middle;
-                                                margin-right: 4px;
-                                            "
+                                        <span class="material-symbols-outlined"
                                             >logout</span
                                         >
                                         Logout
@@ -2046,31 +2028,18 @@
                             </div>
                             <div id="settings-logged-out" style="display: none">
                                 <button
+                                    type="button"
                                     id="settings-login-btn"
-                                    class="tag-button"
-                                    style="
-                                        width: 100%;
-                                        padding: 8px;
-                                        font-size: 12px;
-                                    "
+                                    class="settings-action-btn"
                                 >
-                                    <span
-                                        class="material-symbols-outlined"
-                                        style="
-                                            font-size: 16px;
-                                            vertical-align: middle;
-                                            margin-right: 4px;
-                                        "
+                                    <span class="material-symbols-outlined"
                                         >login</span
                                     >
-                                    Login
+                                    Sign In
                                 </button>
-                                <div
-                                    class="settings-item-description"
-                                    style="margin-top: 8px"
-                                >
-                                    Login with your Counterpunch account to use
-                                    the Assistant
+                                <div class="settings-item-description">
+                                    Sign in with your Counterpunch account to
+                                    use the Assistant
                                 </div>
                             </div>
                         </div>
@@ -2078,14 +2047,17 @@
                     <div class="settings-item">
                         <label class="settings-item-label">Theme</label>
                         <div class="theme-switcher">
-                            <button class="theme-option" data-theme="light">
+                            <button
+                                class="settings-action-btn theme-option"
+                                data-theme="light"
+                            >
                                 <span class="material-symbols-outlined"
                                     >light_mode</span
                                 >
                                 Light
                             </button>
                             <button
-                                class="theme-option active"
+                                class="settings-action-btn theme-option active"
                                 data-theme="dark"
                             >
                                 <span class="material-symbols-outlined"
@@ -2093,7 +2065,10 @@
                                 >
                                 Dark
                             </button>
-                            <button class="theme-option" data-theme="auto">
+                            <button
+                                class="settings-action-btn theme-option"
+                                data-theme="auto"
+                            >
                                 <span class="material-symbols-outlined"
                                     >brightness_auto</span
                                 >
@@ -2107,9 +2082,14 @@
                     </div>
                     <div class="settings-item">
                         <label
-                            class="settings-item-label"
+                            class="settings-item-label settings-item-label-with-icon"
                             for="settings-disk-root-change-btn"
                         >
+                            <span
+                                class="material-symbols-outlined"
+                                aria-hidden="true"
+                                >folder_managed</span
+                            >
                             Settings Folder
                         </label>
                         <div class="settings-folder-control">
@@ -2121,7 +2101,7 @@
                             >
                             <button
                                 id="settings-disk-root-change-btn"
-                                class="settings-folder-action"
+                                class="settings-action-btn"
                                 type="button"
                             >
                                 Choose Folder
@@ -2203,14 +2183,14 @@
                             <button
                                 type="button"
                                 id="settings-check-updates-btn"
-                                class="settings-folder-action"
+                                class="settings-action-btn"
                             >
                                 Check for updates
                             </button>
                             <button
                                 type="button"
                                 id="settings-apply-update-btn"
-                                class="settings-folder-action"
+                                class="settings-action-btn"
                                 hidden
                             >
                                 Update

@@ -10,7 +10,7 @@ IndexedDB keys such as directory handles and export destinations are not include
 
 | Keys | Literal | Pattern |
 | ---: | ---: | ---: |
-| 38 | 35 | 3 |
+| 41 | 38 | 3 |
 
 | Key | Purpose | Operations | Files |
 | --- | --- | --- | --- |
@@ -47,6 +47,9 @@ IndexedDB keys such as directory handles and export destinations are not include
 | [`runPythonScriptLastRun`](#key-runpythonscriptlastrun) | Persists run python script last run. | getItem, setItem | `webapp/js/run-python-script-dialog.ts` |
 | [`runPythonScriptSelectedPath`](#key-runpythonscriptselectedpath) | Persists run python script selected path. | getItem, setItem, removeItem | `webapp/js/run-python-script-dialog.ts` |
 | [`tabKeepAliveTimestamp`](#key-tabkeepalivetimestamp) | Persists tab keep alive timestamp. | setItem | `webapp/js/tab-lifecycle.ts` |
+| [`tourLaunchButtonDismissed`](#key-tourlaunchbuttondismissed) | Set when the user dismisses the title-bar Take a Tour chip. | getItem, setItem | `webapp/js/tour.ts` |
+| [`tourSkipped`](#key-tourskipped) | Set when the user skips the tour intro. | getItem, setItem | `webapp/js/tour.ts` |
+| [`tourStarted`](#key-tourstarted) | Set when the user starts the tour from the intro. | getItem, setItem | `webapp/js/tour.ts` |
 | [`viewLayout`](#key-viewlayout) | Persists view layout. | getItem, setItem | `webapp/js/docs-viewer.ts`, `webapp/js/resizer.ts` |
 | [`welcomeDismissedVersion`](#key-welcomedismissedversion) | Version of the welcome screen last dismissed by the user. | getItem, setItem | `webapp/js/welcome-screen.ts` |
 | [`canvasPlugin.${plugin_name}.${param_id}`](#key-canvasplugin-plugin-name-param-id-) | Canvas plugin parameter value keyed by plugin class name and parameter id. | getItem, setItem | `plugins/canvas/base/base_canvas_plugin/plugin.py` |
@@ -271,9 +274,9 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Kind: literal
 - Operations: `getItem`, `setItem`, `removeItem`
 - Sites:
-  - webapp/js/glyph-overview-filters.ts:540 `getItem` via method `loadActiveState`
-  - webapp/js/glyph-overview-filters.ts:557 `setItem` via method `saveActiveState`
-  - webapp/js/glyph-overview-filters.ts:559 `removeItem` via method `saveActiveState`
+  - webapp/js/glyph-overview-filters.ts:544 `getItem` via method `loadActiveState`
+  - webapp/js/glyph-overview-filters.ts:561 `setItem` via method `saveActiveState`
+  - webapp/js/glyph-overview-filters.ts:563 `removeItem` via method `saveActiveState`
 
 <a id="key-glyphoverviewfollowstackscroll"></a>
 
@@ -341,8 +344,8 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Kind: literal
 - Operations: `getItem`, `setItem`
 - Sites:
-  - webapp/js/file-browser.ts:2264 `setItem` via function `switchContext`
-  - webapp/js/file-browser.ts:3890 `getItem` via function `initFileBrowser`
+  - webapp/js/file-browser.ts:2269 `setItem` via function `switchContext`
+  - webapp/js/file-browser.ts:3974 `getItem` via function `initFileBrowser`
 
 <a id="key-preferredtheme"></a>
 
@@ -354,7 +357,7 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Default when unset: `auto`
 - Sites:
   - webapp/js/font-info.ts:2518 `getItem` via function `getInitialTheme`
-  - webapp/js/script-editor.ts:326 `getItem` via function `getInitialTheme`
+  - webapp/js/script-editor.ts:331 `getItem` via function `getInitialTheme`
   - webapp/js/theme-switcher.ts:55 `getItem` via method `init`
   - webapp/js/theme-switcher.ts:57 `setItem` via method `init`
   - webapp/js/theme-switcher.ts:113 `getItem` via method `init`
@@ -370,11 +373,11 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Operations: `getItem`, `setItem`
 - Default when unset: `# Write your Python script here...`
 - Sites:
-  - webapp/js/script-editor.ts:288 `getItem` via function `init`
-  - webapp/js/script-editor.ts:410 `setItem` via function `init`
-  - webapp/js/script-editor.ts:1130 `setItem` via function `handleNew`
-  - webapp/js/script-editor.ts:1373 `setItem` via function `openFile`
-  - webapp/js/script-editor.ts:1763 `setItem` via function `reloadFileFromDisk`
+  - webapp/js/script-editor.ts:293 `getItem` via function `init`
+  - webapp/js/script-editor.ts:415 `setItem` via function `init`
+  - webapp/js/script-editor.ts:1150 `setItem` via function `handleNew`
+  - webapp/js/script-editor.ts:1393 `setItem` via function `openFile`
+  - webapp/js/script-editor.ts:1783 `setItem` via function `reloadFileFromDisk`
 
 <a id="key-pythonscriptsavedcontent"></a>
 
@@ -384,8 +387,8 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Kind: literal
 - Operations: `getItem`, `setItem`
 - Sites:
-  - webapp/js/script-editor.ts:107 `setItem` via function `persistSavedContent`
-  - webapp/js/script-editor.ts:290 `getItem` via function `init`
+  - webapp/js/script-editor.ts:112 `setItem` via function `persistSavedContent`
+  - webapp/js/script-editor.ts:295 `getItem` via function `init`
 
 <a id="key-pythonscripttimestamp"></a>
 
@@ -395,10 +398,10 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Kind: literal
 - Operations: `getItem`, `setItem`
 - Sites:
-  - webapp/js/script-editor.ts:656 `getItem` via function `tryStartWatcher`
-  - webapp/js/script-editor.ts:1249 `setItem` via function `handleSave`
-  - webapp/js/script-editor.ts:1382 `setItem` via function `openFile`
-  - webapp/js/script-editor.ts:1769 `setItem` via function `reloadFileFromDisk`
+  - webapp/js/script-editor.ts:661 `getItem` via function `tryStartWatcher`
+  - webapp/js/script-editor.ts:1269 `setItem` via function `handleSave`
+  - webapp/js/script-editor.ts:1402 `setItem` via function `openFile`
+  - webapp/js/script-editor.ts:1789 `setItem` via function `reloadFileFromDisk`
 
 <a id="key-pythonscripturi"></a>
 
@@ -408,12 +411,12 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Kind: literal
 - Operations: `getItem`, `setItem`, `removeItem`
 - Sites:
-  - webapp/js/script-editor.ts:218 `setItem` via function `updateFilePath`
-  - webapp/js/script-editor.ts:295 `getItem` via function `init`
-  - webapp/js/script-editor.ts:306 `setItem` via function `init`
-  - webapp/js/script-editor.ts:1129 `removeItem` via function `handleNew`
-  - webapp/js/script-editor.ts:1374 `setItem` via function `openFile`
-  - webapp/js/script-editor.ts:1820 `removeItem` via module `top-level module code`
+  - webapp/js/script-editor.ts:223 `setItem` via function `updateFilePath`
+  - webapp/js/script-editor.ts:300 `getItem` via function `init`
+  - webapp/js/script-editor.ts:311 `setItem` via function `init`
+  - webapp/js/script-editor.ts:1149 `removeItem` via function `handleNew`
+  - webapp/js/script-editor.ts:1394 `setItem` via function `openFile`
+  - webapp/js/script-editor.ts:1840 `removeItem` via module `top-level module code`
 
 <a id="key-runpythonscriptlastrun"></a>
 
@@ -448,6 +451,42 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Sites:
   - webapp/js/tab-lifecycle.ts:223 `setItem` via method `startKeepAlive`
 
+<a id="key-tourlaunchbuttondismissed"></a>
+
+## `tourLaunchButtonDismissed`
+
+- Purpose: Set when the user dismisses the title-bar Take a Tour chip.
+- Kind: literal
+- Operations: `getItem`, `setItem`
+- Default when unset: `false`
+- Sites:
+  - webapp/js/tour.ts:73 `getItem` via function `hasDismissedTourLaunchButton`
+  - webapp/js/tour.ts:100 `setItem` via function `dismissTourLaunchButton`
+
+<a id="key-tourskipped"></a>
+
+## `tourSkipped`
+
+- Purpose: Set when the user skips the tour intro.
+- Kind: literal
+- Operations: `getItem`, `setItem`
+- Default when unset: `false`
+- Sites:
+  - webapp/js/tour.ts:56 `getItem` via function `hasSkippedTour`
+  - webapp/js/tour.ts:91 `setItem` via function `skipTour`
+
+<a id="key-tourstarted"></a>
+
+## `tourStarted`
+
+- Purpose: Set when the user starts the tour from the intro.
+- Kind: literal
+- Operations: `getItem`, `setItem`
+- Default when unset: `false`
+- Sites:
+  - webapp/js/tour.ts:64 `getItem` via function `hasStartedTour`
+  - webapp/js/tour.ts:126 `setItem` via function `startTour`
+
 <a id="key-viewlayout"></a>
 
 ## `viewLayout`
@@ -472,8 +511,8 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Kind: literal
 - Operations: `getItem`, `setItem`
 - Sites:
-  - webapp/js/welcome-screen.ts:30 `getItem` via function `hasDismissedCurrentWelcome`
-  - webapp/js/welcome-screen.ts:38 `setItem` via function `dismissCurrentWelcome`
+  - webapp/js/welcome-screen.ts:32 `getItem` via function `hasDismissedCurrentWelcome`
+  - webapp/js/welcome-screen.ts:40 `setItem` via function `dismissCurrentWelcome`
 
 <a id="key-canvasplugin-plugin-name-param-id-"></a>
 
@@ -494,10 +533,10 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Kind: pattern
 - Operations: `getItem`, `setItem`
 - Sites:
-  - webapp/js/file-browser.ts:2322 `getItem` via function `switchContext`
-  - webapp/js/file-browser.ts:3343 `setItem` via function `navigateToPath`
-  - webapp/js/file-browser.ts:3962 `getItem` via function `initFileBrowser`
-  - webapp/js/file-browser.ts:4320 `setItem` via module `top-level module code`
+  - webapp/js/file-browser.ts:2328 `getItem` via function `switchContext`
+  - webapp/js/file-browser.ts:3427 `setItem` via function `navigateToPath`
+  - webapp/js/file-browser.ts:4046 `getItem` via function `initFileBrowser`
+  - webapp/js/file-browser.ts:4433 `setItem` via module `top-level module code`
 
 <a id="key-linkedwindowcounter-sessionid-fontpath-"></a>
 

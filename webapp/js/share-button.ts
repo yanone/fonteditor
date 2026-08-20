@@ -468,10 +468,11 @@ function openShareDialog(): void {
     };
     shareDialogOverlay?.classList.add('visible');
     document.body.classList.add('share-dialog-open');
-    shareDialogEscapeBinding?.release();
-    shareDialogEscapeBinding = bindModalEscape(() => closeShareDialog(), {
-        isOpen: () => shareDialogState.isOpen
-    });
+    if (!shareDialogEscapeBinding) {
+        shareDialogEscapeBinding = bindModalEscape(() => closeShareDialog(), {
+            isOpen: () => shareDialogState.isOpen
+        });
+    }
     renderShareDialog();
     void refreshShareDialogState();
 }

@@ -86,6 +86,7 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     WasmInit: false,
     WelcomeScreen: false,
     FolderPermissions: false,
+    Tour: false,
     WindowButtons: false,
     WindowRole: false,
     WindowSync: false

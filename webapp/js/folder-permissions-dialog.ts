@@ -51,6 +51,11 @@ export const FOLDER_KIND_ICON: Record<FolderSetupKind, string> = {
     settings: 'folder_managed'
 };
 
+const FOLDER_KIND_CALLOUT_TITLE: Record<FolderSetupKind, string> = {
+    project: 'Project Folder Required',
+    settings: 'Settings Folder Required'
+};
+
 const FOLDER_KIND_CALLOUT_MESSAGE: Record<FolderSetupKind, string> = {
     project:
         'Link a Font Project Folder so Counterpunch can open and save font sources on disk.',
@@ -63,6 +68,8 @@ export const LINK_FOLDERS_BUTTON_LABEL = 'Link Folders';
 type FolderPermissionsHost = {
     listenersBound: boolean;
     autoPrompted: boolean;
+    autoPromptSettled: boolean;
+    autoPromptAwaitingClose: boolean;
     opening: boolean;
     dialogOverlay: HTMLElement | null;
     linkFolderButton: HTMLButtonElement | null;
@@ -77,6 +84,8 @@ function getHost(): FolderPermissionsHost {
         holder.__folderPermissionsHost = {
             listenersBound: false,
             autoPrompted: false,
+            autoPromptSettled: false,
+            autoPromptAwaitingClose: false,
             opening: false,
             dialogOverlay: null,
             linkFolderButton: null,
@@ -178,8 +187,31 @@ function destroyInfoTippys(): void {
     infoTippyInstances = [];
 }
 
+function bindFolderDialogEscape(overlay: HTMLElement): void {
+    const host = getHost();
+    host.escapeBinding?.release();
+    host.escapeBinding = bindModalEscape(closeDialog, {
+        isOpen: () => overlay.isConnected
+    });
+}
+
+function settleFolderPermissionsAutoPrompt(): void {
+    const host = getHost();
+    if (host.autoPromptSettled) {
+        return;
+    }
+    host.autoPromptSettled = true;
+    host.autoPromptAwaitingClose = false;
+    /**
+     * First-launch folder prompt finished (shown and closed, or skipped because
+     * setup is complete or File System Access is unavailable).
+     */
+    window.dispatchEvent(new CustomEvent('folderPermissionsAutoPromptSettled'));
+}
+
 function closeDialog(): void {
     const host = getHost();
+    const shouldSettleAutoPrompt = host.autoPromptAwaitingClose;
     host.escapeBinding?.release();
     host.escapeBinding = null;
     destroyInfoTippys();
@@ -190,6 +222,9 @@ function closeDialog(): void {
      * Folder permissions dialog was closed (Continue, Skip, Escape, or overlay).
      */
     window.dispatchEvent(new CustomEvent('folderPermissionsDialogClosed'));
+    if (shouldSettleAutoPrompt) {
+        settleFolderPermissionsAutoPrompt();
+    }
 }
 
 function bindInfoButton(
@@ -418,10 +453,12 @@ export async function openFolderPermissionsDialog(): Promise<void> {
         ?.closest('.info-popup-overlay');
     if (existingOverlay instanceof HTMLElement) {
         host.dialogOverlay = existingOverlay;
+        bindFolderDialogEscape(existingOverlay);
         await paintDialog();
         return;
     }
     if (host.dialogOverlay) {
+        bindFolderDialogEscape(host.dialogOverlay);
         await paintDialog();
         return;
     }
@@ -452,10 +489,7 @@ export async function openFolderPermissionsDialog(): Promise<void> {
     document.body.appendChild(overlay);
     host.dialogOverlay = overlay;
     void import('./file-browser');
-
-    host.escapeBinding = bindModalEscape(closeDialog, {
-        isOpen: () => overlay.isConnected
-    });
+    bindFolderDialogEscape(overlay);
 
     overlay.addEventListener('click', (event) => {
         if (event.target === overlay) {
@@ -512,6 +546,7 @@ function ensureLinkFolderButton(): HTMLButtonElement | null {
     }
     const toolbarRight = document.querySelector('.toolbar-right');
     const settingsBtn = document.getElementById('settings-btn');
+    const tourChip = document.getElementById('tour-launch-chip');
     if (!toolbarRight || !settingsBtn) {
         return null;
     }
@@ -525,7 +560,7 @@ function ensureLinkFolderButton(): HTMLButtonElement | null {
     button.addEventListener('click', () => {
         void openFolderPermissionsDialog();
     });
-    toolbarRight.insertBefore(button, settingsBtn);
+    toolbarRight.insertBefore(button, tourChip || settingsBtn);
     host.linkFolderButton = button;
     return button;
 }
@@ -559,6 +594,8 @@ export function createFolderSetupCallout(
 ): HTMLElement {
     const callout = document.createElement('div');
     callout.className = 'folder-setup-callout';
+    const title = document.createElement('h2');
+    title.textContent = FOLDER_KIND_CALLOUT_TITLE[kind];
     const text = document.createElement('p');
     text.textContent = message || FOLDER_KIND_CALLOUT_MESSAGE[kind];
     const button = document.createElement('button');
@@ -570,6 +607,7 @@ export function createFolderSetupCallout(
     });
     callout.append(
         folderKindIconElement(kind, 'folder-setup-callout-icon'),
+        title,
         text,
         button
     );
@@ -582,6 +620,7 @@ export function getFolderSetupCalloutHtml(
     return `
         <div class="folder-setup-callout">
             <span class="material-symbols-outlined folder-setup-callout-icon" aria-hidden="true">${FOLDER_KIND_ICON[kind]}</span>
+            <h2>${FOLDER_KIND_CALLOUT_TITLE[kind]}</h2>
             <p>${FOLDER_KIND_CALLOUT_MESSAGE[kind]}</p>
             <button type="button" class="toolbar-link-folder-btn" data-action="link-folder">${LINK_FOLDERS_BUTTON_LABEL}</button>
         </div>
@@ -589,19 +628,27 @@ export function getFolderSetupCalloutHtml(
 }
 
 export async function maybeShowFolderPermissionsDialog(): Promise<void> {
+    const host = getHost();
     if (!isFileSystemAccessSupported()) {
+        host.autoPrompted = true;
+        settleFolderPermissionsAutoPrompt();
         return;
     }
-    const host = getHost();
     if (isAutomatedSession() || host.autoPrompted) {
         await refreshFolderSetupStatus();
+        if (!host.autoPrompted) {
+            host.autoPrompted = true;
+            settleFolderPermissionsAutoPrompt();
+        }
         return;
     }
     host.autoPrompted = true;
     await refreshFolderSetupStatus();
     if (!cachedStatus || isFolderSetupComplete(cachedStatus)) {
+        settleFolderPermissionsAutoPrompt();
         return;
     }
+    host.autoPromptAwaitingClose = true;
     await openFolderPermissionsDialog();
 }
 

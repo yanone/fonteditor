@@ -86,6 +86,9 @@
     --folder-setup-callout-bg: #00c4e8;
     --folder-setup-callout-border: #00a8c9;
     --folder-setup-callout-text: #111111;
+    --tour-launch-button-bg: #ffb347;
+    --tour-launch-button-border: #e0942c;
+    --tour-launch-button-text: #111111;
 }
 
 /* Light theme */
@@ -169,4 +172,7 @@
     --folder-setup-callout-bg: #9eebf7;
     --folder-setup-callout-border: #4ecde8;
     --folder-setup-callout-text: #111111;
+    --tour-launch-button-bg: #ffd08a;
+    --tour-launch-button-border: #e8b05c;
+    --tour-launch-button-text: #111111;
 }
