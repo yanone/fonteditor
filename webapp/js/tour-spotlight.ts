@@ -1,9 +1,11 @@
 /**
  * Spotlight overlay: dimmed mask with cutouts, Tippy callout, and input lock.
  *
- * Clicks: the SVG evenodd mask lets pointer events through holes. Non-interactive
- * holes get blocker rects so only the tooltip (and later opt-in holes) receive
- * clicks. Keyboard: capture-phase lock; view shortcuts are blocked separately.
+ * Visual holes are an SVG evenodd fill. Hit-testing uses HTML rectangles that
+ * cover the viewport minus interactive cutouts — CSS clip-path and SVG
+ * pointer-events do not reliably punch click-through holes.
+ * Keyboard: capture-phase lock (Cmd/Ctrl+Shift+R reload is allowed);
+ * view shortcuts are blocked separately.
  */
 
 import tippy, { type Instance as TippyInstance } from 'tippy.js';
@@ -21,7 +23,7 @@ type SpotlightHost = {
     root: HTMLElement | null;
     svg: SVGSVGElement | null;
     maskPath: SVGPathElement | null;
-    blockers: HTMLElement | null;
+    hitLayer: HTMLElement | null;
     tooltip: HTMLElement | null;
     tippy: TippyInstance | null;
     slide: TourSlide | null;
@@ -29,6 +31,7 @@ type SpotlightHost = {
     onContinue: (() => void) | null;
     resizeObserver: ResizeObserver | null;
     listenersBound: boolean;
+    slideUnbind: (() => void) | null;
 };
 
 function getHost(): SpotlightHost {
@@ -38,14 +41,15 @@ function getHost(): SpotlightHost {
             root: null,
             svg: null,
             maskPath: null,
-            blockers: null,
+            hitLayer: null,
             tooltip: null,
             tippy: null,
             slide: null,
             visible: false,
             onContinue: null,
             resizeObserver: null,
-            listenersBound: false
+            listenersBound: false,
+            slideUnbind: null
         };
     }
     return holder.__tourSpotlightHost;
@@ -103,21 +107,288 @@ function padRect(rect: TourCutoutRect, padding: number): TourCutoutRect {
     };
 }
 
-function renderInlineEmphasis(text: string): HTMLElement {
-    const paragraph = document.createElement('p');
+function subtractRect(
+    base: TourCutoutRect,
+    hole: TourCutoutRect
+): TourCutoutRect[] {
+    const a = {
+        left: base.left,
+        top: base.top,
+        right: base.left + base.width,
+        bottom: base.top + base.height
+    };
+    const b = {
+        left: hole.left,
+        top: hole.top,
+        right: hole.left + hole.width,
+        bottom: hole.top + hole.height
+    };
+    const ix = Math.max(a.left, b.left);
+    const iy = Math.max(a.top, b.top);
+    const ir = Math.min(a.right, b.right);
+    const ib = Math.min(a.bottom, b.bottom);
+    if (ix >= ir || iy >= ib) {
+        return [base];
+    }
+    const pieces: TourCutoutRect[] = [];
+    if (a.top < iy) {
+        pieces.push({
+            left: a.left,
+            top: a.top,
+            width: a.right - a.left,
+            height: iy - a.top
+        });
+    }
+    if (ib < a.bottom) {
+        pieces.push({
+            left: a.left,
+            top: ib,
+            width: a.right - a.left,
+            height: a.bottom - ib
+        });
+    }
+    if (a.left < ix) {
+        pieces.push({
+            left: a.left,
+            top: iy,
+            width: ix - a.left,
+            height: ib - iy
+        });
+    }
+    if (ir < a.right) {
+        pieces.push({
+            left: ir,
+            top: iy,
+            width: a.right - ir,
+            height: ib - iy
+        });
+    }
+    return pieces.filter((piece) => piece.width > 0 && piece.height > 0);
+}
+
+function coverViewportMinusHoles(
+    width: number,
+    height: number,
+    holes: TourCutoutRect[]
+): TourCutoutRect[] {
+    let pieces: TourCutoutRect[] = [{ left: 0, top: 0, width, height }];
+    for (const hole of holes) {
+        pieces = pieces.flatMap((piece) => subtractRect(piece, hole));
+    }
+    return pieces;
+}
+
+function appendInlineMarkup(parent: HTMLElement, text: string): void {
     const parts = text.split(/\*\*(.+?)\*\*/);
     parts.forEach((part, index) => {
         if (index % 2 === 1) {
             const strong = document.createElement('strong');
             strong.textContent = part;
-            paragraph.append(strong);
+            parent.append(strong);
             return;
         }
         if (part) {
-            paragraph.append(document.createTextNode(part));
+            parent.append(document.createTextNode(part));
         }
     });
+}
+
+/** Inline markup: `**bold**` and `_italic_`. Italic wraps the action sentence. */
+function renderInlineEmphasis(text: string): HTMLElement {
+    const paragraph = document.createElement('p');
+    const parts = text.split(/_(.+?)_/);
+    parts.forEach((part, index) => {
+        if (!part) {
+            return;
+        }
+        if (index % 2 === 1) {
+            const em = document.createElement('em');
+            appendInlineMarkup(em, part);
+            paragraph.append(em);
+            return;
+        }
+        appendInlineMarkup(paragraph, part);
+    });
     return paragraph;
+}
+
+function appendTooltipBody(container: HTMLElement, body: string): void {
+    const blocks = body
+        .split(/\n\n+/)
+        .map((block) => block.trim())
+        .filter(Boolean);
+    for (const block of blocks) {
+        container.append(renderInlineEmphasis(block));
+    }
+}
+
+function resolveAdvanceClickTarget(
+    event: Event,
+    selector: string
+): HTMLElement | null {
+    const eventTarget = event.target;
+    if (!(eventTarget instanceof Element)) {
+        return null;
+    }
+    const direct = eventTarget.closest(selector);
+    if (direct instanceof HTMLElement) {
+        return direct;
+    }
+    const row = eventTarget.closest('.editor-feature-row');
+    const nested = row?.querySelector(selector);
+    if (nested instanceof HTMLElement && row?.contains(eventTarget)) {
+        return nested;
+    }
+    return null;
+}
+
+function unbindSlideInteraction(): void {
+    const host = getHost();
+    host.slideUnbind?.();
+    host.slideUnbind = null;
+}
+
+function bindSlideInteraction(slide: TourSlide): void {
+    unbindSlideInteraction();
+    const host = getHost();
+    const cleanups: Array<() => void> = [];
+
+    const selector = slide.advanceOnClick;
+    if (selector) {
+        const handler = (event: Event) => {
+            if (!host.visible || host.slide !== slide) {
+                return;
+            }
+            const button = resolveAdvanceClickTarget(event, selector);
+            if (!button) {
+                return;
+            }
+            const clickedControl = event.target;
+            const clickedTheButton =
+                clickedControl instanceof Element &&
+                !!clickedControl.closest(selector);
+            if (!clickedTheButton) {
+                if (button instanceof HTMLButtonElement && button.disabled) {
+                    return;
+                }
+                button.click();
+                return;
+            }
+            queueMicrotask(() => {
+                if (
+                    slide.advanceOnClickRequireEnabled &&
+                    !button.classList.contains('enabled')
+                ) {
+                    return;
+                }
+                host.onContinue?.();
+            });
+        };
+        document.addEventListener('click', handler, false);
+        cleanups.push(() => {
+            document.removeEventListener('click', handler, false);
+        });
+    }
+
+    if (slide.axisClamp) {
+        const clamp = slide.axisClamp;
+        let ceilingLatched = false;
+        const handler = (event: Event) => {
+            if (!host.visible || host.slide !== slide) {
+                return;
+            }
+            const slider = event.target;
+            if (!(slider instanceof HTMLInputElement)) {
+                return;
+            }
+            if (!slider.matches(clamp.selector)) {
+                return;
+            }
+            let value = parseFloat(slider.value);
+            if (!Number.isFinite(value)) {
+                return;
+            }
+            if (value <= clamp.latchMaxWhenAtOrBelow) {
+                ceilingLatched = true;
+            }
+            if (value < clamp.min) {
+                value = clamp.min;
+            }
+            if (ceilingLatched && value > clamp.max) {
+                value = clamp.max;
+            }
+            if (slider.value !== String(value)) {
+                slider.value = String(value);
+            }
+        };
+        document.addEventListener('input', handler, true);
+        cleanups.push(() => {
+            document.removeEventListener('input', handler, true);
+        });
+    }
+
+    if (slide.advanceOnSlider) {
+        const config = slide.advanceOnSlider;
+        let advanced = false;
+        const maybeAdvance = (event: Event) => {
+            if (advanced || !host.visible || host.slide !== slide) {
+                return;
+            }
+            const eventTarget = event.target;
+            if (!(eventTarget instanceof Element)) {
+                return;
+            }
+            const slider = eventTarget.closest(config.selector);
+            if (!(slider instanceof HTMLInputElement)) {
+                return;
+            }
+            const value = parseFloat(slider.value);
+            if (value >= config.min && value <= config.max) {
+                advanced = true;
+                host.onContinue?.();
+            }
+        };
+        document.addEventListener('change', maybeAdvance, false);
+        document.addEventListener('pointerup', maybeAdvance, false);
+        cleanups.push(() => {
+            document.removeEventListener('change', maybeAdvance, false);
+            document.removeEventListener('pointerup', maybeAdvance, false);
+        });
+    }
+
+    if (slide.advanceOnGlyphDoubleClick) {
+        const letter = slide.advanceOnGlyphDoubleClick;
+        let advanced = false;
+        const handler = () => {
+            if (advanced || !host.visible || host.slide !== slide) {
+                return;
+            }
+            const textRun = window.glyphCanvas?.textRunEditor;
+            if (!textRun) {
+                return;
+            }
+            const index = textRun.selectedGlyphIndex;
+            const glyph = textRun.shapedGlyphs?.[index];
+            const buffer = textRun.textBuffer || '';
+            const cluster = glyph?.cl || 0;
+            if (buffer[cluster] === letter) {
+                advanced = true;
+                queueMicrotask(() => {
+                    host.onContinue?.();
+                });
+            }
+        };
+        document.addEventListener('dblclick', handler, false);
+        cleanups.push(() => {
+            document.removeEventListener('dblclick', handler, false);
+        });
+    }
+
+    host.slideUnbind = () => {
+        for (const cleanup of cleanups) {
+            cleanup();
+        }
+    };
 }
 
 function cutoutToClientRect(rect: TourCutoutRect): DOMRect {
@@ -192,7 +463,7 @@ function resolvedCutouts(
 
 function paintSpotlight(slide: TourSlide): void {
     const host = getHost();
-    if (!host.svg || !host.maskPath || !host.blockers || !host.tippy) {
+    if (!host.svg || !host.maskPath || !host.hitLayer || !host.tippy) {
         return;
     }
 
@@ -219,18 +490,22 @@ function paintSpotlight(slide: TourSlide): void {
         `M0,0 H${width} V${height} H0 Z ${holePaths}`
     );
 
-    host.blockers.replaceChildren();
-    for (const { cutout, rect } of holes) {
-        if (cutout.interactive) {
-            continue;
-        }
-        const blocker = document.createElement('div');
-        blocker.className = 'tour-spotlight-hole-blocker';
-        blocker.style.left = `${rect.left}px`;
-        blocker.style.top = `${rect.top}px`;
-        blocker.style.width = `${rect.width}px`;
-        blocker.style.height = `${rect.height}px`;
-        host.blockers.append(blocker);
+    const interactiveHoles = holes
+        .filter(({ cutout }) => cutout.interactive)
+        .map(({ rect }) => rect);
+    host.hitLayer.replaceChildren();
+    for (const piece of coverViewportMinusHoles(
+        width,
+        height,
+        interactiveHoles
+    )) {
+        const el = document.createElement('div');
+        el.className = 'tour-spotlight-hit-piece';
+        el.style.left = `${piece.left}px`;
+        el.style.top = `${piece.top}px`;
+        el.style.width = `${piece.width}px`;
+        el.style.height = `${piece.height}px`;
+        host.hitLayer.append(el);
     }
 
     const target = holes.find(
@@ -243,9 +518,19 @@ function paintSpotlight(slide: TourSlide): void {
     }
 }
 
+function isBrowserReloadShortcut(event: KeyboardEvent): boolean {
+    const cmdOrCtrl = event.metaKey || event.ctrlKey;
+    return (
+        cmdOrCtrl && event.shiftKey && !event.altKey && event.code === 'KeyR'
+    );
+}
+
 function onTourKeyDown(event: KeyboardEvent): void {
     const host = getHost();
     if (!host.visible) {
+        return;
+    }
+    if (isBrowserReloadShortcut(event)) {
         return;
     }
     const target = event.target as HTMLElement | null;
@@ -276,8 +561,8 @@ function bindSpotlightChrome(): void {
     path.setAttribute('fill-rule', 'evenodd');
     svg.append(path);
 
-    const blockers = document.createElement('div');
-    blockers.className = 'tour-spotlight-blockers';
+    const hitLayer = document.createElement('div');
+    hitLayer.className = 'tour-spotlight-hit';
 
     const anchor = document.createElement('div');
     anchor.className = 'tour-tooltip-anchor';
@@ -287,13 +572,13 @@ function bindSpotlightChrome(): void {
     tooltip.setAttribute('role', 'dialog');
     tooltip.setAttribute('aria-modal', 'true');
 
-    root.append(svg, blockers, anchor);
+    root.append(svg, hitLayer, anchor);
     document.body.append(root);
 
     host.root = root;
     host.svg = svg;
     host.maskPath = path;
-    host.blockers = blockers;
+    host.hitLayer = hitLayer;
     host.tooltip = tooltip;
     host.tippy = tippy(anchor, {
         content: tooltip,
@@ -326,21 +611,23 @@ function fillTooltip(slide: TourSlide): void {
     title.id = titleId;
     title.textContent = slide.tooltip.title;
 
-    const body = renderInlineEmphasis(slide.tooltip.body);
+    host.tooltip.append(title);
+    appendTooltipBody(host.tooltip, slide.tooltip.body);
 
-    const actions = document.createElement('div');
-    actions.className = 'tour-tooltip-actions';
-    const continueBtn = document.createElement('button');
-    continueBtn.type = 'button';
-    continueBtn.className = 'dialog-button dialog-button-primary';
-    continueBtn.dataset.tourAction = 'continue';
-    continueBtn.textContent = slide.tooltip.continueLabel || 'Continue';
-    continueBtn.addEventListener('click', () => {
-        host.onContinue?.();
-    });
-    actions.append(continueBtn);
-
-    host.tooltip.append(title, body, actions);
+    if (slide.tooltip.continueLabel) {
+        const actions = document.createElement('div');
+        actions.className = 'tour-tooltip-actions';
+        const continueBtn = document.createElement('button');
+        continueBtn.type = 'button';
+        continueBtn.className = 'dialog-button dialog-button-primary';
+        continueBtn.dataset.tourAction = 'continue';
+        continueBtn.textContent = slide.tooltip.continueLabel;
+        continueBtn.addEventListener('click', () => {
+            host.onContinue?.();
+        });
+        actions.append(continueBtn);
+        host.tooltip.append(actions);
+    }
 }
 
 export async function showTourSlide(
@@ -356,6 +643,7 @@ export async function showTourSlide(
     fillTooltip(slide);
     await slide.prepare?.();
     paintSpotlight(slide);
+    bindSlideInteraction(slide);
 
     if (!host.listenersBound) {
         document.addEventListener('keydown', onTourKeyDown, true);
@@ -395,6 +683,7 @@ export async function transitionTourSlide(
     onContinue: () => void
 ): Promise<void> {
     const host = getHost();
+    unbindSlideInteraction();
     host.root?.classList.remove('is-visible');
     await wait(FADE_MS);
     await showTourSlide(slide, onContinue);
@@ -405,6 +694,7 @@ export function hideTourSpotlight(): void {
     host.visible = false;
     host.slide = null;
     host.onContinue = null;
+    unbindSlideInteraction();
     setViewShortcutLock(null);
     document.removeEventListener('keydown', onTourKeyDown, true);
     window.removeEventListener('resize', onWindowResize);
@@ -420,7 +710,7 @@ export function hideTourSpotlight(): void {
         host.root = null;
         host.svg = null;
         host.maskPath = null;
-        host.blockers = null;
+        host.hitLayer = null;
         host.tooltip = null;
     }, FADE_MS);
 }

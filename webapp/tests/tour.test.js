@@ -7,7 +7,36 @@ describe('tour intro', () => {
                 <button id="settings-btn" type="button">Settings</button>
             </div>
             <button id="editor-tool-text" type="button">Text</button>
+            <div id="glyph-editor-scroll-content">
+                <input
+                    class="editor-axis-slider"
+                    data-axis-tag="wght"
+                    type="range"
+                    min="400"
+                    max="800"
+                    value="800"
+                />
+                <div class="editor-feature-row">
+                    <button type="button" data-feature-tag="ss03">ss03</button>
+                    <span>Stylistic Set 3</span>
+                </div>
+            </div>
+            <div id="glyph-properties-section">
+                <div class="editor-layers-list">
+                    <div class="editor-layer-item" data-master-id="regular">
+                        <div class="master-item-name">Regular</div>
+                    </div>
+                    <div class="editor-layer-item" data-master-id="extrabold">
+                        <div class="master-item-name">ExtraBold</div>
+                    </div>
+                </div>
+            </div>
         `;
+        document
+            .querySelector('[data-feature-tag="ss03"]')
+            .addEventListener('click', (event) => {
+                event.currentTarget.classList.toggle('enabled');
+            });
     }
 
     function mockTourStartDependencies() {
@@ -27,12 +56,33 @@ describe('tour intro', () => {
         };
         window.focusView = jest.fn();
         window.resizeView = jest.fn();
+        window.currentFontModel = {
+            masters: [
+                {
+                    id: 'regular',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 400 }
+                },
+                {
+                    id: 'extrabold',
+                    name: { dflt: 'ExtraBold' },
+                    location: { wght: 800 }
+                }
+            ]
+        };
         window.glyphCanvas = {
             canvas: document.createElement('canvas'),
             outlineEditor: { active: false },
+            selectMaster: jest.fn().mockResolvedValue(undefined),
             textRunEditor: {
                 setTextBuffer: jest.fn(),
-                shapedGlyphs: [{ ax: 400, dx: 0, dy: 0 }]
+                textBuffer: 'Hämburger',
+                selectedGlyphIndex: -1,
+                shapedGlyphs: [
+                    { ax: 400, dx: 0, dy: 0, cl: 0, g: 1 },
+                    { ax: 400, dx: 0, dy: 0, cl: 1, g: 2 },
+                    { ax: 400, dx: 0, dy: 0, cl: 2, g: 3 }
+                ]
             },
             viewportManager: {
                 fontToScreenCoordinates: (x, y) => ({ x, y })
@@ -145,6 +195,10 @@ describe('tour intro', () => {
         expect(
             window.glyphCanvas.textRunEditor.setTextBuffer
         ).toHaveBeenCalledWith('Hämburger');
+        expect(window.glyphCanvas.selectMaster).toHaveBeenCalledWith(
+            'regular',
+            { wght: 400 }
+        );
         expect(window.focusView).toHaveBeenCalledWith('view-editor');
         expect(window.resizeView).toHaveBeenCalledWith('view-editor');
         expect(document.querySelector('.tour-tooltip h3').textContent).toBe(
@@ -156,6 +210,33 @@ describe('tour intro', () => {
         expect(
             document.querySelector('[data-tour-action="continue"]').textContent
         ).toBe('Continue');
+    });
+
+    test('Cmd+Shift+R is not captured during the spotlight tour', async () => {
+        tour.openTourIntro();
+        await tour.startTour();
+
+        const reload = new KeyboardEvent('keydown', {
+            key: 'R',
+            code: 'KeyR',
+            metaKey: true,
+            shiftKey: true,
+            bubbles: true,
+            cancelable: true
+        });
+        document.dispatchEvent(reload);
+        expect(reload.defaultPrevented).toBe(false);
+
+        const blocked = new KeyboardEvent('keydown', {
+            key: 'e',
+            code: 'KeyE',
+            metaKey: true,
+            shiftKey: true,
+            bubbles: true,
+            cancelable: true
+        });
+        document.dispatchEvent(blocked);
+        expect(blocked.defaultPrevented).toBe(true);
     });
 
     test('Cancel on unsaved changes keeps the intro open', async () => {
@@ -189,12 +270,214 @@ describe('tour intro', () => {
         tour.openTourIntro();
         expect(document.getElementById('tour-intro-title')).not.toBeNull();
     });
+
+    test('Continue opens the ss03 feature slide without a Continue button', async () => {
+        tour.openTourIntro();
+        await tour.startTour();
+        document
+            .querySelector('[data-tour-action="continue"]')
+            .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
+        expect(document.querySelector('.tour-tooltip h3').textContent).toBe(
+            'Active OpenType features'
+        );
+        expect(
+            document.querySelector('[data-tour-action="continue"]')
+        ).toBeNull();
+        const paragraphs = [
+            ...document.querySelectorAll('.tour-tooltip p')
+        ].map((node) => node.textContent);
+        expect(paragraphs).toEqual([
+            'The OpenType feature buttons will substitute or position glyphs according to features definitions in the font.',
+            'Click on Stylistic Set 3 (ss03) to activate it.'
+        ]);
+        expect(document.querySelector('.tour-tooltip em').textContent).toBe(
+            'Click on Stylistic Set 3 (ss03) to activate it.'
+        );
+        expect(
+            document.querySelector('.tour-tooltip em strong').textContent
+        ).toBe('ss03');
+        expect(window.__tourHost.slideIndex).toBe(1);
+        expect(document.querySelector('.tour-spotlight-hit')).not.toBeNull();
+    });
+
+    test('clicking ss03 advances to the masters list', async () => {
+        tour.openTourIntro();
+        await tour.startTour();
+        document
+            .querySelector('[data-tour-action="continue"]')
+            .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
+        document
+            .querySelector('[data-feature-tag="ss03"]')
+            .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
+        expect(window.__tourHost.slideIndex).toBe(2);
+        expect(document.querySelector('.tour-tooltip h3').textContent).toBe(
+            'Masters List'
+        );
+        expect(
+            document.querySelector('[data-tour-master="ExtraBold"]')
+        ).not.toBeNull();
+    });
+
+    test('clicking ExtraBold opens the axis sliders slide', async () => {
+        tour.openTourIntro();
+        await tour.startTour();
+        document
+            .querySelector('[data-tour-action="continue"]')
+            .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        document
+            .querySelector('[data-feature-tag="ss03"]')
+            .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        document
+            .querySelector('[data-master-id="extrabold"]')
+            .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
+        expect(window.__tourHost.slideIndex).toBe(3);
+        expect(document.querySelector('.tour-tooltip h3').textContent).toBe(
+            'Axis Sliders'
+        );
+        expect(
+            document.getElementById('glyph-editor-scroll-content').scrollTop
+        ).toBe(0);
+    });
+
+    test('wght slider clamps into 500–700 then advances', async () => {
+        const { getTourSlide } = require('../js/tour-slides');
+        const { showTourSlide } = require('../js/tour-spotlight');
+        let continued = false;
+        await showTourSlide(getTourSlide('axis-sliders'), () => {
+            continued = true;
+        });
+        const slider = document.querySelector('[data-axis-tag="wght"]');
+        slider.value = '400';
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+        expect(slider.value).toBe('500');
+        slider.dispatchEvent(new Event('change', { bubbles: true }));
+        expect(continued).toBe(true);
+
+        continued = false;
+        await showTourSlide(getTourSlide('axis-sliders'), () => {
+            continued = true;
+        });
+        const again = document.querySelector('[data-axis-tag="wght"]');
+        again.value = '650';
+        again.dispatchEvent(new Event('input', { bubbles: true }));
+        again.value = '800';
+        again.dispatchEvent(new Event('input', { bubbles: true }));
+        expect(again.value).toBe('700');
+    });
+
+    test('ss03 prepare scrolls the feature row in the sidebar scroller', async () => {
+        const { getTourSlide } = require('../js/tour-slides');
+        const container = document.getElementById(
+            'glyph-editor-scroll-content'
+        );
+        const row = document.querySelector('.editor-feature-row');
+        Object.defineProperty(container, 'scrollHeight', {
+            configurable: true,
+            value: 400
+        });
+        Object.defineProperty(container, 'clientHeight', {
+            configurable: true,
+            value: 80
+        });
+        container.scrollTop = 0;
+        container.getBoundingClientRect = () => ({
+            x: 0,
+            y: 0,
+            left: 0,
+            top: 0,
+            right: 200,
+            bottom: 80,
+            width: 200,
+            height: 80,
+            toJSON() {}
+        });
+        row.getBoundingClientRect = () => ({
+            x: 0,
+            y: 300,
+            left: 0,
+            top: 300,
+            right: 200,
+            bottom: 324,
+            width: 200,
+            height: 24,
+            toJSON() {}
+        });
+
+        await getTourSlide('ss03-features').prepare();
+
+        expect(container.scrollTop).toBe(272);
+    });
+
+    test('interactive cutouts are not covered by hit pieces', async () => {
+        const row = document.querySelector('.editor-feature-row');
+        row.getBoundingClientRect = () => ({
+            x: 100,
+            y: 100,
+            left: 100,
+            top: 100,
+            right: 300,
+            bottom: 140,
+            width: 200,
+            height: 40,
+            toJSON() {}
+        });
+        const { getTourSlide } = require('../js/tour-slides');
+        const { showTourSlide } = require('../js/tour-spotlight');
+        await showTourSlide(getTourSlide('ss03-features'), () => {});
+
+        const pieces = [
+            ...document.querySelectorAll('.tour-spotlight-hit-piece')
+        ];
+        expect(pieces.length).toBeGreaterThan(0);
+        const coversHole = pieces.some((el) => {
+            const left = parseFloat(el.style.left);
+            const top = parseFloat(el.style.top);
+            const right = left + parseFloat(el.style.width);
+            const bottom = top + parseFloat(el.style.height);
+            return 200 >= left && 200 <= right && 120 >= top && 120 <= bottom;
+        });
+        expect(coversHole).toBe(false);
+    });
 });
 
 describe('tour slide order', () => {
-    test('starts with text-mode and can insert ids later', () => {
+    test('orders text, features, masters, sliders, then edit mode', () => {
         const { TOUR_SLIDE_ORDER, getTourSlide } = require('../js/tour-slides');
-        expect(TOUR_SLIDE_ORDER[0]).toBe('text-mode');
-        expect(getTourSlide('text-mode').tooltip.title).toBe('Text Mode');
+        expect(TOUR_SLIDE_ORDER).toEqual([
+            'text-mode',
+            'ss03-features',
+            'masters-list',
+            'axis-sliders',
+            'enter-edit-mode'
+        ]);
+        expect(getTourSlide('ss03-features').tooltip.title).toBe(
+            'Active OpenType features'
+        );
+        expect(
+            getTourSlide('ss03-features').tooltip.continueLabel
+        ).toBeUndefined();
+        expect(getTourSlide('ss03-features').advanceOnClick).toBe(
+            'button[data-feature-tag="ss03"]'
+        );
+        expect(getTourSlide('masters-list').tooltip.title).toBe('Masters List');
+        expect(getTourSlide('axis-sliders').axisClamp).toEqual({
+            selector: '.editor-axis-slider[data-axis-tag="wght"]',
+            min: 500,
+            max: 700,
+            latchMaxWhenAtOrBelow: 700
+        });
+        expect(getTourSlide('enter-edit-mode').advanceOnGlyphDoubleClick).toBe(
+            'm'
+        );
     });
 });

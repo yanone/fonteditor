@@ -8,7 +8,9 @@ import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
 import { showUnsavedChangesDialog } from './ui/confirm-dialog';
 import {
     getTourSlideByIndex,
+    selectTourMasterByName,
     TOUR_FUSTAT_PATH,
+    TOUR_REGULAR_MASTER_NAME,
     TOUR_SAMPLE_TEXT,
     TOUR_SLIDE_ORDER
 } from './tour-slides';
@@ -236,6 +238,7 @@ async function prepareEditorForFirstSlide(): Promise<void> {
     if (canvas?.outlineEditor?.active) {
         canvas.exitGlyphEditMode();
     }
+    await selectTourMasterByName(TOUR_REGULAR_MASTER_NAME);
     canvas?.textRunEditor?.setTextBuffer(TOUR_SAMPLE_TEXT);
     await canvas?.applyInitialViewportFit?.();
     await wait(50);

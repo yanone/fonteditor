@@ -17,22 +17,23 @@
     inset: 0;
     width: 100%;
     height: 100%;
-    pointer-events: auto;
+    pointer-events: none;
 }
 
-.tour-spotlight-mask-path {
-    fill: var(--tour-overlay);
-}
-
-.tour-spotlight-blockers {
+.tour-spotlight-hit {
     position: absolute;
     inset: 0;
     pointer-events: none;
 }
 
-.tour-spotlight-hole-blocker {
+.tour-spotlight-hit-piece {
     position: fixed;
     pointer-events: auto;
+}
+
+.tour-spotlight-mask-path {
+    fill: var(--tour-overlay);
+    pointer-events: none;
 }
 
 .tour-tooltip-anchor {
@@ -91,6 +92,14 @@
 .tour-tooltip p {
     margin: 0 0 16px;
     color: var(--tour-tooltip-text);
+}
+
+.tour-tooltip em {
+    font-style: italic;
+}
+
+.tour-tooltip > p:last-child {
+    margin-bottom: 0;
 }
 
 .tour-tooltip-actions {
