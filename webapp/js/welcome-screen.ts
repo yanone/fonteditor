@@ -93,6 +93,7 @@ function showWelcomeModal(): void {
         overlay.remove();
         dismissCurrentWelcome();
         console.log('Dismissed welcome version', WELCOME_VERSION);
+        dispatchWelcomeScreenSettled();
     }
 
     escapeBinding = bindModalEscape(close, {
@@ -122,6 +123,14 @@ function showWelcomeModal(): void {
 }
 
 /**
+ * Fired after the welcome modal is dismissed, or skipped, once the loading
+ * overlay fade has finished.
+ */
+function dispatchWelcomeScreenSettled(): void {
+    window.dispatchEvent(new CustomEvent('welcomeScreenSettled'));
+}
+
+/**
  * Arm the welcome modal after the loading overlay starts hiding.
  * Waits for the opacity fade (with a timeout fallback). Idempotent per page load.
  */
@@ -130,17 +139,19 @@ export function notifyLoadingOverlayHiding(): void {
         return;
     }
     overlayHideNotified = true;
-
-    if (!shouldOfferWelcome()) {
-        return;
-    }
+    let fadeCallbackDone = false;
 
     const loadingOverlay = document.getElementById('loading-overlay');
     const openOnce = () => {
-        if (!shouldOfferWelcome()) {
+        if (fadeCallbackDone) {
             return;
         }
-        showWelcomeModal();
+        fadeCallbackDone = true;
+        if (shouldOfferWelcome()) {
+            showWelcomeModal();
+            return;
+        }
+        dispatchWelcomeScreenSettled();
     };
 
     if (

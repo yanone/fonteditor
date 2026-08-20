@@ -121,6 +121,11 @@
     border-bottom: 1px solid var(--file-dialog-border);
 }
 
+.file-dialog-disk-relink-btn {
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
 .file-dialog-plugin-tab {
     display: inline-flex;
     align-items: center;

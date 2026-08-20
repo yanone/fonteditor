@@ -6,6 +6,10 @@ import 'tippy.js/dist/tippy.css';
 import { Logger } from './logger';
 import { NativeAdapter } from './file-system-adapter';
 import {
+    createFolderSetupCallout,
+    isSettingsFolderReadySync
+} from './folder-permissions-dialog';
+import {
     settingsFolder,
     SETTINGS_FOLDER_PATHS,
     SETTINGS_FOLDER_SOURCE_ID
@@ -1539,7 +1543,8 @@ export class GlyphOverviewFilterManager {
         const settingsAdapter = settingsFolder.getAdapter();
         const hasSettingsFolder =
             this.isDiskAdapterLike(settingsAdapter) &&
-            settingsAdapter.hasDirectory();
+            settingsAdapter.hasDirectory() &&
+            isSettingsFolderReadySync();
 
         // Create header with refresh button
         const header = document.createElement('div');
@@ -1588,11 +1593,7 @@ export class GlyphOverviewFilterManager {
             'glyph-filter-tree glyph-filter-user-tree';
 
         if (!hasSettingsFolder) {
-            const noAccessMsg = document.createElement('div');
-            noAccessMsg.className = 'glyph-filter-no-access';
-            noAccessMsg.textContent =
-                'Select a Settings Folder to enable user filters';
-            userTreeContainer.appendChild(noAccessMsg);
+            userTreeContainer.appendChild(createFolderSetupCallout());
         } else if (this.userFilters.length === 0) {
             const emptyMsg = document.createElement('div');
             emptyMsg.className = 'glyph-filter-empty';

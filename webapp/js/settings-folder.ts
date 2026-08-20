@@ -20,9 +20,11 @@ const console = new Logger('SettingsFolder');
 /** Source id used in script-editor URIs for Settings Folder backed files. */
 export const SETTINGS_FOLDER_SOURCE_ID = 'settings';
 
+export type SettingsFolderAccessState = 'missing' | 'needsRenewal' | 'ready';
+
 export type SettingsFolderAccessChangedDetail = {
     hasSettingsFolderAccess: boolean;
-    source: 'attach' | 'detach' | 'init';
+    source: 'attach' | 'detach' | 'init' | 'renew';
 };
 
 class SettingsFolderService {
@@ -53,6 +55,32 @@ class SettingsFolderService {
 
     hasFolder(): boolean {
         return this.adapter.hasDirectory();
+    }
+
+    async getAccessState(): Promise<SettingsFolderAccessState> {
+        await this.initialize();
+        if (!this.adapter.hasDirectory()) {
+            return 'missing';
+        }
+        const permission = await this.adapter.checkPermission();
+        return permission === 'granted' ? 'ready' : 'needsRenewal';
+    }
+
+    async renewPermission(): Promise<boolean> {
+        if (!this.adapter.hasDirectory()) {
+            return false;
+        }
+        const permission = await this.adapter.requestPermission();
+        if (permission !== 'granted') {
+            return false;
+        }
+        await ensureSettingsFolderSubdirectories(this.adapter);
+        await this.refreshStartInCache();
+        this.dispatchAccessChanged({
+            hasSettingsFolderAccess: true,
+            source: 'renew'
+        });
+        return true;
     }
 
     async isReady(): Promise<boolean> {

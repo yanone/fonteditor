@@ -120,6 +120,10 @@
     margin: 0 0 12px 0;
 }
 
+.info-popup-content p:last-child {
+    margin-bottom: 0;
+}
+
 .info-popup-content ul {
     margin: 8px 0 12px 0;
     padding-left: 24px;
@@ -154,11 +158,14 @@
 }
 
 .confirm-dialog-content p {
-    margin: 0;
+    margin: 0 0 12px 0;
     font-size: 13px;
     line-height: 1.6;
     color: var(--text-tertiary);
-    margin-bottom: 12px;
+}
+
+.confirm-dialog-content p:last-child {
+    margin-bottom: 0;
 }
 
 .confirm-dialog-actions {
@@ -281,4 +288,84 @@
 
 .dialog-button-danger:hover:not(:disabled) {
     background-color: color-mix(in srgb, var(--accent-red) 12%, transparent);
+}
+
+.folder-permissions-dialog {
+    max-width: 560px;
+}
+
+.folder-permissions-actions {
+    padding: 0 20px 16px;
+    margin-top: 0;
+}
+
+.folder-permissions-section {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-primary);
+}
+
+.folder-permissions-section-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.folder-permissions-section-header h4 {
+    margin: 0;
+}
+
+.folder-permissions-section-body p {
+    margin: 8px 0 0;
+}
+
+.folder-permissions-folder-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.folder-permissions-path {
+    min-width: 0;
+    color: var(--text-primary);
+    font-family: var(--font-families-mono);
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.folder-permissions-status-note {
+    margin: 8px 0 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.folder-setup-callout {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 16px;
+    padding: 12px;
+    border: 1px dashed var(--folder-setup-callout-bg);
+    border-radius: 6px;
+    background-color: transparent;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text-tertiary);
+}
+
+.folder-setup-callout p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text-tertiary);
+    font-style: normal;
+}
+
+.tippy-box .info-popup-content {
+    padding: 12px 14px;
+    overflow: visible;
 }

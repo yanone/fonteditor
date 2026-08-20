@@ -15,6 +15,11 @@ import {
 } from './python-document-kind';
 import { SETTINGS_FOLDER_PATHS } from './settings-folder-paths';
 import { settingsFolder, SETTINGS_FOLDER_SOURCE_ID } from './settings-folder';
+import {
+    getFolderSetupCalloutHtml,
+    isSettingsFolderReadySync,
+    openFolderPermissionsDialog
+} from './folder-permissions-dialog';
 import { suggestFileNameFromScriptHeader } from './python-script-header';
 import {
     cancelManagedFileInternalWrite,
@@ -227,7 +232,7 @@ import { createGlyphFilterTemplate } from './glyph-filter-template';
      * Whether a Settings Folder is selected (Plugins/Filters/Scripts gate).
      */
     function hasSettingsFolderAccess(): boolean {
-        return settingsFolder.hasFolder();
+        return isSettingsFolderReadySync();
     }
 
     /**
@@ -789,7 +794,7 @@ import { createGlyphFilterTemplate } from './glyph-filter-template';
         html += `<div class="script-file-menu-path">${modifiedIndicator}${escapeHtml(pathDisplay)}</div>`;
 
         if (!hasSettingsFolder) {
-            html += `<div class="script-file-menu-notice">${escapeHtml(settingsFolderTitle)}</div>`;
+            html += getFolderSetupCalloutHtml();
         }
 
         // New
@@ -891,6 +896,17 @@ import { createGlyphFilterTemplate } from './glyph-filter-template';
 
         menu.onclick = (event: MouseEvent) => {
             const target = event.target as Element | null;
+            const linkFolderButton = target?.closest(
+                '[data-action="link-folder"]'
+            ) as HTMLElement | null;
+            if (linkFolderButton && menu.contains(linkFolderButton)) {
+                event.preventDefault();
+                event.stopPropagation();
+                instance.hide();
+                void openFolderPermissionsDialog();
+                return;
+            }
+
             const item = target?.closest(
                 '.script-file-menu-item:not(.disabled)'
             ) as HTMLElement | null;
@@ -915,6 +931,10 @@ import { createGlyphFilterTemplate } from './glyph-filter-template';
             const run = async () => {
                 try {
                     switch (action) {
+                        case 'link-folder':
+                            instance.hide();
+                            await openFolderPermissionsDialog();
+                            break;
                         case 'new':
                             instance.hide();
                             await handleNew();

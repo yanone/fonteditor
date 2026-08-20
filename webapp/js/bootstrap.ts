@@ -509,6 +509,7 @@ import './font-interpolation';
 import './font-manager';
 import './fonteditor';
 import './welcome-screen';
+import './folder-permissions-dialog';
 import './state-sync'; // URL state synchronization
 import './state-restore'; // URL state restoration
 import './glyph-canvas';

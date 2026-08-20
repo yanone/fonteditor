@@ -40,6 +40,10 @@ import { serializeFontForSourceSave } from './font-manager';
 import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
 import { notifyLoadingOverlayHiding } from './welcome-screen';
 import {
+    createFolderSetupCallout,
+    openFolderPermissionsDialog
+} from './folder-permissions-dialog';
+import {
     cancelManagedFileInternalWrite,
     consumeManagedFileInternalWritePaths,
     markManagedFileInternalWrite
@@ -580,9 +584,9 @@ async function showFontFileDialog(
     }
 
     if (options.path) {
-        await navigateToPath(options.path);
+        await browseCurrentPluginIfReady(options.path);
     } else if (!document.getElementById('file-path-header')) {
-        await navigateToPath(fileSystemCache.currentPath || '/');
+        await browseCurrentPluginIfReady(fileSystemCache.currentPath || '/');
     } else {
         await new Promise<void>((resolve) => {
             requestAnimationFrame(() => {
@@ -2289,7 +2293,6 @@ async function switchContext(pluginId: string) {
                 const activated = await plugin.onActivate();
                 if (!activated) {
                     fileSystemCache.currentPath = plugin.getDefaultPath();
-                    renderFilePathHeader(fileSystemCache.currentPath);
                     await plugin.updateUI({
                         showOpenFolderUI,
                         hideOpenFolderUI,
@@ -2299,6 +2302,7 @@ async function switchContext(pluginId: string) {
                         showPluginMessage,
                         hidePluginMessage
                     });
+                    updateDiskRelinkButton();
                     return;
                 }
 
@@ -2315,6 +2319,7 @@ async function switchContext(pluginId: string) {
 
                 // Update dropdown menu button visibility based on plugin capabilities
                 updatePluginMenuButtonVisibility(plugin);
+                updateDiskRelinkButton();
 
                 // Restore last visited path for this plugin, or use default path
                 let targetPath = plugin.getDefaultPath();
@@ -2378,6 +2383,10 @@ async function switchContext(pluginId: string) {
 }
 
 function updateOpenFolderPromptForDetachedLaunch() {
+    renderOpenFolderWidget();
+}
+
+function renderOpenFolderWidget(): void {
     const openFolderContainer = document.getElementById(
         'open-folder-container'
     );
@@ -2385,27 +2394,80 @@ function updateOpenFolderPromptForDetachedLaunch() {
         return;
     }
 
-    const titleElement = openFolderContainer.querySelector('h2');
-    const bodyElement = openFolderContainer.querySelector('p');
-    const buttonLabelElement = openFolderContainer.querySelector(
-        '.open-folder-button .open-folder-button-label'
-    );
+    const message = detachedLaunchFilename
+        ? `Opened ${detachedLaunchFilename}. Attach its folder to enable full disk browsing and external reload.`
+        : undefined;
+    openFolderContainer.replaceChildren(createFolderSetupCallout(message));
+}
 
-    if (!titleElement || !bodyElement || !buttonLabelElement) {
+function isDiskProjectFolderLinked(): boolean {
+    const plugin = pluginRegistry.get('disk');
+    if (!(plugin instanceof DiskPlugin)) {
+        return false;
+    }
+    const adapter = plugin.getAdapter() as { hasDirectory?: () => boolean };
+    return adapter.hasDirectory?.() === true;
+}
+
+function shouldShowFilePathHeader(): boolean {
+    if (!(fileSystemCache.currentPlugin instanceof DiskPlugin)) {
+        return true;
+    }
+    return isDiskProjectFolderLinked();
+}
+
+function syncFilePathHeaderVisibility(): void {
+    const pathHeader = document.getElementById('file-path-header');
+    if (!pathHeader) {
         return;
     }
+    pathHeader.style.display = shouldShowFilePathHeader() ? 'flex' : 'none';
+}
 
-    if (detachedLaunchFilename) {
-        titleElement.textContent = 'Attach Containing Folder';
-        bodyElement.textContent = `Opened ${detachedLaunchFilename}. Attach its folder to enable full disk browsing and external reload.`;
-        buttonLabelElement.textContent = 'Attach Folder';
+async function browseCurrentPluginIfReady(
+    path: string,
+    highlightFolder?: string
+): Promise<void> {
+    if (!shouldShowFilePathHeader()) {
+        syncFilePathHeaderVisibility();
         return;
     }
+    await navigateToPath(path, highlightFolder);
+}
 
-    titleElement.textContent = 'Open Folder';
-    bodyElement.textContent =
-        'Select a folder from your computer to browse and edit fonts directly.';
-    buttonLabelElement.textContent = 'Select Folder';
+function ensureDiskRelinkButton(): HTMLButtonElement | null {
+    const tabs = document.getElementById('file-dialog-plugin-tabs');
+    if (!tabs) {
+        return null;
+    }
+    const existing = document.getElementById(
+        'disk-relink-project-folder-btn'
+    ) as HTMLButtonElement | null;
+    if (existing) {
+        return existing;
+    }
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.id = 'disk-relink-project-folder-btn';
+    button.className = 'dialog-button file-dialog-disk-relink-btn';
+    button.textContent = 'Link another project folder';
+    button.hidden = true;
+    button.addEventListener('click', () => {
+        void openFolderPermissionsDialog();
+    });
+    tabs.appendChild(button);
+    return button;
+}
+
+function updateDiskRelinkButton(): void {
+    const button = ensureDiskRelinkButton();
+    if (!button) {
+        return;
+    }
+    const diskActive =
+        fileSystemCache.currentPlugin?.getId() === 'disk' &&
+        isFileSystemAccessSupported();
+    button.hidden = !(diskActive && isDiskProjectFolderLinked());
 }
 
 /**
@@ -2619,6 +2681,14 @@ async function reEnableAccess() {
         if (permission) {
             showPermissionBanner(false);
             await refreshFileSystem();
+            window.dispatchEvent(
+                new CustomEvent('fontsFolderAccessChanged', {
+                    detail: {
+                        hasFontsFolderAccess: true,
+                        source: 'renew'
+                    }
+                })
+            );
         } else {
             alert('Permission not granted. Please try again.');
         }
@@ -2640,12 +2710,14 @@ function showOpenFolderUI() {
         'open-folder-container'
     );
 
-    updateOpenFolderPromptForDetachedLaunch();
+    renderOpenFolderWidget();
 
     if (openFolderContainer) {
         openFolderContainer.classList.add('visible');
     }
     hideFileTree();
+    syncFilePathHeaderVisibility();
+    updateDiskRelinkButton();
 }
 
 function hideOpenFolderUI() {
@@ -2657,6 +2729,8 @@ function hideOpenFolderUI() {
         openFolderContainer.classList.remove('visible');
     }
     showFileTree();
+    syncFilePathHeaderVisibility();
+    updateDiskRelinkButton();
 }
 
 async function scanDirectory(
@@ -3225,6 +3299,7 @@ function renderFilePathHeader(path: string): HTMLElement | null {
 
     schedulePathDisplayUpdate(path);
     updateLastRefreshedStatus();
+    syncFilePathHeaderVisibility();
 
     const pathTextElement = pathHeader.querySelector(
         '.file-path-text'
@@ -3977,10 +4052,11 @@ async function initFileBrowser() {
                 );
             }
 
-            await navigateToPath(startPath);
+            await browseCurrentPluginIfReady(startPath);
 
             // Update plugin menu button visibility
             updatePluginMenuButtonVisibility(defaultPlugin);
+            updateDiskRelinkButton();
 
             // Update home button visibility
             updateHomeButtonVisibility();
@@ -4260,6 +4336,7 @@ window.addEventListener('pluginFolderClosed', async () => {
             hidePluginMessage
         });
         updatePluginMenuButtonVisibility(currentPlugin);
+        updateDiskRelinkButton();
     }
 
     window.dispatchEvent(
@@ -4270,6 +4347,33 @@ window.addEventListener('pluginFolderClosed', async () => {
             }
         })
     );
+});
+
+window.addEventListener('folderPermissionsDialogClosed', async () => {
+    const plugin = fileSystemCache.currentPlugin;
+    if (!(plugin instanceof DiskPlugin)) {
+        updateDiskRelinkButton();
+        return;
+    }
+
+    const adapter = plugin.getAdapter() as { hasDirectory?: () => boolean };
+    if (!adapter.hasDirectory?.()) {
+        await plugin.updateUI({
+            showOpenFolderUI,
+            hideOpenFolderUI,
+            showPermissionBanner,
+            showUnsupportedBrowserUI,
+            hideUnsupportedBrowserUI
+        });
+        updateDiskRelinkButton();
+        return;
+    }
+
+    hideOpenFolderUI();
+    fileSystemCache.currentPath = plugin.getDefaultPath();
+    await refreshFileSystem();
+    refreshPluginTabLabel(plugin);
+    updateDiskRelinkButton();
 });
 
 // Listen for disk file system changes (FileSystemObserver)

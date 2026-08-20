@@ -4,6 +4,8 @@ import {
 } from './font-destination-plugin-manager';
 import { Logger } from './logger';
 import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
+import { createFolderSetupCallout } from './folder-permissions-dialog';
+import { settingsFolder } from './settings-folder';
 
 const console = new Logger('FontDestinationPluginUI');
 
@@ -52,6 +54,14 @@ async function renderPluginManager(content: HTMLElement): Promise<void> {
         createTextElement('p', 'Searching Font Destinations…')
     );
     try {
+        const settingsAccess = await settingsFolder.getAccessState();
+        if (settingsAccess !== 'ready') {
+            const notice = document.createElement('section');
+            notice.className = 'plugin-manager-storage-notice';
+            notice.appendChild(createFolderSetupCallout());
+            content.replaceChildren(notice);
+            return;
+        }
         const storageStatus =
             await fontDestinationPluginManager.getPluginStorageStatus();
         if (storageStatus !== 'ready') {

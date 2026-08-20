@@ -1,0 +1,569 @@
+/**
+ * Folder permissions setup / renewal dialog.
+ * Prompts for the Font Project Folder and Settings Folder after welcome,
+ * and keeps a toolbar Link Folders control until both are granted.
+ */
+
+import tippy, { type Instance as TippyInstance } from 'tippy.js';
+import { Logger } from './logger';
+import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
+import { getTheme } from './tippy-utils';
+import {
+    isFileSystemAccessSupported,
+    type NativeAdapter
+} from './file-system-adapter';
+import { pluginRegistry, DiskPlugin } from './filesystem-plugins';
+import { settingsFolder } from './settings-folder';
+
+const console = new Logger('FolderPermissions');
+
+export type FolderAccessState = 'missing' | 'needsRenewal' | 'ready';
+
+export type FolderStatus = {
+    state: FolderAccessState;
+    name: string | null;
+};
+
+export type FolderSetupStatus = {
+    project: FolderStatus;
+    settings: FolderStatus;
+};
+
+const PROJECT_INFO_HTML = `
+    <p>The Font Project Folder is the Disk root in Files. Open and save font sources there — for example <code>.babelfont</code>, <code>.glyphs</code>, <code>.ufo</code>, and <code>.designspace</code>.</p>
+    <p>Pick the parent folder that contains your projects, not a single font file. Counterpunch cannot see files outside this folder. Chrome may ask you to confirm access again after a browser restart.</p>
+`;
+
+const SETTINGS_INFO_HTML = `
+    <p>The Settings Folder is app-wide, not per font project. Counterpunch creates three subfolders automatically if they are missing:</p>
+    <ul>
+        <li><strong>Scripts</strong> — reusable Python opened from the Script Editor and Tools → Run Python Script</li>
+        <li><strong>Filters</strong> — glyph overview user filters</li>
+        <li><strong>Plugins</strong> — installed plugin wheels such as Font Destinations</li>
+    </ul>
+    <p>A dedicated folder named Counterpunch is a good choice. Do not point Settings at the same folder as a font project.</p>
+`;
+
+const FOLDER_SETUP_CALLOUT_MESSAGE =
+    'Link a Settings Folder so Counterpunch can store filters, scripts, and plugins on disk.';
+
+export const LINK_FOLDERS_BUTTON_LABEL = 'Link Folders';
+
+type FolderPermissionsHost = {
+    listenersBound: boolean;
+    autoPrompted: boolean;
+    opening: boolean;
+    dialogOverlay: HTMLElement | null;
+    linkFolderButton: HTMLButtonElement | null;
+    escapeBinding: ModalEscapeBinding | null;
+};
+
+function getHost(): FolderPermissionsHost {
+    const holder = window as Window & {
+        __folderPermissionsHost?: FolderPermissionsHost;
+    };
+    if (!holder.__folderPermissionsHost) {
+        holder.__folderPermissionsHost = {
+            listenersBound: false,
+            autoPrompted: false,
+            opening: false,
+            dialogOverlay: null,
+            linkFolderButton: null,
+            escapeBinding: null
+        };
+    }
+    return holder.__folderPermissionsHost;
+}
+
+let cachedStatus: FolderSetupStatus | null = null;
+let infoTippyInstances: TippyInstance[] = [];
+
+export function classifyFolderAccess(
+    hasHandle: boolean,
+    permission: PermissionState | null
+): FolderAccessState {
+    if (!hasHandle) {
+        return 'missing';
+    }
+    if (permission === 'granted') {
+        return 'ready';
+    }
+    return 'needsRenewal';
+}
+
+export function isFolderSetupComplete(status: FolderSetupStatus): boolean {
+    return (
+        status.project.state === 'ready' && status.settings.state === 'ready'
+    );
+}
+
+export function isFolderSetupCompleteSync(): boolean {
+    return !!cachedStatus && isFolderSetupComplete(cachedStatus);
+}
+
+export function isSettingsFolderReadySync(): boolean {
+    if (cachedStatus) {
+        return cachedStatus.settings.state === 'ready';
+    }
+    return settingsFolder.hasFolder();
+}
+
+function isAutomatedSession(): boolean {
+    return !!window.isTestMode?.();
+}
+
+function getProjectAdapter(): NativeAdapter | null {
+    const plugin = pluginRegistry.get('disk');
+    if (!(plugin instanceof DiskPlugin)) {
+        return null;
+    }
+    return plugin.getAdapter() as NativeAdapter;
+}
+
+async function readFolderStatus(
+    adapter: NativeAdapter | null
+): Promise<FolderStatus> {
+    if (!adapter) {
+        return { state: 'missing', name: null };
+    }
+    if (!adapter.hasDirectory()) {
+        await adapter.initialize();
+    }
+    const hasHandle = adapter.hasDirectory();
+    const name = hasHandle ? adapter.getDirectoryName() || null : null;
+    if (!hasHandle) {
+        return { state: 'missing', name: null };
+    }
+    const permission = await adapter.checkPermission();
+    return {
+        state: classifyFolderAccess(true, permission),
+        name
+    };
+}
+
+export async function refreshFolderSetupStatus(): Promise<FolderSetupStatus> {
+    await settingsFolder.initialize();
+    cachedStatus = {
+        project: await readFolderStatus(getProjectAdapter()),
+        settings: {
+            state: await settingsFolder.getAccessState(),
+            name: settingsFolder.getFolderName()
+        }
+    };
+    updateLinkFolderButton();
+    /**
+     * Folder project/settings access snapshot after a status refresh.
+     */
+    window.dispatchEvent(
+        new CustomEvent('folderSetupStatusChanged', { detail: cachedStatus })
+    );
+    return cachedStatus;
+}
+
+function destroyInfoTippys(): void {
+    for (const instance of infoTippyInstances) {
+        instance.destroy();
+    }
+    infoTippyInstances = [];
+}
+
+function closeDialog(): void {
+    const host = getHost();
+    host.escapeBinding?.release();
+    host.escapeBinding = null;
+    destroyInfoTippys();
+    host.dialogOverlay?.remove();
+    host.dialogOverlay = null;
+    void refreshFolderSetupStatus();
+    /**
+     * Folder permissions dialog was closed (Continue, Skip, Escape, or overlay).
+     */
+    window.dispatchEvent(new CustomEvent('folderPermissionsDialogClosed'));
+}
+
+function bindInfoButton(
+    button: Element | null,
+    content: string,
+    overlay: HTMLElement
+): void {
+    if (!(button instanceof HTMLElement)) {
+        return;
+    }
+    infoTippyInstances.push(
+        tippy(button, {
+            content: `<div class="info-popup-content">${content}</div>`,
+            allowHTML: true,
+            interactive: true,
+            trigger: 'click',
+            theme: getTheme(),
+            appendTo: overlay,
+            maxWidth: 360,
+            placement: 'right'
+        })
+    );
+}
+
+function folderPathLabel(status: FolderStatus): string {
+    if (status.state === 'ready' && status.name) {
+        return status.name;
+    }
+    if (status.state === 'needsRenewal' && status.name) {
+        return status.name;
+    }
+    return 'No folder selected yet';
+}
+
+function renderFolderSection(
+    kind: 'project' | 'settings',
+    title: string,
+    bodyHtml: string,
+    status: FolderStatus
+): string {
+    const action =
+        status.state === 'needsRenewal'
+            ? `<button type="button" class="dialog-button dialog-button-primary" data-folder-action="renew" data-folder-kind="${kind}">Restore Access</button>`
+            : `<button type="button" class="dialog-button dialog-button-primary" data-folder-action="select" data-folder-kind="${kind}">Select Folder</button>`;
+    const stateNote =
+        status.state === 'needsRenewal'
+            ? '<p class="folder-permissions-status-note">Access expired — restore it to keep using this folder.</p>'
+            : status.state === 'ready'
+              ? '<p class="folder-permissions-status-note">Access granted.</p>'
+              : '';
+
+    return `
+        <section class="folder-permissions-section">
+            <div class="folder-permissions-section-header">
+                <h4>${title}</h4>
+                <button type="button" class="confirm-dialog-info-btn material-symbols-outlined" data-folder-info="${kind}" aria-label="About ${title}">info</button>
+            </div>
+            <div class="folder-permissions-section-body">${bodyHtml}</div>
+            <div class="folder-permissions-folder-row">
+                ${action}
+                <span class="folder-permissions-path" title="${folderPathLabel(status)}">${folderPathLabel(status)}</span>
+            </div>
+            ${stateNote}
+        </section>
+    `;
+}
+
+function dialogCopy(status: FolderSetupStatus): {
+    title: string;
+    intro: string;
+} {
+    const needsRenewal =
+        status.project.state === 'needsRenewal' ||
+        status.settings.state === 'needsRenewal';
+    const anyMissing =
+        status.project.state === 'missing' ||
+        status.settings.state === 'missing';
+
+    if (needsRenewal && !anyMissing) {
+        return {
+            title: 'Restore folder access',
+            intro: 'The browser has withdrawn write access to a folder you already linked. Restore access so Counterpunch can keep reading and writing those files. This confirms the existing folder; it does not pick a new one.'
+        };
+    }
+    if (needsRenewal && anyMissing) {
+        return {
+            title: 'Set up folders',
+            intro: 'This app runs inside a browser, so it needs access to two folders. One still needs to be chosen. Another already has a folder on file, but Chrome has withdrawn permission — restore that access without choosing a different folder.'
+        };
+    }
+    return {
+        title: 'Link folders',
+        intro: 'Since this app runs inside a browser, you need to grant access to two folders.'
+    };
+}
+
+async function paintDialog(): Promise<void> {
+    const host = getHost();
+    if (!host.dialogOverlay) {
+        return;
+    }
+    const status = await refreshFolderSetupStatus();
+    const copy = dialogCopy(status);
+    const complete = isFolderSetupComplete(status);
+    const title = host.dialogOverlay.querySelector('#folder-permissions-title');
+    const content = host.dialogOverlay.querySelector(
+        '.folder-permissions-content'
+    );
+    const continueBtn = host.dialogOverlay.querySelector(
+        '[data-action="continue"]'
+    ) as HTMLButtonElement | null;
+
+    if (title) {
+        title.textContent = copy.title;
+    }
+    if (content) {
+        content.innerHTML = `
+            <p>${copy.intro}</p>
+            ${renderFolderSection(
+                'project',
+                'Font Project Folder',
+                '<p>You store your fonts here. Select the root folder that contains all of your font project files.</p>',
+                status.project
+            )}
+            ${renderFolderSection(
+                'settings',
+                'Settings Folder',
+                '<p>The app stores your glyph filters, Python scripts, and downloaded plugins in this folder.</p>',
+                status.settings
+            )}
+        `;
+    }
+    if (continueBtn) {
+        continueBtn.disabled = !complete;
+    }
+
+    destroyInfoTippys();
+    bindInfoButton(
+        host.dialogOverlay.querySelector('[data-folder-info="project"]'),
+        PROJECT_INFO_HTML,
+        host.dialogOverlay
+    );
+    bindInfoButton(
+        host.dialogOverlay.querySelector('[data-folder-info="settings"]'),
+        SETTINGS_INFO_HTML,
+        host.dialogOverlay
+    );
+}
+
+async function selectProjectFolder(): Promise<boolean> {
+    const { changeFontsFolder } = await import('./file-browser');
+    return changeFontsFolder({ source: 'attach' });
+}
+
+async function handleFolderAction(
+    kind: 'project' | 'settings',
+    action: 'select' | 'renew'
+): Promise<void> {
+    try {
+        if (kind === 'project') {
+            if (action === 'select') {
+                await selectProjectFolder();
+            } else {
+                const plugin = pluginRegistry.get('disk');
+                if (plugin instanceof DiskPlugin) {
+                    const granted = await plugin.requestPermission();
+                    if (granted) {
+                        window.dispatchEvent(
+                            new CustomEvent('fontsFolderAccessChanged', {
+                                detail: {
+                                    hasFontsFolderAccess: true,
+                                    source: 'renew'
+                                }
+                            })
+                        );
+                    }
+                }
+            }
+        } else if (action === 'select') {
+            await settingsFolder.selectFolder();
+        } else {
+            await settingsFolder.renewPermission();
+        }
+    } catch (error) {
+        console.error('Folder action failed:', error);
+    }
+    await paintDialog();
+}
+
+export async function openFolderPermissionsDialog(): Promise<void> {
+    if (!isFileSystemAccessSupported()) {
+        return;
+    }
+    const host = getHost();
+    if (host.opening) {
+        return;
+    }
+    const existingOverlay = document
+        .querySelector('.folder-permissions-dialog')
+        ?.closest('.info-popup-overlay');
+    if (existingOverlay instanceof HTMLElement) {
+        host.dialogOverlay = existingOverlay;
+        await paintDialog();
+        return;
+    }
+    if (host.dialogOverlay) {
+        await paintDialog();
+        return;
+    }
+    host.opening = true;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'info-popup-overlay';
+    overlay.style.display = 'flex';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'folder-permissions-title');
+    overlay.innerHTML = `
+        <div class="info-popup confirm-dialog folder-permissions-dialog">
+            <div class="info-popup-header">
+                <h3 id="folder-permissions-title">Link folders</h3>
+                <button type="button" class="info-popup-close confirm-dialog-close-btn" aria-label="Skip">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div class="info-popup-content confirm-dialog-content folder-permissions-content"></div>
+            <div class="confirm-dialog-actions folder-permissions-actions">
+                <button type="button" class="dialog-button" data-action="skip">Skip</button>
+                <button type="button" class="dialog-button dialog-button-primary" data-action="continue" disabled>Continue</button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+    host.dialogOverlay = overlay;
+
+    host.escapeBinding = bindModalEscape(closeDialog, {
+        isOpen: () => overlay.isConnected
+    });
+
+    overlay.addEventListener('click', (event) => {
+        if (event.target === overlay) {
+            closeDialog();
+        }
+    });
+    overlay
+        .querySelector('.confirm-dialog-close-btn')
+        ?.addEventListener('click', closeDialog);
+    overlay
+        .querySelector('[data-action="skip"]')
+        ?.addEventListener('click', closeDialog);
+    overlay
+        .querySelector('[data-action="continue"]')
+        ?.addEventListener('click', () => {
+            if (cachedStatus && isFolderSetupComplete(cachedStatus)) {
+                closeDialog();
+            }
+        });
+    overlay.addEventListener('click', (event) => {
+        const target = (event.target as Element | null)?.closest(
+            '[data-folder-action]'
+        ) as HTMLElement | null;
+        if (!target) {
+            return;
+        }
+        const kind = target.dataset.folderKind;
+        const action = target.dataset.folderAction;
+        if (
+            (kind === 'project' || kind === 'settings') &&
+            (action === 'select' || action === 'renew')
+        ) {
+            event.preventDefault();
+            void handleFolderAction(kind, action);
+        }
+    });
+
+    try {
+        await paintDialog();
+    } finally {
+        host.opening = false;
+    }
+}
+
+function ensureLinkFolderButton(): HTMLButtonElement | null {
+    const host = getHost();
+    const existing = document.getElementById('link-folder-btn');
+    if (existing instanceof HTMLButtonElement) {
+        host.linkFolderButton = existing;
+        return existing;
+    }
+    if (host.linkFolderButton) {
+        return host.linkFolderButton;
+    }
+    const toolbarRight = document.querySelector('.toolbar-right');
+    const settingsBtn = document.getElementById('settings-btn');
+    if (!toolbarRight || !settingsBtn) {
+        return null;
+    }
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.id = 'link-folder-btn';
+    button.className = 'toolbar-link-folder-btn';
+    button.textContent = LINK_FOLDERS_BUTTON_LABEL;
+    button.title = 'Link or restore project and settings folders';
+    button.hidden = true;
+    button.addEventListener('click', () => {
+        void openFolderPermissionsDialog();
+    });
+    toolbarRight.insertBefore(button, settingsBtn);
+    host.linkFolderButton = button;
+    return button;
+}
+
+function updateLinkFolderButton(): void {
+    const button = ensureLinkFolderButton();
+    if (!button) {
+        return;
+    }
+    const show =
+        isFileSystemAccessSupported() &&
+        !!cachedStatus &&
+        !isFolderSetupComplete(cachedStatus);
+    button.hidden = !show;
+}
+
+export function createFolderSetupCallout(message?: string): HTMLElement {
+    const callout = document.createElement('div');
+    callout.className = 'folder-setup-callout';
+    const text = document.createElement('p');
+    text.textContent = message || FOLDER_SETUP_CALLOUT_MESSAGE;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'toolbar-link-folder-btn';
+    button.textContent = LINK_FOLDERS_BUTTON_LABEL;
+    button.addEventListener('click', () => {
+        void openFolderPermissionsDialog();
+    });
+    callout.append(text, button);
+    return callout;
+}
+
+export function getFolderSetupCalloutHtml(): string {
+    return `
+        <div class="folder-setup-callout">
+            <p>${FOLDER_SETUP_CALLOUT_MESSAGE}</p>
+            <button type="button" class="toolbar-link-folder-btn" data-action="link-folder">${LINK_FOLDERS_BUTTON_LABEL}</button>
+        </div>
+    `;
+}
+
+export async function maybeShowFolderPermissionsDialog(): Promise<void> {
+    if (!isFileSystemAccessSupported()) {
+        return;
+    }
+    const host = getHost();
+    if (isAutomatedSession() || host.autoPrompted) {
+        await refreshFolderSetupStatus();
+        return;
+    }
+    host.autoPrompted = true;
+    await refreshFolderSetupStatus();
+    if (!cachedStatus || isFolderSetupComplete(cachedStatus)) {
+        return;
+    }
+    await openFolderPermissionsDialog();
+}
+
+function bindStatusListeners(): void {
+    const host = getHost();
+    if (host.listenersBound) {
+        return;
+    }
+    host.listenersBound = true;
+    window.addEventListener('welcomeScreenSettled', () => {
+        void maybeShowFolderPermissionsDialog();
+    });
+    window.addEventListener('settingsFolderAccessChanged', () => {
+        void refreshFolderSetupStatus();
+    });
+    window.addEventListener('fontsFolderAccessChanged', () => {
+        void refreshFolderSetupStatus();
+    });
+    window.addEventListener('pluginFolderClosed', () => {
+        void refreshFolderSetupStatus();
+    });
+}
+
+bindStatusListeners();

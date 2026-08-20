@@ -504,6 +504,10 @@ window.addEventListener('settingsFolderAccessChanged', async () => {
     await refreshOverviewSidebarForSettingsFolderAccessChange();
 });
 
+window.addEventListener('folderSetupStatusChanged', async () => {
+    await refreshOverviewSidebarForSettingsFolderAccessChange();
+});
+
 // Initialize when DOM is ready
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initOverviewView);

@@ -1105,6 +1105,22 @@ kbd + kbd {
     gap: 8px;
 }
 
+.toolbar-link-folder-btn {
+    background-color: var(--folder-setup-callout-bg);
+    border: none;
+    color: var(--folder-setup-callout-text);
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-family: var(--font-families-sans);
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.toolbar-link-folder-btn:hover {
+    filter: brightness(1.08);
+}
+
 .toolbar-button {
     background-color: var(--button-bg);
     border: 1px solid var(--button-border);
@@ -4310,6 +4326,7 @@ kbd + kbd {
     background-color: var(--background-secondary);
     border: 1px solid var(--border-primary);
     border-radius: 3px;
+    color: var(--text-primary);
 }
 
 /* Tippy.js Theme - Light */
@@ -4317,6 +4334,7 @@ kbd + kbd {
     background-color: var(--background-secondary);
     border: 1px solid var(--border-primary);
     border-radius: 3px;
+    color: var(--text-primary);
 }
 
 .tippy-content {
@@ -4386,6 +4404,11 @@ kbd + kbd {
 #open-folder-container.visible,
 #cloud-panel.visible {
     display: flex;
+}
+
+#open-folder-container .folder-setup-callout {
+    max-width: 360px;
+    width: 100%;
 }
 
 .open-folder-content {
