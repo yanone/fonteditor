@@ -421,8 +421,9 @@ function bindSlideInteraction(slide: TourSlide): void {
                     return true;
                 },
                 {
-                    previewTextBeforeApply: true,
-                    afterApplyMs: TOUR_AFTER_APPLY_MS
+                    previewTextBeforeApply:
+                        slide.previewTextBeforeApply !== false,
+                    afterApplyMs: slide.advanceDelayMs ?? TOUR_AFTER_APPLY_MS
                 }
             );
         };
@@ -524,11 +525,74 @@ function bindSlideInteraction(slide: TourSlide): void {
                 return;
             }
             advanced = true;
-            void finishWithReaction();
+            void finishWithReaction(undefined, {
+                afterApplyMs: slide.advanceDelayMs ?? TOUR_AFTER_APPLY_MS
+            });
         };
         document.addEventListener('dblclick', handler, true);
         cleanups.push(() => {
             document.removeEventListener('dblclick', handler, true);
+        });
+    }
+
+    if (slide.advanceOnNodeDrag) {
+        const letterCutout = slide.cutouts.find(
+            (cutout) => cutout.id === 'letter-m'
+        );
+        let origin: { x: number; y: number } | null = null;
+        let moved = false;
+        let advanced = false;
+        const onPointerDown = (event: MouseEvent) => {
+            if (!host.visible || host.slide !== slide || host.advancing) {
+                return;
+            }
+            const hitRect = letterCutout
+                ? hitRectForCutout(letterCutout)
+                : null;
+            if (
+                !hitRect ||
+                !clientPointInRect(event.clientX, event.clientY, hitRect)
+            ) {
+                origin = null;
+                moved = false;
+                return;
+            }
+            origin = { x: event.clientX, y: event.clientY };
+            moved = false;
+        };
+        const onPointerMove = (event: MouseEvent) => {
+            if (!origin || advanced) {
+                return;
+            }
+            if (
+                Math.hypot(
+                    event.clientX - origin.x,
+                    event.clientY - origin.y
+                ) >= 6
+            ) {
+                moved = true;
+            }
+        };
+        const onPointerUp = () => {
+            if (advanced || !moved) {
+                origin = null;
+                moved = false;
+                return;
+            }
+            advanced = true;
+            origin = null;
+            moved = false;
+            void finishWithReaction(undefined, {
+                afterApplyMs: slide.advanceDelayMs ?? TOUR_AFTER_SLIDER_MS
+            });
+        };
+        document.addEventListener('mousedown', onPointerDown, true);
+        document.addEventListener('mousemove', onPointerMove, true);
+        document.addEventListener('mouseup', onPointerUp, true);
+        cleanups.push(() => {
+            document.removeEventListener('mousedown', onPointerDown, true);
+            document.removeEventListener('mousemove', onPointerMove, true);
+            document.removeEventListener('mouseup', onPointerUp, true);
         });
     }
 
@@ -712,6 +776,12 @@ function onTourKeyDown(event: KeyboardEvent): void {
     if (isBrowserReloadShortcut(event)) {
         return;
     }
+    const allowedKey = host.slide?.allowedKeys?.includes(
+        event.key.toLowerCase()
+    );
+    if (allowedKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        return;
+    }
     const target = event.target as HTMLElement | null;
     const onContinue = target?.closest?.('[data-tour-action="continue"]');
     if (onContinue && (event.key === 'Enter' || event.key === ' ')) {
@@ -851,7 +921,9 @@ export async function showTourSlide(
 
     if (!host.listenersBound) {
         document.addEventListener('keydown', onTourKeyDown, true);
-        window.addEventListener('resize', onWindowResize);
+        window.addEventListener('resize', onTourGeometryChange);
+        window.addEventListener('glyphCanvasRendered', onTourGeometryChange);
+        window.addEventListener('editorModeChanged', onTourGeometryChange);
         host.listenersBound = true;
     }
     if (!host.resizeObserver && typeof ResizeObserver !== 'undefined') {
@@ -883,11 +955,19 @@ export async function showTourSlide(
     bindSlideInteraction(slide);
 }
 
-function onWindowResize(): void {
-    const host = getHost();
-    if (host.slide && host.visible && !host.advancing) {
-        paintSpotlight(host.slide);
+let geometryFrame = 0;
+
+function onTourGeometryChange(): void {
+    if (geometryFrame) {
+        return;
     }
+    geometryFrame = window.requestAnimationFrame(() => {
+        geometryFrame = 0;
+        const host = getHost();
+        if (host.slide && host.visible && !host.advancing) {
+            paintSpotlight(host.slide);
+        }
+    });
 }
 
 export async function transitionTourSlide(
@@ -910,7 +990,9 @@ export function hideTourSpotlight(): void {
     unbindSlideInteraction();
     setViewShortcutLock(null);
     document.removeEventListener('keydown', onTourKeyDown, true);
-    window.removeEventListener('resize', onWindowResize);
+    window.removeEventListener('resize', onTourGeometryChange);
+    window.removeEventListener('glyphCanvasRendered', onTourGeometryChange);
+    window.removeEventListener('editorModeChanged', onTourGeometryChange);
     host.listenersBound = false;
     host.resizeObserver?.disconnect();
     host.resizeObserver = null;

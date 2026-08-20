@@ -7,6 +7,8 @@ describe('tour intro', () => {
                 <button id="settings-btn" type="button">Settings</button>
             </div>
             <button id="editor-tool-text" type="button">Text</button>
+            <button id="editor-tool-select" type="button">Select</button>
+            <button id="editor-tool-pen" type="button">Draw</button>
             <div id="glyph-editor-scroll-content">
                 <input
                     class="editor-axis-slider"
@@ -496,17 +498,140 @@ describe('tour intro', () => {
         });
         expect(coversHole).toBe(false);
     });
+
+    test('layer click advances interpolations without fading to sample text', async () => {
+        const { getTourSlide } = require('../js/tour-slides');
+        const { showTourSlide } = require('../js/tour-spotlight');
+        const list = document.querySelector(
+            '#glyph-properties-section .editor-layers-list'
+        );
+        const item = document.querySelector('[data-master-id="regular"]');
+        list.getBoundingClientRect = () => ({
+            x: 40,
+            y: 80,
+            left: 40,
+            top: 80,
+            right: 240,
+            bottom: 200,
+            width: 200,
+            height: 120,
+            toJSON() {}
+        });
+        item.getBoundingClientRect = () => ({
+            x: 40,
+            y: 80,
+            left: 40,
+            top: 80,
+            right: 240,
+            bottom: 110,
+            width: 200,
+            height: 30,
+            toJSON() {}
+        });
+        let continued = false;
+        await showTourSlide(getTourSlide('cant-edit-interpolations'), () => {
+            continued = true;
+        });
+        expect(document.querySelector('.tour-tooltip h3').textContent).toBe(
+            'Can’t Edit Interpolations'
+        );
+        const root = document.querySelector('.tour-spotlight-root');
+        item.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await delay(200);
+        expect(root.classList.contains('is-tooltip-visible')).toBe(true);
+        expect(continued).toBe(false);
+        await delay(900);
+        expect(continued).toBe(true);
+    }, 15000);
+
+    test('node drag on the letter cutout advances the select-tool slide', async () => {
+        const { getTourSlide } = require('../js/tour-slides');
+        const { showTourSlide } = require('../js/tour-spotlight');
+        window.glyphCanvas.canvas.getBoundingClientRect = () => ({
+            x: 0,
+            y: 0,
+            left: 0,
+            top: 0,
+            right: 800,
+            bottom: 600,
+            width: 800,
+            height: 600,
+            toJSON() {}
+        });
+        let continued = false;
+        await showTourSlide(getTourSlide('select-tool'), () => {
+            continued = true;
+        });
+        document.dispatchEvent(
+            new MouseEvent('mousedown', {
+                bubbles: true,
+                clientX: 820,
+                clientY: 300
+            })
+        );
+        document.dispatchEvent(
+            new MouseEvent('mousemove', {
+                bubbles: true,
+                clientX: 840,
+                clientY: 310
+            })
+        );
+        document.dispatchEvent(
+            new MouseEvent('mouseup', {
+                bubbles: true,
+                clientX: 840,
+                clientY: 310
+            })
+        );
+        expect(continued).toBe(false);
+        await delay(900);
+        expect(continued).toBe(true);
+    }, 15000);
+
+    test('glyph canvas renders update the m cutout while interpolating', async () => {
+        const { getTourSlide } = require('../js/tour-slides');
+        const { showTourSlide } = require('../js/tour-spotlight');
+        window.glyphCanvas.outlineEditor = { active: true };
+        window.glyphCanvas.textRunEditor.selectedGlyphIndex = 0;
+        window.glyphCanvas.glyphBounds = [
+            { x: 0, y: 0, x1: 0, y1: 0, x2: 100, y2: 200 }
+        ];
+        window.glyphCanvas.canvas.getBoundingClientRect = () => ({
+            x: 0,
+            y: 0,
+            left: 0,
+            top: 0,
+            right: 800,
+            bottom: 600,
+            width: 800,
+            height: 600,
+            toJSON() {}
+        });
+        await showTourSlide(getTourSlide('cant-edit-interpolations'), () => {});
+        const path = document.querySelector('.tour-spotlight-holes');
+        const before = path.getAttribute('d');
+        window.glyphCanvas.glyphBounds = [
+            { x: 0, y: 0, x1: 0, y1: 0, x2: 280, y2: 400 }
+        ];
+        window.dispatchEvent(new CustomEvent('glyphCanvasRendered'));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        expect(path.getAttribute('d')).not.toBe(before);
+    });
 });
 
 describe('tour slide order', () => {
-    test('orders text, features, masters, sliders, then edit mode', () => {
+    test('orders text through draw-tool slides', () => {
         const { TOUR_SLIDE_ORDER, getTourSlide } = require('../js/tour-slides');
         expect(TOUR_SLIDE_ORDER).toEqual([
             'text-mode',
             'ss03-features',
             'masters-list',
             'axis-sliders',
-            'enter-edit-mode'
+            'enter-edit-mode',
+            'cant-edit-interpolations',
+            'select-tool',
+            'draw-tool'
         ]);
         expect(getTourSlide('ss03-features').tooltip.title).toBe(
             'Active OpenType features'
@@ -527,6 +652,21 @@ describe('tour slide order', () => {
         expect(getTourSlide('enter-edit-mode').advanceOnGlyphDoubleClick).toBe(
             'm'
         );
+        expect(getTourSlide('enter-edit-mode').advanceDelayMs).toBe(1000);
         expect(getTourSlide('enter-edit-mode').cutouts[0].hitPadding).toBe(0);
+        expect(getTourSlide('cant-edit-interpolations').tooltip.placement).toBe(
+            'right'
+        );
+        expect(
+            getTourSlide('cant-edit-interpolations').previewTextBeforeApply
+        ).toBe(false);
+        expect(getTourSlide('cant-edit-interpolations').advanceDelayMs).toBe(
+            500
+        );
+        expect(getTourSlide('select-tool').advanceOnNodeDrag).toBe(true);
+        expect(getTourSlide('draw-tool').cutouts.map((c) => c.id)).toEqual([
+            'draw-area',
+            'draw-tool'
+        ]);
     });
 });

@@ -65,6 +65,20 @@ export type TourSlide = {
     };
     /** Double-clicking this sample-text letter (e.g. `m`) advances. */
     advanceOnGlyphDoubleClick?: string;
+    /** Advance after the user drags a node on the letter cutout. */
+    advanceOnNodeDrag?: boolean;
+    /**
+     * Wait after the slide's action before switching. Defaults to the
+     * spotlight apply delay (feature / master clicks).
+     */
+    advanceDelayMs?: number;
+    /**
+     * When advancing from a click, fade to the sample-text spotlight first.
+     * Defaults to true for `advanceOnClick`.
+     */
+    previewTextBeforeApply?: boolean;
+    /** Unmodified letter keys the tour key lock still lets through (`p`). */
+    allowedKeys?: string[];
     prepare?: () => void | Promise<void>;
 };
 
@@ -77,6 +91,11 @@ export const TOUR_EXTRABOLD_ITEM_SELECTOR =
     '.editor-layer-item[data-tour-master="ExtraBold"]';
 export const TOUR_WGHT_SLIDER_SELECTOR =
     '.editor-axis-slider[data-axis-tag="wght"]';
+export const TOUR_LAYERS_LIST_SELECTOR =
+    '#glyph-properties-section .editor-layers-widget:not(.editor-feature-variations-widget) .editor-layers-list';
+export const TOUR_LAYER_ITEM_SELECTOR = `${TOUR_LAYERS_LIST_SELECTOR} .editor-layer-item`;
+export const TOUR_SELECT_TOOL_SELECTOR = '#editor-tool-select';
+export const TOUR_DRAW_TOOL_SELECTOR = '#editor-tool-pen';
 
 function tourBody(text: string, action: string): string {
     const wrapped = action.startsWith('_') ? action : `_${action}_`;
@@ -375,6 +394,107 @@ function getTextRunLetterCutout(letter: string): TourCutoutRect | null {
     );
 }
 
+function getSelectedGlyphOutlineRect(): {
+    minX: number;
+    maxX: number;
+    minY: number;
+    maxY: number;
+} | null {
+    const canvas = window.glyphCanvas;
+    if (!canvas?.outlineEditor?.active) {
+        return null;
+    }
+    const index = canvas.textRunEditor?.selectedGlyphIndex;
+    if (typeof index !== 'number' || index < 0) {
+        return null;
+    }
+    const bounds = canvas.glyphBounds?.[index];
+    if (
+        !bounds ||
+        !Number.isFinite(bounds.x1) ||
+        !Number.isFinite(bounds.x2) ||
+        !Number.isFinite(bounds.y1) ||
+        !Number.isFinite(bounds.y2)
+    ) {
+        return null;
+    }
+    return {
+        minX: bounds.x + bounds.x1,
+        maxX: bounds.x + bounds.x2,
+        minY: bounds.y + bounds.y1,
+        maxY: bounds.y + bounds.y2
+    };
+}
+
+/** Outline bounds in edit mode; text-run `m` before that. Follows interpolation. */
+function getCurrentGlyphOutlineCutout(): TourCutoutRect | null {
+    const outline = getSelectedGlyphOutlineRect();
+    if (outline) {
+        return fontRectToCutout(
+            outline.minX,
+            outline.maxX,
+            outline.minY,
+            outline.maxY
+        );
+    }
+    return getTextRunLetterCutout('m');
+}
+
+function getDrawAreaAboveGlyphCutout(): TourCutoutRect | null {
+    const outline = getSelectedGlyphOutlineRect();
+    if (outline) {
+        const height = Math.max(8, outline.maxY - outline.minY);
+        return fontRectToCutout(
+            outline.minX,
+            outline.maxX,
+            outline.maxY,
+            outline.maxY + height
+        );
+    }
+    const metrics = getTextRunGlyphMetrics('m');
+    if (!metrics) {
+        return null;
+    }
+    const height = Math.max(8, metrics.maxY - metrics.minY);
+    return fontRectToCutout(
+        metrics.minX,
+        metrics.maxX,
+        metrics.maxY,
+        metrics.maxY + height
+    );
+}
+
+function getLayersListCutout(): TourCutoutRect | null {
+    return (
+        getElementCutout(TOUR_LAYERS_LIST_SELECTOR) ||
+        getElementCutout('#glyph-properties-section .editor-layers-list')
+    );
+}
+
+function letterMCutout(interactive: boolean): TourCutout {
+    return {
+        id: 'letter-m',
+        padding: 20,
+        hitPadding: interactive ? 0 : undefined,
+        radius: 12,
+        interactive,
+        resolve: getCurrentGlyphOutlineCutout
+    };
+}
+
+async function prepareLayersListSlide(): Promise<void> {
+    await waitForElement(
+        `${TOUR_LAYERS_LIST_SELECTOR}, #glyph-properties-section .editor-layers-list`
+    );
+    const list =
+        document.querySelector(TOUR_LAYERS_LIST_SELECTOR) ||
+        document.querySelector('#glyph-properties-section .editor-layers-list');
+    if (list instanceof HTMLElement) {
+        scrollTourTargetIntoView(list);
+    }
+    await delay(50);
+}
+
 function getElementCutoutFromElement(
     element: Element | null
 ): TourCutoutRect | null {
@@ -521,14 +641,86 @@ export const TOUR_SLIDES: Record<string, TourSlide> = {
             placement: 'top'
         },
         advanceOnGlyphDoubleClick: 'm',
+        advanceDelayMs: 1000,
+        cutouts: [letterMCutout(true)]
+    },
+    'cant-edit-interpolations': {
+        id: 'cant-edit-interpolations',
+        tooltip: {
+            title: 'Can’t Edit Interpolations',
+            body: tourBody(
+                'Gray nodes mean that this is an **interpolation**, not a master layer, so you **can’t edit** this here. You need to return to a real master-bound layer to edit.',
+                'Choose any layer from the layer list.'
+            ),
+            targetCutoutId: 'letter-m',
+            placement: 'right'
+        },
+        prepare: prepareLayersListSlide,
+        advanceOnClick: `${TOUR_LAYER_ITEM_SELECTOR}, #glyph-properties-section .editor-layers-list .editor-layer-item`,
+        previewTextBeforeApply: false,
+        advanceDelayMs: 500,
+        cutouts: [
+            letterMCutout(false),
+            {
+                id: 'layers-list',
+                padding: 12,
+                radius: 10,
+                interactive: true,
+                resolve: getLayersListCutout
+            }
+        ]
+    },
+    'select-tool': {
+        id: 'select-tool',
+        tooltip: {
+            title: 'Select Tool',
+            body: tourBody(
+                'The Select tool (shortcut **v**) is on by default when you enter.',
+                'Select a node by mouse and move it a bit.'
+            ),
+            targetCutoutId: 'select-tool',
+            placement: 'bottom'
+        },
+        allowedKeys: ['v'],
+        advanceOnNodeDrag: true,
+        advanceDelayMs: 500,
+        cutouts: [
+            letterMCutout(true),
+            {
+                id: 'select-tool',
+                padding: 14,
+                radius: 10,
+                interactive: true,
+                resolve: () => getElementCutout(TOUR_SELECT_TOOL_SELECTOR)
+            }
+        ]
+    },
+    'draw-tool': {
+        id: 'draw-tool',
+        tooltip: {
+            title: 'Draw Tool',
+            body: tourBody(
+                'Select the Draw tool (shortcut **p**) and draw a closed triangle into the marked area.',
+                'Close the shape by ending the drawing on the first node.'
+            ),
+            targetCutoutId: 'draw-area',
+            placement: 'right'
+        },
+        allowedKeys: ['p', 'v'],
         cutouts: [
             {
-                id: 'letter-m',
-                padding: 20,
-                hitPadding: 0,
+                id: 'draw-area',
+                padding: 16,
                 radius: 12,
                 interactive: true,
-                resolve: () => getTextRunLetterCutout('m')
+                resolve: getDrawAreaAboveGlyphCutout
+            },
+            {
+                id: 'draw-tool',
+                padding: 14,
+                radius: 10,
+                interactive: true,
+                resolve: () => getElementCutout(TOUR_DRAW_TOOL_SELECTOR)
             }
         ]
     }
@@ -540,7 +732,10 @@ export const TOUR_SLIDE_ORDER: string[] = [
     'ss03-features',
     'masters-list',
     'axis-sliders',
-    'enter-edit-mode'
+    'enter-edit-mode',
+    'cant-edit-interpolations',
+    'select-tool',
+    'draw-tool'
 ];
 
 export function getTourSlide(id: string): TourSlide | null {
