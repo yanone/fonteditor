@@ -84,6 +84,7 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     Variations: false,
     ViewTitleButtons: false,
     WasmInit: false,
+    WelcomeScreen: false,
     WindowButtons: false,
     WindowRole: false,
     WindowSync: false

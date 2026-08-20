@@ -134,6 +134,10 @@
     font-weight: 600;
 }
 
+.info-popup-content a {
+    color: var(--accent-blue);
+}
+
 .info-popup-content .info-highlight {
     background-color: var(--input-bg);
     border-left: 3px solid var(--accent-blue);
@@ -154,6 +158,7 @@
     font-size: 13px;
     line-height: 1.6;
     color: var(--text-tertiary);
+    margin-bottom: 12px;
 }
 
 .confirm-dialog-actions {

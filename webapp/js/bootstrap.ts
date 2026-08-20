@@ -508,6 +508,7 @@ import './font-info'; // Font info view manager (Names/Features tabs)
 import './font-interpolation';
 import './font-manager';
 import './fonteditor';
+import './welcome-screen';
 import './state-sync'; // URL state synchronization
 import './state-restore'; // URL state restoration
 import './glyph-canvas';

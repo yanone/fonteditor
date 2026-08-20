@@ -10,7 +10,7 @@ IndexedDB keys such as directory handles and export destinations are not include
 
 | Keys | Literal | Pattern |
 | ---: | ---: | ---: |
-| 37 | 34 | 3 |
+| 38 | 35 | 3 |
 
 | Key | Purpose | Operations | Files |
 | --- | --- | --- | --- |
@@ -48,6 +48,7 @@ IndexedDB keys such as directory handles and export destinations are not include
 | [`runPythonScriptSelectedPath`](#key-runpythonscriptselectedpath) | Persists run python script selected path. | getItem, setItem, removeItem | `webapp/js/run-python-script-dialog.ts` |
 | [`tabKeepAliveTimestamp`](#key-tabkeepalivetimestamp) | Persists tab keep alive timestamp. | setItem | `webapp/js/tab-lifecycle.ts` |
 | [`viewLayout`](#key-viewlayout) | Persists view layout. | getItem, setItem | `webapp/js/docs-viewer.ts`, `webapp/js/resizer.ts` |
+| [`welcomeDismissedVersion`](#key-welcomedismissedversion) | Version of the welcome screen last dismissed by the user. | getItem, setItem | `webapp/js/welcome-screen.ts` |
 | [`canvasPlugin.${plugin_name}.${param_id}`](#key-canvasplugin-plugin-name-param-id-) | Canvas plugin parameter value keyed by plugin class name and parameter id. | getItem, setItem | `plugins/canvas/base/base_canvas_plugin/plugin.py` |
 | [`lastPath.${pluginId}`](#key-lastpath-pluginid-) | Persists last path. | getItem, setItem | `webapp/js/file-browser.ts` |
 | [`linkedWindowCounter.${sessionId}.${fontPath}`](#key-linkedwindowcounter-sessionid-fontpath-) | Persists linked window counter. | getItem, setItem | `webapp/js/window-role.ts` |
@@ -329,7 +330,7 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Operations: `getItem`, `setItem`
 - Sites:
   - webapp/js/docs-viewer.ts:209 `getItem` via method `close`
-  - webapp/js/fonteditor.ts:209 `getItem` via function `initFontEditor`
+  - webapp/js/fonteditor.ts:210 `getItem` via function `initFontEditor`
   - webapp/js/keyboard-navigation.ts:1462 `setItem` via function `focusView`
 
 <a id="key-lastfilesystemcontext"></a>
@@ -340,8 +341,8 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Kind: literal
 - Operations: `getItem`, `setItem`
 - Sites:
-  - webapp/js/file-browser.ts:2262 `setItem` via function `switchContext`
-  - webapp/js/file-browser.ts:3888 `getItem` via function `initFileBrowser`
+  - webapp/js/file-browser.ts:2264 `setItem` via function `switchContext`
+  - webapp/js/file-browser.ts:3890 `getItem` via function `initFileBrowser`
 
 <a id="key-preferredtheme"></a>
 
@@ -463,6 +464,17 @@ IndexedDB keys such as directory handles and export destinations are not include
   - webapp/js/resizer.ts:344 `getItem` via method `loadLayout`
   - webapp/js/resizer.ts:573 `setItem` via method `saveLayout`
 
+<a id="key-welcomedismissedversion"></a>
+
+## `welcomeDismissedVersion`
+
+- Purpose: Version of the welcome screen last dismissed by the user.
+- Kind: literal
+- Operations: `getItem`, `setItem`
+- Sites:
+  - webapp/js/welcome-screen.ts:30 `getItem` via function `hasDismissedCurrentWelcome`
+  - webapp/js/welcome-screen.ts:38 `setItem` via function `dismissCurrentWelcome`
+
 <a id="key-canvasplugin-plugin-name-param-id-"></a>
 
 ## `canvasPlugin.${plugin_name}.${param_id}`
@@ -482,10 +494,10 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Kind: pattern
 - Operations: `getItem`, `setItem`
 - Sites:
-  - webapp/js/file-browser.ts:2320 `getItem` via function `switchContext`
-  - webapp/js/file-browser.ts:3341 `setItem` via function `navigateToPath`
-  - webapp/js/file-browser.ts:3960 `getItem` via function `initFileBrowser`
-  - webapp/js/file-browser.ts:4318 `setItem` via module `top-level module code`
+  - webapp/js/file-browser.ts:2322 `getItem` via function `switchContext`
+  - webapp/js/file-browser.ts:3343 `setItem` via function `navigateToPath`
+  - webapp/js/file-browser.ts:3962 `getItem` via function `initFileBrowser`
+  - webapp/js/file-browser.ts:4320 `setItem` via module `top-level module code`
 
 <a id="key-linkedwindowcounter-sessionid-fontpath-"></a>
 

@@ -6,6 +6,7 @@ const {
     markFontEditorReadyFailed
 } = require('./editor-startup-ready.js');
 import { fontDestinationPluginManager } from './font-destination-plugin-manager';
+import { notifyLoadingOverlayHiding } from './welcome-screen';
 import {
     timelineMark,
     timelineSpanEnd,
@@ -232,6 +233,7 @@ async function initFontEditor() {
             if (loadingOverlay) {
                 loadingOverlay.classList.add('hidden');
             }
+            notifyLoadingOverlayHiding();
         };
 
         const hideLoadingOverlayWhenAllowed = () => {
@@ -309,6 +311,7 @@ async function initFontEditor() {
             if (loadingOverlay) {
                 loadingOverlay.classList.add('hidden');
             }
+            notifyLoadingOverlayHiding();
         }
 
         return false;

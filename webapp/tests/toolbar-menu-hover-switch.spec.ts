@@ -4,7 +4,7 @@ test.describe('Toolbar menu hover switching', () => {
     test('hovering a sibling title switches the open menu', async ({
         page
     }) => {
-        await page.goto('/');
+        await page.goto('/?test=true');
         await expect(page.locator('#toolbar-file-menu-btn')).toBeVisible();
 
         await page.locator('#toolbar-file-menu-btn').click();

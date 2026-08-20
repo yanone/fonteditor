@@ -38,6 +38,7 @@ import { updateUrlState } from './url-state';
 import { shouldHandleOpenPathBeforeEditorReady } from './open-font-readiness';
 import { serializeFontForSourceSave } from './font-manager';
 import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
+import { notifyLoadingOverlayHiding } from './welcome-screen';
 import {
     cancelManagedFileInternalWrite,
     consumeManagedFileInternalWritePaths,
@@ -1656,6 +1657,7 @@ function hideLoadingOverlayForUrlOpen(): void {
     }
 
     loadingOverlay.classList.add('hidden');
+    notifyLoadingOverlayHiding();
 }
 
 function hasPendingPwaLaunchFiles(): boolean {
