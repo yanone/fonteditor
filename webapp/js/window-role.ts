@@ -4,7 +4,7 @@ const console = new Logger('WindowRole');
 
 const LINKED_QUERY_PARAM = 'linked';
 const SESSION_QUERY_PARAM = 'windowSession';
-const SESSION_STORAGE_KEY = 'counterpunch-window-role-session-id';
+const SESSION_STORAGE_KEY = 'windowRoleSessionId';
 
 function createId(): string {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {

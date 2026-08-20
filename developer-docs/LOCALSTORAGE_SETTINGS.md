@@ -4,7 +4,7 @@
 
 This document lists `localStorage` keys discovered in production TypeScript (`webapp/js`) and plugin Python (`plugins/`) that persist editor settings, UI preferences, and related client state.
 
-IndexedDB keys such as directory handles and export destinations are not included.
+IndexedDB keys such as directory handles and export destinations are not included. `sessionStorage` keys are documented separately in `SESSIONSTORAGE_SETTINGS.md`.
 
 ## Summary
 
@@ -243,7 +243,7 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Operations: `getItem`, `setItem`
 - Sites:
   - webapp/js/font-info.ts:1005 `getItem` via method `getSavedTab`
-  - webapp/js/font-info.ts:2610 `setItem` via method `switchTab`
+  - webapp/js/font-info.ts:2609 `setItem` via method `switchTab`
 
 <a id="key-glyphcanvastextbuffer"></a>
 
@@ -352,8 +352,8 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Operations: `getItem`, `setItem`
 - Default when unset: `auto`
 - Sites:
-  - webapp/js/font-info.ts:2519 `getItem` via function `getInitialTheme`
-  - webapp/js/script-editor.ts:327 `getItem` via function `getInitialTheme`
+  - webapp/js/font-info.ts:2518 `getItem` via function `getInitialTheme`
+  - webapp/js/script-editor.ts:326 `getItem` via function `getInitialTheme`
   - webapp/js/theme-switcher.ts:55 `getItem` via method `init`
   - webapp/js/theme-switcher.ts:57 `setItem` via method `init`
   - webapp/js/theme-switcher.ts:113 `getItem` via method `init`
@@ -370,10 +370,10 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Default when unset: `# Write your Python script here...`
 - Sites:
   - webapp/js/script-editor.ts:288 `getItem` via function `init`
-  - webapp/js/script-editor.ts:411 `setItem` via function `init`
-  - webapp/js/script-editor.ts:1131 `setItem` via function `handleNew`
-  - webapp/js/script-editor.ts:1374 `setItem` via function `openFile`
-  - webapp/js/script-editor.ts:1764 `setItem` via function `reloadFileFromDisk`
+  - webapp/js/script-editor.ts:410 `setItem` via function `init`
+  - webapp/js/script-editor.ts:1130 `setItem` via function `handleNew`
+  - webapp/js/script-editor.ts:1373 `setItem` via function `openFile`
+  - webapp/js/script-editor.ts:1763 `setItem` via function `reloadFileFromDisk`
 
 <a id="key-pythonscriptsavedcontent"></a>
 
@@ -394,10 +394,10 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Kind: literal
 - Operations: `getItem`, `setItem`
 - Sites:
-  - webapp/js/script-editor.ts:657 `getItem` via function `tryStartWatcher`
-  - webapp/js/script-editor.ts:1250 `setItem` via function `handleSave`
-  - webapp/js/script-editor.ts:1383 `setItem` via function `openFile`
-  - webapp/js/script-editor.ts:1770 `setItem` via function `reloadFileFromDisk`
+  - webapp/js/script-editor.ts:656 `getItem` via function `tryStartWatcher`
+  - webapp/js/script-editor.ts:1249 `setItem` via function `handleSave`
+  - webapp/js/script-editor.ts:1382 `setItem` via function `openFile`
+  - webapp/js/script-editor.ts:1769 `setItem` via function `reloadFileFromDisk`
 
 <a id="key-pythonscripturi"></a>
 
@@ -410,9 +410,9 @@ IndexedDB keys such as directory handles and export destinations are not include
   - webapp/js/script-editor.ts:218 `setItem` via function `updateFilePath`
   - webapp/js/script-editor.ts:295 `getItem` via function `init`
   - webapp/js/script-editor.ts:306 `setItem` via function `init`
-  - webapp/js/script-editor.ts:1130 `removeItem` via function `handleNew`
-  - webapp/js/script-editor.ts:1375 `setItem` via function `openFile`
-  - webapp/js/script-editor.ts:1821 `removeItem` via module `top-level module code`
+  - webapp/js/script-editor.ts:1129 `removeItem` via function `handleNew`
+  - webapp/js/script-editor.ts:1374 `setItem` via function `openFile`
+  - webapp/js/script-editor.ts:1820 `removeItem` via module `top-level module code`
 
 <a id="key-runpythonscriptlastrun"></a>
 

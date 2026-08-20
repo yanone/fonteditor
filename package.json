@@ -9,8 +9,9 @@
         "generate-event-docs": "node generate-js-event-docs.mjs",
         "generate-glyph-filter-event-docs": "node generate-glyph-filter-event-docs.mjs",
         "generate-localstorage-docs": "node generate-localstorage-docs.mjs",
+        "generate-sessionstorage-docs": "node generate-sessionstorage-docs.mjs",
         "generate-docs-manifest": "node scripts/generate-documentation-manifest.mjs",
-        "generate-docs": "npm run generate-api-docs && npm run generate-event-docs && npm run generate-glyph-filter-event-docs && npm run generate-localstorage-docs && npm run generate-docs-manifest",
+        "generate-docs": "npm run generate-api-docs && npm run generate-event-docs && npm run generate-glyph-filter-event-docs && npm run generate-localstorage-docs && npm run generate-sessionstorage-docs && npm run generate-docs-manifest",
         "check:graph-chokepoints": "node scripts/check-graph-chokepoints.mjs",
         "test:graph-chokepoints": "node --test tests/check-graph-chokepoints.test.mjs",
         "prepare": "husky"

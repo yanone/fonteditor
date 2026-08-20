@@ -6,7 +6,7 @@ let lastPointerX: number | null = null;
 let lastPointerY: number | null = null;
 
 const SPINNER_OFFSET_PX = 18;
-const POINTER_STORAGE_KEY = 'loadingCursor.lastPointer';
+const POINTER_STORAGE_KEY = 'loadingCursorLastPointer';
 const canUseLoadingCursorDom =
     typeof window !== 'undefined' && typeof document !== 'undefined';
 
