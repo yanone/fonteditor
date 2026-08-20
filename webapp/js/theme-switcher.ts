@@ -11,7 +11,7 @@ import { hasBoundModalEscape } from './ui/modal-escape';
     'use strict';
 
     // Theme management
-    const THEME_KEY = 'preferred-theme';
+    const THEME_KEY = 'preferredTheme';
     const THEMES = {
         LIGHT: 'light',
         DARK: 'dark',

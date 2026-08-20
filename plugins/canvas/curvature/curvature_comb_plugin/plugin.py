@@ -112,7 +112,7 @@ class CurvatureCombPlugin(BaseCanvasPlugin):
     @property
     def SCALE_FACTOR(self):
         """Get the current scale factor."""
-        return 2000 + self.get_parameter("scale_factor") * 250
+        return 2000 + self.get_parameter("scaleFactor") * 250
 
     def get_ui_elements(self):
         """
@@ -124,7 +124,7 @@ class CurvatureCombPlugin(BaseCanvasPlugin):
         return [
             {
                 "type": "slider",
-                "id": "scale_factor",
+                "id": "scaleFactor",
                 "label": "Scale",
                 "min": 0,
                 "max": 100,

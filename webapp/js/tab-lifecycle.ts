@@ -221,7 +221,7 @@ class TabLifecycleManager {
                 // Also touch localStorage to signal activity
                 try {
                     localStorage.setItem(
-                        'tab_keepalive_timestamp',
+                        'tabKeepAliveTimestamp',
                         Date.now().toString()
                     );
                 } catch (e) {

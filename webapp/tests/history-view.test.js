@@ -29,7 +29,7 @@ describe('history view', () => {
         jest.resetModules();
         jest.clearAllMocks();
         try {
-            localStorage.removeItem('history.showUnreachable');
+            localStorage.removeItem('historyShowUnreachable');
         } catch {
             // ignore
         }
@@ -69,7 +69,7 @@ describe('history view', () => {
         }
 
         if (showUnreachable) {
-            localStorage.setItem('history.showUnreachable', '1');
+            localStorage.setItem('historyShowUnreachable', '1');
         }
 
         window.isDevelopment = jest.fn(() => false);

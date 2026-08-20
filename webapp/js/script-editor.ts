@@ -33,10 +33,10 @@ import { createGlyphFilterTemplate } from './glyph-filter-template';
         isModified: boolean;
     };
 
-    const SCRIPT_CONTENT_STORAGE_KEY = 'python_script';
-    const SCRIPT_URI_STORAGE_KEY = 'python_script_uri';
-    const SCRIPT_SAVED_CONTENT_STORAGE_KEY = 'python_script_saved_content';
-    const SCRIPT_TIMESTAMP_STORAGE_KEY = 'python_script_timestamp';
+    const SCRIPT_CONTENT_STORAGE_KEY = 'pythonScript';
+    const SCRIPT_URI_STORAGE_KEY = 'pythonScriptUri';
+    const SCRIPT_SAVED_CONTENT_STORAGE_KEY = 'pythonScriptSavedContent';
+    const SCRIPT_TIMESTAMP_STORAGE_KEY = 'pythonScriptTimestamp';
     const RUN_BUTTON_DEFAULT_HTML =
         'Run <span class="button-shortcut run-script-shortcut" hidden><span class="material-symbols-outlined">keyboard_command_key</span><span class="material-symbols-outlined">keyboard_return</span></span>';
 
@@ -323,8 +323,7 @@ import { createGlyphFilterTemplate } from './glyph-filter-template';
 
         // Set theme based on current theme preference
         const getInitialTheme = () => {
-            const savedTheme =
-                localStorage.getItem('preferred-theme') || 'auto';
+            const savedTheme = localStorage.getItem('preferredTheme') || 'auto';
             if (savedTheme === 'auto') {
                 const isDark = window.matchMedia(
                     '(prefers-color-scheme: dark)'

@@ -206,7 +206,7 @@ async function initFontEditor() {
         }
 
         // Restore the last active view right away, before animation ends
-        const lastActiveView = localStorage.getItem('last_active_view');
+        const lastActiveView = localStorage.getItem('lastActiveView');
         if (lastActiveView && window.focusView) {
             window.focusView(lastActiveView);
         }

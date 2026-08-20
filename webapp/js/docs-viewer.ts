@@ -206,7 +206,7 @@ export class DocsViewer {
         if (!docsWereFocused) {
             return;
         }
-        const lastActiveView = localStorage.getItem('last_active_view');
+        const lastActiveView = localStorage.getItem('lastActiveView');
         window.focusView?.(
             lastActiveView && lastActiveView !== 'view-docs'
                 ? lastActiveView

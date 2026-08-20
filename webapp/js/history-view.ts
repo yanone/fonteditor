@@ -11,7 +11,7 @@ import { getTheme } from './tippy-utils';
 
 const console = new Logger('HistoryView');
 
-const SHOW_UNREACHABLE_PREF_KEY = 'history.showUnreachable';
+const SHOW_UNREACHABLE_PREF_KEY = 'historyShowUnreachable';
 
 type HistoryScope =
     'layer' | 'glyph' | 'font' | 'feature' | 'overview' | 'automation';

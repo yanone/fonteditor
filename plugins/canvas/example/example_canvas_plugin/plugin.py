@@ -107,20 +107,20 @@ class ExampleCanvasPlugin(BaseCanvasPlugin):
             },
             {
                 "type": "textfield",
-                "id": "label_text",
+                "id": "labelText",
                 "label": "Label",
                 "default": "Custom",
                 "placeholder": "Enter text...",
             },
             {
                 "type": "checkbox",
-                "id": "show_info",
+                "id": "showInfo",
                 "label": "Show Info",
                 "default": True,
             },
             {
                 "type": "radio",
-                "id": "display_mode",
+                "id": "displayMode",
                 "label": "Mode",
                 "options": [
                     {"value": "normal", "label": "Normal"},
@@ -131,7 +131,7 @@ class ExampleCanvasPlugin(BaseCanvasPlugin):
             },
             {
                 "type": "color",
-                "id": "fill_color",
+                "id": "fillColor",
                 "label": "Color",
                 "default": "#0000ff",
             },
@@ -158,25 +158,25 @@ class ExampleCanvasPlugin(BaseCanvasPlugin):
             opacity = 50
         opacity_alpha = opacity / 100.0
 
-        label_text = self.get_parameter("label_text")
+        label_text = self.get_parameter("labelText")
         if (
             label_text is None
             or str(type(label_text)) == "<class 'pyodide.ffi.JsNull'>"
         ):
             label_text = "Custom"
 
-        show_info = self.get_parameter("show_info")
+        show_info = self.get_parameter("showInfo")
         if show_info is None or str(type(show_info)) == "<class 'pyodide.ffi.JsNull'>":
             show_info = True
 
-        display_mode = self.get_parameter("display_mode")
+        display_mode = self.get_parameter("displayMode")
         if (
             display_mode is None
             or str(type(display_mode)) == "<class 'pyodide.ffi.JsNull'>"
         ):
             display_mode = "filled"
 
-        fill_color = self.get_parameter("fill_color")
+        fill_color = self.get_parameter("fillColor")
         if (
             fill_color is None
             or str(type(fill_color)) == "<class 'pyodide.ffi.JsNull'>"

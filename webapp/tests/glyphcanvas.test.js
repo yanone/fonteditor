@@ -1221,7 +1221,7 @@ describe('GlyphCanvas renderer anchor-only layers', () => {
     });
 
     test('persists paired layer visibility across canvas instances', () => {
-        const storageKey = 'outlineEditorPairedLayerVisible';
+        const storageKey = 'editorPairedLayerVisible';
         localStorage.removeItem(storageKey);
 
         canvas.outlineEditor.setPairedLayerVisible(true);

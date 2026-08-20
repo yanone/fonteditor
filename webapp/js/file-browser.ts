@@ -55,7 +55,7 @@ import {
 
 const console = new Logger('FileBrowser');
 
-const LAST_CONTEXT_KEY = 'last-filesystem-context';
+const LAST_CONTEXT_KEY = 'lastFilesystemContext';
 const FILE_BROWSER_READY_EVENT = 'fileBrowserReady';
 
 type ChangedPathRecord = {
@@ -99,7 +99,7 @@ function getUIVisiblePlugins(): FilesystemPlugin[] {
 }
 
 function getPathStorageKey(pluginId: string): string {
-    return `last-path-${pluginId}`;
+    return `lastPath.${pluginId}`;
 }
 
 interface FileSystemState {

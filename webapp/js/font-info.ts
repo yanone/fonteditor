@@ -45,7 +45,7 @@ import {
 import './mode-fea';
 const console = new Logger('FontInfo');
 
-const FONTINFO_TAB_STORAGE_KEY = 'fontinfo-selected-tab';
+const FONTINFO_TAB_STORAGE_KEY = 'fontInfoSelectedTab';
 const FEATURE_CODE_COMPILE_DEBOUNCE_MS = 5000;
 
 type FontInfoTab =
@@ -2515,8 +2515,7 @@ class FontInfoManager {
 
         // Set theme based on current theme preference
         const getInitialTheme = () => {
-            const savedTheme =
-                localStorage.getItem('preferred-theme') || 'auto';
+            const savedTheme = localStorage.getItem('preferredTheme') || 'auto';
             if (savedTheme === 'auto') {
                 const isDark = window.matchMedia(
                     '(prefers-color-scheme: dark)'

@@ -1459,7 +1459,7 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
 
             // Save the last active view to localStorage
             if (viewId !== 'view-docs') {
-                localStorage.setItem('last_active_view', viewId);
+                localStorage.setItem('lastActiveView', viewId);
             }
 
             // Expand view if below threshold (auto-expand on activation)

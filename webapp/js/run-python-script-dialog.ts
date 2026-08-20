@@ -12,8 +12,8 @@ import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
 
 const console = new Logger('RunPythonScriptDialog');
 
-const SELECTED_SCRIPT_STORAGE_KEY = 'run-python-script-selected-path';
-const LAST_RUN_STORAGE_KEY = 'run-python-script-last-run';
+const SELECTED_SCRIPT_STORAGE_KEY = 'runPythonScriptSelectedPath';
+const LAST_RUN_STORAGE_KEY = 'runPythonScriptLastRun';
 
 const SCRIPTS_ROOT = SETTINGS_FOLDER_PATHS.scripts;
 const ALL_SCRIPTS_FOLDER = '';

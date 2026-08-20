@@ -17,40 +17,40 @@ IndexedDB keys such as directory handles and export destinations are not include
 | [`animationFrames`](#key-animationframes) | Persists animation frames. | getItem | `webapp/js/glyph-canvas/variations.ts` |
 | [`assistantAllowFontEdits`](#key-assistantallowfontedits) | Persists assistant allow font edits. | getItem, setItem | `webapp/js/ai-assistant.ts` |
 | [`canvasPlugin.CurvatureCombPlugin.exponent`](#key-canvasplugin-curvaturecombplugin-exponent) | Canvas plugin setting for `CurvatureCombPlugin` parameter `exponent`. | getItem, setItem | `plugins/canvas/curvature/curvature_comb_plugin/plugin.py` |
-| [`canvasPlugin.CurvatureCombPlugin.scale_factor`](#key-canvasplugin-curvaturecombplugin-scale-factor) | Canvas plugin setting for `CurvatureCombPlugin` parameter `scale_factor`. | getItem, setItem | `plugins/canvas/curvature/curvature_comb_plugin/plugin.py` |
-| [`canvasPlugin.ExampleCanvasPlugin.display_mode`](#key-canvasplugin-examplecanvasplugin-display-mode) | Canvas plugin setting for `ExampleCanvasPlugin` parameter `display_mode`. | getItem, setItem | `plugins/canvas/example/example_canvas_plugin/plugin.py` |
-| [`canvasPlugin.ExampleCanvasPlugin.fill_color`](#key-canvasplugin-examplecanvasplugin-fill-color) | Canvas plugin setting for `ExampleCanvasPlugin` parameter `fill_color`. | getItem, setItem | `plugins/canvas/example/example_canvas_plugin/plugin.py` |
-| [`canvasPlugin.ExampleCanvasPlugin.label_text`](#key-canvasplugin-examplecanvasplugin-label-text) | Canvas plugin setting for `ExampleCanvasPlugin` parameter `label_text`. | getItem, setItem | `plugins/canvas/example/example_canvas_plugin/plugin.py` |
+| [`canvasPlugin.CurvatureCombPlugin.scaleFactor`](#key-canvasplugin-curvaturecombplugin-scalefactor) | Canvas plugin setting for `CurvatureCombPlugin` parameter `scaleFactor`. | getItem, setItem | `plugins/canvas/curvature/curvature_comb_plugin/plugin.py` |
+| [`canvasPlugin.ExampleCanvasPlugin.displayMode`](#key-canvasplugin-examplecanvasplugin-displaymode) | Canvas plugin setting for `ExampleCanvasPlugin` parameter `displayMode`. | getItem, setItem | `plugins/canvas/example/example_canvas_plugin/plugin.py` |
+| [`canvasPlugin.ExampleCanvasPlugin.fillColor`](#key-canvasplugin-examplecanvasplugin-fillcolor) | Canvas plugin setting for `ExampleCanvasPlugin` parameter `fillColor`. | getItem, setItem | `plugins/canvas/example/example_canvas_plugin/plugin.py` |
+| [`canvasPlugin.ExampleCanvasPlugin.labelText`](#key-canvasplugin-examplecanvasplugin-labeltext) | Canvas plugin setting for `ExampleCanvasPlugin` parameter `labelText`. | getItem, setItem | `plugins/canvas/example/example_canvas_plugin/plugin.py` |
 | [`canvasPlugin.ExampleCanvasPlugin.opacity`](#key-canvasplugin-examplecanvasplugin-opacity) | Canvas plugin setting for `ExampleCanvasPlugin` parameter `opacity`. | getItem, setItem | `plugins/canvas/example/example_canvas_plugin/plugin.py` |
-| [`canvasPlugin.ExampleCanvasPlugin.show_info`](#key-canvasplugin-examplecanvasplugin-show-info) | Canvas plugin setting for `ExampleCanvasPlugin` parameter `show_info`. | getItem, setItem | `plugins/canvas/example/example_canvas_plugin/plugin.py` |
+| [`canvasPlugin.ExampleCanvasPlugin.showInfo`](#key-canvasplugin-examplecanvasplugin-showinfo) | Canvas plugin setting for `ExampleCanvasPlugin` parameter `showInfo`. | getItem, setItem | `plugins/canvas/example/example_canvas_plugin/plugin.py` |
 | [`canvasPluginsEnabled`](#key-canvaspluginsenabled) | Persists canvas plugins enabled. | getItem, setItem | `webapp/js/canvas-plugin-manager.ts` |
 | [`docsLastPageId`](#key-docslastpageid) | Persists docs last page id. | getItem, setItem | `webapp/js/docs-viewer.ts` |
 | [`docsViewWidth`](#key-docsviewwidth) | Persists docs view width. | getItem, setItem | `webapp/js/docs-viewer.ts`, `webapp/js/resizer.ts` |
+| [`editorGuidelinesVisible`](#key-editorguidelinesvisible) | Persists editor guidelines visible. | getItem, setItem | `webapp/js/glyph-canvas/outline-editor.ts` |
+| [`editorPairedLayerVisible`](#key-editorpairedlayervisible) | Persists editor paired layer visible. | getItem, setItem | `webapp/js/glyph-canvas/outline-editor.ts` |
 | [`editorPreviewArea`](#key-editorpreviewarea) | Preference: how much chrome Space preview fades, and which rectangle the dotted viewport guide follows. | getItem, setItem | `webapp/js/editor-preview-area-pref.ts` |
 | [`editorShowAllMetrics`](#key-editorshowallmetrics) | Preference: draw OS/2 / hhea / typo metric lines in edit mode. | getItem, setItem | `webapp/js/show-all-metrics-pref.ts` |
-| [`fontinfo-selected-tab`](#key-fontinfo-selected-tab) | Persists fontinfo selected tab. | getItem, setItem | `webapp/js/font-info.ts` |
+| [`fontInfoSelectedTab`](#key-fontinfoselectedtab) | Persists font info selected tab. | getItem, setItem | `webapp/js/font-info.ts` |
 | [`glyphCanvasTextBuffer`](#key-glyphcanvastextbuffer) | Persists glyph canvas text buffer. | getItem, setItem, removeItem | `webapp/js/font-manager.ts`, `webapp/js/glyph-canvas/textrun.ts` |
 | [`glyphFilterActive`](#key-glyphfilteractive) | Persists glyph filter active. | getItem, setItem, removeItem | `webapp/js/glyph-overview-filters.ts` |
 | [`glyphOverviewFollowStackScroll`](#key-glyphoverviewfollowstackscroll) | Preference: scroll the glyph overview when the editing glyph stack changes. | getItem, setItem | `webapp/js/glyph-overview-follow-stack-pref.ts` |
 | [`glyphOverviewSize`](#key-glyphoverviewsize) | Persists glyph overview size. | getItem, setItem | `webapp/js/glyph-overview.ts` |
 | [`glyphOverviewViewMode`](#key-glyphoverviewviewmode) | Persists glyph overview view mode. | getItem, setItem | `webapp/js/glyph-overview.ts` |
-| [`history.showUnreachable`](#key-history-showunreachable) | Persists history show unreachable. | getItem, setItem | `webapp/js/history-view.ts` |
-| [`last_active_view`](#key-last-active-view) | Persists last active view. | getItem, setItem | `webapp/js/docs-viewer.ts`, `webapp/js/fonteditor.ts`, `webapp/js/keyboard-navigation.ts` |
-| [`last-filesystem-context`](#key-last-filesystem-context) | Persists last filesystem context. | getItem, setItem | `webapp/js/file-browser.ts` |
-| [`outlineEditorGuidelinesVisible`](#key-outlineeditorguidelinesvisible) | Persists outline editor guidelines visible. | getItem, setItem | `webapp/js/glyph-canvas/outline-editor.ts` |
-| [`outlineEditorPairedLayerVisible`](#key-outlineeditorpairedlayervisible) | Persists outline editor paired layer visible. | getItem, setItem | `webapp/js/glyph-canvas/outline-editor.ts` |
-| [`preferred-theme`](#key-preferred-theme) | Theme management | getItem, setItem | `webapp/js/font-info.ts`, `webapp/js/script-editor.ts`, `webapp/js/theme-switcher.ts` |
-| [`python_script`](#key-python-script) | Persists python script. | getItem, setItem | `webapp/js/script-editor.ts` |
-| [`python_script_saved_content`](#key-python-script-saved-content) | Persists python script saved content. | getItem, setItem | `webapp/js/script-editor.ts` |
-| [`python_script_timestamp`](#key-python-script-timestamp) | Persists python script timestamp. | getItem, setItem | `webapp/js/script-editor.ts` |
-| [`python_script_uri`](#key-python-script-uri) | Persists python script uri. | getItem, setItem, removeItem | `webapp/js/script-editor.ts` |
-| [`run-python-script-last-run`](#key-run-python-script-last-run) | Persists run python script last run. | getItem, setItem | `webapp/js/run-python-script-dialog.ts` |
-| [`run-python-script-selected-path`](#key-run-python-script-selected-path) | Persists run python script selected path. | getItem, setItem, removeItem | `webapp/js/run-python-script-dialog.ts` |
-| [`tab_keepalive_timestamp`](#key-tab-keepalive-timestamp) | Persists tab keepalive timestamp. | setItem | `webapp/js/tab-lifecycle.ts` |
+| [`historyShowUnreachable`](#key-historyshowunreachable) | Persists history show unreachable. | getItem, setItem | `webapp/js/history-view.ts` |
+| [`lastActiveView`](#key-lastactiveview) | Persists last active view. | getItem, setItem | `webapp/js/docs-viewer.ts`, `webapp/js/fonteditor.ts`, `webapp/js/keyboard-navigation.ts` |
+| [`lastFilesystemContext`](#key-lastfilesystemcontext) | Persists last filesystem context. | getItem, setItem | `webapp/js/file-browser.ts` |
+| [`preferredTheme`](#key-preferredtheme) | Theme management | getItem, setItem | `webapp/js/font-info.ts`, `webapp/js/script-editor.ts`, `webapp/js/theme-switcher.ts` |
+| [`pythonScript`](#key-pythonscript) | Persists python script. | getItem, setItem | `webapp/js/script-editor.ts` |
+| [`pythonScriptSavedContent`](#key-pythonscriptsavedcontent) | Persists python script saved content. | getItem, setItem | `webapp/js/script-editor.ts` |
+| [`pythonScriptTimestamp`](#key-pythonscripttimestamp) | Persists python script timestamp. | getItem, setItem | `webapp/js/script-editor.ts` |
+| [`pythonScriptUri`](#key-pythonscripturi) | Persists python script uri. | getItem, setItem, removeItem | `webapp/js/script-editor.ts` |
+| [`runPythonScriptLastRun`](#key-runpythonscriptlastrun) | Persists run python script last run. | getItem, setItem | `webapp/js/run-python-script-dialog.ts` |
+| [`runPythonScriptSelectedPath`](#key-runpythonscriptselectedpath) | Persists run python script selected path. | getItem, setItem, removeItem | `webapp/js/run-python-script-dialog.ts` |
+| [`tabKeepAliveTimestamp`](#key-tabkeepalivetimestamp) | Persists tab keep alive timestamp. | setItem | `webapp/js/tab-lifecycle.ts` |
 | [`viewLayout`](#key-viewlayout) | Persists view layout. | getItem, setItem | `webapp/js/docs-viewer.ts`, `webapp/js/resizer.ts` |
 | [`canvasPlugin.${plugin_name}.${param_id}`](#key-canvasplugin-plugin-name-param-id-) | Canvas plugin parameter value keyed by plugin class name and parameter id. | getItem, setItem | `plugins/canvas/base/base_canvas_plugin/plugin.py` |
-| [`counterpunch-linked-window-counter:${sessionId}:${fontPath}`](#key-counterpunch-linked-window-counter-sessionid-fontpath-) | Persists counterpunch linked window counter. | getItem, setItem | `webapp/js/window-role.ts` |
-| [`last-path-${pluginId}`](#key-last-path-pluginid-) | Persists last path. | getItem, setItem | `webapp/js/file-browser.ts` |
+| [`lastPath.${pluginId}`](#key-lastpath-pluginid-) | Persists last path. | getItem, setItem | `webapp/js/file-browser.ts` |
+| [`linkedWindowCounter.${sessionId}.${fontPath}`](#key-linkedwindowcounter-sessionid-fontpath-) | Persists linked window counter. | getItem, setItem | `webapp/js/window-role.ts` |
 
 <a id="key-animationframes"></a>
 
@@ -86,44 +86,44 @@ IndexedDB keys such as directory handles and export destinations are not include
   - plugins/canvas/curvature/curvature_comb_plugin/plugin.py:39 `getItem` via class `CurvatureCombPlugin`
   - plugins/canvas/curvature/curvature_comb_plugin/plugin.py:39 `setItem` via class `CurvatureCombPlugin`
 
-<a id="key-canvasplugin-curvaturecombplugin-scale-factor"></a>
+<a id="key-canvasplugin-curvaturecombplugin-scalefactor"></a>
 
-## `canvasPlugin.CurvatureCombPlugin.scale_factor`
+## `canvasPlugin.CurvatureCombPlugin.scaleFactor`
 
-- Purpose: Canvas plugin setting for `CurvatureCombPlugin` parameter `scale_factor`.
+- Purpose: Canvas plugin setting for `CurvatureCombPlugin` parameter `scaleFactor`.
 - Kind: literal
 - Operations: `getItem`, `setItem`
 - Sites:
   - plugins/canvas/curvature/curvature_comb_plugin/plugin.py:39 `getItem` via class `CurvatureCombPlugin`
   - plugins/canvas/curvature/curvature_comb_plugin/plugin.py:39 `setItem` via class `CurvatureCombPlugin`
 
-<a id="key-canvasplugin-examplecanvasplugin-display-mode"></a>
+<a id="key-canvasplugin-examplecanvasplugin-displaymode"></a>
 
-## `canvasPlugin.ExampleCanvasPlugin.display_mode`
+## `canvasPlugin.ExampleCanvasPlugin.displayMode`
 
-- Purpose: Canvas plugin setting for `ExampleCanvasPlugin` parameter `display_mode`.
+- Purpose: Canvas plugin setting for `ExampleCanvasPlugin` parameter `displayMode`.
 - Kind: literal
 - Operations: `getItem`, `setItem`
 - Sites:
   - plugins/canvas/example/example_canvas_plugin/plugin.py:26 `getItem` via class `ExampleCanvasPlugin`
   - plugins/canvas/example/example_canvas_plugin/plugin.py:26 `setItem` via class `ExampleCanvasPlugin`
 
-<a id="key-canvasplugin-examplecanvasplugin-fill-color"></a>
+<a id="key-canvasplugin-examplecanvasplugin-fillcolor"></a>
 
-## `canvasPlugin.ExampleCanvasPlugin.fill_color`
+## `canvasPlugin.ExampleCanvasPlugin.fillColor`
 
-- Purpose: Canvas plugin setting for `ExampleCanvasPlugin` parameter `fill_color`.
+- Purpose: Canvas plugin setting for `ExampleCanvasPlugin` parameter `fillColor`.
 - Kind: literal
 - Operations: `getItem`, `setItem`
 - Sites:
   - plugins/canvas/example/example_canvas_plugin/plugin.py:26 `getItem` via class `ExampleCanvasPlugin`
   - plugins/canvas/example/example_canvas_plugin/plugin.py:26 `setItem` via class `ExampleCanvasPlugin`
 
-<a id="key-canvasplugin-examplecanvasplugin-label-text"></a>
+<a id="key-canvasplugin-examplecanvasplugin-labeltext"></a>
 
-## `canvasPlugin.ExampleCanvasPlugin.label_text`
+## `canvasPlugin.ExampleCanvasPlugin.labelText`
 
-- Purpose: Canvas plugin setting for `ExampleCanvasPlugin` parameter `label_text`.
+- Purpose: Canvas plugin setting for `ExampleCanvasPlugin` parameter `labelText`.
 - Kind: literal
 - Operations: `getItem`, `setItem`
 - Sites:
@@ -141,11 +141,11 @@ IndexedDB keys such as directory handles and export destinations are not include
   - plugins/canvas/example/example_canvas_plugin/plugin.py:26 `getItem` via class `ExampleCanvasPlugin`
   - plugins/canvas/example/example_canvas_plugin/plugin.py:26 `setItem` via class `ExampleCanvasPlugin`
 
-<a id="key-canvasplugin-examplecanvasplugin-show-info"></a>
+<a id="key-canvasplugin-examplecanvasplugin-showinfo"></a>
 
-## `canvasPlugin.ExampleCanvasPlugin.show_info`
+## `canvasPlugin.ExampleCanvasPlugin.showInfo`
 
-- Purpose: Canvas plugin setting for `ExampleCanvasPlugin` parameter `show_info`.
+- Purpose: Canvas plugin setting for `ExampleCanvasPlugin` parameter `showInfo`.
 - Kind: literal
 - Operations: `getItem`, `setItem`
 - Sites:
@@ -187,6 +187,30 @@ IndexedDB keys such as directory handles and export destinations are not include
   - webapp/js/resizer.ts:45 `getItem` via function `parseStoredDocsWidth`
   - webapp/js/resizer.ts:550 `setItem` via method `saveLayout`
 
+<a id="key-editorguidelinesvisible"></a>
+
+## `editorGuidelinesVisible`
+
+- Purpose: Persists editor guidelines visible.
+- Kind: literal
+- Operations: `getItem`, `setItem`
+- Default when unset: `true`
+- Sites:
+  - webapp/js/glyph-canvas/outline-editor.ts:3453 `getItem` via method `loadGuidelinesVisible`
+  - webapp/js/glyph-canvas/outline-editor.ts:3482 `setItem` via method `setGuidelinesVisible`
+
+<a id="key-editorpairedlayervisible"></a>
+
+## `editorPairedLayerVisible`
+
+- Purpose: Persists editor paired layer visible.
+- Kind: literal
+- Operations: `getItem`, `setItem`
+- Default when unset: `false`
+- Sites:
+  - webapp/js/glyph-canvas/outline-editor.ts:3463 `getItem` via method `loadPairedLayerVisible`
+  - webapp/js/glyph-canvas/outline-editor.ts:3897 `setItem` via method `setPairedLayerVisible`
+
 <a id="key-editorpreviewarea"></a>
 
 ## `editorPreviewArea`
@@ -210,11 +234,11 @@ IndexedDB keys such as directory handles and export destinations are not include
   - webapp/js/show-all-metrics-pref.ts:10 `getItem` via function `isShowAllMetricsEnabled`
   - webapp/js/show-all-metrics-pref.ts:18 `setItem` via function `setShowAllMetricsEnabled`
 
-<a id="key-fontinfo-selected-tab"></a>
+<a id="key-fontinfoselectedtab"></a>
 
-## `fontinfo-selected-tab`
+## `fontInfoSelectedTab`
 
-- Purpose: Persists fontinfo selected tab.
+- Purpose: Persists font info selected tab.
 - Kind: literal
 - Operations: `getItem`, `setItem`
 - Sites:
@@ -284,9 +308,9 @@ IndexedDB keys such as directory handles and export destinations are not include
   - webapp/js/glyph-overview.ts:616 `getItem` via method `initViewModeControl`
   - webapp/js/glyph-overview.ts:748 `setItem` via method `setViewMode`
 
-<a id="key-history-showunreachable"></a>
+<a id="key-historyshowunreachable"></a>
 
-## `history.showUnreachable`
+## `historyShowUnreachable`
 
 - Purpose: Persists history show unreachable.
 - Kind: literal
@@ -296,9 +320,9 @@ IndexedDB keys such as directory handles and export destinations are not include
   - webapp/js/history-view.ts:102 `getItem` via method `readShowUnreachablePref`
   - webapp/js/history-view.ts:110 `setItem` via method `writeShowUnreachablePref`
 
-<a id="key-last-active-view"></a>
+<a id="key-lastactiveview"></a>
 
-## `last_active_view`
+## `lastActiveView`
 
 - Purpose: Persists last active view.
 - Kind: literal
@@ -308,9 +332,9 @@ IndexedDB keys such as directory handles and export destinations are not include
   - webapp/js/fonteditor.ts:209 `getItem` via function `initFontEditor`
   - webapp/js/keyboard-navigation.ts:1462 `setItem` via function `focusView`
 
-<a id="key-last-filesystem-context"></a>
+<a id="key-lastfilesystemcontext"></a>
 
-## `last-filesystem-context`
+## `lastFilesystemContext`
 
 - Purpose: Persists last filesystem context.
 - Kind: literal
@@ -319,33 +343,9 @@ IndexedDB keys such as directory handles and export destinations are not include
   - webapp/js/file-browser.ts:2262 `setItem` via function `switchContext`
   - webapp/js/file-browser.ts:3888 `getItem` via function `initFileBrowser`
 
-<a id="key-outlineeditorguidelinesvisible"></a>
+<a id="key-preferredtheme"></a>
 
-## `outlineEditorGuidelinesVisible`
-
-- Purpose: Persists outline editor guidelines visible.
-- Kind: literal
-- Operations: `getItem`, `setItem`
-- Default when unset: `true`
-- Sites:
-  - webapp/js/glyph-canvas/outline-editor.ts:3453 `getItem` via method `loadGuidelinesVisible`
-  - webapp/js/glyph-canvas/outline-editor.ts:3482 `setItem` via method `setGuidelinesVisible`
-
-<a id="key-outlineeditorpairedlayervisible"></a>
-
-## `outlineEditorPairedLayerVisible`
-
-- Purpose: Persists outline editor paired layer visible.
-- Kind: literal
-- Operations: `getItem`, `setItem`
-- Default when unset: `false`
-- Sites:
-  - webapp/js/glyph-canvas/outline-editor.ts:3463 `getItem` via method `loadPairedLayerVisible`
-  - webapp/js/glyph-canvas/outline-editor.ts:3897 `setItem` via method `setPairedLayerVisible`
-
-<a id="key-preferred-theme"></a>
-
-## `preferred-theme`
+## `preferredTheme`
 
 - Purpose: Theme management
 - Kind: literal
@@ -360,9 +360,9 @@ IndexedDB keys such as directory handles and export destinations are not include
   - webapp/js/theme-switcher.ts:209 `setItem` via method `setTheme`
   - webapp/js/theme-switcher.ts:329 `getItem` via method `getCurrentTheme`
 
-<a id="key-python-script"></a>
+<a id="key-pythonscript"></a>
 
-## `python_script`
+## `pythonScript`
 
 - Purpose: Persists python script.
 - Kind: literal
@@ -375,9 +375,9 @@ IndexedDB keys such as directory handles and export destinations are not include
   - webapp/js/script-editor.ts:1374 `setItem` via function `openFile`
   - webapp/js/script-editor.ts:1764 `setItem` via function `reloadFileFromDisk`
 
-<a id="key-python-script-saved-content"></a>
+<a id="key-pythonscriptsavedcontent"></a>
 
-## `python_script_saved_content`
+## `pythonScriptSavedContent`
 
 - Purpose: Persists python script saved content.
 - Kind: literal
@@ -386,9 +386,9 @@ IndexedDB keys such as directory handles and export destinations are not include
   - webapp/js/script-editor.ts:107 `setItem` via function `persistSavedContent`
   - webapp/js/script-editor.ts:290 `getItem` via function `init`
 
-<a id="key-python-script-timestamp"></a>
+<a id="key-pythonscripttimestamp"></a>
 
-## `python_script_timestamp`
+## `pythonScriptTimestamp`
 
 - Purpose: Persists python script timestamp.
 - Kind: literal
@@ -399,9 +399,9 @@ IndexedDB keys such as directory handles and export destinations are not include
   - webapp/js/script-editor.ts:1383 `setItem` via function `openFile`
   - webapp/js/script-editor.ts:1770 `setItem` via function `reloadFileFromDisk`
 
-<a id="key-python-script-uri"></a>
+<a id="key-pythonscripturi"></a>
 
-## `python_script_uri`
+## `pythonScriptUri`
 
 - Purpose: Persists python script uri.
 - Kind: literal
@@ -414,9 +414,9 @@ IndexedDB keys such as directory handles and export destinations are not include
   - webapp/js/script-editor.ts:1375 `setItem` via function `openFile`
   - webapp/js/script-editor.ts:1821 `removeItem` via module `top-level module code`
 
-<a id="key-run-python-script-last-run"></a>
+<a id="key-runpythonscriptlastrun"></a>
 
-## `run-python-script-last-run`
+## `runPythonScriptLastRun`
 
 - Purpose: Persists run python script last run.
 - Kind: literal
@@ -425,9 +425,9 @@ IndexedDB keys such as directory handles and export destinations are not include
   - webapp/js/run-python-script-dialog.ts:97 `getItem` via function `loadLastRun`
   - webapp/js/run-python-script-dialog.ts:117 `setItem` via function `saveLastRun`
 
-<a id="key-run-python-script-selected-path"></a>
+<a id="key-runpythonscriptselectedpath"></a>
 
-## `run-python-script-selected-path`
+## `runPythonScriptSelectedPath`
 
 - Purpose: Persists run python script selected path.
 - Kind: literal
@@ -437,11 +437,11 @@ IndexedDB keys such as directory handles and export destinations are not include
   - webapp/js/run-python-script-dialog.ts:89 `removeItem` via function `saveLastSelectedPath`
   - webapp/js/run-python-script-dialog.ts:92 `setItem` via function `saveLastSelectedPath`
 
-<a id="key-tab-keepalive-timestamp"></a>
+<a id="key-tabkeepalivetimestamp"></a>
 
-## `tab_keepalive_timestamp`
+## `tabKeepAliveTimestamp`
 
-- Purpose: Persists tab keepalive timestamp.
+- Purpose: Persists tab keep alive timestamp.
 - Kind: literal
 - Operations: `setItem`
 - Sites:
@@ -474,21 +474,9 @@ IndexedDB keys such as directory handles and export destinations are not include
   - plugins/canvas/base/base_canvas_plugin/plugin.py:111 `getItem` via function `_load_parameter_from_storage`
   - plugins/canvas/base/base_canvas_plugin/plugin.py:150 `setItem` via function `_save_parameter_to_storage`
 
-<a id="key-counterpunch-linked-window-counter-sessionid-fontpath-"></a>
+<a id="key-lastpath-pluginid-"></a>
 
-## `counterpunch-linked-window-counter:${sessionId}:${fontPath}`
-
-- Purpose: Persists counterpunch linked window counter.
-- Kind: pattern
-- Operations: `getItem`, `setItem`
-- Default when unset: `0`
-- Sites:
-  - webapp/js/window-role.ts:66 `getItem` via method `allocateLinkedOrdinal`
-  - webapp/js/window-role.ts:73 `setItem` via method `allocateLinkedOrdinal`
-
-<a id="key-last-path-pluginid-"></a>
-
-## `last-path-${pluginId}`
+## `lastPath.${pluginId}`
 
 - Purpose: Persists last path.
 - Kind: pattern
@@ -498,4 +486,16 @@ IndexedDB keys such as directory handles and export destinations are not include
   - webapp/js/file-browser.ts:3341 `setItem` via function `navigateToPath`
   - webapp/js/file-browser.ts:3960 `getItem` via function `initFileBrowser`
   - webapp/js/file-browser.ts:4318 `setItem` via module `top-level module code`
+
+<a id="key-linkedwindowcounter-sessionid-fontpath-"></a>
+
+## `linkedWindowCounter.${sessionId}.${fontPath}`
+
+- Purpose: Persists linked window counter.
+- Kind: pattern
+- Operations: `getItem`, `setItem`
+- Default when unset: `0`
+- Sites:
+  - webapp/js/window-role.ts:66 `getItem` via method `allocateLinkedOrdinal`
+  - webapp/js/window-role.ts:73 `setItem` via method `allocateLinkedOrdinal`
 

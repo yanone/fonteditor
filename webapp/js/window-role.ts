@@ -107,7 +107,7 @@ export class WindowRoleManager {
     }
 
     private _getCounterStorageKey(fontPath: string): string {
-        return `counterpunch-linked-window-counter:${this.sessionId}:${encodeURIComponent(fontPath)}`;
+        return `linkedWindowCounter.${this.sessionId}.${encodeURIComponent(fontPath)}`;
     }
 }
 

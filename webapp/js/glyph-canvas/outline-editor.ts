@@ -3251,9 +3251,9 @@ export class OutlineEditor {
     private selectionResizeSnapshot: SelectionResizeSnapshot | null = null;
     private strokeAwareScalingPreference: boolean = false;
 
-    private readonly GUIDELINES_STORAGE_KEY = 'outlineEditorGuidelinesVisible';
+    private readonly GUIDELINES_STORAGE_KEY = 'editorGuidelinesVisible';
     private readonly PAIRED_LAYER_VISIBILITY_STORAGE_KEY =
-        'outlineEditorPairedLayerVisible';
+        'editorPairedLayerVisible';
 
     private readonly CANVAS_CONTEXT_MENU_BACKDROP_CLASS =
         'canvas-context-menu-backdrop';
