@@ -5,6 +5,14 @@
 
 import { Logger } from './logger';
 import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
+import { showUnsavedChangesDialog } from './ui/confirm-dialog';
+import {
+    getTourSlideByIndex,
+    TOUR_FUSTAT_PATH,
+    TOUR_SAMPLE_TEXT,
+    TOUR_SLIDE_ORDER
+} from './tour-slides';
+import { showTourSlide, transitionTourSlide, wait } from './tour-spotlight';
 
 const console = new Logger('Tour');
 
@@ -32,6 +40,8 @@ type TourHost = {
     introOverlay: HTMLElement | null;
     launchChip: HTMLElement | null;
     escapeBinding: ModalEscapeBinding | null;
+    starting: boolean;
+    slideIndex: number;
 };
 
 function getHost(): TourHost {
@@ -41,7 +51,9 @@ function getHost(): TourHost {
             introShownThisLoad: false,
             introOverlay: null,
             launchChip: null,
-            escapeBinding: null
+            escapeBinding: null,
+            starting: false,
+            slideIndex: 0
         };
     }
     return holder.__tourHost;
@@ -118,22 +130,180 @@ function skipAndCloseIntro(): void {
     console.log('Skipped tour');
 }
 
-/**
- * Begins the spotlight tour. Slide content lands in later steps.
- */
-export function startTour(): void {
+function isMemoryFustatOpen(): boolean {
+    const font = window.fontManager?.currentFont;
+    if (!font?.path || font.sourcePlugin?.getId?.() !== 'memory') {
+        return false;
+    }
+    return /(^|\/)Fustat\.glyphs$/.test(font.path);
+}
+
+async function confirmUnsavedChangesForTour(): Promise<boolean> {
+    const fontManager = window.fontManager;
+    const currentFont = fontManager?.currentFont;
+    if (!currentFont || !fontManager?.hasUnsyncedChanges?.(currentFont)) {
+        return true;
+    }
+
+    const choice = await showUnsavedChangesDialog(
+        currentFont.name || 'Untitled'
+    );
+    if (choice === 'cancel') {
+        return false;
+    }
+    if (choice === 'save') {
+        if (!currentFont.fileHandle && !currentFont.isCloudBacked()) {
+            await window.showFontFileDialog?.({
+                mode: 'save-as'
+            });
+        } else {
+            await window.saveButton?.handleSave?.();
+        }
+    }
+    return true;
+}
+
+function waitForFontInteractiveReady(path: string): Promise<void> {
+    return new Promise((resolve) => {
+        let settled = false;
+        const finish = () => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            window.removeEventListener('fontInteractiveReady', onReady);
+            window.clearTimeout(timeoutId);
+            resolve();
+        };
+        const onReady = (event: Event) => {
+            const detail = (event as CustomEvent<{ path?: string | null }>)
+                .detail;
+            const filename = path.split('/').pop() || path;
+            if (detail?.path && !String(detail.path).includes(filename)) {
+                return;
+            }
+            finish();
+        };
+        const timeoutId = window.setTimeout(finish, 20000);
+        window.addEventListener('fontInteractiveReady', onReady);
+    });
+}
+
+async function openFustatForTour(): Promise<boolean> {
+    if (isMemoryFustatOpen()) {
+        return true;
+    }
+
+    const allowed = await confirmUnsavedChangesForTour();
+    if (!allowed) {
+        return false;
+    }
+
+    const memoryPlugin = window.pluginRegistry?.get?.('memory');
+    if (!memoryPlugin) {
+        console.error('Memory plugin is not available');
+        return false;
+    }
+
+    const ready = waitForFontInteractiveReady(TOUR_FUSTAT_PATH);
+    await window.openFont?.(TOUR_FUSTAT_PATH, undefined, {
+        sourcePluginOverride: memoryPlugin
+    });
+    await ready;
+    return true;
+}
+
+function viewAnimationDelayMs(): number {
+    const animation = window.VIEW_SETTINGS?.animation;
+    if (animation?.enabled && typeof animation.duration === 'number') {
+        return animation.duration + 40;
+    }
+    return 0;
+}
+
+async function maximizeEditorView(): Promise<void> {
+    window.focusView?.('view-editor');
+    await wait(viewAnimationDelayMs());
+    window.resizeView?.('view-editor');
+    await wait(viewAnimationDelayMs());
+    window.resizeView?.('view-editor');
+    await wait(viewAnimationDelayMs());
+}
+
+async function prepareEditorForFirstSlide(): Promise<void> {
+    await maximizeEditorView();
+    const canvas = window.glyphCanvas;
+    if (canvas?.outlineEditor?.active) {
+        canvas.exitGlyphEditMode();
+    }
+    canvas?.textRunEditor?.setTextBuffer(TOUR_SAMPLE_TEXT);
+    await canvas?.applyInitialViewportFit?.();
+    await wait(50);
+}
+
+function markTourStarted(): void {
     try {
         localStorage.setItem(STARTED_STORAGE_KEY, 'true');
     } catch {
         // Ignore localStorage access failures.
     }
     updateTourLaunchButton();
-    closeTourIntro();
-    console.log('Started tour');
+}
+
+function onTourContinue(): void {
+    const host = getHost();
+    const nextIndex = host.slideIndex + 1;
+    const nextSlide = getTourSlideByIndex(nextIndex);
+    if (!nextSlide) {
+        console.log('No further tour slides');
+        return;
+    }
+    host.slideIndex = nextIndex;
+    void transitionTourSlide(nextSlide, onTourContinue);
+}
+
+async function presentCurrentSlide(): Promise<void> {
+    const host = getHost();
+    const slide = getTourSlideByIndex(host.slideIndex);
+    if (!slide) {
+        console.error('Tour slide missing at', host.slideIndex);
+        return;
+    }
+    await showTourSlide(slide, onTourContinue);
+}
+
+/**
+ * Begins the spotlight tour after opening the sample font.
+ */
+export async function startTour(): Promise<void> {
+    const host = getHost();
+    if (host.starting) {
+        return;
+    }
+    host.starting = true;
+    try {
+        const opened = await openFustatForTour();
+        if (!opened) {
+            return;
+        }
+        markTourStarted();
+        closeTourIntro();
+        host.slideIndex = 0;
+        await prepareEditorForFirstSlide();
+        await presentCurrentSlide();
+        console.log(
+            'Started tour',
+            TOUR_SLIDE_ORDER[host.slideIndex] || '(empty)'
+        );
+    } catch (error) {
+        console.error('Failed to start tour', error);
+    } finally {
+        host.starting = false;
+    }
 }
 
 function takeTourFromIntro(): void {
-    startTour();
+    void startTour();
 }
 
 export function openTourIntro(): void {

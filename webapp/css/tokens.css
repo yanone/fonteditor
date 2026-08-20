@@ -89,6 +89,10 @@
     --tour-launch-button-bg: #ffb347;
     --tour-launch-button-border: #e0942c;
     --tour-launch-button-text: #111111;
+    --tour-overlay: rgba(0, 0, 0, 0.72);
+    --tour-tooltip-bg: #ffffff;
+    --tour-tooltip-text: #111111;
+    --tour-tooltip-shadow: rgba(0, 0, 0, 0.28);
 }
 
 /* Light theme */
@@ -175,4 +179,8 @@
     --tour-launch-button-bg: #ffd08a;
     --tour-launch-button-border: #e8b05c;
     --tour-launch-button-text: #111111;
+    --tour-overlay: rgba(0, 0, 0, 0.55);
+    --tour-tooltip-bg: #ffffff;
+    --tour-tooltip-text: #111111;
+    --tour-tooltip-shadow: rgba(0, 0, 0, 0.18);
 }

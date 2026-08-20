@@ -164,7 +164,7 @@ npm run test:update-snapshots
 - Clean up temporary code, excessive logs, and debug statements
 - Prefer command-line commands for search/replace operations
 - Run commands such that output is visible (don't route to unreadable pipelines)
-- After changing any JavaScript or TypeScript file in `webapp/js/`, you MUST rebuild the Webpack bundle with `cd webapp && npm run build` (or verify the dev server at `npm run dev` reflects the changes) before considering the task finished.
+- Do not run a production Webpack build (`npm run build`) after ordinary JS/TS edits. `webapp/build/` is gitignored; CI, preview-release, and release already run `npm run build` before tests and deploy. Use the existing `npm run dev` / `npm run serve` server to see changes. Run a local production build only when you need to inspect that artifact (for example `npm run serve:ci`).
 
 ### Git and Commits
 

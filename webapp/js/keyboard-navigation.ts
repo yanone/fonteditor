@@ -1,4 +1,8 @@
 import { getClosestExpandedTopRowViewId } from './view-focus';
+import {
+    isTourBlockingViewShortcuts,
+    isViewShortcutAllowedDuringTour
+} from './tour-spotlight';
 
 // Keyboard Navigation System
 (function () {
@@ -1694,6 +1698,15 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
 
         // Cmd/Ctrl+Shift+D toggles the documentation column.
         if (cmdKey && shiftKey && !event.altKey && key === 'd') {
+            if (
+                isTourBlockingViewShortcuts() &&
+                !isViewShortcutAllowedDuringTour('d')
+            ) {
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation();
+                return;
+            }
             event.preventDefault();
             event.stopPropagation();
             event.stopImmediatePropagation();
@@ -1707,6 +1720,12 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
 
         // Cmd/Ctrl+Escape closes the focused panel (including Docs).
         if (cmdKey && event.code === 'Escape' && !shiftKey && !event.altKey) {
+            if (isTourBlockingViewShortcuts()) {
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation();
+                return;
+            }
             const focusedViewId =
                 currentFocusedView ||
                 (document.querySelector('.view.focused') as HTMLElement | null)
@@ -2011,6 +2030,15 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
             if (config.modifiers.cmd && !cmdKey) continue;
             if (config.modifiers.shift && !shiftKey) continue;
             if (key === config.key) {
+                if (
+                    isTourBlockingViewShortcuts() &&
+                    !isViewShortcutAllowedDuringTour(key)
+                ) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    event.stopImmediatePropagation();
+                    return;
+                }
                 event.preventDefault();
                 event.stopPropagation();
                 event.stopImmediatePropagation();

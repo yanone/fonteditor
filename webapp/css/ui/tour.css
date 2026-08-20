@@ -1,0 +1,99 @@
+/* Interactive tour spotlight and dedicated Tippy theme */
+
+.tour-spotlight-root {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.28s ease;
+}
+
+.tour-spotlight-root.is-visible {
+    opacity: 1;
+}
+
+.tour-spotlight-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: auto;
+}
+
+.tour-spotlight-mask-path {
+    fill: var(--tour-overlay);
+}
+
+.tour-spotlight-blockers {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.tour-spotlight-hole-blocker {
+    position: fixed;
+    pointer-events: auto;
+}
+
+.tour-tooltip-anchor {
+    position: absolute;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+
+.tippy-box[data-theme='tour'] {
+    background-color: var(--tour-tooltip-bg);
+    color: var(--tour-tooltip-text);
+    border: none;
+    border-radius: 8px;
+    box-shadow: none;
+    filter: drop-shadow(0 10px 24px var(--tour-tooltip-shadow));
+    font-family: var(--font-families-sans);
+    font-size: 14px;
+    line-height: 1.55;
+    pointer-events: auto;
+}
+
+.tippy-box[data-theme='tour'] > .tippy-content {
+    padding: 0 !important;
+}
+
+.tippy-box[data-theme='tour'][data-placement^='top'] > .tippy-arrow::before {
+    border-top-color: var(--tour-tooltip-bg);
+}
+
+.tippy-box[data-theme='tour'][data-placement^='bottom'] > .tippy-arrow::before {
+    border-bottom-color: var(--tour-tooltip-bg);
+}
+
+.tippy-box[data-theme='tour'][data-placement^='left'] > .tippy-arrow::before {
+    border-left-color: var(--tour-tooltip-bg);
+}
+
+.tippy-box[data-theme='tour'][data-placement^='right'] > .tippy-arrow::before {
+    border-right-color: var(--tour-tooltip-bg);
+}
+
+.tour-tooltip {
+    pointer-events: auto;
+    padding: 20px 22px;
+    color: var(--tour-tooltip-text);
+}
+
+.tour-tooltip h3 {
+    margin: 0 0 12px;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--tour-tooltip-text);
+}
+
+.tour-tooltip p {
+    margin: 0 0 16px;
+    color: var(--tour-tooltip-text);
+}
+
+.tour-tooltip-actions {
+    display: flex;
+    justify-content: flex-end;
+}
