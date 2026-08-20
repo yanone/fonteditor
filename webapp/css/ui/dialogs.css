@@ -299,6 +299,15 @@
     margin-top: 0;
 }
 
+.info-popup-overlay.is-native-picker-open {
+    visibility: hidden;
+}
+
+/* Sit above Open/Save (.file-dialog-overlay is 11000). */
+.folder-permissions-overlay {
+    z-index: 12000;
+}
+
 .folder-permissions-section {
     margin-top: 16px;
     padding-top: 12px;

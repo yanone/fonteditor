@@ -168,25 +168,51 @@ export class NativeAdapter implements FileSystemAdapter {
     async selectDirectory(options?: {
         startIn?: FileSystemHandle;
     }): Promise<boolean> {
+        const pickerOptions: {
+            mode: 'readwrite';
+            id: string;
+            startIn?: FileSystemHandle;
+        } = {
+            mode: 'readwrite',
+            id: this.storageKey
+        };
+
+        if (options?.startIn) {
+            pickerOptions.startIn = options.startIn;
+        }
+
+        let pickerPromise: Promise<FileSystemDirectoryHandle>;
         try {
-            const pickerOptions: any = {
-                mode: 'readwrite'
-            };
-
-            if (options?.startIn) {
-                pickerOptions.startIn = options.startIn;
+            // Start the native picker in this turn so it stays in the user
+            // gesture. Awaiting anything first (module load, IndexedDB) delays
+            // or blocks Chrome's first showDirectoryPicker.
+            pickerPromise = (
+                window as unknown as {
+                    showDirectoryPicker: (
+                        options?: Record<string, unknown>
+                    ) => Promise<FileSystemDirectoryHandle>;
+                }
+            ).showDirectoryPicker(pickerOptions);
+        } catch (error: unknown) {
+            const err = error as { name?: string };
+            if (err.name === 'AbortError') {
+                console.log('[NativeAdapter]', 'Directory selection cancelled');
+                return false;
             }
-
-            const handle = await (window as any).showDirectoryPicker(
-                pickerOptions
+            console.error(
+                '[NativeAdapter]',
+                'Error selecting directory:',
+                error
             );
+            throw error;
+        }
+
+        try {
+            const handle = await pickerPromise;
             this.directoryHandle = handle;
             this.rootPath = '/';
 
-            // Persist handle in IndexedDB
             await set(this.storageKey, handle);
-
-            // Request permission immediately
             await this.requestPermission();
 
             console.log(
@@ -195,18 +221,18 @@ export class NativeAdapter implements FileSystemAdapter {
                 handle.name
             );
             return true;
-        } catch (error: any) {
-            if (error.name === 'AbortError') {
+        } catch (error: unknown) {
+            const err = error as { name?: string };
+            if (err.name === 'AbortError') {
                 console.log('[NativeAdapter]', 'Directory selection cancelled');
                 return false;
-            } else {
-                console.error(
-                    '[NativeAdapter]',
-                    'Error selecting directory:',
-                    error
-                );
-                throw error;
             }
+            console.error(
+                '[NativeAdapter]',
+                'Error selecting directory:',
+                error
+            );
+            throw error;
         }
     }
 

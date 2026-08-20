@@ -328,15 +328,38 @@ async function paintDialog(): Promise<void> {
     );
 }
 
+function concealOverlayForNativePicker(): () => void {
+    const overlay = getHost().dialogOverlay;
+    if (!overlay) {
+        return () => undefined;
+    }
+    overlay.classList.add('is-native-picker-open');
+    overlay.setAttribute('aria-hidden', 'true');
+    return () => {
+        overlay.classList.remove('is-native-picker-open');
+        overlay.removeAttribute('aria-hidden');
+    };
+}
+
 async function selectProjectFolder(): Promise<boolean> {
-    const { changeFontsFolder } = await import('./file-browser');
-    return changeFontsFolder({ source: 'attach' });
+    const plugin = pluginRegistry.get('disk');
+    if (!(plugin instanceof DiskPlugin)) {
+        return false;
+    }
+    const success = await plugin.showSetupUI();
+    if (!success) {
+        return false;
+    }
+    const { applyFontsFolderSelection } = await import('./file-browser');
+    await applyFontsFolderSelection({ source: 'attach' });
+    return true;
 }
 
 async function handleFolderAction(
     kind: 'project' | 'settings',
     action: 'select' | 'renew'
 ): Promise<void> {
+    const restoreOverlay = concealOverlayForNativePicker();
     try {
         if (kind === 'project') {
             if (action === 'select') {
@@ -364,6 +387,8 @@ async function handleFolderAction(
         }
     } catch (error) {
         console.error('Folder action failed:', error);
+    } finally {
+        restoreOverlay();
     }
     await paintDialog();
 }
@@ -391,7 +416,7 @@ export async function openFolderPermissionsDialog(): Promise<void> {
     host.opening = true;
 
     const overlay = document.createElement('div');
-    overlay.className = 'info-popup-overlay';
+    overlay.className = 'info-popup-overlay folder-permissions-overlay';
     overlay.style.display = 'flex';
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-modal', 'true');
@@ -414,6 +439,7 @@ export async function openFolderPermissionsDialog(): Promise<void> {
 
     document.body.appendChild(overlay);
     host.dialogOverlay = overlay;
+    void import('./file-browser');
 
     host.escapeBinding = bindModalEscape(closeDialog, {
         isOpen: () => overlay.isConnected

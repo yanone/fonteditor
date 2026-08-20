@@ -2471,6 +2471,87 @@ function updateDiskRelinkButton(): void {
 }
 
 /**
+ * Refresh Disk UI after the Fonts folder handle is already selected.
+ * Does not open a picker — call this after DiskPlugin.showSetupUI succeeds.
+ */
+export async function applyFontsFolderSelection(options?: {
+    source?: 'attach' | 'settings';
+}): Promise<void> {
+    const plugin = pluginRegistry.get('disk');
+    if (!(plugin instanceof DiskPlugin)) {
+        return;
+    }
+
+    let targetPath = '/';
+    const currentFont = window.fontManager?.currentFont;
+    const currentFontHandle = currentFont?.fileHandle;
+
+    if (
+        currentFont &&
+        currentFont.sourcePlugin.getId() === 'disk' &&
+        currentFontHandle
+    ) {
+        const resolvedPath =
+            await resolveDiskPathForLaunchedFileHandle(currentFontHandle);
+
+        if (resolvedPath) {
+            currentFont.path = resolvedPath;
+            const adapter = plugin.getAdapter() as {
+                directoryHandle?: FileSystemDirectoryHandle;
+                getDirectoryHandle?: () => FileSystemDirectoryHandle | null;
+            };
+            currentFont.directoryHandle =
+                adapter.getDirectoryHandle?.() ??
+                adapter.directoryHandle ??
+                null;
+
+            targetPath =
+                resolvedPath.substring(0, resolvedPath.lastIndexOf('/')) || '/';
+
+            const fileUri = createFileUri('disk', resolvedPath);
+            if (window.stateManager) {
+                window.stateManager.editor_file = fileUri;
+                window.stateManager.recordEvent('file_opened', 'FileBrowser', {
+                    fileUri
+                });
+            }
+        }
+    }
+
+    detachedLaunchFilename = null;
+    detachedLaunchFileHandle = null;
+    updateOpenFolderPromptForDetachedLaunch();
+    hideOpenFolderUI();
+
+    window.dispatchEvent(
+        new CustomEvent('fontsFolderAccessChanged', {
+            detail: {
+                hasFontsFolderAccess: true,
+                source: options?.source || 'attach'
+            }
+        })
+    );
+
+    if (fileSystemCache.currentPlugin.getId() === 'disk') {
+        fileSystemCache.currentPath = targetPath;
+        await navigateToPath(targetPath);
+
+        setTimeout(() => {
+            const fileTree = document.getElementById('file-tree');
+            const currentFontItem = fileTree?.querySelector(
+                '.file-item.current-font'
+            );
+            if (currentFontItem) {
+                (currentFontItem as HTMLElement).scrollIntoView({
+                    block: 'center',
+                    behavior: 'auto'
+                });
+            }
+        }, 100);
+    }
+}
+
+/**
  * Change the selected Fonts folder (Disk plugin root) while preserving the
  * current Disk-context refresh, observer setup, and dependent-view notifications.
  * This does not affect the Settings Folder used for Plugins/Filters/Scripts.
@@ -2488,82 +2569,7 @@ export async function changeFontsFolder(options?: {
 
         const success = await plugin.showSetupUI({ startIn: options?.startIn });
         if (success) {
-            let targetPath = '/';
-            const currentFont = window.fontManager?.currentFont;
-            const currentFontHandle = currentFont?.fileHandle;
-
-            if (
-                currentFont &&
-                currentFont.sourcePlugin.getId() === 'disk' &&
-                currentFontHandle
-            ) {
-                const resolvedPath =
-                    await resolveDiskPathForLaunchedFileHandle(
-                        currentFontHandle
-                    );
-
-                if (resolvedPath) {
-                    currentFont.path = resolvedPath;
-                    const adapter = plugin.getAdapter() as {
-                        directoryHandle?: FileSystemDirectoryHandle;
-                        getDirectoryHandle?: () => FileSystemDirectoryHandle | null;
-                    };
-                    currentFont.directoryHandle =
-                        adapter.getDirectoryHandle?.() ??
-                        adapter.directoryHandle ??
-                        null;
-
-                    targetPath =
-                        resolvedPath.substring(
-                            0,
-                            resolvedPath.lastIndexOf('/')
-                        ) || '/';
-
-                    const fileUri = createFileUri('disk', resolvedPath);
-                    if (window.stateManager) {
-                        window.stateManager.editor_file = fileUri;
-                        window.stateManager.recordEvent(
-                            'file_opened',
-                            'FileBrowser',
-                            {
-                                fileUri
-                            }
-                        );
-                    }
-                }
-            }
-
-            detachedLaunchFilename = null;
-            detachedLaunchFileHandle = null;
-            updateOpenFolderPromptForDetachedLaunch();
-            hideOpenFolderUI();
-
-            window.dispatchEvent(
-                new CustomEvent('fontsFolderAccessChanged', {
-                    detail: {
-                        hasFontsFolderAccess: true,
-                        source: options?.source || 'attach'
-                    }
-                })
-            );
-
-            if (fileSystemCache.currentPlugin.getId() === 'disk') {
-                fileSystemCache.currentPath = targetPath;
-                await navigateToPath(targetPath);
-
-                setTimeout(() => {
-                    const fileTree = document.getElementById('file-tree');
-                    const currentFontItem = fileTree?.querySelector(
-                        '.file-item.current-font'
-                    );
-                    if (currentFontItem) {
-                        (currentFontItem as HTMLElement).scrollIntoView({
-                            block: 'center',
-                            behavior: 'auto'
-                        });
-                    }
-                }, 100);
-            }
+            await applyFontsFolderSelection(options);
         }
         return success;
     } catch (error: unknown) {
