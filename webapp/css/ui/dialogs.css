@@ -270,14 +270,14 @@
 }
 
 .dialog-button-primary {
-    background-color: var(--accent-green);
-    border-color: var(--accent-green);
-    color: var(--background-primary);
+    background-color: var(--folder-setup-callout-bg);
+    border-color: var(--folder-setup-callout-border);
+    color: var(--folder-setup-callout-text);
 }
 
 .dialog-button-primary:hover:not(:disabled) {
-    background-color: var(--accent-green);
-    border-color: var(--accent-green);
+    background-color: var(--folder-setup-callout-bg);
+    border-color: var(--folder-setup-callout-border);
     filter: brightness(1.05);
 }
 
@@ -320,8 +320,13 @@
     gap: 6px;
 }
 
+.folder-permissions-section-icon {
+    color: var(--text-secondary);
+}
+
 .folder-permissions-section-header h4 {
     margin: 0;
+    font-family: var(--font-families-sans);
 }
 
 .folder-permissions-section-body p {
@@ -354,16 +359,26 @@
 .folder-setup-callout {
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
+    align-items: center;
     gap: 10px;
     margin: 16px;
     padding: 12px;
-    border: 1px dashed var(--folder-setup-callout-bg);
+    border: 1px dashed var(--view-editor);
     border-radius: 6px;
     background-color: transparent;
     font-size: 12px;
     line-height: 1.4;
     color: var(--text-tertiary);
+    text-align: center;
+}
+
+.folder-setup-callout .folder-setup-callout-icon.material-symbols-outlined {
+    font-size: 24px;
+    width: 24px;
+    height: 24px;
+    line-height: 1;
+    color: var(--text-secondary);
+    opacity: 0.5;
 }
 
 .folder-setup-callout p {

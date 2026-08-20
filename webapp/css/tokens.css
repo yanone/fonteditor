@@ -83,8 +83,9 @@
     --button-bg: #2a2a2a;
     --glyph-overview-component-color: #75b5c6;
     --glyph-overview-path-color: #aaaaaa;
-    --folder-setup-callout-bg: #5cadff;
-    --folder-setup-callout-text: #ffffff;
+    --folder-setup-callout-bg: #00c4e8;
+    --folder-setup-callout-border: #00a8c9;
+    --folder-setup-callout-text: #111111;
 }
 
 /* Light theme */
@@ -165,6 +166,7 @@
     --button-bg: #f0f0f0;
     --glyph-overview-component-color: #75b5c6;
     --glyph-overview-path-color: #777777;
-    --folder-setup-callout-bg: #5c9cff;
-    --folder-setup-callout-text: #ffffff;
+    --folder-setup-callout-bg: #9eebf7;
+    --folder-setup-callout-border: #4ecde8;
+    --folder-setup-callout-text: #111111;
 }

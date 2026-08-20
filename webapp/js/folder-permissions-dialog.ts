@@ -44,8 +44,19 @@ const SETTINGS_INFO_HTML = `
     <p>A dedicated folder named Counterpunch is a good choice. Do not point Settings at the same folder as a font project.</p>
 `;
 
-const FOLDER_SETUP_CALLOUT_MESSAGE =
-    'Link a Settings Folder so Counterpunch can store filters, scripts, and plugins on disk.';
+export type FolderSetupKind = 'project' | 'settings';
+
+export const FOLDER_KIND_ICON: Record<FolderSetupKind, string> = {
+    project: 'bookmark_manager',
+    settings: 'folder_managed'
+};
+
+const FOLDER_KIND_CALLOUT_MESSAGE: Record<FolderSetupKind, string> = {
+    project:
+        'Link a Font Project Folder so Counterpunch can open and save font sources on disk.',
+    settings:
+        'Link a Settings Folder so Counterpunch can store filters, scripts, and plugins on disk.'
+};
 
 export const LINK_FOLDERS_BUTTON_LABEL = 'Link Folders';
 
@@ -233,6 +244,7 @@ function renderFolderSection(
     return `
         <section class="folder-permissions-section">
             <div class="folder-permissions-section-header">
+                <span class="material-symbols-outlined folder-permissions-section-icon" aria-hidden="true">${FOLDER_KIND_ICON[kind]}</span>
                 <h4>${title}</h4>
                 <button type="button" class="confirm-dialog-info-btn material-symbols-outlined" data-folder-info="${kind}" aria-label="About ${title}">info</button>
             </div>
@@ -530,11 +542,25 @@ function updateLinkFolderButton(): void {
     button.hidden = !show;
 }
 
-export function createFolderSetupCallout(message?: string): HTMLElement {
+function folderKindIconElement(
+    kind: FolderSetupKind,
+    className: string
+): HTMLSpanElement {
+    const icon = document.createElement('span');
+    icon.className = `material-symbols-outlined ${className}`;
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = FOLDER_KIND_ICON[kind];
+    return icon;
+}
+
+export function createFolderSetupCallout(
+    message?: string,
+    kind: FolderSetupKind = 'settings'
+): HTMLElement {
     const callout = document.createElement('div');
     callout.className = 'folder-setup-callout';
     const text = document.createElement('p');
-    text.textContent = message || FOLDER_SETUP_CALLOUT_MESSAGE;
+    text.textContent = message || FOLDER_KIND_CALLOUT_MESSAGE[kind];
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'toolbar-link-folder-btn';
@@ -542,14 +568,21 @@ export function createFolderSetupCallout(message?: string): HTMLElement {
     button.addEventListener('click', () => {
         void openFolderPermissionsDialog();
     });
-    callout.append(text, button);
+    callout.append(
+        folderKindIconElement(kind, 'folder-setup-callout-icon'),
+        text,
+        button
+    );
     return callout;
 }
 
-export function getFolderSetupCalloutHtml(): string {
+export function getFolderSetupCalloutHtml(
+    kind: FolderSetupKind = 'settings'
+): string {
     return `
         <div class="folder-setup-callout">
-            <p>${FOLDER_SETUP_CALLOUT_MESSAGE}</p>
+            <span class="material-symbols-outlined folder-setup-callout-icon" aria-hidden="true">${FOLDER_KIND_ICON[kind]}</span>
+            <p>${FOLDER_KIND_CALLOUT_MESSAGE[kind]}</p>
             <button type="button" class="toolbar-link-folder-btn" data-action="link-folder">${LINK_FOLDERS_BUTTON_LABEL}</button>
         </div>
     `;

@@ -1107,7 +1107,7 @@ kbd + kbd {
 
 .toolbar-link-folder-btn {
     background-color: var(--folder-setup-callout-bg);
-    border: none;
+    border: 1px solid var(--folder-setup-callout-border);
     color: var(--folder-setup-callout-text);
     padding: 6px 12px;
     border-radius: 4px;

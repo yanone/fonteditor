@@ -2397,7 +2397,9 @@ function renderOpenFolderWidget(): void {
     const message = detachedLaunchFilename
         ? `Opened ${detachedLaunchFilename}. Attach its folder to enable full disk browsing and external reload.`
         : undefined;
-    openFolderContainer.replaceChildren(createFolderSetupCallout(message));
+    openFolderContainer.replaceChildren(
+        createFolderSetupCallout(message, 'project')
+    );
 }
 
 function isDiskProjectFolderLinked(): boolean {
