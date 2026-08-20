@@ -10,7 +10,7 @@ IndexedDB keys such as directory handles and export destinations are not include
 
 | Keys | Literal | Pattern |
 | ---: | ---: | ---: |
-| 41 | 38 | 3 |
+| 42 | 39 | 3 |
 
 | Key | Purpose | Operations | Files |
 | --- | --- | --- | --- |
@@ -27,6 +27,7 @@ IndexedDB keys such as directory handles and export destinations are not include
 | [`docsLastPageId`](#key-docslastpageid) | Persists docs last page id. | getItem, setItem | `webapp/js/docs-viewer.ts` |
 | [`docsViewWidth`](#key-docsviewwidth) | Persists docs view width. | getItem, setItem | `webapp/js/docs-viewer.ts`, `webapp/js/resizer.ts` |
 | [`editorGuidelinesVisible`](#key-editorguidelinesvisible) | Persists editor guidelines visible. | getItem, setItem | `webapp/js/glyph-canvas/outline-editor.ts` |
+| [`editorNodeSnapping`](#key-editornodesnapping) | Preference: snap outline points while dragging or drawing. | getItem, setItem | `webapp/js/node-snapping-pref.ts` |
 | [`editorPairedLayerVisible`](#key-editorpairedlayervisible) | Persists editor paired layer visible. | getItem, setItem | `webapp/js/glyph-canvas/outline-editor.ts` |
 | [`editorPreviewArea`](#key-editorpreviewarea) | Preference: how much chrome Space preview fades, and which rectangle the dotted viewport guide follows. | getItem, setItem | `webapp/js/editor-preview-area-pref.ts` |
 | [`editorShowAllMetrics`](#key-editorshowallmetrics) | Preference: draw OS/2 / hhea / typo metric lines in edit mode. | getItem, setItem | `webapp/js/show-all-metrics-pref.ts` |
@@ -200,8 +201,20 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Operations: `getItem`, `setItem`
 - Default when unset: `true`
 - Sites:
-  - webapp/js/glyph-canvas/outline-editor.ts:3453 `getItem` via method `loadGuidelinesVisible`
-  - webapp/js/glyph-canvas/outline-editor.ts:3482 `setItem` via method `setGuidelinesVisible`
+  - webapp/js/glyph-canvas/outline-editor.ts:3454 `getItem` via method `loadGuidelinesVisible`
+  - webapp/js/glyph-canvas/outline-editor.ts:3483 `setItem` via method `setGuidelinesVisible`
+
+<a id="key-editornodesnapping"></a>
+
+## `editorNodeSnapping`
+
+- Purpose: Preference: snap outline points while dragging or drawing.
+- Kind: literal
+- Operations: `getItem`, `setItem`
+- Default when unset: `false`
+- Sites:
+  - webapp/js/node-snapping-pref.ts:10 `getItem` via function `isNodeSnappingEnabled`
+  - webapp/js/node-snapping-pref.ts:18 `setItem` via function `setNodeSnappingEnabled`
 
 <a id="key-editorpairedlayervisible"></a>
 
@@ -212,8 +225,8 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Operations: `getItem`, `setItem`
 - Default when unset: `false`
 - Sites:
-  - webapp/js/glyph-canvas/outline-editor.ts:3463 `getItem` via method `loadPairedLayerVisible`
-  - webapp/js/glyph-canvas/outline-editor.ts:3897 `setItem` via method `setPairedLayerVisible`
+  - webapp/js/glyph-canvas/outline-editor.ts:3464 `getItem` via method `loadPairedLayerVisible`
+  - webapp/js/glyph-canvas/outline-editor.ts:3898 `setItem` via method `setPairedLayerVisible`
 
 <a id="key-editorpreviewarea"></a>
 
@@ -334,7 +347,7 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Sites:
   - webapp/js/docs-viewer.ts:209 `getItem` via method `close`
   - webapp/js/fonteditor.ts:210 `getItem` via function `initFontEditor`
-  - webapp/js/keyboard-navigation.ts:1462 `setItem` via function `focusView`
+  - webapp/js/keyboard-navigation.ts:1466 `setItem` via function `focusView`
 
 <a id="key-lastfilesystemcontext"></a>
 
@@ -460,8 +473,8 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Operations: `getItem`, `setItem`
 - Default when unset: `false`
 - Sites:
-  - webapp/js/tour.ts:73 `getItem` via function `hasDismissedTourLaunchButton`
-  - webapp/js/tour.ts:100 `setItem` via function `dismissTourLaunchButton`
+  - webapp/js/tour.ts:87 `getItem` via function `hasDismissedTourLaunchButton`
+  - webapp/js/tour.ts:114 `setItem` via function `dismissTourLaunchButton`
 
 <a id="key-tourskipped"></a>
 
@@ -472,8 +485,8 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Operations: `getItem`, `setItem`
 - Default when unset: `false`
 - Sites:
-  - webapp/js/tour.ts:56 `getItem` via function `hasSkippedTour`
-  - webapp/js/tour.ts:91 `setItem` via function `skipTour`
+  - webapp/js/tour.ts:70 `getItem` via function `hasSkippedTour`
+  - webapp/js/tour.ts:105 `setItem` via function `skipTour`
 
 <a id="key-tourstarted"></a>
 
@@ -484,8 +497,8 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Operations: `getItem`, `setItem`
 - Default when unset: `false`
 - Sites:
-  - webapp/js/tour.ts:64 `getItem` via function `hasStartedTour`
-  - webapp/js/tour.ts:126 `setItem` via function `startTour`
+  - webapp/js/tour.ts:78 `getItem` via function `hasStartedTour`
+  - webapp/js/tour.ts:249 `setItem` via function `markTourStarted`
 
 <a id="key-viewlayout"></a>
 

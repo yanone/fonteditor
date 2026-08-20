@@ -37,6 +37,9 @@ describe('editor View menu', () => {
         expect(html).toMatch(
             /data-action="toggle-show-all-metrics"[^>]*aria-disabled="true"/
         );
+        expect(html).toMatch(
+            /data-action="toggle-node-snapping"[^>]*aria-disabled="true"/
+        );
         expect(html).not.toMatch(
             /data-action="toggle-follow-stack-scroll"[^>]*aria-disabled="true"/
         );
@@ -64,6 +67,12 @@ describe('editor View menu', () => {
         );
         expect(html).not.toMatch(
             /data-action="toggle-guidelines"[^>]*aria-disabled="true"/
+        );
+        expect(html).not.toMatch(
+            /data-action="toggle-node-snapping"[^>]*aria-disabled="true"/
+        );
+        expect(html).toMatch(
+            /data-action="toggle-node-snapping"[^>]*aria-checked="false"/
         );
     });
 });

@@ -114,6 +114,7 @@ const APP_SETTINGS = {
 
         // Node snapping
         SNAP_DISTANCE_PX: 3, // Snapping distance in screen pixels
+        SNAP_VISUALIZATION_OPACITY: 0.4, // Orange snap markers and guides when snapping is on
 
         // Measurement tool
         MEASUREMENT_TOOL_DISPLAY_DELAY: 0, // ms - measurement tool appears immediately when Tab is pressed

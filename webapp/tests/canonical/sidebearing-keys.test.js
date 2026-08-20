@@ -1404,6 +1404,10 @@ describe('Sidebearing keys: viewport anchoring', () => {
 });
 
 describe('Sidebearing keys: adjacent snap candidate compensation', () => {
+    beforeEach(() => {
+        localStorage.setItem('editorNodeSnapping', 'true');
+    });
+
     test('left-side keyed edit shifts right-neighbor snap candidates by active and dependent width deltas', () => {
         const font = makeBidirectionalNeighborMetricsFont();
         setupCanvasForGlyph(font, 'a');

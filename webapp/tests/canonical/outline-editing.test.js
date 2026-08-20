@@ -240,6 +240,7 @@ describe('Outline Editing canonical behavior', () => {
 
     beforeEach(() => {
         document.body.innerHTML = '<div id="test-container"></div>';
+        localStorage.setItem('editorNodeSnapping', 'true');
         canvas = new GlyphCanvas('test-container');
         currentFontSpy = jest
             .spyOn(fontManager, 'currentFont', 'get')
@@ -1043,6 +1044,158 @@ describe('Outline Editing canonical behavior', () => {
         );
     });
 
+    test('skips alignment snapping when Node Snapping is off', () => {
+        localStorage.setItem('editorNodeSnapping', 'false');
+        activateEditableLayer(canvas, {
+            width: 520,
+            shapes: [
+                {
+                    nodes: [{ x: 100, y: 0, nodetype: 'Line' }],
+                    closed: false
+                }
+            ],
+            anchors: [],
+            guides: []
+        });
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 0 }
+        ];
+        canvas.outlineEditor.isDraggingPoint = true;
+        canvas.outlineEditor.isSlidingSmoothPointAlongCurve = false;
+        canvas.outlineEditor._snapDragStartMouseX = 100;
+        canvas.outlineEditor._snapDragStartMouseY = 0;
+        canvas.outlineEditor._snapDragStartNodePos = { x: 100, y: 0 };
+        canvas.outlineEditor._rebuildSnapCandidateCache();
+
+        const snapped = canvas.outlineEditor._applySnapToDelta(
+            338,
+            28,
+            438,
+            28,
+            100,
+            0
+        );
+        expect(snapped).toEqual({ deltaX: 338, deltaY: 28 });
+        expect(canvas.outlineEditor.activeSnapTarget).toBeNull();
+        expect(canvas.outlineEditor.getSnapVisualizationState()).toEqual(
+            expect.objectContaining({
+                snapTarget: null
+            })
+        );
+    });
+
+    test('still snaps to open contour ends when Node Snapping is off', () => {
+        localStorage.setItem('editorNodeSnapping', 'false');
+        activateEditableLayer(canvas, {
+            width: 520,
+            shapes: [
+                {
+                    nodes: [
+                        { x: 0, y: 0, nodetype: 'Move' },
+                        { x: 80, y: 0, nodetype: 'Line' }
+                    ],
+                    closed: false
+                },
+                {
+                    nodes: [
+                        { x: 120, y: 4, nodetype: 'Move' },
+                        { x: 200, y: 4, nodetype: 'Line' }
+                    ],
+                    closed: false
+                }
+            ],
+            anchors: [],
+            guides: []
+        });
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 1 }
+        ];
+        canvas.outlineEditor.isDraggingPoint = true;
+        canvas.outlineEditor.isSlidingSmoothPointAlongCurve = false;
+        canvas.outlineEditor._snapDragStartMouseX = 80;
+        canvas.outlineEditor._snapDragStartMouseY = 0;
+        canvas.outlineEditor._snapDragStartNodePos = { x: 80, y: 0 };
+        canvas.outlineEditor._rebuildSnapCandidateCache();
+
+        const snapped = canvas.outlineEditor._applySnapToDelta(
+            38,
+            3,
+            118,
+            3,
+            80,
+            0
+        );
+        expect(snapped).toEqual({ deltaX: 40, deltaY: 4 });
+        expect(canvas.outlineEditor.activeSnapTarget).toEqual(
+            expect.objectContaining({
+                xSource: expect.objectContaining({ source: 'active', x: 120 }),
+                ySource: expect.objectContaining({ source: 'active', y: 4 })
+            })
+        );
+        expect(canvas.outlineEditor.getSnapVisualizationState()).toEqual(
+            expect.objectContaining({
+                snapTarget: expect.objectContaining({
+                    snappedX: 120,
+                    snappedY: 4
+                })
+            })
+        );
+    });
+
+    test('still snaps drawing to open contour ends when Node Snapping is off', () => {
+        localStorage.setItem('editorNodeSnapping', 'false');
+        activateEditableLayer(canvas, {
+            width: 520,
+            shapes: [
+                {
+                    nodes: [
+                        { x: 20, y: 30, nodetype: 'Move' },
+                        { x: 90, y: 30, nodetype: 'Line' }
+                    ],
+                    closed: false
+                },
+                {
+                    nodes: [
+                        { x: 120, y: 90, nodetype: 'Move' },
+                        { x: 160, y: 90, nodetype: 'Line' }
+                    ],
+                    closed: false
+                }
+            ],
+            anchors: [],
+            guides: []
+        });
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 1 }
+        ];
+        const pointerSpy = jest
+            .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+            .mockReturnValue({ glyphX: 118, glyphY: 93 });
+
+        try {
+            canvas.outlineEditor.setCommandKeyPressed(true);
+            expect(canvas.outlineEditor.getSnapVisualizationState()).toEqual(
+                expect.objectContaining({
+                    naturalPos: { x: 118, y: 93 },
+                    snapTarget: expect.objectContaining({
+                        snappedX: 120,
+                        snappedY: 90
+                    }),
+                    closeTargets: expect.arrayContaining([
+                        expect.objectContaining({
+                            x: 120,
+                            y: 90,
+                            role: 'other-end',
+                            active: true
+                        })
+                    ])
+                })
+            );
+        } finally {
+            pointerSpy.mockRestore();
+        }
+    });
+
     test('alt-constrained smooth on-curve dragging still honors reachable snap candidates', () => {
         activateEditableLayer(canvas, {
             width: 520,
@@ -1569,11 +1722,16 @@ describe('Outline Editing canonical behavior', () => {
                 naturalPos: { x: 118, y: 88 },
                 originPos: null,
                 snapTarget: expect.objectContaining({
-                    xSource: expect.objectContaining({ source: 'active' }),
                     ySource: expect.objectContaining({ source: 'metric' }),
-                    snappedX: 120,
                     snappedY: 90
-                })
+                }),
+                closeTargets: expect.arrayContaining([
+                    expect.objectContaining({
+                        x: 120,
+                        y: 40,
+                        role: 'other-end'
+                    })
+                ])
             })
         );
 
@@ -2083,13 +2241,15 @@ describe('Outline Editing canonical behavior', () => {
             expect.objectContaining({
                 naturalPos: { x: 118, y: 88 },
                 snapTarget: expect.objectContaining({
-                    xSource: expect.objectContaining({ source: 'active' }),
-                    ySource: expect.objectContaining({ source: 'active' }),
-                    snappedX: 120,
+                    ySource: expect.objectContaining({ source: 'metric' }),
                     snappedY: 90
                 })
             })
         );
+        expect(
+            canvas.outlineEditor.getSnapVisualizationState()?.snapTarget
+                ?.snappedX
+        ).not.toBe(120);
 
         pointerSpy.mockRestore();
     });

@@ -3780,9 +3780,8 @@ export class GlyphCanvasRenderer {
 
     /**
      * Draw snap visualization:
-     * - ALWAYS during point drag: small dot for each neighboring glyph's eligible snap node
-     * - ALWAYS (when dragging and activeSnapTarget is set): highlight the snap source node
-     *   and draw a straight line from the dragged point to that source node
+     * - Neighboring glyph snap nodes as faint dots
+     * - Highlight the snap source node and draw a faint line to it
      */
     drawSnapVisualization() {
         // Only render when editing mode is active and we have a selected glyph
@@ -3826,6 +3825,7 @@ export class GlyphCanvasRenderer {
 
         const snapVisualizationState =
             this.glyphCanvas.outlineEditor.getSnapVisualizationState();
+        const closeTargets = snapVisualizationState?.closeTargets || [];
         const exactOriginReturn = this.isExactOriginSnapReturn(
             snapVisualizationState
         );
@@ -3835,6 +3835,15 @@ export class GlyphCanvasRenderer {
         const highlightNodeColor = exactOriginReturn
             ? colors.NODE_SELECTED
             : colors.SNAP_HIGHLIGHT_NODE;
+
+        const isCloseTargetSnap = (snappedX: number, snappedY: number) =>
+            closeTargets.some(
+                (target) => target.x === snappedX && target.y === snappedY
+            );
+
+        this.ctx.save();
+        this.ctx.globalAlpha *=
+            APP_SETTINGS.OUTLINE_EDITOR.SNAP_VISUALIZATION_OPACITY;
 
         // ---- Neighboring glyph snap nodes ----
         {
@@ -3877,7 +3886,11 @@ export class GlyphCanvasRenderer {
         const snapTarget = snapVisualizationState?.snapTarget || null;
         const naturalPos = snapVisualizationState?.naturalPos || null;
 
-        if (snapTarget && naturalPos) {
+        if (
+            snapTarget &&
+            naturalPos &&
+            !isCloseTargetSnap(snapTarget.snappedX, snapTarget.snappedY)
+        ) {
             const highlightRadius = 5 * invScale;
             const highlightRingRadius =
                 highlightRadius * (exactOriginReturn ? 2.75 : 2);
@@ -4012,6 +4025,40 @@ export class GlyphCanvasRenderer {
                     this.ctx.restore();
                 }
             }
+        }
+
+        this.ctx.restore();
+
+        if (closeTargets.length > 0) {
+            const targetRadius = 5 * invScale;
+            this.ctx.save();
+            this.ctx.strokeStyle = colors.NODE_SELECTED;
+            this.ctx.fillStyle = colors.NODE_SELECTED;
+            this.ctx.lineWidth = 1 * invScale;
+            for (const target of closeTargets) {
+                const ringRadius = targetRadius * (target.active ? 2.75 : 2);
+                this.ctx.beginPath();
+                this.ctx.arc(target.x, target.y, ringRadius, 0, Math.PI * 2);
+                this.ctx.stroke();
+                this.ctx.beginPath();
+                this.ctx.moveTo(target.x - ringRadius, target.y);
+                this.ctx.lineTo(target.x + ringRadius, target.y);
+                this.ctx.moveTo(target.x, target.y - ringRadius);
+                this.ctx.lineTo(target.x, target.y + ringRadius);
+                this.ctx.stroke();
+                if (target.active) {
+                    this.ctx.beginPath();
+                    this.ctx.arc(
+                        target.x,
+                        target.y,
+                        targetRadius,
+                        0,
+                        Math.PI * 2
+                    );
+                    this.ctx.fill();
+                }
+            }
+            this.ctx.restore();
         }
 
         this.ctx.restore();

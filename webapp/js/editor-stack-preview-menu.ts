@@ -15,6 +15,10 @@ import {
     toggleShowAllMetricsEnabled
 } from './show-all-metrics-pref';
 import {
+    isNodeSnappingEnabled,
+    toggleNodeSnappingEnabled
+} from './node-snapping-pref';
+import {
     getPreviewArea,
     setPreviewArea,
     type PreviewArea
@@ -62,6 +66,8 @@ export function createStackPreviewMenuHtml(): string {
     const followStackCheckmark = followStackScroll ? 'check' : '';
     const showAllMetrics = isShowAllMetricsEnabled();
     const showAllMetricsCheckmark = showAllMetrics ? 'check' : '';
+    const nodeSnapping = isNodeSnappingEnabled();
+    const nodeSnappingCheckmark = nodeSnapping ? 'check' : '';
     const previewArea = getPreviewArea();
     const previewAreaSegment = (area: PreviewArea, label: string) =>
         `<button type="button" class="plugin-menu-segment${previewArea === area ? ' active' : ''}" data-preview-area="${area}" role="radio" aria-checked="${previewArea === area}">${label}</button>`;
@@ -110,6 +116,10 @@ export function createStackPreviewMenuHtml(): string {
             <div class="plugin-menu-item${viewMenuItemClass(isEditMode)}" data-action="toggle-show-all-metrics" role="menuitemcheckbox" aria-checked="${showAllMetrics}"${viewMenuItemDisabledAttr(isEditMode)} tabindex="-1">
                 <span class="plugin-menu-check material-symbols-outlined${showAllMetrics ? '' : ' empty'}">${showAllMetricsCheckmark}</span>
                 <span>Show All Metrics</span>
+            </div>
+            <div class="plugin-menu-item${viewMenuItemClass(isEditMode)}" data-action="toggle-node-snapping" role="menuitemcheckbox" aria-checked="${nodeSnapping}"${viewMenuItemDisabledAttr(isEditMode)} tabindex="-1">
+                <span class="plugin-menu-check material-symbols-outlined${nodeSnapping ? '' : ' empty'}">${nodeSnappingCheckmark}</span>
+                <span>Node Snapping</span>
             </div>
             <div class="plugin-menu-item" data-action="toggle-follow-stack-scroll" role="menuitemcheckbox" aria-checked="${followStackScroll}" tabindex="-1">
                 <span class="plugin-menu-check material-symbols-outlined${followStackScroll ? '' : ' empty'}">${followStackCheckmark}</span>
@@ -227,6 +237,10 @@ function initEditorStackPreviewMenu(): void {
                     toggleShowAllMetricsEnabled();
                     window.glyphCanvas?.render();
                     refreshStackPreviewMenuContent();
+                } else if (action === 'toggle-node-snapping') {
+                    toggleNodeSnappingEnabled();
+                    window.glyphCanvas?.render();
+                    refreshStackPreviewMenuContent();
                 } else if (action === 'zoom-in') {
                     window.glyphCanvas?.startKeyboardZoom(true);
                 } else if (action === 'zoom-out') {
@@ -290,6 +304,11 @@ function initEditorStackPreviewMenu(): void {
     });
 
     window.addEventListener('showAllMetricsChanged', () => {
+        refreshStackPreviewMenuContent();
+        window.glyphCanvas?.render();
+    });
+
+    window.addEventListener('nodeSnappingChanged', () => {
         refreshStackPreviewMenuContent();
         window.glyphCanvas?.render();
     });

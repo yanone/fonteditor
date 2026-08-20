@@ -1472,6 +1472,32 @@ describe('GlyphCanvas renderer snap visualization', () => {
         ).toBe(false);
     });
 
+    test('drawSnapVisualization draws a red bullseye for open-contour close targets', () => {
+        canvas.outlineEditor.getSnapVisualizationState = jest.fn(() => ({
+            debugCandidates: [],
+            snapTarget: null,
+            naturalPos: null,
+            originPos: null,
+            closeTargets: [
+                { x: 40, y: 50, role: 'other-end', active: false },
+                { x: 80, y: 50, role: 'drawing-start', active: true }
+            ]
+        }));
+
+        canvas.renderer.ctx.stroke.mockClear();
+        canvas.renderer.ctx.fill.mockClear();
+
+        canvas.renderer.drawSnapVisualization();
+
+        expect(canvas.renderer.ctx.stroke).toHaveBeenCalled();
+        expect(canvas.renderer.ctx.fill).toHaveBeenCalled();
+        const arcRadii = canvas.renderer.ctx.arc.mock.calls.map(
+            (call) => call[2]
+        );
+        expect(arcRadii).toContain(0.1);
+        expect(arcRadii).toContain(0.1375);
+    });
+
     test('drawSnapVisualization enlarges the snap ring when exactly back on origin', () => {
         canvas.outlineEditor.getSnapVisualizationState = jest.fn(() => ({
             debugCandidates: [{ x: 60, y: 40, source: 'origin' }],
@@ -8075,6 +8101,7 @@ describe('GlyphCanvas snap debug candidates', () => {
 
     beforeEach(() => {
         document.body.innerHTML = '<div id="test-container"></div>';
+        localStorage.setItem('editorNodeSnapping', 'true');
         canvas = new GlyphCanvas('test-container');
         font = Font.fromData({
             upm: 1000,

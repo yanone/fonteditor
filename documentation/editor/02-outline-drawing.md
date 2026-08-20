@@ -31,7 +31,7 @@ Open contour ends are always corners.
 
 ## Snapping
 
-Drawing and dragging snap to on-curve points in the glyph and neighbours, the dragged point’s original position, glyph edges, and vertical metric lines. Two nodes on the same spot get a red circle; inspect whether that overlap is intentional.
+Node snapping is off by default. Turn it on from Editing View → View → Node Snapping. Drawing and dragging then snap to on-curve points in the glyph and neighbours, the dragged point’s original position, glyph edges, and vertical metric lines. Orange snap markers and guides draw fainter than the rest of the outline chrome. Open contour ends keep a red close/join bullseye even when Node Snapping is off: both ends of other open contours, and the start of the contour you are drawing when you hover it. The point you just placed is not a target. Two nodes on the same spot get a red circle; inspect whether that overlap is intentional.
 
 A short practice: open `O`, `H`, or `n`; choose Pen; draw a short open contour; continue it and close it; switch to Insert and add a point; switch to Convert and turn a straight into a curve; switch to Cut and open the contour at a node; double-click an on-curve point to toggle smooth.
 

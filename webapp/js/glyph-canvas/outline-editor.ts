@@ -46,6 +46,7 @@ import {
     getSnappableVerticalMetricValues
 } from './vertical-metrics';
 import { isShowAllMetricsEnabled } from '../show-all-metrics-pref';
+import { isNodeSnappingEnabled } from '../node-snapping-pref';
 import {
     applyPasteFragment,
     applyReplaceSelectedPaths,
@@ -106,6 +107,7 @@ type SnapCandidate = {
     y: number;
     source:
         'active' | 'paired' | 'left' | 'right' | 'origin' | 'metric' | 'edge';
+    allowAxisSnap?: boolean;
 };
 type ActiveSnapTarget = {
     xSource: SnapCandidate | null;
@@ -113,11 +115,20 @@ type ActiveSnapTarget = {
     snappedX: number;
     snappedY: number;
 };
+type CloseTargetMarker = {
+    x: number;
+    y: number;
+    contourIndex: number;
+    nodeIndex: number;
+    role: 'drawing-start' | 'other-end';
+    active: boolean;
+};
 type SnapVisualizationState = {
     debugCandidates: SnapCandidate[];
     snapTarget: ActiveSnapTarget | null;
     naturalPos: { x: number; y: number } | null;
     originPos: { x: number; y: number } | null;
+    closeTargets: CloseTargetMarker[];
 };
 type SnapCandidateCache = {
     activeOnlyDragCandidates: SnapCandidate[];
@@ -12607,6 +12618,193 @@ export class OutlineEditor {
         );
     }
 
+    private _isOpenContourEndpoint(
+        contour: EditableContour,
+        nodeIndex: number
+    ): boolean {
+        if (contour.closed || contour.nodes.length < 1) {
+            return false;
+        }
+        return nodeIndex === 0 || nodeIndex === contour.nodes.length - 1;
+    }
+
+    private _isDraggingOpenPathEndpoint(): boolean {
+        if (!this.isDraggingPoint || this.selectedPoints.length < 1) {
+            return false;
+        }
+        const source =
+            this._dragConnectionSourcePoint ||
+            (this.selectedPoints.length === 1 ? this.selectedPoints[0] : null);
+        if (!source) {
+            return false;
+        }
+        return !!this.getOpenPathEndpointRef(
+            source.contourIndex,
+            source.nodeIndex
+        );
+    }
+
+    private _shouldShowCloseTargetMarkers(): boolean {
+        return this.isPenDrawArmed() || this._isDraggingOpenPathEndpoint();
+    }
+
+    private _collectOpenContourCloseTargets(): CloseTargetMarker[] {
+        if (!this._shouldShowCloseTargetMarkers()) {
+            return [];
+        }
+
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        if (!currentLayerData?.shapes) {
+            return [];
+        }
+
+        const session = this.getCommandPathPreviewSeed();
+        const drawingTip = this.getCommandPathPreviewEndpointPoint();
+        const hovered = this.hoveredPointIndex;
+        const draggedKeys = this._isDraggingOpenPathEndpoint()
+            ? new Set(
+                  (this._dragConnectionSourcePoint
+                      ? [this._dragConnectionSourcePoint]
+                      : this.selectedPoints
+                  ).map((point) => `${point.contourIndex}:${point.nodeIndex}`)
+              )
+            : new Set<string>();
+
+        const targets: CloseTargetMarker[] = [];
+        currentLayerData.shapes.forEach((shape, contourIndex) => {
+            const contour = getEditableContour(shape);
+            if (!contour || contour.closed || contour.nodes.length < 1) {
+                return;
+            }
+
+            const endIndexes = new Set<number>([0, contour.nodes.length - 1]);
+            for (const nodeIndex of endIndexes) {
+                if (
+                    drawingTip &&
+                    drawingTip.contourIndex === contourIndex &&
+                    drawingTip.nodeIndex === nodeIndex
+                ) {
+                    continue;
+                }
+                if (draggedKeys.has(`${contourIndex}:${nodeIndex}`)) {
+                    continue;
+                }
+
+                const node = contour.nodes[nodeIndex];
+                if (!node || !isOnCurveNode(node)) {
+                    continue;
+                }
+
+                const isDrawingStart =
+                    !!session && session.shapeIndex === contourIndex;
+                const active =
+                    hovered?.contourIndex === contourIndex &&
+                    hovered?.nodeIndex === nodeIndex;
+
+                targets.push({
+                    x: node.x,
+                    y: node.y,
+                    contourIndex,
+                    nodeIndex,
+                    role: isDrawingStart ? 'drawing-start' : 'other-end',
+                    active
+                });
+            }
+        });
+
+        return targets;
+    }
+
+    private _findCloseTargetSnap(
+        naturalX: number,
+        naturalY: number
+    ): CloseTargetMarker | null {
+        const targets = this._collectOpenContourCloseTargets();
+        if (targets.length === 0) {
+            return null;
+        }
+
+        const hovered = this.hoveredPointIndex;
+        if (hovered) {
+            const hoveredTarget = targets.find(
+                (target) =>
+                    target.contourIndex === hovered.contourIndex &&
+                    target.nodeIndex === hovered.nodeIndex
+            );
+            if (hoveredTarget) {
+                return hoveredTarget;
+            }
+        }
+
+        const scale = this.glyphCanvas.viewportManager?.scale || 1;
+        const snapDist = APP_SETTINGS.OUTLINE_EDITOR.SNAP_DISTANCE_PX / scale;
+        let best: CloseTargetMarker | null = null;
+        let bestDist = Number.POSITIVE_INFINITY;
+        for (const target of targets) {
+            const dist = Math.hypot(naturalX - target.x, naturalY - target.y);
+            if (dist > snapDist || dist >= bestDist) {
+                continue;
+            }
+            best = target;
+            bestDist = dist;
+        }
+        return best;
+    }
+
+    private _applyCloseTargetSnap(
+        naturalX: number,
+        naturalY: number,
+        resolved: {
+            snappedX: number;
+            snappedY: number;
+            xSource: SnapCandidate | null;
+            ySource: SnapCandidate | null;
+        }
+    ): {
+        snappedX: number;
+        snappedY: number;
+        xSource: SnapCandidate | null;
+        ySource: SnapCandidate | null;
+    } {
+        const closeTarget = this._findCloseTargetSnap(naturalX, naturalY);
+        if (!closeTarget) {
+            return resolved;
+        }
+
+        const source: SnapCandidate = {
+            x: closeTarget.x,
+            y: closeTarget.y,
+            source: closeTarget.role === 'drawing-start' ? 'origin' : 'active',
+            allowAxisSnap: false
+        };
+        return {
+            snappedX: closeTarget.x,
+            snappedY: closeTarget.y,
+            xSource: source,
+            ySource: source
+        };
+    }
+
+    private _withCloseTargetActivity(
+        targets: CloseTargetMarker[],
+        snapTarget: ActiveSnapTarget | null
+    ): CloseTargetMarker[] {
+        const marked = !snapTarget
+            ? targets
+            : targets.map((target) => {
+                  if (
+                      target.x === snapTarget.snappedX &&
+                      target.y === snapTarget.snappedY
+                  ) {
+                      return { ...target, active: true };
+                  }
+                  return target;
+              });
+        return marked.filter(
+            (target) => target.role !== 'drawing-start' || target.active
+        );
+    }
+
     private _buildSnapCandidateCache(
         anchor: {
             x: number;
@@ -12616,18 +12814,22 @@ export class OutlineEditor {
         originCandidatePosition?: {
             x: number;
             y: number;
-        }
+        },
+        originAllowsAxisSnap: boolean = true
     ): SnapCandidateCache {
         const distFn = (c: SnapCandidate) =>
             Math.hypot(c.x - anchor.x, c.y - anchor.y);
         const sortByDist = (arr: SnapCandidate[]) =>
             arr.sort((a, b) => distFn(a) - distFn(b));
+        const includeGeneralSnapCandidates = isNodeSnappingEnabled();
+        const drawingTip = this.getCommandPathPreviewEndpointPoint();
 
         // Origin: always first so snapping back to start is never blocked.
         const originCandidate: SnapCandidate = {
             x: originCandidatePosition?.x ?? anchor.x,
             y: originCandidatePosition?.y ?? anchor.y,
-            source: 'origin'
+            source: 'origin',
+            allowAxisSnap: originAllowsAxisSnap
         };
 
         // Active glyph on-curve nodes (split into dragged vs non-dragged)
@@ -12643,16 +12845,24 @@ export class OutlineEditor {
         const activeDragged: SnapCandidate[] = [];
 
         const activeLayerData = this.getCurrentLayerDataFromStack();
-        if (activeLayerData?.shapes) {
+        if (includeGeneralSnapCandidates && activeLayerData?.shapes) {
             activeLayerData.shapes.forEach((shape, ci) => {
                 const contour = getEditableContour(shape);
                 if (!contour) return;
                 contour.nodes.forEach((node, ni) => {
                     if (!isOnCurveNode(node)) return;
+                    if (
+                        drawingTip &&
+                        drawingTip.contourIndex === ci &&
+                        drawingTip.nodeIndex === ni
+                    ) {
+                        return;
+                    }
                     const c: SnapCandidate = {
                         x: node.x,
                         y: node.y,
-                        source: 'active'
+                        source: 'active',
+                        allowAxisSnap: !this._isOpenContourEndpoint(contour, ni)
                     };
                     if (draggedKeys.has(`${ci}:${ni}`)) {
                         activeDragged.push(c);
@@ -12664,54 +12874,59 @@ export class OutlineEditor {
         }
 
         const pairedCandidates: SnapCandidate[] = [];
-        if (this.isPairedLayerVisible()) {
-            for (const path of this.getPairedLayerGhostPaths()) {
-                for (const node of path.nodes) {
-                    if (isOnCurveNode(node)) {
-                        pairedCandidates.push({
-                            x: node.x,
-                            y: node.y,
-                            source: 'paired'
-                        });
+        const leftCandidates: SnapCandidate[] = [];
+        const rightCandidates: SnapCandidate[] = [];
+        if (includeGeneralSnapCandidates) {
+            if (this.isPairedLayerVisible()) {
+                for (const path of this.getPairedLayerGhostPaths()) {
+                    for (const node of path.nodes) {
+                        if (isOnCurveNode(node)) {
+                            pairedCandidates.push({
+                                x: node.x,
+                                y: node.y,
+                                source: 'paired'
+                            });
+                        }
                     }
                 }
             }
-        }
 
-        // Neighbor candidates (left + right adjacent glyphs)
-        const leftCandidates: SnapCandidate[] = [];
-        const rightCandidates: SnapCandidate[] = [];
-        const tre = this.glyphCanvas.textRunEditor;
-        const fontModel =
-            fontManager.currentFont?.fontModel ||
-            (window as any).currentFontModel;
-        if (tre && tre.selectedGlyphIndex >= 0 && fontModel) {
-            const idx = tre.selectedGlyphIndex;
-            const masterId =
-                this.getCurrentLayerModel()?.master?.master ||
-                tre.selectedMasterId ||
-                fontModel.masters?.[0]?.id;
-            const activePos = tre._getGlyphPosition(idx);
-            const wx = activePos.xPosition + activePos.xOffset;
-            const wy = activePos.yOffset;
-            for (const adjIdx of [idx - 1, idx + 1]) {
-                if (adjIdx < 0 || adjIdx >= tre.shapedGlyphs.length) continue;
-                const bucket = adjIdx < idx ? leftCandidates : rightCandidates;
-                bucket.push(
-                    ...this._getBufferedAdjacentSnapCandidates(
-                        adjIdx,
-                        adjIdx < idx ? 'left' : 'right',
-                        wx,
-                        wy,
-                        masterId
-                    )
-                );
+            const tre = this.glyphCanvas.textRunEditor;
+            const fontModel =
+                fontManager.currentFont?.fontModel ||
+                (window as any).currentFontModel;
+            if (tre && tre.selectedGlyphIndex >= 0 && fontModel) {
+                const idx = tre.selectedGlyphIndex;
+                const masterId =
+                    this.getCurrentLayerModel()?.master?.master ||
+                    tre.selectedMasterId ||
+                    fontModel.masters?.[0]?.id;
+                const activePos = tre._getGlyphPosition(idx);
+                const wx = activePos.xPosition + activePos.xOffset;
+                const wy = activePos.yOffset;
+                for (const adjIdx of [idx - 1, idx + 1]) {
+                    if (adjIdx < 0 || adjIdx >= tre.shapedGlyphs.length)
+                        continue;
+                    const bucket =
+                        adjIdx < idx ? leftCandidates : rightCandidates;
+                    bucket.push(
+                        ...this._getBufferedAdjacentSnapCandidates(
+                            adjIdx,
+                            adjIdx < idx ? 'left' : 'right',
+                            wx,
+                            wy,
+                            masterId
+                        )
+                    );
+                }
             }
         }
-        const activeOnlyDragCandidates = includeOriginCandidate
+        const includeOrigin =
+            includeGeneralSnapCandidates && includeOriginCandidate;
+        const activeOnlyDragCandidates = includeOrigin
             ? [originCandidate, ...activeNonDragged]
             : [...activeNonDragged];
-        const allDragCandidates = includeOriginCandidate
+        const allDragCandidates = includeOrigin
             ? [
                   originCandidate,
                   ...activeNonDragged,
@@ -12726,7 +12941,7 @@ export class OutlineEditor {
                   ...rightCandidates
               ];
         // Debug includes ALL active nodes (including dragged ones) + neighbors
-        const debugCandidates = includeOriginCandidate
+        const debugCandidates = includeOrigin
             ? [
                   originCandidate,
                   ...activeNonDragged,
@@ -12751,20 +12966,23 @@ export class OutlineEditor {
         const snapDistFontUnits =
             APP_SETTINGS.OUTLINE_EDITOR.SNAP_DISTANCE_PX / scale;
         const width = activeLayerData?.width;
-        const edgeXValues =
-            typeof width === 'number' && Number.isFinite(width)
-                ? Array.from(
-                      new Set(
-                          [0, Math.round(width)].filter((value) =>
-                              Number.isFinite(value)
-                          )
-                      )
-                  )
-                : [0];
-        const metricsYValues = getSnappableVerticalMetricValues(
-            this.renderVerticalMetrics,
-            isShowAllMetricsEnabled()
-        );
+        const edgeXValues = !includeGeneralSnapCandidates
+            ? []
+            : typeof width === 'number' && Number.isFinite(width)
+              ? Array.from(
+                    new Set(
+                        [0, Math.round(width)].filter((value) =>
+                            Number.isFinite(value)
+                        )
+                    )
+                )
+              : [0];
+        const metricsYValues = includeGeneralSnapCandidates
+            ? getSnappableVerticalMetricValues(
+                  this.renderVerticalMetrics,
+                  isShowAllMetricsEnabled()
+              )
+            : [];
 
         return {
             activeOnlyDragCandidates,
@@ -12948,6 +13166,10 @@ export class OutlineEditor {
                 }
             }
 
+            if (candidate.allowAxisSnap === false) {
+                continue;
+            }
+
             if (distX < bestDistX) {
                 bestDistX = distX;
                 bestSnapX = candidate.x;
@@ -13079,13 +13301,18 @@ export class OutlineEditor {
         const cache = this._buildSnapCandidateCache(
             point,
             Boolean(originPoint),
-            originPoint || undefined
+            originPoint || undefined,
+            false
         );
-        const resolved = this._resolveSnappedPosition(
+        const resolved = this._applyCloseTargetSnap(
             Math.round(point.x),
             Math.round(point.y),
-            cache,
-            originPoint || null
+            this._resolveSnappedPosition(
+                Math.round(point.x),
+                Math.round(point.y),
+                cache,
+                originPoint || null
+            )
         );
         return {
             x: resolved.snappedX,
@@ -13124,32 +13351,41 @@ export class OutlineEditor {
         const originPos = this.getCommandPathOriginPoint();
         const cache = this._buildSnapCandidateCache(
             naturalPos,
-            Boolean(originPos),
-            originPos || undefined
+            isNodeSnappingEnabled() && Boolean(originPos),
+            originPos || undefined,
+            false
         );
-        const { snappedX, snappedY, xSource, ySource } =
+        const resolved = this._applyCloseTargetSnap(
+            naturalPos.x,
+            naturalPos.y,
             this._resolveSnappedPosition(
                 naturalPos.x,
                 naturalPos.y,
                 cache,
-                originPos
-            );
+                null
+            )
+        );
+        const snapTarget =
+            resolved.xSource || resolved.ySource
+                ? {
+                      xSource: resolved.xSource,
+                      ySource: resolved.ySource,
+                      snappedX: resolved.snappedX,
+                      snappedY: resolved.snappedY
+                  }
+                : null;
 
         return {
             debugCandidates: cache.debugCandidates.filter(
                 (candidate) => candidate.source !== 'active'
             ),
-            snapTarget:
-                xSource || ySource
-                    ? {
-                          xSource,
-                          ySource,
-                          snappedX,
-                          snappedY
-                      }
-                    : null,
+            snapTarget,
             naturalPos,
-            originPos
+            originPos,
+            closeTargets: this._withCloseTargetActivity(
+                this._collectOpenContourCloseTargets(),
+                snapTarget
+            )
         };
     }
 
@@ -13165,7 +13401,11 @@ export class OutlineEditor {
                     ),
                 snapTarget: this.activeSnapTarget,
                 naturalPos: this.snapDraggedNaturalPos,
-                originPos: this.snapDragStartNodePos
+                originPos: this.snapDragStartNodePos,
+                closeTargets: this._withCloseTargetActivity(
+                    this._collectOpenContourCloseTargets(),
+                    this.activeSnapTarget
+                )
             };
         }
 
@@ -13420,11 +13660,15 @@ export class OutlineEditor {
             snappedY: finalSnapY,
             xSource,
             ySource
-        } = this._resolveSnappedPosition(
+        } = this._applyCloseTargetSnap(
             naturalX,
             naturalY,
-            this._snapCandidateCache,
-            this._snapDragStartNodePos
+            this._resolveSnappedPosition(
+                naturalX,
+                naturalY,
+                this._snapCandidateCache,
+                this._snapDragStartNodePos
+            )
         );
 
         let adjustedDeltaX = naturalX - primaryNodeX;
@@ -14171,7 +14415,9 @@ export class OutlineEditor {
             this._snapDragStartMouseX = glyphX;
             this._snapDragStartMouseY = glyphY;
             this._snapDragStartNodePos = this._getPrimaryDragNodePos();
-            this._beginAdjacentSnapInterpolationSession();
+            if (isNodeSnappingEnabled()) {
+                this._beginAdjacentSnapInterpolationSession();
+            }
             this._rebuildSnapCandidateCache();
         }
 
@@ -14186,6 +14432,12 @@ export class OutlineEditor {
             // Read primary node position once for this frame (avoids a
             // redundant getCurrentLayerDataFromStack inside _applySnapToDelta)
             const primaryPos = this._getPrimaryDragNodePos();
+            if (!this._snapCandidateCache && this._snapDragStartNodePos) {
+                if (isNodeSnappingEnabled()) {
+                    this._beginAdjacentSnapInterpolationSession();
+                }
+                this._rebuildSnapCandidateCache();
+            }
             const snapped = this._applySnapToDelta(
                 deltaX,
                 deltaY,

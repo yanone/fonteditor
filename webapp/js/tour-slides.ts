@@ -700,8 +700,8 @@ export const TOUR_SLIDES: Record<string, TourSlide> = {
         tooltip: {
             title: 'Draw Tool',
             body: tourBody(
-                'Select the Draw tool (shortcut **p**) and draw a closed triangle into the marked area.',
-                'Close the shape by ending the drawing on the first node.'
+                'The Draw tool (shortcut **p**) lets you draw new contours node by node.',
+                'Select the Draw tool and draw a closed triangle into the marked area. Close the shape by ending the drawing on the first node (you’ll see a red mark appear when you hover).'
             ),
             targetCutoutId: 'draw-area',
             placement: 'right'
