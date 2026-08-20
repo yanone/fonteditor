@@ -39,6 +39,33 @@ describe('tour intro', () => {
             });
     }
 
+    function delay(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    async function waitForSlideFade() {
+        await delay(1400);
+    }
+
+    async function waitForActionAdvance() {
+        const {
+            TOUR_FADE_MS,
+            TOUR_POST_FADE_BEFORE_APPLY_MS,
+            TOUR_AFTER_APPLY_MS
+        } = require('../js/tour-spotlight');
+        await delay(
+            TOUR_FADE_MS * 2 +
+                TOUR_POST_FADE_BEFORE_APPLY_MS +
+                TOUR_AFTER_APPLY_MS +
+                1000
+        );
+    }
+
+    async function waitForSliderAdvance() {
+        const { TOUR_AFTER_SLIDER_MS } = require('../js/tour-spotlight');
+        await delay(TOUR_AFTER_SLIDER_MS + 500);
+    }
+
     function mockTourStartDependencies() {
         window.pluginRegistry = {
             get: () => ({ getId: () => 'memory' })
@@ -277,7 +304,7 @@ describe('tour intro', () => {
         document
             .querySelector('[data-tour-action="continue"]')
             .dispatchEvent(new MouseEvent('click', { bubbles: true }));
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await waitForSlideFade();
 
         expect(document.querySelector('.tour-tooltip h3').textContent).toBe(
             'Active OpenType features'
@@ -302,19 +329,37 @@ describe('tour intro', () => {
         expect(document.querySelector('.tour-spotlight-hit')).not.toBeNull();
     });
 
-    test('clicking ss03 advances to the masters list', async () => {
+    test('clicking ss03 spotlights the sample text, then applies, then advances', async () => {
+        const {
+            TOUR_FADE_MS,
+            TOUR_POST_FADE_BEFORE_APPLY_MS,
+            TOUR_AFTER_APPLY_MS
+        } = require('../js/tour-spotlight');
         tour.openTourIntro();
         await tour.startTour();
         document
             .querySelector('[data-tour-action="continue"]')
             .dispatchEvent(new MouseEvent('click', { bubbles: true }));
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await waitForSlideFade();
 
-        document
-            .querySelector('[data-feature-tag="ss03"]')
-            .dispatchEvent(new MouseEvent('click', { bubbles: true }));
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        const button = document.querySelector('[data-feature-tag="ss03"]');
+        const root = document.querySelector('.tour-spotlight-root');
+        button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        expect(button.classList.contains('enabled')).toBe(false);
 
+        await delay(TOUR_FADE_MS);
+        expect(root.classList.contains('is-visible')).toBe(true);
+        expect(root.classList.contains('is-tooltip-visible')).toBe(false);
+        expect(button.classList.contains('enabled')).toBe(false);
+
+        await delay(TOUR_FADE_MS + TOUR_POST_FADE_BEFORE_APPLY_MS - 100);
+        expect(button.classList.contains('enabled')).toBe(false);
+        expect(root.classList.contains('is-visible')).toBe(true);
+
+        await delay(200);
+        expect(button.classList.contains('enabled')).toBe(true);
+
+        await delay(TOUR_AFTER_APPLY_MS + TOUR_FADE_MS * 2 + 400);
         expect(window.__tourHost.slideIndex).toBe(2);
         expect(document.querySelector('.tour-tooltip h3').textContent).toBe(
             'Masters List'
@@ -322,7 +367,7 @@ describe('tour intro', () => {
         expect(
             document.querySelector('[data-tour-master="ExtraBold"]')
         ).not.toBeNull();
-    });
+    }, 25000);
 
     test('clicking ExtraBold opens the axis sliders slide', async () => {
         tour.openTourIntro();
@@ -330,15 +375,16 @@ describe('tour intro', () => {
         document
             .querySelector('[data-tour-action="continue"]')
             .dispatchEvent(new MouseEvent('click', { bubbles: true }));
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await waitForSlideFade();
         document
             .querySelector('[data-feature-tag="ss03"]')
             .dispatchEvent(new MouseEvent('click', { bubbles: true }));
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await waitForActionAdvance();
+        await waitForSlideFade();
         document
             .querySelector('[data-master-id="extrabold"]')
             .dispatchEvent(new MouseEvent('click', { bubbles: true }));
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await waitForActionAdvance();
 
         expect(window.__tourHost.slideIndex).toBe(3);
         expect(document.querySelector('.tour-tooltip h3').textContent).toBe(
@@ -347,7 +393,7 @@ describe('tour intro', () => {
         expect(
             document.getElementById('glyph-editor-scroll-content').scrollTop
         ).toBe(0);
-    });
+    }, 25000);
 
     test('wght slider clamps into 500–700 then advances', async () => {
         const { getTourSlide } = require('../js/tour-slides');
@@ -361,6 +407,8 @@ describe('tour intro', () => {
         slider.dispatchEvent(new Event('input', { bubbles: true }));
         expect(slider.value).toBe('500');
         slider.dispatchEvent(new Event('change', { bubbles: true }));
+        expect(continued).toBe(false);
+        await waitForSliderAdvance();
         expect(continued).toBe(true);
 
         continued = false;
@@ -373,7 +421,7 @@ describe('tour intro', () => {
         again.value = '800';
         again.dispatchEvent(new Event('input', { bubbles: true }));
         expect(again.value).toBe('700');
-    });
+    }, 15000);
 
     test('ss03 prepare scrolls the feature row in the sidebar scroller', async () => {
         const { getTourSlide } = require('../js/tour-slides');
@@ -479,5 +527,6 @@ describe('tour slide order', () => {
         expect(getTourSlide('enter-edit-mode').advanceOnGlyphDoubleClick).toBe(
             'm'
         );
+        expect(getTourSlide('enter-edit-mode').cutouts[0].hitPadding).toBe(0);
     });
 });

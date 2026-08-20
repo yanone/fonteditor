@@ -13,6 +13,11 @@ export type TourCutoutRect = {
 export type TourCutout = {
     id: string;
     padding?: number;
+    /**
+     * Padding for the click-through hole. Omit to match `padding`.
+     * Use `0` so a padded visual hole does not let neighbors receive clicks.
+     */
+    hitPadding?: number;
     radius?: number;
     /** When true, pointer events pass through the hole to the app. */
     interactive?: boolean;
@@ -350,6 +355,13 @@ function getTextRunCutout(): TourCutoutRect | null {
     return fontRectToCutout(minX, maxX, minY, maxY);
 }
 
+export const TOUR_SAMPLE_TEXT_CUTOUT: TourCutout = {
+    id: 'sample-text',
+    padding: 28,
+    radius: 12,
+    resolve: getTextRunCutout
+};
+
 function getTextRunLetterCutout(letter: string): TourCutoutRect | null {
     const metrics = getTextRunGlyphMetrics(letter);
     if (!metrics) {
@@ -396,12 +408,7 @@ export const TOUR_SLIDES: Record<string, TourSlide> = {
             placement: 'bottom'
         },
         cutouts: [
-            {
-                id: 'sample-text',
-                padding: 28,
-                radius: 12,
-                resolve: getTextRunCutout
-            },
+            TOUR_SAMPLE_TEXT_CUTOUT,
             {
                 id: 'text-tool',
                 padding: 14,
@@ -518,6 +525,7 @@ export const TOUR_SLIDES: Record<string, TourSlide> = {
             {
                 id: 'letter-m',
                 padding: 20,
+                hitPadding: 0,
                 radius: 12,
                 interactive: true,
                 resolve: () => getTextRunLetterCutout('m')

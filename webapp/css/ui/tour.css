@@ -20,6 +20,26 @@
     pointer-events: none;
 }
 
+.tour-spotlight-dimmer-rect {
+    fill: var(--tour-overlay);
+}
+
+.tour-spotlight-mask-bg {
+    /* Mask luminance channel, not UI chrome. */
+    fill: #fff;
+}
+
+.tour-spotlight-holes {
+    /* Mask hole channel, not UI chrome. Fade holes without stacking-context blend. */
+    fill: #000;
+    fill-opacity: 0;
+    transition: fill-opacity 0.5s ease;
+}
+
+.tour-spotlight-root.is-cutouts-visible .tour-spotlight-holes {
+    fill-opacity: 1;
+}
+
 .tour-spotlight-hit {
     position: absolute;
     inset: 0;
@@ -29,11 +49,6 @@
 .tour-spotlight-hit-piece {
     position: fixed;
     pointer-events: auto;
-}
-
-.tour-spotlight-mask-path {
-    fill: var(--tour-overlay);
-    pointer-events: none;
 }
 
 .tour-tooltip-anchor {
@@ -53,6 +68,13 @@
     font-family: var(--font-families-sans);
     font-size: 14px;
     line-height: 1.55;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.5s ease;
+}
+
+.tour-spotlight-root.is-tooltip-visible .tippy-box[data-theme='tour'] {
+    opacity: 1;
     pointer-events: auto;
 }
 
