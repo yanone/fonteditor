@@ -6399,7 +6399,13 @@ kbd + kbd {
     pointer-events: auto;
 }
 
-.toolbar,
+/* Toolbar must sit above .plugin-menu-backdrop (9998) so sibling menu
+   titles stay hoverable while a menu is open. Tippy menus use 10001. */
+.toolbar {
+    position: relative;
+    z-index: 9999;
+}
+
 .app-shell,
 .container {
     position: relative;
