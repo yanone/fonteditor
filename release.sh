@@ -59,7 +59,7 @@ echo "✅ Version updated in $SERVICE_WORKER_FILE"
 
 # Update API.md with version
 echo "Updating version in $API_MD_FILE..."
-node generate-api-docs.mjs "$VERSION_TAG"
+node scripts/generate-api-docs.mjs "$VERSION_TAG"
 echo "✅ API documentation regenerated with version $VERSION_TAG"
 
 # Commit the version updates to API.md and service worker separately

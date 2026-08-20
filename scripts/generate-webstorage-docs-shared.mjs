@@ -9,9 +9,10 @@ import ts from "typescript";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const REPO_ROOT = join(__dirname, "..");
 
-const TS_SOURCE_ROOT = join(__dirname, "webapp", "js");
-const PLUGIN_SOURCE_ROOT = join(__dirname, "plugins");
+const TS_SOURCE_ROOT = join(REPO_ROOT, "webapp", "js");
+const PLUGIN_SOURCE_ROOT = join(REPO_ROOT, "plugins");
 
 const STORAGE_METHODS = new Set(["getItem", "setItem", "removeItem"]);
 
@@ -43,7 +44,7 @@ function walkFiles(dirPath, extensions) {
 }
 
 function formatRelativePath(filePath) {
-    return relative(__dirname, filePath).replace(/\\/g, "/");
+    return relative(REPO_ROOT, filePath).replace(/\\/g, "/");
 }
 
 function cleanCommentText(text) {
@@ -857,13 +858,13 @@ function renderMarkdown(keys, config) {
 }
 
 export function generateWebStorageDocs(config) {
-    const outputPath = join(__dirname, "developer-docs", config.outputName);
+    const outputPath = join(REPO_ROOT, "developer-docs", config.outputName);
     const tsFiles = [
         ...walkFiles(TS_SOURCE_ROOT, new Set([".ts", ".js"])).filter(
             (filePath) => !filePath.endsWith(".d.ts"),
         ),
         ...(config.extraFiles || []).map((relativePath) =>
-            join(__dirname, relativePath),
+            join(REPO_ROOT, relativePath),
         ),
     ];
     const pyFiles = config.includePlugins

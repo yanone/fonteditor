@@ -7,14 +7,14 @@
  * to persist editor settings, UI preferences, and related client state.
  *
  * Usage:
- *   node generate-localstorage-docs.mjs
+ *   node scripts/generate-localstorage-docs.mjs
  */
 
-import { generateWebStorageDocs } from "./generate-webstorage-docs-lib.mjs";
+import { generateWebStorageDocs } from "./generate-webstorage-docs-shared.mjs";
 
 generateWebStorageDocs({
     apiName: "localStorage",
-    scriptName: "generate-localstorage-docs.mjs",
+    scriptName: "scripts/generate-localstorage-docs.mjs",
     outputName: "LOCALSTORAGE_SETTINGS.md",
     title: "localStorage Settings Keys",
     intro: "This document lists `localStorage` keys discovered in production TypeScript (`webapp/js`) and plugin Python (`plugins/`) that persist editor settings, UI preferences, and related client state.",
