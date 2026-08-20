@@ -3059,6 +3059,12 @@ class GlyphCanvas {
                             ? this.getCurrentGlyphName()
                             : 'undefined';
                     this.outlineEditor.prepareForGlyphSwitch(nextGlyphName);
+                    if (nextGlyphName && nextGlyphName !== 'undefined') {
+                        this.outlineEditor.currentGlyphName =
+                            this.outlineEditor.getAuthoringGlyphName(
+                                nextGlyphName
+                            );
+                    }
                 }
 
                 // Clear layer data immediately to prevent rendering stale outlines

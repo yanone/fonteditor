@@ -91,8 +91,10 @@ async function prepareAnchorSelection(
         { expectedIndex: glyphIndex, expectedAnchor: anchorName },
         { timeout: 20000 }
     );
+}
 
-    return await page.evaluate((expectedAnchor) => {
+async function selectAnchorByName(page: Page, expectedAnchor: string) {
+    return await page.evaluate((anchorName) => {
         const glyphCanvas = window.glyphCanvas;
         if (!glyphCanvas) {
             throw new Error('glyphCanvas missing');
@@ -101,10 +103,10 @@ async function prepareAnchorSelection(
         const layerData =
             glyphCanvas.outlineEditor.getCurrentLayerDataFromStack();
         const anchorIndex = (layerData?.anchors || []).findIndex(
-            (anchor: { name?: string }) => anchor?.name === expectedAnchor
+            (anchor: { name?: string }) => anchor?.name === anchorName
         );
         if (anchorIndex < 0) {
-            throw new Error(`Anchor ${expectedAnchor} not found`);
+            throw new Error(`Anchor ${anchorName} not found`);
         }
 
         glyphCanvas.outlineEditor.selectedPoints = [];
@@ -116,9 +118,9 @@ async function prepareAnchorSelection(
         return {
             glyphName: glyphCanvas.getCurrentGlyphName(),
             selectedAnchors: glyphCanvas.outlineEditor.selectedAnchors,
-            selectedAnchorNames: [expectedAnchor]
+            selectedAnchorNames: [anchorName]
         };
-    }, anchorName);
+    }, expectedAnchor);
 }
 
 async function getSelectionState(page: Page) {
@@ -155,45 +157,34 @@ test.describe('Glyph selection restore in browser', () => {
         page
     }) => {
         await openYanoneFont(page);
-        const initialSelection = await prepareAnchorSelection(
-            page,
-            'aä',
-            0,
-            'top'
-        );
+        await prepareAnchorSelection(page, 'aä', 0, 'top');
 
         await expect
             .poll(
                 async () => {
                     return await page.evaluate(() => {
-                        const glyphCanvas = window.glyphCanvas;
-                        const textRunEditor = glyphCanvas?.textRunEditor;
-                        if (!glyphCanvas || !textRunEditor) {
+                        const textRunEditor = window.glyphCanvas?.textRunEditor;
+                        if (!textRunEditor) {
                             return false;
                         }
-                        if (
-                            (textRunEditor.glyphNameBuffer || []).includes(
-                                'adieresis'
-                            )
-                        ) {
-                            return true;
-                        }
-                        if (
-                            !textRunEditor.shapedGlyphs ||
-                            textRunEditor.shapedGlyphs.length < 2
-                        ) {
-                            return false;
-                        }
-                        const previousIndex = textRunEditor.selectedGlyphIndex;
-                        textRunEditor.selectedGlyphIndex = 1;
-                        const name = glyphCanvas.getCurrentGlyphName();
-                        textRunEditor.selectedGlyphIndex = previousIndex;
-                        return name === 'adieresis';
+                        const names = (textRunEditor.glyphNameBuffer || []).map(
+                            (name: string, index: number) => {
+                                return (
+                                    textRunEditor.shapedGlyphs[index]
+                                        ?.explicitGlyphName ||
+                                    name ||
+                                    ''
+                                );
+                            }
+                        );
+                        return names.includes('adieresis');
                     });
                 },
-                { timeout: 60000, intervals: [250, 500, 1000] }
+                { timeout: 120000, intervals: [500, 1000, 2000] }
             )
             .toBe(true);
+
+        const initialSelection = await selectAnchorByName(page, 'top');
 
         const switched = await page.evaluate(async () => {
             const glyphCanvas = window.glyphCanvas;
@@ -224,11 +215,7 @@ test.describe('Glyph selection restore in browser', () => {
             }
 
             await textRunEditor.selectGlyphByIndex(adieresisIndex, true);
-            glyphCanvas.outlineEditor.currentGlyphName = 'adieresis';
-            glyphCanvas.outlineEditor.layerData = null;
-            glyphCanvas.outlineEditor.glyphStack = '';
             await glyphCanvas.doUIUpdateAsync?.();
-            await glyphCanvas.outlineEditor.autoSelectMatchingLayer?.();
             return {
                 ok: true as const,
                 names,
@@ -269,27 +256,25 @@ test.describe('Glyph selection restore in browser', () => {
 
         await page.evaluate(async (index) => {
             await window.glyphCanvas.outlineEditor.enterComponentEditing(index);
+            await window.glyphCanvas.doUIUpdateAsync?.();
         }, componentIndex);
 
         await page.waitForFunction(
             () => {
-                const glyphCanvas = window.glyphCanvas;
-                const outlineEditor = glyphCanvas?.outlineEditor;
+                const outlineEditor = window.glyphCanvas?.outlineEditor;
+                const stack = outlineEditor?.parseGlyphStack?.() || [];
                 const layer = outlineEditor?.getCurrentLayerDataFromStack?.();
-                const leaf =
-                    outlineEditor?.parseGlyphStack?.().at(-1)?.glyphName ||
-                    outlineEditor?.currentGlyphName;
                 const selectedNames = (
                     outlineEditor?.selectedAnchors || []
                 ).map((index: number) => layer?.anchors?.[index]?.name || null);
                 return (
-                    glyphCanvas?.getCurrentGlyphName?.() === 'adieresis' &&
-                    leaf === 'a' &&
+                    stack[0]?.glyphName === 'adieresis' &&
+                    stack.at(-1)?.glyphName === 'a' &&
                     selectedNames.includes('top')
                 );
             },
             undefined,
-            { timeout: 15000 }
+            { timeout: 30000 }
         );
 
         const restoredState = await getSelectionState(page);

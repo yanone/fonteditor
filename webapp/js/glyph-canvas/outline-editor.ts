@@ -7550,7 +7550,10 @@ export class OutlineEditor {
         return this.currentGlyphName || this.glyphCanvas.getCurrentGlyphName();
     }
 
-    private getLayerSelectionStorageKey(layer: any): string | null {
+    private getLayerSelectionStorageKey(
+        layer: any,
+        glyphNameOverride?: string | null
+    ): string | null {
         const resolvedLayer = this.resolveLayerModel(layer);
         const layerId = resolvedLayer?.id || layer?.id;
         if (!layerId) {
@@ -7562,7 +7565,9 @@ export class OutlineEditor {
                 ? resolvedLayer.parent()
                 : null;
         const glyphName =
-            parentGlyph?.name || this.getActiveSelectionScopeGlyphName();
+            glyphNameOverride ||
+            parentGlyph?.name ||
+            this.getActiveSelectionScopeGlyphName();
         return glyphName ? `${glyphName}@${layerId}` : String(layerId);
     }
 
@@ -7621,22 +7626,45 @@ export class OutlineEditor {
         return previousGlyphName === nextGlyphName;
     }
 
+    private isEmptySelectionState(state: LayerSelectionState): boolean {
+        return (
+            state.points.length === 0 &&
+            state.anchors.length === 0 &&
+            state.anchorNames.length === 0 &&
+            state.components.length === 0 &&
+            !state.guideHandle
+        );
+    }
+
     private storeSelectionStateForLayer(
         layer: any,
-        state: LayerSelectionState = this.getCurrentSelectionState()
+        state: LayerSelectionState = this.getCurrentSelectionState(),
+        glyphName?: string | null
     ): void {
-        const key = this.getLayerSelectionStorageKey(layer);
+        const key = this.getLayerSelectionStorageKey(layer, glyphName);
         if (!key) {
             return;
         }
 
-        this.layerSelectionStateByKey.set(key, this.cloneSelectionState(state));
+        const nextState = this.cloneSelectionState(state);
+        const existingState = this.layerSelectionStateByKey.get(key);
+        if (
+            existingState &&
+            this.isEmptySelectionState(nextState) &&
+            !this.isEmptySelectionState(existingState) &&
+            this.pendingGlyphSwitchSourceLayerKey === key
+        ) {
+            return;
+        }
+
+        this.layerSelectionStateByKey.set(key, nextState);
     }
 
     private getStoredSelectionStateForLayer(
-        layer: any
+        layer: any,
+        glyphName?: string | null
     ): LayerSelectionState | null {
-        const key = this.getLayerSelectionStorageKey(layer);
+        const key = this.getLayerSelectionStorageKey(layer, glyphName);
         if (!key) {
             return null;
         }
@@ -8525,7 +8553,8 @@ export class OutlineEditor {
 
     private applySelectionStateForLayer(
         state: LayerSelectionState | null | undefined,
-        layer: any
+        layer: any,
+        glyphName?: string | null
     ): void {
         const nextState = this.sanitizeSelectionStateForLayer(state, layer);
 
@@ -8535,7 +8564,7 @@ export class OutlineEditor {
         this.selectedGuideHandle = nextState.guideHandle;
         this.selectedSidebearingHandle = null;
         this.hoveredResizeHandle = null;
-        this.storeSelectionStateForLayer(layer, nextState);
+        this.storeSelectionStateForLayer(layer, nextState, glyphName);
     }
 
     private getSelectionStateForLayerTransition(
@@ -8551,7 +8580,10 @@ export class OutlineEditor {
             this.pendingGlyphSwitchSourceLayerKey = null;
             this.pendingGlyphSwitchSourceLayer = null;
             return (
-                this.getStoredSelectionStateForLayer(nextLayer) || emptyState
+                this.getStoredSelectionStateForLayer(
+                    nextLayer,
+                    this.getActiveSelectionScopeGlyphName()
+                ) || emptyState
             );
         }
 
@@ -8563,20 +8595,28 @@ export class OutlineEditor {
         const previousLayerKey =
             this.getLayerSelectionStorageKey(previousLayer);
         const shouldPreservePreparedPreviousSnapshot =
-            isCrossGlyphTransition &&
-            !!previousLayerKey &&
-            previousLayerKey === this.pendingGlyphSwitchSourceLayerKey;
+            !!this.pendingGlyphSwitchSourceLayerKey &&
+            (previousLayerKey === this.pendingGlyphSwitchSourceLayerKey ||
+                previousLayer === this.pendingGlyphSwitchSourceLayer);
 
         if (!shouldPreservePreparedPreviousSnapshot) {
-            this.storeSelectionStateForLayer(previousLayer, previousState);
+            this.storeSelectionStateForLayer(
+                previousLayer,
+                previousState,
+                this.getLayerGlyphName(previousLayer)
+            );
         }
 
         this.pendingGlyphSwitchSourceLayerKey = null;
         this.pendingGlyphSwitchSourceLayer = null;
 
+        const nextGlyphName = this.getActiveSelectionScopeGlyphName();
         if (isCrossGlyphTransition) {
             return (
-                this.getStoredSelectionStateForLayer(nextLayer) || emptyState
+                this.getStoredSelectionStateForLayer(
+                    nextLayer,
+                    nextGlyphName
+                ) || emptyState
             );
         }
 
@@ -8596,7 +8636,10 @@ export class OutlineEditor {
             );
         }
 
-        return this.getStoredSelectionStateForLayer(nextLayer) || emptyState;
+        return (
+            this.getStoredSelectionStateForLayer(nextLayer, nextGlyphName) ||
+            emptyState
+        );
     }
 
     private assignLayerData(
@@ -20902,7 +20945,8 @@ export class OutlineEditor {
 
         this.applySelectionStateForLayer(
             nextSelectionState,
-            selectionTargetLayer
+            selectionTargetLayer,
+            this.getActiveSelectionScopeGlyphName()
         );
 
         // Find the userspace location for this layer
@@ -21172,7 +21216,8 @@ export class OutlineEditor {
 
             this.applySelectionStateForLayer(
                 nextSelectionState,
-                selectionTargetLayer
+                selectionTargetLayer,
+                this.getActiveSelectionScopeGlyphName()
             );
 
             // Clear the interpolating flag and render to display the new outlines
@@ -22084,8 +22129,13 @@ export class OutlineEditor {
         );
 
         const previousLayer = this.getCurrentLayerModel();
+        const previousGlyphName = this.getActiveSelectionScopeGlyphName();
         if (previousLayer) {
-            this.storeSelectionStateForLayer(previousLayer);
+            this.storeSelectionStateForLayer(
+                previousLayer,
+                this.getCurrentSelectionState(),
+                previousGlyphName
+            );
         }
 
         // Get component transform
@@ -22140,8 +22190,12 @@ export class OutlineEditor {
         const nextLayer = this.getCurrentLayerModel();
         if (nextLayer) {
             this.applySelectionStateForLayer(
-                this.getStoredSelectionStateForLayer(nextLayer),
-                nextLayer
+                this.getStoredSelectionStateForLayer(
+                    nextLayer,
+                    editingGlyphName
+                ),
+                nextLayer,
+                editingGlyphName
             );
         }
 
@@ -22179,8 +22233,13 @@ export class OutlineEditor {
         }
 
         const previousLayer = this.getCurrentLayerModel();
+        const previousGlyphName = this.getActiveSelectionScopeGlyphName();
         if (previousLayer) {
-            this.storeSelectionStateForLayer(previousLayer);
+            this.storeSelectionStateForLayer(
+                previousLayer,
+                this.getCurrentSelectionState(),
+                previousGlyphName
+            );
         }
 
         // Update glyph_stack by removing the last component
@@ -22216,10 +22275,12 @@ export class OutlineEditor {
         }
 
         const nextLayer = this.getCurrentLayerModel();
+        const nextGlyphName = this.getActiveSelectionScopeGlyphName();
         if (nextLayer) {
             this.applySelectionStateForLayer(
-                this.getStoredSelectionStateForLayer(nextLayer),
-                nextLayer
+                this.getStoredSelectionStateForLayer(nextLayer, nextGlyphName),
+                nextLayer,
+                nextGlyphName
             );
         }
 
