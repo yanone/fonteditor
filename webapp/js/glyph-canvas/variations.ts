@@ -577,8 +577,8 @@ export class AxesManager {
             sliderTrack.setAttribute('aria-hidden', 'true');
             const layerMarks = document.createElement('div');
             layerMarks.className = 'editor-axis-layer-marks';
-            sliderTrack.appendChild(layerMarks);
             sliderWrap.appendChild(sliderTrack);
+            sliderWrap.appendChild(layerMarks);
             sliderWrap.appendChild(slider);
 
             // Initialize variation setting

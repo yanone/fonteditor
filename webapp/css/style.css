@@ -7426,8 +7426,8 @@ select.glyph-property-input {
 
 .editor-axis-slider-track {
     position: absolute;
-    left: 0;
-    right: 0;
+    left: 6px;
+    right: 6px;
     height: 4px;
     border-radius: 2px;
     pointer-events: none;
