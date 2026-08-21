@@ -361,6 +361,14 @@
     font-size: 12px;
 }
 
+.folder-permissions-unavailable {
+    padding: 10px 12px;
+    border: 1px solid var(--folder-setup-callout-border);
+    border-radius: 6px;
+    background-color: var(--folder-setup-callout-bg);
+    color: var(--folder-setup-callout-text);
+}
+
 .folder-setup-callout {
     display: flex;
     flex-direction: column;

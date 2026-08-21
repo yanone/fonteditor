@@ -4,6 +4,7 @@
  */
 
 import { settingsFolder } from './settings-folder';
+import { openFolderPermissionsDialog } from './folder-permissions-dialog';
 import { hasVisibleTippyMenus } from './tippy-utils';
 import { hasBoundModalEscape } from './ui/modal-escape';
 
@@ -67,18 +68,9 @@ import { hasBoundModalEscape } from './ui/modal-escape';
             this.settingsCloseBtn?.addEventListener('click', () =>
                 this.closeSettings()
             );
-            this.settingsFolderChangeButton?.addEventListener(
-                'click',
-                async () => {
-                    this.settingsFolderChangeButton!.disabled = true;
-                    try {
-                        await settingsFolder.selectFolder();
-                        await this.updateSettingsFolderSetting();
-                    } finally {
-                        this.settingsFolderChangeButton!.disabled = false;
-                    }
-                }
-            );
+            this.settingsFolderChangeButton?.addEventListener('click', () => {
+                void openFolderPermissionsDialog();
+            });
             window.addEventListener('settingsFolderAccessChanged', () => {
                 void this.updateSettingsFolderSetting();
             });

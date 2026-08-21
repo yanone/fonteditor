@@ -181,6 +181,14 @@ export class NativeAdapter implements FileSystemAdapter {
             pickerOptions.startIn = options.startIn;
         }
 
+        if (!isFileSystemAccessSupported()) {
+            console.warn(
+                '[NativeAdapter]',
+                'Directory picker is not available in this browser'
+            );
+            return false;
+        }
+
         let pickerPromise: Promise<FileSystemDirectoryHandle>;
         try {
             // Start the native picker in this turn so it stays in the user
@@ -583,5 +591,8 @@ export class NativeAdapter implements FileSystemAdapter {
 
 // Check if File System Access API is supported
 export function isFileSystemAccessSupported(): boolean {
-    return 'showDirectoryPicker' in window;
+    return (
+        typeof (window as Window & { showDirectoryPicker?: unknown })
+            .showDirectoryPicker === 'function'
+    );
 }

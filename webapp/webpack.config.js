@@ -247,7 +247,8 @@ module.exports = {
         headers: {
             'Cross-Origin-Embedder-Policy': 'require-corp',
             'Cross-Origin-Opener-Policy': 'same-origin',
-            'Cross-Origin-Resource-Policy': 'cross-origin'
+            'Cross-Origin-Resource-Policy': 'cross-origin',
+            'Permissions-Policy': 'directory-picker=(self)'
         },
         devMiddleware: {
             writeToDisk: true

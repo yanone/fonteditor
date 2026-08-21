@@ -288,7 +288,24 @@ function initScheduledUpdateChecks(): void {
 }
 
 function applyPendingUpdate(): void {
-    window.location.reload();
+    const reload = () => {
+        window.location.reload();
+    };
+    if (!navigator.serviceWorker) {
+        reload();
+        return;
+    }
+    void navigator.serviceWorker.getRegistration().then((registration) => {
+        if (!registration?.waiting) {
+            reload();
+            return;
+        }
+        navigator.serviceWorker.addEventListener('controllerchange', reload, {
+            once: true
+        });
+        registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+        window.setTimeout(reload, 2000);
+    });
 }
 
 export function initPreferencesVersionUi(): void {

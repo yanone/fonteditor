@@ -37,13 +37,25 @@ const PRECACHE_ASSETS = [
 
     // Python files
     './py/fonteditor.py',
-    './py/generate_api_docs.py',
+    './py/matplotlib_patch.py',
+
+    // Glyph catalog and plugin wheels (runtime fetches)
+    './data/glyph-data.json.gz',
+    './wheels/wheels.json',
+    './wheels/base_canvas_plugin-0.1.0-py3-none-any.whl',
+    './wheels/base_glyph_filter_plugin-0.1.0-py3-none-any.whl',
+    './wheels/counterpunch_hyperglot-0.8.1-py3-none-any.whl',
+    './wheels/curvature_comb_plugin-0.1.1-py3-none-any.whl',
+    './wheels/example_canvas_plugin-0.1.1-py3-none-any.whl',
+    './wheels/general_filter_plugin-0.1.0-py3-none-any.whl',
+
+    './examples/examples-manifest.json',
+    './handbook/manifest.json',
+    './font-destination-bridge.html',
 
     // WASM files (critical for font compilation)
     './wasm-dist/babelfont_fontc_web.js',
     './wasm-dist/babelfont_fontc_web_bg.wasm',
-    './wasm-dist/babelfont_fontc_web_bg.wasm.d.ts',
-    './wasm-dist/babelfont_fontc_web.d.ts',
 
     // Icons
     './assets/icons/icon-72x72.png',
@@ -86,6 +98,45 @@ const CDN_PRECACHE = [
 // Helper function to check if URL is a CDN resource
 function isCDNResource(url) {
     return url.includes('cdn.jsdelivr.net');
+}
+
+function applyIsolationHeaders(sourceResponse) {
+    const newHeaders = new Headers(sourceResponse.headers);
+    newHeaders.set(
+        'Cross-Origin-Embedder-Policy',
+        coepCredentialless ? 'credentialless' : 'require-corp'
+    );
+    if (!coepCredentialless) {
+        newHeaders.set('Cross-Origin-Resource-Policy', 'cross-origin');
+    }
+    newHeaders.set('Cross-Origin-Opener-Policy', 'same-origin');
+    // Keep File System Access pickers enabled on SW-synthesized documents.
+    newHeaders.set('Permissions-Policy', 'directory-picker=(self)');
+    return new Response(sourceResponse.body, {
+        status: sourceResponse.status,
+        statusText: sourceResponse.statusText,
+        headers: newHeaders
+    });
+}
+
+function matchAppCache(request) {
+    return caches.match(request).then((cachedResponse) => {
+        if (cachedResponse) {
+            return cachedResponse;
+        }
+        if (request.mode !== 'navigate') {
+            return undefined;
+        }
+        return caches
+            .match(request, { ignoreSearch: true })
+            .then(
+                (withoutSearch) =>
+                    withoutSearch ||
+                    caches
+                        .match('./index.html')
+                        .then((html) => html || caches.match(OFFLINE_URL))
+            );
+    });
 }
 
 if (typeof window === 'undefined') {
@@ -183,13 +234,13 @@ if (typeof window === 'undefined') {
                     console.log(
                         '[SW] ✅ All resources cached - app ready for offline use'
                     );
-                    // Notify all clients that caching is complete
-                    self.clients.matchAll().then((clients) => {
+                    // Leave a replacement worker waiting until the user applies
+                    // the update. The first install still activates on its own.
+                    return self.clients.matchAll().then((clients) => {
                         clients.forEach((client) => {
                             client.postMessage({ type: 'OFFLINE_READY' });
                         });
                     });
-                    return self.skipWaiting();
                 })
                 .catch((error) => {
                     console.error(
@@ -197,8 +248,6 @@ if (typeof window === 'undefined') {
                         '[SW] ❌ Cache failed:',
                         error
                     );
-                    // Still skip waiting even if caching partially failed
-                    return self.skipWaiting();
                 })
         );
     });
@@ -255,6 +304,8 @@ if (typeof window === 'undefined') {
                 });
         } else if (ev.data.type === 'coepCredentialless') {
             coepCredentialless = ev.data.value;
+        } else if (ev.data.type === 'SKIP_WAITING') {
+            self.skipWaiting();
         }
     });
 
@@ -305,43 +356,17 @@ if (typeof window === 'undefined') {
 
         // Handle local resources with COI headers
         event.respondWith(
-            // Try cache first
-            caches.match(request).then((cachedResponse) => {
-                // Fetch from network with COI headers
+            matchAppCache(request).then((cachedResponse) => {
                 const fetchPromise = fetch(request)
                     .then((response) => {
                         if (response.status === 0) {
                             return response;
                         }
 
-                        // Clone the response BEFORE reading the body
                         const responseToCache = response.clone();
+                        const modifiedResponse =
+                            applyIsolationHeaders(response);
 
-                        const newHeaders = new Headers(response.headers);
-                        newHeaders.set(
-                            'Cross-Origin-Embedder-Policy',
-                            coepCredentialless
-                                ? 'credentialless'
-                                : 'require-corp'
-                        );
-                        if (!coepCredentialless) {
-                            newHeaders.set(
-                                'Cross-Origin-Resource-Policy',
-                                'cross-origin'
-                            );
-                        }
-                        newHeaders.set(
-                            'Cross-Origin-Opener-Policy',
-                            'same-origin'
-                        );
-
-                        const modifiedResponse = new Response(response.body, {
-                            status: response.status,
-                            statusText: response.statusText,
-                            headers: newHeaders
-                        });
-
-                        // Cache successful same-origin responses
                         if (
                             response.status === 200 &&
                             request.url.startsWith(self.location.origin)
@@ -359,55 +384,16 @@ if (typeof window === 'undefined') {
                             '[SW] Fetch failed, using cache:',
                             error
                         );
-                        // If fetch fails and we have cached version, return it with COI headers
                         if (cachedResponse) {
-                            const newHeaders = new Headers(
-                                cachedResponse.headers
-                            );
-                            newHeaders.set(
-                                'Cross-Origin-Embedder-Policy',
-                                'require-corp'
-                            );
-                            newHeaders.set(
-                                'Cross-Origin-Resource-Policy',
-                                'cross-origin'
-                            );
-                            newHeaders.set(
-                                'Cross-Origin-Opener-Policy',
-                                'same-origin'
-                            );
-
-                            return new Response(cachedResponse.body, {
-                                status: cachedResponse.status,
-                                statusText: cachedResponse.statusText,
-                                headers: newHeaders
-                            });
+                            return applyIsolationHeaders(cachedResponse);
                         }
-                        // Return offline page for navigation requests
                         if (request.mode === 'navigate') {
                             return caches
                                 .match(OFFLINE_URL)
                                 .then((offlineResponse) => {
                                     if (offlineResponse) {
-                                        const newHeaders = new Headers(
-                                            offlineResponse.headers
-                                        );
-                                        newHeaders.set(
-                                            'Cross-Origin-Embedder-Policy',
-                                            'require-corp'
-                                        );
-                                        newHeaders.set(
-                                            'Cross-Origin-Opener-Policy',
-                                            'same-origin'
-                                        );
-                                        return new Response(
-                                            offlineResponse.body,
-                                            {
-                                                status: offlineResponse.status,
-                                                statusText:
-                                                    offlineResponse.statusText,
-                                                headers: newHeaders
-                                            }
+                                        return applyIsolationHeaders(
+                                            offlineResponse
                                         );
                                     }
                                 });
@@ -415,27 +401,10 @@ if (typeof window === 'undefined') {
                         throw error;
                     });
 
-                // If we have cached response, return it with COI headers
                 if (cachedResponse) {
-                    const newHeaders = new Headers(cachedResponse.headers);
-                    newHeaders.set(
-                        'Cross-Origin-Embedder-Policy',
-                        'require-corp'
-                    );
-                    newHeaders.set(
-                        'Cross-Origin-Resource-Policy',
-                        'cross-origin'
-                    );
-                    newHeaders.set('Cross-Origin-Opener-Policy', 'same-origin');
-
-                    return new Response(cachedResponse.body, {
-                        status: cachedResponse.status,
-                        statusText: cachedResponse.statusText,
-                        headers: newHeaders
-                    });
+                    return applyIsolationHeaders(cachedResponse);
                 }
 
-                // No cache, return fetch promise
                 return fetchPromise;
             })
         );

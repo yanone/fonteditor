@@ -54,3 +54,45 @@ describe('folder access classification', () => {
         ).toBe(false);
     });
 });
+
+describe('File System Access detection', () => {
+    test('requires showDirectoryPicker to be a function', () => {
+        jest.resetModules();
+        const adapter = require('../js/file-system-adapter');
+        const original = window.showDirectoryPicker;
+        try {
+            window.showDirectoryPicker = undefined;
+            expect(adapter.isFileSystemAccessSupported()).toBe(false);
+            window.showDirectoryPicker = function () {};
+            expect(adapter.isFileSystemAccessSupported()).toBe(true);
+        } finally {
+            window.showDirectoryPicker = original;
+        }
+    });
+});
+
+describe('folder permissions unavailable copy', () => {
+    test('explains that Brave and Firefox cannot link folders', () => {
+        jest.resetModules();
+        const folderPermissions = require('../js/folder-permissions-dialog');
+        const missingStatus = {
+            project: { state: 'missing', name: null },
+            settings: { state: 'missing', name: null }
+        };
+        const copy = folderPermissions.getFolderPermissionsDialogCopy(
+            missingStatus,
+            false
+        );
+        expect(copy.title).toBe(
+            folderPermissions.FOLDER_ACCESS_UNAVAILABLE_COPY.title
+        );
+        expect(copy.intro).toMatch(/Brave/);
+        expect(copy.intro).toMatch(/Firefox/);
+        expect(
+            folderPermissions.getFolderPermissionsDialogCopy(
+                missingStatus,
+                true
+            ).title
+        ).toBe('Link folders');
+    });
+});

@@ -65,6 +65,11 @@ const FOLDER_KIND_CALLOUT_MESSAGE: Record<FolderSetupKind, string> = {
 
 export const LINK_FOLDERS_BUTTON_LABEL = 'Link Folders';
 
+export const FOLDER_ACCESS_UNAVAILABLE_COPY = {
+    title: 'Folder access unavailable',
+    intro: 'This browser cannot link folders on disk. Counterpunch needs Chrome’s File System Access directory picker. Brave turns that API off by default, and Firefox does not provide it, so Disk, the project folder, and the Settings Folder are unavailable here. Memory storage still works.'
+};
+
 type FolderPermissionsHost = {
     listenersBound: boolean;
     autoPrompted: boolean;
@@ -263,12 +268,14 @@ function renderFolderSection(
     kind: 'project' | 'settings',
     title: string,
     bodyHtml: string,
-    status: FolderStatus
+    status: FolderStatus,
+    pickerAvailable: boolean
 ): string {
+    const actionDisabled = pickerAvailable ? '' : ' disabled';
     const action =
         status.state === 'needsRenewal'
-            ? `<button type="button" class="dialog-button dialog-button-primary" data-folder-action="renew" data-folder-kind="${kind}">Restore Access</button>`
-            : `<button type="button" class="dialog-button dialog-button-primary" data-folder-action="select" data-folder-kind="${kind}">Select Folder</button>`;
+            ? `<button type="button" class="dialog-button dialog-button-primary" data-folder-action="renew" data-folder-kind="${kind}"${actionDisabled}>Restore Access</button>`
+            : `<button type="button" class="dialog-button dialog-button-primary" data-folder-action="select" data-folder-kind="${kind}"${actionDisabled}>Select Folder</button>`;
     const stateNote =
         status.state === 'needsRenewal'
             ? '<p class="folder-permissions-status-note">Access expired — restore it to keep using this folder.</p>'
@@ -293,10 +300,16 @@ function renderFolderSection(
     `;
 }
 
-function dialogCopy(status: FolderSetupStatus): {
+export function getFolderPermissionsDialogCopy(
+    status: FolderSetupStatus,
+    pickerAvailable: boolean
+): {
     title: string;
     intro: string;
 } {
+    if (!pickerAvailable) {
+        return FOLDER_ACCESS_UNAVAILABLE_COPY;
+    }
     const needsRenewal =
         status.project.state === 'needsRenewal' ||
         status.settings.state === 'needsRenewal';
@@ -328,7 +341,8 @@ async function paintDialog(): Promise<void> {
         return;
     }
     const status = await refreshFolderSetupStatus();
-    const copy = dialogCopy(status);
+    const pickerAvailable = isFileSystemAccessSupported();
+    const copy = getFolderPermissionsDialogCopy(status, pickerAvailable);
     const complete = isFolderSetupComplete(status);
     const title = host.dialogOverlay.querySelector('#folder-permissions-title');
     const content = host.dialogOverlay.querySelector(
@@ -343,18 +357,20 @@ async function paintDialog(): Promise<void> {
     }
     if (content) {
         content.innerHTML = `
-            <p>${copy.intro}</p>
+            <p class="${pickerAvailable ? '' : 'folder-permissions-unavailable'}">${copy.intro}</p>
             ${renderFolderSection(
                 'project',
                 'Font Project Folder',
                 '<p>You store your fonts here. Select the root folder that contains all of your font project files.</p>',
-                status.project
+                status.project,
+                pickerAvailable
             )}
             ${renderFolderSection(
                 'settings',
                 'Settings Folder',
                 '<p>The app stores your glyph filters, Python scripts, and downloaded plugins in this folder.</p>',
-                status.settings
+                status.settings,
+                pickerAvailable
             )}
         `;
     }
@@ -406,6 +422,10 @@ async function handleFolderAction(
     kind: 'project' | 'settings',
     action: 'select' | 'renew'
 ): Promise<void> {
+    if (!isFileSystemAccessSupported()) {
+        await paintDialog();
+        return;
+    }
     const restoreOverlay = concealOverlayForNativePicker();
     try {
         if (kind === 'project') {
@@ -441,9 +461,6 @@ async function handleFolderAction(
 }
 
 export async function openFolderPermissionsDialog(): Promise<void> {
-    if (!isFileSystemAccessSupported()) {
-        return;
-    }
     const host = getHost();
     if (host.opening) {
         return;
@@ -570,10 +587,7 @@ function updateLinkFolderButton(): void {
     if (!button) {
         return;
     }
-    const show =
-        isFileSystemAccessSupported() &&
-        !!cachedStatus &&
-        !isFolderSetupComplete(cachedStatus);
+    const show = !!cachedStatus && !isFolderSetupComplete(cachedStatus);
     button.hidden = !show;
 }
 
@@ -632,11 +646,6 @@ export function getFolderSetupCalloutHtml(
 
 export async function maybeShowFolderPermissionsDialog(): Promise<void> {
     const host = getHost();
-    if (!isFileSystemAccessSupported()) {
-        host.autoPrompted = true;
-        settleFolderPermissionsAutoPrompt();
-        return;
-    }
     if (isAutomatedSession() || host.autoPrompted) {
         await refreshFolderSetupStatus();
         if (!host.autoPrompted) {
@@ -647,7 +656,11 @@ export async function maybeShowFolderPermissionsDialog(): Promise<void> {
     }
     host.autoPrompted = true;
     await refreshFolderSetupStatus();
-    if (!cachedStatus || isFolderSetupComplete(cachedStatus)) {
+    if (
+        !isFileSystemAccessSupported() ||
+        !cachedStatus ||
+        isFolderSetupComplete(cachedStatus)
+    ) {
         settleFolderPermissionsAutoPrompt();
         return;
     }

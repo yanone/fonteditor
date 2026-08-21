@@ -6,6 +6,9 @@ const CSS_DIR = path.resolve(__dirname, '../css');
 const JS_DIR = path.resolve(__dirname, '../build/js');
 const WEBPACK_CONFIG_PATH = path.resolve(__dirname, '../webpack.config.js');
 const JS_SOURCE_DIR = path.resolve(__dirname, '../js');
+const PY_DIR = path.resolve(__dirname, '../py');
+const DATA_DIR = path.resolve(__dirname, '../data');
+const WHEELS_DIR = path.resolve(__dirname, '../wheels');
 
 function parsePrecacheAssets(fileContent) {
     const match = fileContent.match(
@@ -154,5 +157,64 @@ describe('COI ServiceWorker PRECACHE_ASSETS', () => {
             (f) => !fs.existsSync(path.join(JS_DIR, path.basename(f)))
         );
         expect(missingOnDisk).toEqual([]);
+    });
+
+    test('includes every runtime Python file in py/', () => {
+        const pyFiles = scanFiles(PY_DIR, './py/').filter(
+            (f) => f.endsWith('.py') && !f.includes('/debug_')
+        );
+        const missing = pyFiles.filter((f) => !precacheAssets.includes(f));
+        if (missing.length) {
+            console.log(
+                'Missing from PRECACHE_ASSETS:\n' +
+                    missing.map((f) => "    '" + f + "',").join('\n')
+            );
+        }
+        expect(missing).toEqual([]);
+    });
+
+    test('includes glyph-data catalog and every shipped wheel', () => {
+        const required = ['./data/glyph-data.json.gz'];
+        if (fs.existsSync(DATA_DIR)) {
+            required.push(
+                ...scanFiles(DATA_DIR, './data/').filter((f) =>
+                    f.endsWith('.json.gz')
+                )
+            );
+        }
+        if (fs.existsSync(WHEELS_DIR)) {
+            required.push(...scanFiles(WHEELS_DIR, './wheels/'));
+        }
+        const missing = [...new Set(required)].filter(
+            (f) => !precacheAssets.includes(f)
+        );
+        if (missing.length) {
+            console.log(
+                'Missing from PRECACHE_ASSETS:\n' +
+                    missing.map((f) => "    '" + f + "',").join('\n')
+            );
+        }
+        expect(missing).toEqual([]);
+    });
+
+    test('no orphaned Python entries in PRECACHE_ASSETS', () => {
+        const pyFiles = fs.existsSync(PY_DIR)
+            ? scanFiles(PY_DIR, './py/').filter((f) => f.endsWith('.py'))
+            : [];
+        const precachePy = precacheAssets.filter(
+            (f) => f.startsWith('./py/') && f.endsWith('.py')
+        );
+        const orphaned = precachePy.filter((f) => !pyFiles.includes(f));
+        expect(orphaned).toEqual([]);
+    });
+
+    test('does not activate a replacement worker until SKIP_WAITING', () => {
+        const swContent = fs.readFileSync(SW_PATH, 'utf-8');
+        const installBlock = swContent.match(
+            /self\.addEventListener\(\s*'install'[\s\S]*?self\.addEventListener\(\s*'activate'/
+        );
+        expect(installBlock).not.toBeNull();
+        expect(installBlock[0]).not.toMatch(/skipWaiting\s*\(/);
+        expect(swContent).toMatch(/['"]SKIP_WAITING['"]/);
     });
 });
