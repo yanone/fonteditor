@@ -2278,12 +2278,10 @@ export class GlyphCanvasRenderer {
         if (currentLayerData.shapes && Array.isArray(currentLayerData.shapes)) {
             const isAutomaticComponentLayer =
                 isAutomaticallyAlignedComponentLayer(currentLayerData);
-            // Apply monochrome during manual slider interpolation OR when not on an exact layer
-            // Don't apply monochrome during layer switch animations
+            // Apply monochrome for interpolated previews. Exact stored layers
+            // keep object-model color even while a slider drag is still down.
             const isInterpolated =
-                this.glyphCanvas.outlineEditor.isInterpolating ||
-                (this.glyphCanvas.outlineEditor.selectedLayerId === null &&
-                    currentLayerData?.isInterpolated);
+                this.glyphCanvas.outlineEditor.isPaintingInterpolatedPreview();
 
             currentLayerData.shapes.forEach((shape, contourIndex: number) =>
                 this.drawShape(
@@ -2303,11 +2301,7 @@ export class GlyphCanvasRenderer {
 
                     // Disable selection/hover highlighting for interpolated data
                     const isInterpolated =
-                        this.glyphCanvas.outlineEditor.isInterpolating ||
-                        (this.glyphCanvas.outlineEditor.selectedLayerId ===
-                            null &&
-                            this.glyphCanvas.outlineEditor.layerData
-                                ?.isInterpolated);
+                        this.glyphCanvas.outlineEditor.isPaintingInterpolatedPreview();
                     const isHovered =
                         !isInterpolated &&
                         this.glyphCanvas.outlineEditor.hoveredComponentIndex ===
@@ -2411,9 +2405,7 @@ export class GlyphCanvasRenderer {
             currentLayerData.anchors.forEach((anchor: any, index: number) => {
                 const { x, y, name } = anchor;
                 const isInterpolated =
-                    this.glyphCanvas.outlineEditor.isInterpolating ||
-                    (this.glyphCanvas.outlineEditor.selectedLayerId === null &&
-                        currentLayerData?.isInterpolated);
+                    this.glyphCanvas.outlineEditor.isPaintingInterpolatedPreview();
                 const isHovered =
                     !isInterpolated &&
                     this.glyphCanvas.outlineEditor.hoveredAnchorIndex === index;
@@ -3112,9 +3104,7 @@ export class GlyphCanvasRenderer {
         nodes.forEach((node: Babelfont.Node, nodeIndex: number) => {
             const { x, y, nodetype: type } = node;
             const isInterpolated =
-                this.glyphCanvas.outlineEditor.isInterpolating ||
-                (this.glyphCanvas.outlineEditor.selectedLayerId === null &&
-                    this.glyphCanvas.outlineEditor.layerData?.isInterpolated);
+                this.glyphCanvas.outlineEditor.isPaintingInterpolatedPreview();
             const isHovered =
                 !isInterpolated &&
                 this.glyphCanvas.outlineEditor.hoveredPointIndex &&

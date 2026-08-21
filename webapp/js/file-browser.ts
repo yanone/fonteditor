@@ -3114,9 +3114,6 @@ async function uploadFiles(
         const msg = `Uploaded ${uploadedCount} file(s) in ${duration} seconds`;
 
         console.log('[FileBrowser]', msg);
-        if (window.term) {
-            window.term.echo(`[[;lime;]${msg}]`);
-        }
 
         if (uploadedToCurrentPlugin && !options.skipRefresh) {
             await refreshFileSystem();

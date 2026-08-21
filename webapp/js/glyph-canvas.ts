@@ -2955,7 +2955,11 @@ class GlyphCanvas {
             console.log(
                 '[GlyphCanvas] Animation complete, calling autoSelectMatchingMaster'
             );
-            this.autoSelectMatchingMaster();
+            if (this.outlineEditor.active) {
+                void this.outlineEditor.autoSelectMatchingLayer();
+            } else {
+                this.autoSelectMatchingMaster();
+            }
         });
     }
 

@@ -3203,6 +3203,28 @@ export class OutlineEditor {
     selectedLayerId: string | null = null;
     isInterpolating: boolean = false;
     isLayerSwitchAnimating: boolean = false;
+
+    /**
+     * True when outlines should paint as a temporary interpolated preview
+     * (monochrome). Exact stored layers stay in object-model color even while
+     * a slider drag is still interpolating through that location.
+     */
+    isPaintingInterpolatedPreview(): boolean {
+        if (this.isLayerSwitchAnimating) {
+            return false;
+        }
+        if (
+            this.selectedLayerId !== null &&
+            this.layerData?.isInterpolated !== true
+        ) {
+            return false;
+        }
+        return (
+            this.isInterpolating ||
+            (this.selectedLayerId === null &&
+                this.layerData?.isInterpolated === true)
+        );
+    }
     suppressAutoLayerMatching: boolean = false;
     currentInterpolationId: number = 0;
     private interpolationRequestInFlight: boolean = false;
@@ -11276,9 +11298,13 @@ export class OutlineEditor {
         // Set interpolating flag (don't change preview mode)
         this.isInterpolating = true;
 
-        // If not in preview mode, mark current layer data as interpolated and render
-        // to show monochrome visual feedback immediately
-        if (!this.isPreviewMode && this.layerData) {
+        // Leave object-model color in place until the slider actually leaves
+        // this stored layer. Mark interpolated (monochrome) only off-layer.
+        if (
+            !this.isPreviewMode &&
+            this.layerData &&
+            !this.findMatchingLayerForActiveEdit()
+        ) {
             this.layerData.isInterpolated = true;
             this.glyphCanvas.render();
         }
@@ -11408,12 +11434,13 @@ export class OutlineEditor {
             active: this.active
         });
 
-        // Save current state before manual adjustment (only once per manual session)
-        // When starting a new slider drag from a selected layer, save that layer
-        // and deselect to enable interpolation mode
+        const matchingLayer = this.active
+            ? this.findMatchingLayerForActiveEdit()
+            : null;
+
+        // Save current state before leaving a selected layer (once per session).
+        // Stay selected when the slider is still on that stored location.
         if (this.selectedLayerId !== null) {
-            // Only update previous state if we're starting a new drag session
-            // (not continuing an existing interpolation session)
             if (
                 this.escapeState.save(
                     this.selectedLayerId,
@@ -11429,12 +11456,13 @@ export class OutlineEditor {
                     }
                 );
             }
-            this.selectedLayerId = null; // Deselect layer
-            console.log(
-                '[OutlineEditor] Deselected layer, selectedLayerId is now null'
-            );
-            // Always update layer selection UI when deselecting to show immediate visual feedback
-            this.updateLayerSelection();
+            if (!matchingLayer) {
+                this.selectedLayerId = null;
+                console.log(
+                    '[OutlineEditor] Deselected layer, selectedLayerId is now null'
+                );
+                this.updateLayerSelection();
+            }
         }
         if (
             this.active &&
@@ -11442,6 +11470,9 @@ export class OutlineEditor {
             !this.isPreviewMode &&
             this.currentGlyphName
         ) {
+            if (matchingLayer) {
+                return;
+            }
             console.log(
                 '[OutlineEditor] Calling interpolateCurrentGlyph from onSliderChange'
             );
@@ -20495,6 +20526,14 @@ export class OutlineEditor {
             return;
         }
 
+        if (
+            !force &&
+            this.glyphCanvas.axesManager?.isSliderActive &&
+            this.findMatchingLayerForActiveEdit()
+        ) {
+            return;
+        }
+
         // Coalesce to one follow-up request while allowing the in-flight frame
         // to paint at its own location. This keeps the outline and text run
         // synchronized without starving visible interpolation during dragging.
@@ -20565,6 +20604,18 @@ export class OutlineEditor {
             ) {
                 console.log(
                     '[OutlineEditor] 🚫 Skipping applyInterpolatedLayer - no longer interpolating'
+                );
+                return;
+            }
+
+            // A later slider sample may have landed on a stored layer while this
+            // request was in flight. Keep the object-model paint, not this result.
+            if (
+                this.glyphCanvas.axesManager?.isSliderActive &&
+                this.findMatchingLayerForActiveEdit()
+            ) {
+                console.log(
+                    '[OutlineEditor] 🚫 Skipping applyInterpolatedLayer - current location is an exact layer'
                 );
                 return;
             }
@@ -21364,6 +21415,94 @@ export class OutlineEditor {
         ) as Babelfont.Layer | null;
     }
 
+    /**
+     * Userspace location used to match stored layers. While a slider drag is
+     * easing, `variationSettings` lags behind the thumb; match the animation
+     * target (the slider value) so an exact layer paints immediately.
+     */
+    private getLayerMatchUserspaceLocation(): UserspaceLocation {
+        const axes = this.glyphCanvas.axesManager!;
+        if (
+            axes.isSliderActive &&
+            axes.isAnimating &&
+            !this.isLayerSwitchAnimating &&
+            axes.animationTargetValues &&
+            Object.keys(axes.animationTargetValues).length > 0
+        ) {
+            return {
+                ...axes.variationSettings,
+                ...axes.animationTargetValues
+            };
+        }
+        return { ...axes.variationSettings };
+    }
+
+    /**
+     * Stored layer at the current slider location for the glyph being edited.
+     */
+    private findMatchingLayerForActiveEdit(): Babelfont.Layer | null {
+        const parsedStack = this.parseGlyphStack();
+        const rootGlyphName = this.getAuthoringRootGlyphName();
+        const activeGlyphName = this.isEditingComponent()
+            ? parsedStack[parsedStack.length - 1]?.glyphName ||
+              this.currentGlyphName ||
+              rootGlyphName
+            : rootGlyphName;
+
+        return this.findMatchingLayerForUserspaceLocation(
+            activeGlyphName,
+            this.getLayerMatchUserspaceLocation(),
+            this.isEditingComponent()
+                ? undefined
+                : {
+                      allowedLayerIds: this.getRootFeatureVariationLayerIds()
+                  }
+        );
+    }
+
+    /**
+     * Paint the selected stored layer from the object model without waiting
+     * for a WASM interpolation round-trip.
+     */
+    private paintExactSelectedLayerFromModel(skipRender: boolean): boolean {
+        if (!this.selectedLayerId) {
+            return false;
+        }
+
+        const glyphName = this.getAuthoringRootGlyphName();
+        const parsedStack = this.parseGlyphStack();
+        const selectionGlyphName =
+            this.isEditingComponent() && parsedStack.length > 0
+                ? parsedStack[parsedStack.length - 1].glyphName
+                : glyphName;
+        if (
+            !glyphName ||
+            glyphName === 'undefined' ||
+            glyphName.startsWith('GID ')
+        ) {
+            return false;
+        }
+
+        try {
+            const exactLayerData = this.getExactLayerDataForSelection(
+                selectionGlyphName,
+                this.selectedLayerId
+            );
+            if (!exactLayerData) {
+                return false;
+            }
+            this.applyExactSelectedLayerData(exactLayerData, null);
+            this.finalizeFetchedLayerData(glyphName, skipRender);
+            return true;
+        } catch (error) {
+            console.warn(
+                '[OutlineEditor] Could not paint exact layer from model during slider drag',
+                error
+            );
+            return false;
+        }
+    }
+
     async autoSelectMatchingLayer(options?: {
         skipRender?: boolean;
     }): Promise<void> {
@@ -21382,9 +21521,6 @@ export class OutlineEditor {
               rootGlyphName
             : rootGlyphName;
         const skipRender = options?.skipRender === true;
-        const currentUserspaceLocation = {
-            ...this.glyphCanvas.axesManager!.variationSettings
-        };
         const previousLayer = this.isEditingComponent()
             ? this.getCurrentLayerModel()
             : this.getTransitionPreviousLayerModel(rootGlyphName);
@@ -21414,15 +21550,7 @@ export class OutlineEditor {
             return;
         }
 
-        const matchingLayer = this.findMatchingLayerForUserspaceLocation(
-            activeGlyphName,
-            currentUserspaceLocation,
-            this.isEditingComponent()
-                ? undefined
-                : {
-                      allowedLayerIds: this.getRootFeatureVariationLayerIds()
-                  }
-        );
+        const matchingLayer = this.findMatchingLayerForActiveEdit();
 
         if (matchingLayer) {
             console.log(
@@ -21459,13 +21587,22 @@ export class OutlineEditor {
             // The previous state is only cleared in selectLayer() when explicitly clicking a layer
             console.log('Keeping previous state for Escape functionality');
 
-            // Fetch layer data EXCEPT during slider interpolation or layer switch animation
-            // During these states, we use interpolated data instead
-            if (!this.isInterpolating && !this.isLayerSwitchAnimating) {
-                await this.fetchLayerData(skipRender); // Fetch layer data for outline editor
+            // Fetch layer data EXCEPT during layer switch animation (interpolated
+            // frames) and EXCEPT during off-slider interpolation (mouseup / animation
+            // complete still fetch via those callers). While a slider is down on an
+            // exact stored location, paint the object-model layer immediately.
+            if (!this.isLayerSwitchAnimating) {
+                if (
+                    this.isInterpolating &&
+                    this.glyphCanvas.axesManager?.isSliderActive
+                ) {
+                    this.paintExactSelectedLayerFromModel(skipRender);
+                } else if (!this.isInterpolating) {
+                    await this.fetchLayerData(skipRender); // Fetch layer data for outline editor
 
-                // Perform mouse hit detection after layer data is loaded
-                this.performHitDetection(null);
+                    // Perform mouse hit detection after layer data is loaded
+                    this.performHitDetection(null);
+                }
             }
 
             this.applySelectionStateForLayer(
@@ -21474,8 +21611,14 @@ export class OutlineEditor {
                 this.getActiveSelectionScopeGlyphName()
             );
 
-            // Clear the interpolating flag and render to display the new outlines
-            this.isInterpolating = false;
+            // Keep interpolating while the pointer is still down (or looping)
+            // so leaving this location continues live interpolation.
+            if (
+                !this.glyphCanvas.axesManager?.isSliderActive &&
+                !this.glyphCanvas.axesManager?.isLoopAnimating
+            ) {
+                this.isInterpolating = false;
+            }
 
             if (this.active && !skipRender) {
                 this.glyphCanvas.updatePropertyPanel();

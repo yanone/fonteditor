@@ -1398,7 +1398,7 @@ kbd + kbd {
 .view {
     --view-title-color: var(--border-focus-outline);
     background-color: var(--background-primary);
-    border: 2px solid var(--border-primary);
+    border: 3px solid var(--border-primary);
     overflow: hidden;
     min-width: 100px;
     min-height: 24px; /* Title bar height - allows secondary views to collapse */
@@ -1414,14 +1414,12 @@ kbd + kbd {
     border-radius: 6px;
 }
 
-/* Active view indicator — keep the 2px border (no inward shrink); add 1px
-   outside via box-shadow so the colored chrome reads as 3px total.
-   Stay above sibling views so the outer pixel is not clipped; dividers
+/* Active view indicator — 3px chrome, color only (no width change).
+   Stay above sibling views so the colored edge is not covered; dividers
    stack above this so resize handles stay visible. */
 .view.focused {
     z-index: 1;
     border-color: var(--view-title-color);
-    box-shadow: 0 0 0 1px var(--view-title-color);
 }
 
 /* Keyboard view activation focuses the view shell (tabindex=-1). Suppress the
@@ -2126,7 +2124,7 @@ kbd + kbd {
 }
 
 /* Divider styles — above focused views so the 4px handle stays visible
-   over the 1px outer focus ring and the full-window canvas. */
+   over the 3px view chrome and the full-window canvas. */
 .divider {
     background-color: var(--border-primary);
     position: relative;
@@ -3615,11 +3613,22 @@ kbd + kbd {
 
 #console-container .terminal {
     --size: 1.2;
-    --color: var(--text-tertiary);
+    --color: var(--view-console);
+    --background: var(--background-primary);
     font-family: var(--font-families-mono) !important;
     background-color: transparent !important;
     height: 100% !important;
     border: none !important;
+}
+
+#console-container .terminal ::selection {
+    background-color: var(--view-console);
+    color: var(--background-primary);
+}
+
+#console-container .terminal ::-moz-selection {
+    background-color: var(--view-console);
+    color: var(--background-primary);
 }
 
 #console-container .terminal .terminal-output {

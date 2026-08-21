@@ -18529,6 +18529,125 @@ describe('OutlineEditor exact selected layers', () => {
         expect(addButton.disabled).toBe(false);
     });
 
+    test('paints object-model geometry in color when a slider drag hits an exact layer', async () => {
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = null;
+        canvas.outlineEditor.isInterpolating = true;
+        canvas.outlineEditor.layerData = {
+            width: 510,
+            shapes: [],
+            anchors: [],
+            guides: [],
+            isInterpolated: true
+        };
+        canvas.outlineEditor.glyphStack = '';
+        canvas.axesManager.isSliderActive = true;
+        canvas.axesManager.variationSettings = { wght: 50 };
+        const applyRustSpy = jest.spyOn(
+            canvas.outlineEditor,
+            'applyRustLayerData'
+        );
+        const interpolateCurrentSpy = jest.spyOn(
+            canvas.outlineEditor,
+            'interpolateCurrentGlyph'
+        );
+
+        canvas.outlineEditor.onSliderChange('wght', 50);
+        await canvas.outlineEditor.autoSelectMatchingLayer();
+
+        expect(interpolateCurrentSpy).not.toHaveBeenCalled();
+        expect(canvas.outlineEditor.selectedLayerId).toBe('brace-layer');
+        expect(canvas.outlineEditor.isInterpolating).toBe(true);
+        expect(canvas.outlineEditor.layerData.isInterpolated).toBe(false);
+        expect(canvas.outlineEditor.layerData.width).toBe(520);
+        expect(canvas.outlineEditor.isPaintingInterpolatedPreview()).toBe(
+            false
+        );
+        expect(applyRustSpy).not.toHaveBeenCalled();
+
+        interpolateCurrentSpy.mockRestore();
+        applyRustSpy.mockRestore();
+    });
+
+    test('paints the object-model layer from the slider target while variation settings are still easing', async () => {
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = null;
+        canvas.outlineEditor.isInterpolating = true;
+        canvas.outlineEditor.layerData = {
+            width: 510,
+            shapes: [],
+            anchors: [],
+            guides: [],
+            isInterpolated: true
+        };
+        canvas.outlineEditor.glyphStack = '';
+        canvas.axesManager.isSliderActive = true;
+        canvas.axesManager.isAnimating = true;
+        canvas.axesManager.variationSettings = { wght: 41 };
+        canvas.axesManager.animationTargetValues = { wght: 50 };
+
+        canvas.outlineEditor.onSliderChange('wght', 50);
+        await canvas.outlineEditor.autoSelectMatchingLayer();
+
+        expect(canvas.outlineEditor.selectedLayerId).toBe('brace-layer');
+        expect(canvas.outlineEditor.layerData.isInterpolated).toBe(false);
+        expect(canvas.outlineEditor.layerData.width).toBe(520);
+        expect(canvas.outlineEditor.isInterpolating).toBe(true);
+    });
+
+    test('does not apply in-flight interpolation over an exact layer hit while dragging', async () => {
+        const firstRequest = {};
+        firstRequest.promise = new Promise((resolve) => {
+            firstRequest.resolve = resolve;
+        });
+        interpolateSpy.mockImplementationOnce(() => firstRequest.promise);
+        const applyRustSpy = jest.spyOn(
+            canvas.outlineEditor,
+            'applyRustLayerData'
+        );
+
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = null;
+        canvas.outlineEditor.isInterpolating = true;
+        canvas.outlineEditor.layerData = {
+            width: 510,
+            shapes: [],
+            anchors: [],
+            guides: [],
+            isInterpolated: true
+        };
+        canvas.outlineEditor.glyphStack = '';
+        canvas.axesManager.isSliderActive = true;
+        canvas.axesManager.variationSettings = { wght: 30 };
+
+        const inFlight = canvas.outlineEditor.interpolateCurrentGlyph();
+
+        canvas.axesManager.isAnimating = true;
+        canvas.axesManager.variationSettings = { wght: 41 };
+        canvas.axesManager.animationTargetValues = { wght: 50 };
+        canvas.outlineEditor.onSliderChange('wght', 50);
+        await canvas.outlineEditor.autoSelectMatchingLayer();
+
+        firstRequest.resolve({
+            width: 999.75,
+            shapes: [],
+            anchors: [],
+            guides: []
+        });
+        await inFlight;
+
+        expect(canvas.outlineEditor.selectedLayerId).toBe('brace-layer');
+        expect(canvas.outlineEditor.layerData.width).toBe(520);
+        expect(canvas.outlineEditor.layerData.isInterpolated).toBe(false);
+        expect(canvas.outlineEditor.isInterpolating).toBe(true);
+        expect(applyRustSpy).not.toHaveBeenCalled();
+
+        applyRustSpy.mockRestore();
+    });
+
     test('tracks unlinked layers per glyph and updates the summary toggle in the layers list', async () => {
         const targetContainer = document.createElement('div');
         const selectLayerSpy = jest
