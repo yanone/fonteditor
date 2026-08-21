@@ -100,6 +100,7 @@ function getHost(): SpotlightHost {
 
 let viewShortcutsBlocked = false;
 let allowedViewShortcutKeys: string[] = [];
+let allowedViewShortcutConsumed = false;
 
 export function isTourBlockingViewShortcuts(): boolean {
     return viewShortcutsBlocked;
@@ -109,12 +110,28 @@ export function isViewShortcutAllowedDuringTour(key: string): boolean {
     if (!viewShortcutsBlocked) {
         return true;
     }
-    return allowedViewShortcutKeys.includes(key);
+    return (
+        allowedViewShortcutKeys.includes(key) && !allowedViewShortcutConsumed
+    );
+}
+
+export function isTourCmdEscapeAllowed(): boolean {
+    if (!viewShortcutsBlocked) {
+        return true;
+    }
+    return !!getHost().slide?.allowCmdEscape && !allowedViewShortcutConsumed;
+}
+
+export function consumeAllowedTourViewShortcut(): void {
+    if (getHost().slide?.consumeViewShortcut) {
+        allowedViewShortcutConsumed = true;
+    }
 }
 
 function setViewShortcutLock(slide: TourSlide | null): void {
     viewShortcutsBlocked = !!slide;
     allowedViewShortcutKeys = slide?.allowedViewShortcutKeys || [];
+    allowedViewShortcutConsumed = false;
 }
 
 function roundedRectPath(
@@ -313,13 +330,81 @@ function coverViewportMinusHoles(
     return pieces;
 }
 
+function isTourViewCollapsed(viewId: string): boolean {
+    const view = document.getElementById(viewId);
+    if (!view) {
+        return false;
+    }
+    return (
+        view.classList.contains('collapsed') ||
+        view.classList.contains('collapsed-width')
+    );
+}
+
+function usesCommandModifier(): boolean {
+    return navigator.platform.toUpperCase().includes('MAC');
+}
+
+function localizeTourModifiers(text: string): string {
+    const command = usesCommandModifier() ? 'Cmd' : 'Ctrl';
+    const option = usesCommandModifier() ? 'Option' : 'Alt';
+    return text
+        .replaceAll('Cmd/Ctrl', command)
+        .replaceAll('Alt/Option', option);
+}
+
+function isShortcutMarkup(text: string): boolean {
+    if (/[()]/.test(text)) {
+        return false;
+    }
+    if (text.length === 1) {
+        return true;
+    }
+    return /cmd\/ctrl|shift|alt\/option|escape|enter|\+/i.test(text);
+}
+
+function appendPreChip(parent: HTMLElement, raw: string): void {
+    const localized = localizeTourModifiers(raw);
+    const pre = document.createElement('pre');
+    pre.className = 'tour-shortcut';
+    if (isShortcutMarkup(raw)) {
+        const keys = localized
+            .split('+')
+            .map((part) => part.trim())
+            .filter(Boolean);
+        for (const key of keys) {
+            const kbd = document.createElement('kbd');
+            kbd.textContent = key;
+            pre.append(kbd);
+        }
+    } else {
+        pre.textContent = localized;
+    }
+    parent.append(pre);
+}
+
+function appendBouncySentence(parent: HTMLElement, text: string): void {
+    const paragraph = document.createElement('p');
+    paragraph.className = 'tour-bounce-line';
+    for (const character of text) {
+        if (character === ' ') {
+            paragraph.append(document.createTextNode(' '));
+            continue;
+        }
+        const letter = document.createElement('span');
+        letter.className = 'tour-bounce-letter';
+        letter.textContent = character;
+        letter.style.animationDelay = `${(-Math.random() * 1.4).toFixed(3)}s`;
+        letter.style.animationDuration = `${(1.1 + Math.random() * 0.7).toFixed(3)}s`;
+        paragraph.append(letter);
+    }
+    parent.append(paragraph);
+}
 function appendInlineMarkup(parent: HTMLElement, text: string): void {
     const codeParts = text.split(/`(.+?)`/);
     codeParts.forEach((part, codeIndex) => {
         if (codeIndex % 2 === 1) {
-            const code = document.createElement('code');
-            code.textContent = part;
-            parent.append(code);
+            appendPreChip(parent, part);
             return;
         }
         const parts = part.split(/\*\*(.+?)\*\*/);
@@ -362,6 +447,10 @@ function appendTooltipBody(container: HTMLElement, body: string): void {
         .map((block) => block.trim())
         .filter(Boolean);
     for (const block of blocks) {
+        if (block === 'Have fun making fonts.') {
+            appendBouncySentence(container, block);
+            continue;
+        }
         container.append(renderInlineEmphasis(block));
     }
 }
@@ -882,6 +971,45 @@ function bindSlideInteraction(slide: TourSlide): void {
         });
     }
 
+    const bindViewAdvance = (
+        type: 'viewFocused' | 'viewResized',
+        viewId: string | undefined,
+        collapsedOnly = false
+    ) => {
+        if (!viewId) {
+            return;
+        }
+        let advanced = false;
+        const maybeAdvance = (event: Event) => {
+            if (
+                advanced ||
+                !host.visible ||
+                host.slide !== slide ||
+                host.advancing
+            ) {
+                return;
+            }
+            const detail = (event as CustomEvent<{ viewId?: string }>).detail;
+            if (detail?.viewId !== viewId) {
+                return;
+            }
+            if (collapsedOnly && !isTourViewCollapsed(viewId)) {
+                return;
+            }
+            advanced = true;
+            void finishWithReaction(undefined, {
+                afterApplyMs: slide.advanceDelayMs ?? TOUR_AFTER_SLIDER_MS
+            });
+        };
+        window.addEventListener(type, maybeAdvance);
+        cleanups.push(() => {
+            window.removeEventListener(type, maybeAdvance);
+        });
+    };
+    bindViewAdvance('viewFocused', slide.advanceOnViewFocused);
+    bindViewAdvance('viewResized', slide.advanceOnViewResized);
+    bindViewAdvance('viewResized', slide.advanceOnViewCollapsed, true);
+
     host.slideUnbind = () => {
         for (const cleanup of cleanups) {
             cleanup();
@@ -1063,6 +1191,25 @@ function onTourKeyDown(event: KeyboardEvent): void {
         return;
     }
     if (isBrowserReloadShortcut(event)) {
+        return;
+    }
+    const cmdOrCtrl = event.metaKey || event.ctrlKey;
+    const key = typeof event.key === 'string' ? event.key.toLowerCase() : '';
+    if (
+        cmdOrCtrl &&
+        event.shiftKey &&
+        !event.altKey &&
+        isViewShortcutAllowedDuringTour(key)
+    ) {
+        return;
+    }
+    if (
+        cmdOrCtrl &&
+        event.code === 'Escape' &&
+        !event.shiftKey &&
+        !event.altKey &&
+        isTourCmdEscapeAllowed()
+    ) {
         return;
     }
     if (event.key === 'Escape') {

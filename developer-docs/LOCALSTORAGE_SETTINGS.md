@@ -10,7 +10,7 @@ IndexedDB keys such as directory handles and export destinations are not include
 
 | Keys | Literal | Pattern |
 | ---: | ---: | ---: |
-| 42 | 39 | 3 |
+| 43 | 40 | 3 |
 
 | Key | Purpose | Operations | Files |
 | --- | --- | --- | --- |
@@ -48,6 +48,7 @@ IndexedDB keys such as directory handles and export destinations are not include
 | [`runPythonScriptLastRun`](#key-runpythonscriptlastrun) | Persists run python script last run. | getItem, setItem | `webapp/js/run-python-script-dialog.ts` |
 | [`runPythonScriptSelectedPath`](#key-runpythonscriptselectedpath) | Persists run python script selected path. | getItem, setItem, removeItem | `webapp/js/run-python-script-dialog.ts` |
 | [`tabKeepAliveTimestamp`](#key-tabkeepalivetimestamp) | Persists tab keep alive timestamp. | setItem | `webapp/js/tab-lifecycle.ts` |
+| [`tourCompleted`](#key-tourcompleted) | Set when the user finishes the tour. | getItem, setItem | `webapp/js/tour.ts` |
 | [`tourLaunchButtonDismissed`](#key-tourlaunchbuttondismissed) | Set when the user dismisses the title-bar Take a Tour chip. | getItem, setItem | `webapp/js/tour.ts` |
 | [`tourSkipped`](#key-tourskipped) | Set when the user skips the tour intro. | getItem, setItem | `webapp/js/tour.ts` |
 | [`tourStarted`](#key-tourstarted) | Set when the user starts the tour from the intro. | getItem, setItem | `webapp/js/tour.ts` |
@@ -201,8 +202,8 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Operations: `getItem`, `setItem`
 - Default when unset: `true`
 - Sites:
-  - webapp/js/glyph-canvas/outline-editor.ts:3454 `getItem` via method `loadGuidelinesVisible`
-  - webapp/js/glyph-canvas/outline-editor.ts:3483 `setItem` via method `setGuidelinesVisible`
+  - webapp/js/glyph-canvas/outline-editor.ts:3464 `getItem` via method `loadGuidelinesVisible`
+  - webapp/js/glyph-canvas/outline-editor.ts:3493 `setItem` via method `setGuidelinesVisible`
 
 <a id="key-editornodesnapping"></a>
 
@@ -225,8 +226,8 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Operations: `getItem`, `setItem`
 - Default when unset: `false`
 - Sites:
-  - webapp/js/glyph-canvas/outline-editor.ts:3464 `getItem` via method `loadPairedLayerVisible`
-  - webapp/js/glyph-canvas/outline-editor.ts:3898 `setItem` via method `setPairedLayerVisible`
+  - webapp/js/glyph-canvas/outline-editor.ts:3474 `getItem` via method `loadPairedLayerVisible`
+  - webapp/js/glyph-canvas/outline-editor.ts:3908 `setItem` via method `setPairedLayerVisible`
 
 <a id="key-editorpreviewarea"></a>
 
@@ -347,7 +348,7 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Sites:
   - webapp/js/docs-viewer.ts:209 `getItem` via method `close`
   - webapp/js/fonteditor.ts:210 `getItem` via function `initFontEditor`
-  - webapp/js/keyboard-navigation.ts:1466 `setItem` via function `focusView`
+  - webapp/js/keyboard-navigation.ts:1468 `setItem` via function `focusView`
 
 <a id="key-lastfilesystemcontext"></a>
 
@@ -464,6 +465,18 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Sites:
   - webapp/js/tab-lifecycle.ts:223 `setItem` via method `startKeepAlive`
 
+<a id="key-tourcompleted"></a>
+
+## `tourCompleted`
+
+- Purpose: Set when the user finishes the tour.
+- Kind: literal
+- Operations: `getItem`, `setItem`
+- Default when unset: `false`
+- Sites:
+  - webapp/js/tour.ts:107 `getItem` via function `hasCompletedTour`
+  - webapp/js/tour.ts:278 `setItem` via function `completeTour`
+
 <a id="key-tourlaunchbuttondismissed"></a>
 
 ## `tourLaunchButtonDismissed`
@@ -473,8 +486,9 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Operations: `getItem`, `setItem`
 - Default when unset: `false`
 - Sites:
-  - webapp/js/tour.ts:87 `getItem` via function `hasDismissedTourLaunchButton`
-  - webapp/js/tour.ts:114 `setItem` via function `dismissTourLaunchButton`
+  - webapp/js/tour.ts:98 `getItem` via function `hasDismissedTourLaunchButton`
+  - webapp/js/tour.ts:134 `setItem` via function `dismissTourLaunchButton`
+  - webapp/js/tour.ts:279 `setItem` via function `completeTour`
 
 <a id="key-tourskipped"></a>
 
@@ -485,8 +499,8 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Operations: `getItem`, `setItem`
 - Default when unset: `false`
 - Sites:
-  - webapp/js/tour.ts:70 `getItem` via function `hasSkippedTour`
-  - webapp/js/tour.ts:105 `setItem` via function `skipTour`
+  - webapp/js/tour.ts:81 `getItem` via function `hasSkippedTour`
+  - webapp/js/tour.ts:125 `setItem` via function `skipTour`
 
 <a id="key-tourstarted"></a>
 
@@ -497,8 +511,8 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Operations: `getItem`, `setItem`
 - Default when unset: `false`
 - Sites:
-  - webapp/js/tour.ts:78 `getItem` via function `hasStartedTour`
-  - webapp/js/tour.ts:249 `setItem` via function `markTourStarted`
+  - webapp/js/tour.ts:89 `getItem` via function `hasStartedTour`
+  - webapp/js/tour.ts:269 `setItem` via function `markTourStarted`
 
 <a id="key-viewlayout"></a>
 

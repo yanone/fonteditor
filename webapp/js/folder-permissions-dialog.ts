@@ -594,8 +594,14 @@ export function createFolderSetupCallout(
 ): HTMLElement {
     const callout = document.createElement('div');
     callout.className = 'folder-setup-callout';
+    const heading = document.createElement('div');
+    heading.className = 'folder-setup-callout-heading';
     const title = document.createElement('h2');
     title.textContent = FOLDER_KIND_CALLOUT_TITLE[kind];
+    heading.append(
+        folderKindIconElement(kind, 'folder-setup-callout-icon'),
+        title
+    );
     const text = document.createElement('p');
     text.textContent = message || FOLDER_KIND_CALLOUT_MESSAGE[kind];
     const button = document.createElement('button');
@@ -605,12 +611,7 @@ export function createFolderSetupCallout(
     button.addEventListener('click', () => {
         void openFolderPermissionsDialog();
     });
-    callout.append(
-        folderKindIconElement(kind, 'folder-setup-callout-icon'),
-        title,
-        text,
-        button
-    );
+    callout.append(heading, text, button);
     return callout;
 }
 
@@ -619,8 +620,10 @@ export function getFolderSetupCalloutHtml(
 ): string {
     return `
         <div class="folder-setup-callout">
-            <span class="material-symbols-outlined folder-setup-callout-icon" aria-hidden="true">${FOLDER_KIND_ICON[kind]}</span>
-            <h2>${FOLDER_KIND_CALLOUT_TITLE[kind]}</h2>
+            <div class="folder-setup-callout-heading">
+                <span class="material-symbols-outlined folder-setup-callout-icon" aria-hidden="true">${FOLDER_KIND_ICON[kind]}</span>
+                <h2>${FOLDER_KIND_CALLOUT_TITLE[kind]}</h2>
+            </div>
             <p>${FOLDER_KIND_CALLOUT_MESSAGE[kind]}</p>
             <button type="button" class="toolbar-link-folder-btn" data-action="link-folder">${LINK_FOLDERS_BUTTON_LABEL}</button>
         </div>

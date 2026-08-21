@@ -59,6 +59,19 @@ export type TourSlide = {
      * Empty / omitted blocks every Cmd/Ctrl+Shift view shortcut.
      */
     allowedViewShortcutKeys?: string[];
+    /**
+     * After one allowed view shortcut (or Cmd+Escape) is handled, block
+     * further matches until the next slide.
+     */
+    consumeViewShortcut?: boolean;
+    /** Let Cmd/Ctrl+Escape close the focused panel. */
+    allowCmdEscape?: boolean;
+    /** Advance when this view receives `viewFocused`. */
+    advanceOnViewFocused?: string;
+    /** Advance when this view receives `viewResized`. */
+    advanceOnViewResized?: string;
+    /** Advance when this view is collapsed after `viewResized`. */
+    advanceOnViewCollapsed?: string;
     /** Clicking this selector (or its feature row) advances the tour. */
     advanceOnClick?: string;
     /** Feature buttons: wait until the control has `.enabled`. */
@@ -678,6 +691,85 @@ async function prepareBreadcrumbSlide(minChips = 2): Promise<void> {
     await delay(50);
 }
 
+function viewAnimationDelayMs(): number {
+    const animation = window.VIEW_SETTINGS?.animation;
+    if (animation?.enabled && typeof animation.duration === 'number') {
+        return animation.duration + 40;
+    }
+    return 0;
+}
+
+async function prepareFocusView(viewId: string): Promise<void> {
+    window.focusView?.(viewId);
+    await delay(viewAnimationDelayMs());
+}
+
+function unionCutoutRects(
+    rects: Array<TourCutoutRect | null>
+): TourCutoutRect | null {
+    const valid = rects.filter((rect): rect is TourCutoutRect => !!rect);
+    if (valid.length === 0) {
+        return null;
+    }
+    const left = Math.min(...valid.map((rect) => rect.left));
+    const top = Math.min(...valid.map((rect) => rect.top));
+    const right = Math.max(...valid.map((rect) => rect.left + rect.width));
+    const bottom = Math.max(...valid.map((rect) => rect.top + rect.height));
+    return {
+        left,
+        top,
+        width: right - left,
+        height: bottom - top
+    };
+}
+
+function panelCutout(id: string, selector: string, padding = 8): TourCutout {
+    return {
+        id,
+        padding,
+        radius: 8,
+        resolve: () => getElementCutout(selector)
+    };
+}
+
+function getBuiltInFiltersCutout(): TourCutoutRect | null {
+    return unionCutoutRects([
+        getElementCutout(
+            '#overview-filters > .editor-section-title:not(.glyph-filter-user-header)'
+        ),
+        getElementCutout(
+            '#overview-filters > .glyph-filter-tree:not(.glyph-filter-user-tree)'
+        )
+    ]);
+}
+
+function getUserFiltersCutout(): TourCutoutRect | null {
+    return unionCutoutRects([
+        getElementCutout('#overview-filters .glyph-filter-user-header'),
+        getElementCutout('#overview-filters .glyph-filter-user-tree')
+    ]);
+}
+
+async function prepareOverviewFiltersSlide(): Promise<void> {
+    await waitForElement('#overview-filters .editor-section-title');
+    const target = document.querySelector('#overview-filters');
+    if (target instanceof HTMLElement) {
+        scrollTourTargetIntoView(target);
+    }
+    await delay(50);
+}
+
+async function prepareUserFiltersSlide(): Promise<void> {
+    await waitForElement('#overview-filters .glyph-filter-user-header');
+    const target = document.querySelector(
+        '#overview-filters .glyph-filter-user-header'
+    );
+    if (target instanceof HTMLElement) {
+        scrollTourTargetIntoView(target);
+    }
+    await delay(50);
+}
+
 function prepareEnterEditModeSlide(): void {
     frozenEnterEditLetterRect = null;
 }
@@ -1017,7 +1109,6 @@ export const TOUR_SLIDES: Record<string, TourSlide> = {
         advanceDelayMs: 500,
         prepare: () => prepareBreadcrumbSlide(2),
         cutouts: [
-            editingGlyphCutout(),
             breadcrumbCutout('breadcrumb-base', TOUR_BREADCRUMB_BASE_SELECTOR)
         ]
     },
@@ -1084,6 +1175,232 @@ export const TOUR_SLIDES: Record<string, TourSlide> = {
         advanceOnEditModeExit: true,
         advanceDelayMs: 1000,
         cutouts: [toolCutout('text-tool', TOUR_TEXT_TOOL_SELECTOR)]
+    },
+    'glyph-overview-panel': {
+        id: 'glyph-overview-panel',
+        tooltip: {
+            title: 'Glyph Overview Panel',
+            body: tourBody(
+                'The **Glyph Overview** panel contains all glyphs with glyph filters. You can click on the collapsed panel to open it, but it also opens with the `Cmd/Ctrl+Shift+O` keyboard shortcut.',
+                'Press `Cmd/Ctrl+Shift+O` to open it.'
+            ),
+            targetCutoutId: 'overview-title',
+            placement: 'left'
+        },
+        allowedViewShortcutKeys: ['o'],
+        consumeViewShortcut: true,
+        advanceOnViewFocused: 'view-overview',
+        advanceDelayMs: 500,
+        cutouts: [panelCutout('overview-title', '#view-overview')]
+    },
+    'enlarge-panel-keyboard': {
+        id: 'enlarge-panel-keyboard',
+        tooltip: {
+            title: 'Enlarge Panel by Keyboard',
+            body: tourBody(
+                'All panels can be enlarged by pressing their keyboard shortcut several times. Some panels have up to three size stages.',
+                'Press `Cmd/Ctrl+Shift+O` again.'
+            ),
+            targetCutoutId: 'overview-title-controls',
+            placement: 'bottom'
+        },
+        allowedViewShortcutKeys: ['o'],
+        consumeViewShortcut: true,
+        advanceOnViewResized: 'view-overview',
+        advanceDelayMs: 500,
+        cutouts: [
+            panelCutout(
+                'overview-title-controls',
+                '#view-overview .view-title-left'
+            )
+        ]
+    },
+    'glyph-filters': {
+        id: 'glyph-filters',
+        tooltip: {
+            title: 'Glyph Filters',
+            body: 'The sidebar contains filters that show certain subsets of the font. The filters in the upper section ship with the app by default.',
+            targetCutoutId: 'built-in-filters',
+            continueLabel: 'Continue',
+            placement: 'right'
+        },
+        prepare: prepareOverviewFiltersSlide,
+        cutouts: [
+            {
+                id: 'built-in-filters',
+                padding: 10,
+                radius: 8,
+                resolve: getBuiltInFiltersCutout
+            }
+        ]
+    },
+    'user-filters': {
+        id: 'user-filters',
+        tooltip: {
+            title: 'User Filters',
+            body: 'The lower section is for your own custom-made filters. These are powered by Python scripts. Check the **Documentation** (see Help menu) for how to create them.',
+            targetCutoutId: 'user-filters',
+            continueLabel: 'Continue',
+            placement: 'right'
+        },
+        prepare: prepareUserFiltersSlide,
+        cutouts: [
+            {
+                id: 'user-filters',
+                padding: 10,
+                radius: 8,
+                resolve: getUserFiltersCutout
+            }
+        ]
+    },
+    'font-info-panel': {
+        id: 'font-info-panel',
+        tooltip: {
+            title: 'Font Info Panel',
+            body: tourBody(
+                'The **Font Info** panel contains the OpenType features, names, masters and axes and other metadata that are important for a font.',
+                'Press `Cmd/Ctrl+Shift+I` to open it.'
+            ),
+            targetCutoutId: 'fontinfo-title',
+            placement: 'right'
+        },
+        allowedViewShortcutKeys: ['i'],
+        consumeViewShortcut: true,
+        advanceOnViewFocused: 'view-fontinfo',
+        advanceDelayMs: 500,
+        cutouts: [panelCutout('fontinfo-title', '#view-fontinfo')]
+    },
+    'font-info-sections': {
+        id: 'font-info-sections',
+        tooltip: {
+            title: 'Font Info Sections',
+            body: 'Use the dropdown menu in the title bar to switch between the different sections.',
+            targetCutoutId: 'fontinfo-sections',
+            continueLabel: 'Continue',
+            placement: 'bottom'
+        },
+        cutouts: [
+            panelCutout(
+                'fontinfo-sections',
+                '#view-fontinfo .fontinfo-section-button',
+                6
+            )
+        ]
+    },
+    'close-panels-keyboard': {
+        id: 'close-panels-keyboard',
+        tooltip: {
+            title: 'Close Panels by Keyboard',
+            body: tourBody(
+                'All focussed panels may be closed by pressing `Cmd/Ctrl+Escape`.',
+                'Press `Cmd/Ctrl+Escape`.'
+            ),
+            targetCutoutId: 'fontinfo-close',
+            placement: 'bottom'
+        },
+        allowCmdEscape: true,
+        consumeViewShortcut: true,
+        advanceOnViewCollapsed: 'view-fontinfo',
+        advanceDelayMs: 500,
+        cutouts: [
+            panelCutout(
+                'fontinfo-close',
+                '#view-fontinfo .view-title-collapse-btn',
+                6
+            )
+        ]
+    },
+    'auxiliary-panels': {
+        id: 'auxiliary-panels',
+        tooltip: {
+            title: 'Auxiliary Panels',
+            body: tourBody(
+                'The lower line of panels is not always used for creating a font, but may be important in certain cases.',
+                'Press `Cmd/Ctrl+Shift+A` to open the assistant.'
+            ),
+            targetCutoutId: 'bottom-row',
+            placement: 'top'
+        },
+        allowedViewShortcutKeys: ['a'],
+        consumeViewShortcut: true,
+        advanceOnViewFocused: 'view-assistant',
+        advanceDelayMs: 500,
+        cutouts: [panelCutout('bottom-row', '.bottom-row', 4)]
+    },
+    'assistant': {
+        id: 'assistant',
+        tooltip: {
+            title: 'Assistant',
+            body: 'The Assistant is an AI chat assistant you can use to find and fix technical issues in the font, create glyph filters and other reusable Python scripts, or ask question about how to use the editor. The usage **requires a user account** and you get some **free credits** each month to get started.',
+            targetCutoutId: 'assistant-panel',
+            continueLabel: 'Continue',
+            placement: 'top'
+        },
+        cutouts: [panelCutout('assistant-panel', '#view-assistant', 6)]
+    },
+    'allow-font-edits': {
+        id: 'allow-font-edits',
+        tooltip: {
+            title: 'Allow Font Edits',
+            body: 'You may prohibit or allow the assistant to make changes to your font or Python scripts. Toggle the permission with this button.',
+            targetCutoutId: 'assistant-edit',
+            continueLabel: 'Continue',
+            placement: 'bottom'
+        },
+        cutouts: [panelCutout('assistant-edit', '#assistant-edit-toggle', 6)]
+    },
+    'script-editor': {
+        id: 'script-editor',
+        tooltip: {
+            title: 'Script Editor',
+            body: 'The **Script Editor** is used to manually edit reusable Python scripts or glyph filters (which are also Python scripts).',
+            targetCutoutId: 'scripts-panel',
+            continueLabel: 'Continue',
+            placement: 'top'
+        },
+        prepare: () => prepareFocusView('view-scripts'),
+        cutouts: [panelCutout('scripts-panel', '#view-scripts', 6)]
+    },
+    'konsole': {
+        id: 'konsole',
+        tooltip: {
+            title: 'Konsole',
+            body: 'The **Konsole** panel is a Python terminal used for quick font introspection or command execution. It’s also used for outputting `print()` commands from Python scripts.',
+            targetCutoutId: 'konsole-panel',
+            continueLabel: 'Continue',
+            placement: 'top'
+        },
+        prepare: () => prepareFocusView('view-console'),
+        cutouts: [panelCutout('konsole-panel', '#view-console', 6)]
+    },
+    'history': {
+        id: 'history',
+        tooltip: {
+            title: 'History',
+            body: 'The **History** panel contains a timeline of all edits. You can undo them with `Cmd/Ctrl+Z`. Each edit has a context, called **undo surface**, and you can undo edits only from within the same undo surface. Example: Edits to a layer can only be undone when you’re back in the same layer.',
+            targetCutoutId: 'history-panel',
+            continueLabel: 'Continue',
+            placement: 'top'
+        },
+        prepare: () => prepareFocusView('view-history'),
+        cutouts: [panelCutout('history-panel', '#view-history', 6)]
+    },
+    'find-help': {
+        id: 'find-help',
+        tooltip: {
+            title: 'Find Help',
+            body: 'The Help menu contains a link to the complete Documentation (and you can repeat the tour here), and various panels contain buttons that take you directly to the relevant documentation sections.\n\nHave fun making fonts.',
+            targetCutoutId: 'help-menu',
+            continueLabel: 'Thank you',
+            placement: 'bottom'
+        },
+        prepare: () => prepareFocusView('view-editor'),
+        cutouts: [
+            panelCutout('help-menu', '#toolbar-help-menu-btn', 8),
+            panelCutout('editor-help', '#editor-info-btn', 6),
+            panelCutout('assistant-help', '#assistant-info-btn', 6),
+            panelCutout('scripts-help', '#script-api-docs-btn', 6)
+        ]
     }
 };
 
@@ -1107,7 +1424,21 @@ export const TOUR_SLIDE_ORDER: string[] = [
     'enter-another-component',
     'nested-components',
     'exit-nested-components',
-    'exit-edit-mode'
+    'exit-edit-mode',
+    'glyph-overview-panel',
+    'enlarge-panel-keyboard',
+    'glyph-filters',
+    'user-filters',
+    'font-info-panel',
+    'font-info-sections',
+    'close-panels-keyboard',
+    'auxiliary-panels',
+    'assistant',
+    'allow-font-edits',
+    'script-editor',
+    'konsole',
+    'history',
+    'find-help'
 ];
 
 export function getTourSlide(id: string): TourSlide | null {

@@ -14,7 +14,12 @@ import {
     TOUR_SAMPLE_TEXT,
     TOUR_SLIDE_ORDER
 } from './tour-slides';
-import { showTourSlide, transitionTourSlide, wait } from './tour-spotlight';
+import {
+    hideTourSpotlight,
+    showTourSlide,
+    transitionTourSlide,
+    wait
+} from './tour-spotlight';
 
 const console = new Logger('Tour');
 
@@ -36,6 +41,12 @@ const STARTED_STORAGE_KEY = 'tourStarted';
  * Set when the user dismisses the title-bar Take a Tour chip.
  */
 const LAUNCH_BUTTON_DISMISSED_STORAGE_KEY = 'tourLaunchButtonDismissed';
+
+/**
+ * Set when the user finishes the tour. Permanently hides the title-bar
+ * Take a Tour chip.
+ */
+const COMPLETED_STORAGE_KEY = 'tourCompleted';
 
 type TourHost = {
     introShownThisLoad: boolean;
@@ -91,11 +102,20 @@ export function hasDismissedTourLaunchButton(): boolean {
     }
 }
 
+export function hasCompletedTour(): boolean {
+    try {
+        return localStorage.getItem(COMPLETED_STORAGE_KEY) === 'true';
+    } catch {
+        return false;
+    }
+}
+
 function shouldAutoOfferIntro(): boolean {
     return (
         !isAutomatedSession() &&
         !hasSkippedTour() &&
         !hasStartedTour() &&
+        !hasCompletedTour() &&
         !getHost().introShownThisLoad
     );
 }
@@ -253,12 +273,24 @@ function markTourStarted(): void {
     updateTourLaunchButton();
 }
 
+export function completeTour(): void {
+    try {
+        localStorage.setItem(COMPLETED_STORAGE_KEY, 'true');
+        localStorage.setItem(LAUNCH_BUTTON_DISMISSED_STORAGE_KEY, 'true');
+    } catch {
+        // Ignore localStorage access failures.
+    }
+    hideTourSpotlight();
+    updateTourLaunchButton();
+}
+
 function onTourContinue(): void {
     const host = getHost();
     const nextIndex = host.slideIndex + 1;
     const nextSlide = getTourSlideByIndex(nextIndex);
     if (!nextSlide) {
-        console.log('No further tour slides');
+        completeTour();
+        console.log('Completed tour');
         return;
     }
     host.slideIndex = nextIndex;
@@ -330,7 +362,7 @@ export function openTourIntro(): void {
                 </button>
             </div>
             <div class="info-popup-content confirm-dialog-content">
-                <p>Ready to create? Take a quick 10-minute tour of the app and learn how to edit fonts.</p>
+                <p>Ready to create? Take a short 5-minute tour of the app and learn how to edit fonts.</p>
             </div>
             <div class="confirm-dialog-actions tour-intro-actions">
                 <button type="button" class="dialog-button" data-action="skip">Skip</button>
@@ -432,7 +464,10 @@ export function updateTourLaunchButton(): void {
     if (!chip) {
         return;
     }
-    const show = hasSkippedTour() && !hasDismissedTourLaunchButton();
+    const show =
+        hasSkippedTour() &&
+        !hasDismissedTourLaunchButton() &&
+        !hasCompletedTour();
     chip.hidden = !show;
 }
 

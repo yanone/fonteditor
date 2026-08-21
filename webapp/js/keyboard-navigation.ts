@@ -1,7 +1,9 @@
 import { getClosestExpandedTopRowViewId } from './view-focus';
 import {
     isTourBlockingViewShortcuts,
-    isViewShortcutAllowedDuringTour
+    isTourCmdEscapeAllowed,
+    isViewShortcutAllowedDuringTour,
+    consumeAllowedTourViewShortcut
 } from './tour-spotlight';
 
 // Keyboard Navigation System
@@ -1720,11 +1722,14 @@ import {
 
         // Cmd/Ctrl+Escape closes the focused panel (including Docs).
         if (cmdKey && event.code === 'Escape' && !shiftKey && !event.altKey) {
-            if (isTourBlockingViewShortcuts()) {
+            if (isTourBlockingViewShortcuts() && !isTourCmdEscapeAllowed()) {
                 event.preventDefault();
                 event.stopPropagation();
                 event.stopImmediatePropagation();
                 return;
+            }
+            if (isTourBlockingViewShortcuts()) {
+                consumeAllowedTourViewShortcut();
             }
             const focusedViewId =
                 currentFocusedView ||
@@ -2038,6 +2043,9 @@ import {
                     event.stopPropagation();
                     event.stopImmediatePropagation();
                     return;
+                }
+                if (isTourBlockingViewShortcuts()) {
+                    consumeAllowedTourViewShortcut();
                 }
                 event.preventDefault();
                 event.stopPropagation();

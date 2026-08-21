@@ -1128,6 +1128,61 @@ describe('tour intro', () => {
         expect(rings()[0].getAttribute('cx')).not.toBe(firstCx);
     });
 
+    test('formats OS keyboard shortcuts as pre chips', async () => {
+        const { getTourSlide } = require('../js/tour-slides');
+        const { showTourSlide } = require('../js/tour-spotlight');
+        await showTourSlide(getTourSlide('glyph-overview-panel'), () => {});
+        const chips = [...document.querySelectorAll('.tour-shortcut')];
+        expect(chips.length).toBeGreaterThan(0);
+        const keys = [...chips[0].querySelectorAll('kbd')].map(
+            (node) => node.textContent
+        );
+        expect(keys[0]).toMatch(/^(Cmd|Ctrl)$/);
+        expect(keys).toContain('Shift');
+        expect(keys).toContain('O');
+    });
+
+    test('formats print() as a pre chip like shortcuts', async () => {
+        const { getTourSlide } = require('../js/tour-slides');
+        const { showTourSlide } = require('../js/tour-spotlight');
+        await showTourSlide(getTourSlide('konsole'), () => {});
+        const chips = [...document.querySelectorAll('.tour-shortcut')];
+        expect(chips.some((chip) => chip.textContent === 'print()')).toBe(true);
+        expect(
+            chips
+                .find((chip) => chip.textContent === 'print()')
+                ?.querySelector('kbd')
+        ).toBeNull();
+    });
+
+    test('bounces the closing sentence and completes the tour', async () => {
+        const { getTourSlide } = require('../js/tour-slides');
+        const { showTourSlide } = require('../js/tour-spotlight');
+        const { completeTour, hasCompletedTour } = require('../js/tour');
+        await showTourSlide(getTourSlide('find-help'), () => {});
+        expect(
+            document.querySelectorAll('.tour-bounce-letter').length
+        ).toBeGreaterThan(10);
+        expect(
+            document.querySelector('[data-tour-action="continue"]').textContent
+        ).toBe('Thank you');
+        completeTour();
+        expect(hasCompletedTour()).toBe(true);
+        expect(localStorage.getItem('tourCompleted')).toBe('true');
+        expect(document.querySelector('.tour-spotlight-root.is-visible')).toBe(
+            null
+        );
+    });
+
+    test('Thank you hides the title-bar Take a Tour chip', () => {
+        const { skipTour, completeTour } = require('../js/tour');
+        skipTour();
+        const chip = document.getElementById('tour-launch-chip');
+        expect(chip.hidden).toBe(false);
+        completeTour();
+        expect(chip.hidden).toBe(true);
+    });
+
     test('spotlights a.ss03 when looking up the a component', () => {
         const { getTourComponentCutout } = require('../js/tour-components');
         window.glyphCanvas.outlineEditor = {
@@ -1279,7 +1334,21 @@ describe('tour slide order', () => {
             'enter-another-component',
             'nested-components',
             'exit-nested-components',
-            'exit-edit-mode'
+            'exit-edit-mode',
+            'glyph-overview-panel',
+            'enlarge-panel-keyboard',
+            'glyph-filters',
+            'user-filters',
+            'font-info-panel',
+            'font-info-sections',
+            'close-panels-keyboard',
+            'auxiliary-panels',
+            'assistant',
+            'allow-font-edits',
+            'script-editor',
+            'konsole',
+            'history',
+            'find-help'
         ]);
         expect(getTourSlide('ss03-features').tooltip.title).toBe(
             'Active OpenType features'
@@ -1347,7 +1416,7 @@ describe('tour slide order', () => {
         expect(getTourSlide('component-a').advanceWhenComponentDepth).toBe(1);
         expect(
             getTourSlide('exit-components').cutouts.map((c) => c.id)
-        ).toEqual(['editing-glyph', 'breadcrumb-base']);
+        ).toEqual(['breadcrumb-base']);
         expect(
             getTourSlide('enter-another-component').advanceWhenComponentDepth
         ).toBe(1);
@@ -1365,5 +1434,24 @@ describe('tour slide order', () => {
         );
         expect(getTourSlide('exit-edit-mode').escapePolicy).toBe('exit-edit');
         expect(getTourSlide('exit-edit-mode').advanceOnEditModeExit).toBe(true);
+        expect(
+            getTourSlide('glyph-overview-panel').allowedViewShortcutKeys
+        ).toEqual(['o']);
+        expect(getTourSlide('enlarge-panel-keyboard').consumeViewShortcut).toBe(
+            true
+        );
+        expect(getTourSlide('glyph-filters').tooltip.continueLabel).toBe(
+            'Continue'
+        );
+        expect(getTourSlide('close-panels-keyboard').allowCmdEscape).toBe(true);
+        expect(getTourSlide('find-help').tooltip.continueLabel).toBe(
+            'Thank you'
+        );
+        expect(getTourSlide('find-help').cutouts.map((c) => c.id)).toEqual([
+            'help-menu',
+            'editor-help',
+            'assistant-help',
+            'scripts-help'
+        ]);
     });
 });

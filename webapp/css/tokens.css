@@ -94,6 +94,8 @@
     --tour-tooltip-bg: #111111;
     --tour-tooltip-text: #ffffff;
     --tour-tooltip-shadow: rgba(0, 0, 0, 0.45);
+    --tour-tooltip-kbd-bg: rgba(255, 255, 255, 0.12);
+    --tour-tooltip-kbd-border: rgba(255, 255, 255, 0.22);
 }
 
 /* Light theme */
@@ -185,4 +187,6 @@
     --tour-tooltip-bg: #ffffff;
     --tour-tooltip-text: #111111;
     --tour-tooltip-shadow: rgba(0, 0, 0, 0.18);
+    --tour-tooltip-kbd-bg: rgba(0, 0, 0, 0.06);
+    --tour-tooltip-kbd-border: rgba(0, 0, 0, 0.14);
 }

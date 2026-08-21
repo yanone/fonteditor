@@ -1129,6 +1129,10 @@ kbd + kbd {
     overflow: hidden;
 }
 
+.toolbar-tour-launch[hidden] {
+    display: none;
+}
+
 .toolbar-tour-launch-btn,
 .toolbar-tour-launch-dismiss {
     background-color: var(--tour-launch-button-bg);
@@ -4453,6 +4457,8 @@ kbd + kbd {
 #assistant-subscription-container .folder-setup-callout {
     max-width: 360px;
     width: 100%;
+    margin-block: auto;
+    box-sizing: border-box;
 }
 
 .open-folder-content {
@@ -4876,14 +4882,26 @@ kbd + kbd {
 /* ======================== ASSISTANT VIEW ======================== */
 
 .view-assistant .view-content {
+    display: flex;
+    flex-direction: column;
     margin-left: 0;
     margin-right: 0;
+    overflow: hidden;
 }
 
 #assistant-chat-container {
     display: none;
     flex-direction: column;
-    height: 100%;
+    flex: 1;
+    min-height: 0;
+}
+
+#assistant-chat-container.assistant-input-only {
+    flex: 0 0 auto;
+}
+
+#assistant-chat-container.assistant-input-only #assistant-messages {
+    display: none;
 }
 
 #assistant-login-container,
@@ -4891,9 +4909,12 @@ kbd + kbd {
     display: none;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    height: 100%;
-    padding: 40px 20px;
+    justify-content: flex-start;
+    flex: 1;
+    min-height: 0;
+    padding: 12px;
+    overflow-x: hidden;
+    overflow-y: auto;
 }
 
 #assistant-messages {
@@ -4918,7 +4939,7 @@ kbd + kbd {
     gap: 8px;
     flex-shrink: 0;
     padding: 10px 12px;
-    margin-top: 8px;
+    /* margin-top: 8px; */
     background-color: var(--input-bg);
     border-top: 1px solid var(--border-primary);
 }
@@ -4951,6 +4972,11 @@ kbd + kbd {
 
 #assistant-prompt:focus {
     border-color: var(--border-focus-outline);
+}
+
+#assistant-prompt:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
 }
 
 .assistant-input-controls {

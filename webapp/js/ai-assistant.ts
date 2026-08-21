@@ -852,17 +852,36 @@ class AIAssistant {
         if (!chatContainer || !loginContainer || !subscriptionContainer) return;
 
         if (!this.isAuthenticated) {
-            chatContainer.style.display = 'none';
+            chatContainer.style.display = 'flex';
+            chatContainer.classList.add('assistant-input-only');
             loginContainer.style.display = 'flex';
             subscriptionContainer.style.display = 'none';
+            this.lockAssistantInput(true);
         } else if (!this.canUseAssistant()) {
             chatContainer.style.display = 'none';
+            chatContainer.classList.remove('assistant-input-only');
             loginContainer.style.display = 'none';
             subscriptionContainer.style.display = 'flex';
+            this.lockAssistantInput(true);
         } else {
             chatContainer.style.display = 'flex';
+            chatContainer.classList.remove('assistant-input-only');
             loginContainer.style.display = 'none';
             subscriptionContainer.style.display = 'none';
+            this.lockAssistantInput(false);
+        }
+    }
+
+    lockAssistantInput(locked: boolean) {
+        if (this.promptInput) {
+            this.promptInput.disabled = locked;
+            if (locked) {
+                this.promptInput.blur();
+            }
+        }
+        if (this.sendButton) {
+            (this.sendButton as HTMLButtonElement).disabled =
+                locked || this.isStreaming;
         }
     }
 
@@ -4147,7 +4166,12 @@ if '_assistant_original_stdout' in dir():
     // ── Main entry: streaming multi-round loop ──
 
     async sendPrompt() {
-        if (!this.promptInput || !this.messagesContainer || this.isStreaming)
+        if (
+            !this.promptInput ||
+            !this.messagesContainer ||
+            this.isStreaming ||
+            this.promptInput.disabled
+        )
             return;
         const prompt = this.promptInput.value.trim();
         if (!prompt) return;
@@ -4681,12 +4705,15 @@ if '_assistant_original_stdout' in dir():
             this.promptInput.value = '';
             this.promptInput.style.height = 'auto';
         }
-        if (this.sendButton)
-            (this.sendButton as HTMLButtonElement).disabled = false;
+        this.lockAssistantInput(
+            !this.isAuthenticated || !this.canUseAssistant()
+        );
         this.clearInitialStatus();
         this.hideStreamIndicator();
         this.updateSessionMetricsBar();
-        if (this.promptInput) this.promptInput.focus();
+        if (this.promptInput && !this.promptInput.disabled) {
+            this.promptInput.focus();
+        }
     }
 }
 

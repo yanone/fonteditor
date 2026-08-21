@@ -144,6 +144,54 @@
     color: var(--tour-tooltip-text);
 }
 
+.tour-tooltip pre.tour-shortcut {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 2px;
+    margin: 0 0.2em;
+    padding: 1px 5px;
+    font-family: var(--font-families-mono);
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--tour-tooltip-text);
+    background-color: var(--tour-tooltip-kbd-bg);
+    border: 1px solid var(--tour-tooltip-kbd-border);
+    border-radius: 3px;
+    vertical-align: baseline;
+    white-space: nowrap;
+}
+
+.tour-tooltip pre.tour-shortcut kbd {
+    padding: 0;
+    font-family: inherit;
+    font-size: inherit;
+    color: inherit;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+}
+
+.tour-bounce-line {
+    min-height: 1.55em;
+}
+
+.tour-bounce-letter {
+    display: inline-block;
+    animation-name: tour-letter-bounce;
+    animation-iteration-count: infinite;
+    animation-direction: alternate;
+    animation-timing-function: ease-in-out;
+}
+
+@keyframes tour-letter-bounce {
+    from {
+        transform: translateY(0);
+    }
+    to {
+        transform: translateY(-0.12em);
+    }
+}
+
 .tour-tooltip > p:last-child {
     margin-bottom: 0;
 }
