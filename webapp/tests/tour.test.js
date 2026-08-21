@@ -9,6 +9,8 @@ describe('tour intro', () => {
             <button id="editor-tool-text" type="button">Text</button>
             <button id="editor-tool-select" type="button">Select</button>
             <button id="editor-tool-pen" type="button">Draw</button>
+            <button id="editor-tool-insert" type="button">Insert</button>
+            <button id="editor-tool-convert" type="button">Convert</button>
             <div id="glyph-editor-scroll-content">
                 <input
                     class="editor-axis-slider"
@@ -618,10 +620,268 @@ describe('tour intro', () => {
         await new Promise((resolve) => requestAnimationFrame(resolve));
         expect(path.getAttribute('d')).not.toBe(before);
     });
+
+    test('draw-tool uses a frozen compact hole and four gray target rings', async () => {
+        const { getTourSlide } = require('../js/tour-slides');
+        const { getDrawAreaFontRect } = require('../js/tour-drawing');
+        const { showTourSlide } = require('../js/tour-spotlight');
+        window.glyphCanvas.outlineEditor = {
+            active: true,
+            layerData: { shapes: [] }
+        };
+        window.glyphCanvas.textRunEditor.selectedGlyphIndex = 0;
+        window.glyphCanvas.glyphBounds = [
+            { x: 0, y: 0, x1: 0, y1: 0, x2: 100, y2: 200 }
+        ];
+        window.glyphCanvas.canvas.getBoundingClientRect = () => ({
+            x: 0,
+            y: 0,
+            left: 0,
+            top: 0,
+            right: 800,
+            bottom: 600,
+            width: 800,
+            height: 600,
+            toJSON() {}
+        });
+        await showTourSlide(getTourSlide('draw-tool'), () => {});
+        const frozen = getDrawAreaFontRect();
+        expect(frozen.maxX - frozen.minX).toBeLessThan(180);
+        expect(frozen.maxY - frozen.minY).toBeLessThan(180);
+        window.glyphCanvas.glyphBounds = [
+            { x: 0, y: 0, x1: 0, y1: 0, x2: 100, y2: 900 }
+        ];
+        expect(getDrawAreaFontRect()).toEqual(frozen);
+        expect(document.querySelectorAll('.tour-guide-ring').length).toBe(8);
+    });
+
+    test('closing a four-node path in the draw area advances the draw-tool slide', async () => {
+        const { getTourSlide } = require('../js/tour-slides');
+        const { showTourSlide } = require('../js/tour-spotlight');
+        window.glyphCanvas.outlineEditor = {
+            active: true,
+            layerData: { shapes: [] }
+        };
+        window.glyphCanvas.textRunEditor.selectedGlyphIndex = 0;
+        window.glyphCanvas.glyphBounds = [
+            { x: 0, y: 0, x1: 0, y1: 0, x2: 100, y2: 200 }
+        ];
+        window.glyphCanvas.canvas.getBoundingClientRect = () => ({
+            x: 0,
+            y: 0,
+            left: 0,
+            top: 0,
+            right: 800,
+            bottom: 600,
+            width: 800,
+            height: 600,
+            toJSON() {}
+        });
+        let continued = false;
+        await showTourSlide(getTourSlide('draw-tool'), () => {
+            continued = true;
+        });
+        window.glyphCanvas.outlineEditor.layerData = {
+            shapes: [
+                {
+                    closed: true,
+                    nodes: [
+                        { x: 20, y: 230, nodetype: 'Line' },
+                        { x: 80, y: 230, nodetype: 'Line' },
+                        { x: 80, y: 270, nodetype: 'Line' },
+                        { x: 20, y: 270, nodetype: 'Line' }
+                    ]
+                }
+            ]
+        };
+        document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+        expect(continued).toBe(false);
+        await delay(900);
+        expect(continued).toBe(true);
+    }, 15000);
+
+    test('inserting a fifth node advances from the insert-tool slide', async () => {
+        const { getTourSlide } = require('../js/tour-slides');
+        const { showTourSlide } = require('../js/tour-spotlight');
+        const {
+            captureTourDrawArea,
+            isTourDrawingGoalMet
+        } = require('../js/tour-drawing');
+        window.glyphCanvas.outlineEditor = {
+            active: true,
+            layerData: {
+                shapes: [
+                    {
+                        closed: true,
+                        nodes: [
+                            { x: 20, y: 230, nodetype: 'Line' },
+                            { x: 80, y: 230, nodetype: 'Line' },
+                            { x: 80, y: 270, nodetype: 'Line' },
+                            { x: 20, y: 270, nodetype: 'Line' }
+                        ]
+                    }
+                ]
+            }
+        };
+        window.glyphCanvas.textRunEditor.selectedGlyphIndex = 0;
+        window.glyphCanvas.glyphBounds = [
+            { x: 0, y: 0, x1: 0, y1: 0, x2: 100, y2: 200 }
+        ];
+        window.glyphCanvas.canvas.getBoundingClientRect = () => ({
+            x: 0,
+            y: 0,
+            left: 0,
+            top: 0,
+            right: 800,
+            bottom: 600,
+            width: 800,
+            height: 600,
+            toJSON() {}
+        });
+        captureTourDrawArea();
+        expect(isTourDrawingGoalMet('closed-path')).toBe(true);
+        let continued = false;
+        await showTourSlide(getTourSlide('insert-tool'), () => {
+            continued = true;
+        });
+        window.glyphCanvas.outlineEditor.layerData.shapes[0].nodes.splice(
+            2,
+            0,
+            {
+                x: 50,
+                y: 270,
+                nodetype: 'Line'
+            }
+        );
+        document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+        expect(continued).toBe(false);
+        await delay(900);
+        expect(continued).toBe(true);
+    }, 15000);
+
+    test('triangle-peak advances only after dropping on the peak mark', async () => {
+        const { getTourSlide } = require('../js/tour-slides');
+        const { showTourSlide } = require('../js/tour-spotlight');
+        const {
+            captureTourDrawArea,
+            expandTourDrawAreaForPeak
+        } = require('../js/tour-drawing');
+        const nodes = [
+            { x: 20, y: 230, nodetype: 'Line' },
+            { x: 80, y: 230, nodetype: 'Line' },
+            { x: 80, y: 270, nodetype: 'Line' },
+            { x: 20, y: 270, nodetype: 'Line' }
+        ];
+        window.glyphCanvas.outlineEditor = {
+            active: true,
+            isDraggingPoint: false,
+            layerData: { shapes: [{ closed: true, nodes }] }
+        };
+        window.glyphCanvas.textRunEditor.selectedGlyphIndex = 0;
+        window.glyphCanvas.glyphBounds = [
+            { x: 0, y: 0, x1: 0, y1: 0, x2: 100, y2: 200 }
+        ];
+        window.glyphCanvas.canvas.getBoundingClientRect = () => ({
+            x: 0,
+            y: 0,
+            left: 0,
+            top: 0,
+            right: 800,
+            bottom: 600,
+            width: 800,
+            height: 600,
+            toJSON() {}
+        });
+        captureTourDrawArea();
+        expandTourDrawAreaForPeak();
+        nodes.splice(3, 0, { x: 50, y: 270, nodetype: 'Line' });
+        let continued = false;
+        await showTourSlide(getTourSlide('triangle-peak'), () => {
+            continued = true;
+        });
+        document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+        await delay(100);
+        expect(continued).toBe(false);
+        const mark = document.querySelector('.tour-guide-ring');
+        const peakX = Number(mark.getAttribute('cx'));
+        const peakY = Number(mark.getAttribute('cy'));
+        window.glyphCanvas.outlineEditor.isDraggingPoint = true;
+        nodes[3].x = peakX;
+        nodes[3].y = peakY;
+        window.dispatchEvent(new CustomEvent('glyphCanvasRendered'));
+        await delay(50);
+        expect(continued).toBe(false);
+        window.glyphCanvas.outlineEditor.isDraggingPoint = false;
+        document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+        expect(continued).toBe(false);
+        await delay(900);
+        expect(continued).toBe(true);
+    }, 15000);
+
+    test('convert-tool keeps one diagonal mark then moves it after converting', async () => {
+        const { getTourSlide } = require('../js/tour-slides');
+        const { showTourSlide } = require('../js/tour-spotlight');
+        const {
+            captureTourDrawArea,
+            expandTourDrawAreaForPeak
+        } = require('../js/tour-drawing');
+        const nodes = [
+            { x: 20, y: 230, nodetype: 'Line' },
+            { x: 80, y: 230, nodetype: 'Line' },
+            { x: 80, y: 270, nodetype: 'Line' },
+            { x: 50, y: 320, nodetype: 'Line' },
+            { x: 20, y: 270, nodetype: 'Line' }
+        ];
+        window.glyphCanvas.outlineEditor = {
+            active: true,
+            layerData: { shapes: [{ closed: true, nodes }] }
+        };
+        window.glyphCanvas.textRunEditor.selectedGlyphIndex = 0;
+        window.glyphCanvas.glyphBounds = [
+            { x: 0, y: 0, x1: 0, y1: 0, x2: 100, y2: 200 }
+        ];
+        window.glyphCanvas.canvas.getBoundingClientRect = () => ({
+            x: 0,
+            y: 0,
+            left: 0,
+            top: 0,
+            right: 800,
+            bottom: 600,
+            width: 800,
+            height: 600,
+            toJSON() {}
+        });
+        captureTourDrawArea();
+        expandTourDrawAreaForPeak();
+        await showTourSlide(getTourSlide('convert-tool'), () => {});
+        const rings = () =>
+            Array.from(document.querySelectorAll('.tour-guide-ring'));
+        expect(rings().length).toBe(2);
+        const firstCx = rings()[0].getAttribute('cx');
+        nodes.splice(
+            4,
+            0,
+            {
+                x: 40,
+                y: 300,
+                nodetype: 'OffCurve'
+            },
+            {
+                x: 30,
+                y: 285,
+                nodetype: 'OffCurve'
+            }
+        );
+        window.dispatchEvent(new CustomEvent('glyphCanvasRendered'));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        expect(rings().length).toBe(2);
+        expect(rings()[0].getAttribute('cx')).not.toBe(firstCx);
+    });
 });
 
 describe('tour slide order', () => {
-    test('orders text through draw-tool slides', () => {
+    test('orders text through smooth-curve-toggle slides', () => {
         const { TOUR_SLIDE_ORDER, getTourSlide } = require('../js/tour-slides');
         expect(TOUR_SLIDE_ORDER).toEqual([
             'text-mode',
@@ -631,7 +891,11 @@ describe('tour slide order', () => {
             'enter-edit-mode',
             'cant-edit-interpolations',
             'select-tool',
-            'draw-tool'
+            'draw-tool',
+            'insert-tool',
+            'triangle-peak',
+            'convert-tool',
+            'smooth-curve-toggle'
         ]);
         expect(getTourSlide('ss03-features').tooltip.title).toBe(
             'Active OpenType features'
@@ -668,5 +932,26 @@ describe('tour slide order', () => {
             'draw-area',
             'draw-tool'
         ]);
+        expect(getTourSlide('draw-tool').tooltip.body).toContain(
+            'red crosshair'
+        );
+        expect(getTourSlide('draw-tool').drawingGuides).toBe('rectangle');
+        expect(getTourSlide('draw-tool').advanceWhen).toBe('closed-path');
+        expect(getTourSlide('insert-tool').tooltip.title).toBe('Insert Tool');
+        expect(getTourSlide('triangle-peak').drawingGuides).toBe(
+            'triangle-peak'
+        );
+        expect(getTourSlide('convert-tool').advanceWhen).toBe(
+            'diagonals-converted'
+        );
+        expect(getTourSlide('smooth-curve-toggle').advanceWhen).toBe(
+            'nodes-smoothed'
+        );
+        expect(getTourSlide('smooth-curve-toggle').requireSelectTool).toBe(
+            true
+        );
+        expect(
+            getTourSlide('smooth-curve-toggle').cutouts.map((c) => c.id)
+        ).toEqual(['draw-area', 'select-tool']);
     });
 });

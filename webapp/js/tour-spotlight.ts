@@ -12,11 +12,17 @@ import 'tippy.js/dist/tippy.css';
 import { Logger } from './logger';
 import {
     TOUR_SAMPLE_TEXT_CUTOUT,
+    TOUR_SELECT_TOOL_SELECTOR,
     type TourCutout,
     type TourCutoutRect,
     type TourSlide,
     type TourTooltip
 } from './tour-slides';
+import {
+    clearTourDrawingGuides,
+    isTourDrawingGoalMet,
+    syncTourDrawingGuides
+} from './tour-drawing';
 
 const console = new Logger('Tour');
 
@@ -596,6 +602,77 @@ function bindSlideInteraction(slide: TourSlide): void {
         });
     }
 
+    if (slide.advanceWhen) {
+        const goal = slide.advanceWhen;
+        let advanced = false;
+        const maybeAdvance = () => {
+            if (
+                advanced ||
+                !host.visible ||
+                host.slide !== slide ||
+                host.advancing
+            ) {
+                return;
+            }
+            if (!isTourDrawingGoalMet(goal)) {
+                return;
+            }
+            advanced = true;
+            void finishWithReaction(undefined, {
+                afterApplyMs: slide.advanceDelayMs ?? TOUR_AFTER_SLIDER_MS
+            });
+        };
+        const waitForDrop = goal === 'peak-moved';
+        const onPointerUp = () => {
+            window.requestAnimationFrame(() => {
+                maybeAdvance();
+            });
+        };
+        document.addEventListener('mouseup', onPointerUp, true);
+        cleanups.push(() => {
+            document.removeEventListener('mouseup', onPointerUp, true);
+        });
+        if (!waitForDrop) {
+            document.addEventListener('dblclick', maybeAdvance, true);
+            window.addEventListener('glyphCanvasRendered', maybeAdvance);
+            cleanups.push(() => {
+                document.removeEventListener('dblclick', maybeAdvance, true);
+                window.removeEventListener('glyphCanvasRendered', maybeAdvance);
+            });
+            maybeAdvance();
+        }
+    }
+
+    if (slide.requireSelectTool) {
+        const guard = (event: Event) => {
+            if (!host.visible || host.slide !== slide || host.advancing) {
+                return;
+            }
+            const eventTarget = event.target;
+            if (
+                eventTarget instanceof Element &&
+                eventTarget.closest(TOUR_SELECT_TOOL_SELECTOR)
+            ) {
+                return;
+            }
+            const snapshot =
+                window.glyphCanvas?.outlineEditor?.getEditToolUiSnapshot?.();
+            if (snapshot?.highlightedTool === 'select') {
+                return;
+            }
+            event.preventDefault();
+            event.stopImmediatePropagation();
+        };
+        document.addEventListener('mousedown', guard, true);
+        document.addEventListener('click', guard, true);
+        document.addEventListener('dblclick', guard, true);
+        cleanups.push(() => {
+            document.removeEventListener('mousedown', guard, true);
+            document.removeEventListener('click', guard, true);
+            document.removeEventListener('dblclick', guard, true);
+        });
+    }
+
     host.slideUnbind = () => {
         for (const cleanup of cleanups) {
             cleanup();
@@ -759,6 +836,7 @@ function paintSpotlight(
     } else if (!host.tippy.state.isVisible) {
         host.tippy.show();
     }
+    syncTourDrawingGuides(slide.drawingGuides, host.root);
 }
 
 function isBrowserReloadShortcut(event: KeyboardEvent): boolean {
@@ -906,7 +984,8 @@ function fillTooltip(slide: TourSlide): void {
 
 export async function showTourSlide(
     slide: TourSlide,
-    onContinue: () => void
+    onContinue: () => void,
+    options?: { keepCutouts?: boolean }
 ): Promise<void> {
     bindSpotlightChrome();
     const host = getHost();
@@ -917,7 +996,8 @@ export async function showTourSlide(
     setViewShortcutLock(slide);
     fillTooltip(slide);
     await slide.prepare?.();
-    paintSpotlight(slide, { punchHits: false });
+    const keepCutouts = options?.keepCutouts === true;
+    paintSpotlight(slide, { punchHits: keepCutouts });
 
     if (!host.listenersBound) {
         document.addEventListener('keydown', onTourKeyDown, true);
@@ -938,7 +1018,7 @@ export async function showTourSlide(
     host.root?.classList.add('is-visible');
     requestAnimationFrame(() => {
         if (host.slide) {
-            paintSpotlight(host.slide, { punchHits: false });
+            paintSpotlight(host.slide, { punchHits: keepCutouts });
         }
         host.root?.classList.add('is-cutouts-visible');
         host.root?.classList.add('is-tooltip-visible');
@@ -974,11 +1054,18 @@ export async function transitionTourSlide(
     slide: TourSlide,
     onContinue: () => void
 ): Promise<void> {
+    const previous = getHost().slide;
+    const keepCutouts = Boolean(
+        previous?.cutouts.some((cutout) => cutout.id === 'draw-area') &&
+        slide.cutouts.some((cutout) => cutout.id === 'draw-area')
+    );
     unbindSlideInteraction();
-    setCutoutsVisible(false);
     setTooltipVisible(false);
+    if (!keepCutouts) {
+        setCutoutsVisible(false);
+    }
     await wait(FADE_MS);
-    await showTourSlide(slide, onContinue);
+    await showTourSlide(slide, onContinue, { keepCutouts });
 }
 
 export function hideTourSpotlight(): void {
@@ -1000,6 +1087,7 @@ export function hideTourSpotlight(): void {
     host.root?.classList.remove('is-tooltip-visible');
     host.root?.classList.remove('is-visible');
     host.tippy?.hide();
+    clearTourDrawingGuides();
     window.setTimeout(() => {
         host.tippy?.destroy();
         host.tippy = null;

@@ -3,6 +3,16 @@
  * keep the matching entry in TOUR_SLIDES.
  */
 
+import {
+    captureTourDrawArea,
+    expandTourDrawAreaForPeak,
+    fitViewportToTourDrawArea,
+    getDrawAreaFontRect,
+    resetTourDrawingSession,
+    type TourAdvanceWhen,
+    type TourDrawingGuides
+} from './tour-drawing';
+
 export type TourCutoutRect = {
     left: number;
     top: number;
@@ -79,6 +89,12 @@ export type TourSlide = {
     previewTextBeforeApply?: boolean;
     /** Unmodified letter keys the tour key lock still lets through (`p`). */
     allowedKeys?: string[];
+    /** Gray concentric marks on the glyph canvas. */
+    drawingGuides?: TourDrawingGuides;
+    /** Advance when this drawing-exercise goal is met. */
+    advanceWhen?: TourAdvanceWhen;
+    /** Canvas clicks are blocked unless the Select tool is active. */
+    requireSelectTool?: boolean;
     prepare?: () => void | Promise<void>;
 };
 
@@ -96,6 +112,8 @@ export const TOUR_LAYERS_LIST_SELECTOR =
 export const TOUR_LAYER_ITEM_SELECTOR = `${TOUR_LAYERS_LIST_SELECTOR} .editor-layer-item`;
 export const TOUR_SELECT_TOOL_SELECTOR = '#editor-tool-select';
 export const TOUR_DRAW_TOOL_SELECTOR = '#editor-tool-pen';
+export const TOUR_INSERT_TOOL_SELECTOR = '#editor-tool-insert';
+export const TOUR_CONVERT_TOOL_SELECTOR = '#editor-tool-convert';
 
 function tourBody(text: string, action: string): string {
     const wrapped = action.startsWith('_') ? action : `_${action}_`;
@@ -441,27 +459,11 @@ function getCurrentGlyphOutlineCutout(): TourCutoutRect | null {
 }
 
 function getDrawAreaAboveGlyphCutout(): TourCutoutRect | null {
-    const outline = getSelectedGlyphOutlineRect();
-    if (outline) {
-        const height = Math.max(8, outline.maxY - outline.minY);
-        return fontRectToCutout(
-            outline.minX,
-            outline.maxX,
-            outline.maxY,
-            outline.maxY + height
-        );
-    }
-    const metrics = getTextRunGlyphMetrics('m');
-    if (!metrics) {
+    const area = getDrawAreaFontRect();
+    if (!area) {
         return null;
     }
-    const height = Math.max(8, metrics.maxY - metrics.minY);
-    return fontRectToCutout(
-        metrics.minX,
-        metrics.maxX,
-        metrics.maxY,
-        metrics.maxY + height
-    );
+    return fontRectToCutout(area.minX, area.maxX, area.minY, area.maxY);
 }
 
 function getLayersListCutout(): TourCutoutRect | null {
@@ -515,6 +517,36 @@ function getElementCutoutFromElement(
 
 function getElementCutout(selector: string): TourCutoutRect | null {
     return getElementCutoutFromElement(document.querySelector(selector));
+}
+
+function toolCutout(id: string, selector: string): TourCutout {
+    return {
+        id,
+        padding: 14,
+        radius: 10,
+        interactive: true,
+        resolve: () => getElementCutout(selector)
+    };
+}
+
+function drawAreaCutout(): TourCutout {
+    return {
+        id: 'draw-area',
+        padding: 20,
+        radius: 16,
+        interactive: true,
+        resolve: getDrawAreaAboveGlyphCutout
+    };
+}
+
+function prepareDrawToolSlide(): void {
+    resetTourDrawingSession();
+    captureTourDrawArea();
+}
+
+async function prepareInsertToolSlide(): Promise<void> {
+    expandTourDrawAreaForPeak();
+    await fitViewportToTourDrawArea();
 }
 
 export const TOUR_SLIDES: Record<string, TourSlide> = {
@@ -700,28 +732,102 @@ export const TOUR_SLIDES: Record<string, TourSlide> = {
         tooltip: {
             title: 'Draw Tool',
             body: tourBody(
-                'The Draw tool (shortcut **p**) lets you draw new contours node by node.',
-                'Select the Draw tool and draw a closed triangle into the marked area. Close the shape by ending the drawing on the first node (you’ll see a red mark appear when you hover).'
+                'The Draw tool (shortcut **p**) places nodes one by one to build a contour.',
+                'Select the Draw tool and click the four gray marks. Close the shape by returning to the first node — a red crosshair appears when you hover it.'
             ),
             targetCutoutId: 'draw-area',
             placement: 'right'
         },
         allowedKeys: ['p', 'v'],
+        drawingGuides: 'rectangle',
+        advanceWhen: 'closed-path',
+        advanceDelayMs: 500,
+        prepare: prepareDrawToolSlide,
         cutouts: [
-            {
-                id: 'draw-area',
-                padding: 16,
-                radius: 12,
-                interactive: true,
-                resolve: getDrawAreaAboveGlyphCutout
-            },
-            {
-                id: 'draw-tool',
-                padding: 14,
-                radius: 10,
-                interactive: true,
-                resolve: () => getElementCutout(TOUR_DRAW_TOOL_SELECTOR)
-            }
+            drawAreaCutout(),
+            toolCutout('draw-tool', TOUR_DRAW_TOOL_SELECTOR)
+        ]
+    },
+    'insert-tool': {
+        id: 'insert-tool',
+        tooltip: {
+            title: 'Insert Tool',
+            body: tourBody(
+                'The Insert tool (shortcut **i**) adds a node on an existing segment.',
+                'Select the Insert tool and click the gray mark in the middle of the top edge.'
+            ),
+            targetCutoutId: 'insert-tool',
+            placement: 'bottom'
+        },
+        allowedKeys: ['i', 'p', 'v'],
+        drawingGuides: 'insert-mid',
+        advanceWhen: 'node-inserted',
+        advanceDelayMs: 500,
+        prepare: prepareInsertToolSlide,
+        cutouts: [
+            drawAreaCutout(),
+            toolCutout('insert-tool', TOUR_INSERT_TOOL_SELECTOR)
+        ]
+    },
+    'triangle-peak': {
+        id: 'triangle-peak',
+        tooltip: {
+            title: 'Select Tool',
+            body: tourBody(
+                'The Select tool (shortcut **v**) moves nodes.',
+                'Select the Select tool and drag the new middle node up to the gray mark to form a triangle.'
+            ),
+            targetCutoutId: 'select-tool',
+            placement: 'bottom'
+        },
+        allowedKeys: ['v', 'i'],
+        drawingGuides: 'triangle-peak',
+        advanceWhen: 'peak-moved',
+        advanceDelayMs: 500,
+        cutouts: [
+            drawAreaCutout(),
+            toolCutout('select-tool', TOUR_SELECT_TOOL_SELECTOR)
+        ]
+    },
+    'convert-tool': {
+        id: 'convert-tool',
+        tooltip: {
+            title: 'Convert Tool',
+            body: tourBody(
+                'The Convert tool (shortcut **c**) turns a straight segment into a curve.',
+                'Select the Convert tool and click the gray mark on each diagonal.'
+            ),
+            targetCutoutId: 'convert-tool',
+            placement: 'bottom'
+        },
+        allowedKeys: ['c', 'v'],
+        drawingGuides: 'diagonals',
+        advanceWhen: 'diagonals-converted',
+        advanceDelayMs: 500,
+        cutouts: [
+            drawAreaCutout(),
+            toolCutout('convert-tool', TOUR_CONVERT_TOOL_SELECTOR)
+        ]
+    },
+    'smooth-curve-toggle': {
+        id: 'smooth-curve-toggle',
+        tooltip: {
+            title: 'Smooth Curve Toggle',
+            body: tourBody(
+                'Double-clicking an on-curve node with the **Select** tool toggles **smooth** connections so the handles stay in a line.',
+                'Select the Select tool, then double-click the three gray-marked nodes.'
+            ),
+            targetCutoutId: 'select-tool',
+            placement: 'bottom'
+        },
+        allowedKeys: ['v'],
+        drawingGuides: 'smooth-nodes',
+        advanceWhen: 'nodes-smoothed',
+        advanceDelayMs: 500,
+        requireSelectTool: true,
+        cutouts: [
+            drawAreaCutout(),
+            toolCutout('select-tool', TOUR_SELECT_TOOL_SELECTOR)
         ]
     }
 };
@@ -735,7 +841,11 @@ export const TOUR_SLIDE_ORDER: string[] = [
     'enter-edit-mode',
     'cant-edit-interpolations',
     'select-tool',
-    'draw-tool'
+    'draw-tool',
+    'insert-tool',
+    'triangle-peak',
+    'convert-tool',
+    'smooth-curve-toggle'
 ];
 
 export function getTourSlide(id: string): TourSlide | null {
