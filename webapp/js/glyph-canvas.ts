@@ -11090,19 +11090,6 @@ class GlyphCanvas {
                 const subsetGlyphs =
                     fontManager.deriveSubsetGlyphsFromText(textBuffer);
 
-                // Always include space glyph — it's typed frequently
-                // and must always be present in the compiled subset
-                const spaceGlyph =
-                    fontManager.currentFont?.fontModel?.findGlyphByCodepoint(
-                        0x20
-                    );
-                if (
-                    spaceGlyph?.name &&
-                    !subsetGlyphs.includes(spaceGlyph.name)
-                ) {
-                    subsetGlyphs.push(spaceGlyph.name);
-                }
-
                 const subsetKey = [...subsetGlyphs].sort().join('\u0000');
 
                 if (subsetKey === this.textChangeLastSubsetKey) {
