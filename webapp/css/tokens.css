@@ -89,11 +89,11 @@
     --tour-launch-button-bg: #ffb347;
     --tour-launch-button-border: #e0942c;
     --tour-launch-button-text: #111111;
-    --tour-overlay: rgba(0, 0, 0, 0.72);
+    --tour-overlay: rgba(255, 255, 255, 0.26);
     --tour-guide: rgba(255, 255, 255, 0.38);
-    --tour-tooltip-bg: #ffffff;
-    --tour-tooltip-text: #111111;
-    --tour-tooltip-shadow: rgba(0, 0, 0, 0.28);
+    --tour-tooltip-bg: #111111;
+    --tour-tooltip-text: #ffffff;
+    --tour-tooltip-shadow: rgba(0, 0, 0, 0.45);
 }
 
 /* Light theme */
@@ -180,7 +180,7 @@
     --tour-launch-button-bg: #ffd08a;
     --tour-launch-button-border: #e8b05c;
     --tour-launch-button-text: #111111;
-    --tour-overlay: rgba(0, 0, 0, 0.55);
+    --tour-overlay: rgba(0, 0, 0, 0.38);
     --tour-guide: rgba(0, 0, 0, 0.32);
     --tour-tooltip-bg: #ffffff;
     --tour-tooltip-text: #111111;

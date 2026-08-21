@@ -19,6 +19,10 @@ import {
     type TourTooltip
 } from './tour-slides';
 import {
+    getTourComponentDepth,
+    isTourEditingComponent
+} from './tour-components';
+import {
     clearTourDrawingGuides,
     isTourDrawingGoalMet,
     syncTourDrawingGuides
@@ -242,17 +246,26 @@ function coverViewportMinusHoles(
 }
 
 function appendInlineMarkup(parent: HTMLElement, text: string): void {
-    const parts = text.split(/\*\*(.+?)\*\*/);
-    parts.forEach((part, index) => {
-        if (index % 2 === 1) {
-            const strong = document.createElement('strong');
-            strong.textContent = part;
-            parent.append(strong);
+    const codeParts = text.split(/`(.+?)`/);
+    codeParts.forEach((part, codeIndex) => {
+        if (codeIndex % 2 === 1) {
+            const code = document.createElement('code');
+            code.textContent = part;
+            parent.append(code);
             return;
         }
-        if (part) {
-            parent.append(document.createTextNode(part));
-        }
+        const parts = part.split(/\*\*(.+?)\*\*/);
+        parts.forEach((chunk, index) => {
+            if (index % 2 === 1) {
+                const strong = document.createElement('strong');
+                strong.textContent = chunk;
+                parent.append(strong);
+                return;
+            }
+            if (chunk) {
+                parent.append(document.createTextNode(chunk));
+            }
+        });
     });
 }
 
@@ -673,6 +686,58 @@ function bindSlideInteraction(slide: TourSlide): void {
         });
     }
 
+    if (slide.advanceWhenComponentDepth !== undefined) {
+        const targetDepth = slide.advanceWhenComponentDepth;
+        let advanced = false;
+        const maybeAdvance = () => {
+            if (
+                advanced ||
+                !host.visible ||
+                host.slide !== slide ||
+                host.advancing
+            ) {
+                return;
+            }
+            if (getTourComponentDepth() !== targetDepth) {
+                return;
+            }
+            advanced = true;
+            void finishWithReaction(undefined, {
+                afterApplyMs: slide.advanceDelayMs ?? TOUR_AFTER_SLIDER_MS
+            });
+        };
+        window.addEventListener('glyphStackChanged', maybeAdvance);
+        cleanups.push(() => {
+            window.removeEventListener('glyphStackChanged', maybeAdvance);
+        });
+    }
+
+    if (slide.advanceOnEditModeExit) {
+        let advanced = false;
+        const maybeAdvance = (event: Event) => {
+            if (
+                advanced ||
+                !host.visible ||
+                host.slide !== slide ||
+                host.advancing
+            ) {
+                return;
+            }
+            const detail = (event as CustomEvent<{ mode?: string }>).detail;
+            if (detail?.mode !== 'text') {
+                return;
+            }
+            advanced = true;
+            void finishWithReaction(undefined, {
+                afterApplyMs: slide.advanceDelayMs ?? TOUR_AFTER_APPLY_MS
+            });
+        };
+        window.addEventListener('editorModeChanged', maybeAdvance);
+        cleanups.push(() => {
+            window.removeEventListener('editorModeChanged', maybeAdvance);
+        });
+    }
+
     host.slideUnbind = () => {
         for (const cleanup of cleanups) {
             cleanup();
@@ -853,6 +918,15 @@ function onTourKeyDown(event: KeyboardEvent): void {
     }
     if (isBrowserReloadShortcut(event)) {
         return;
+    }
+    if (event.key === 'Escape') {
+        const policy = host.slide?.escapePolicy;
+        if (policy === 'exit-edit') {
+            return;
+        }
+        if (policy === 'component-levels' && isTourEditingComponent()) {
+            return;
+        }
     }
     const allowedKey = host.slide?.allowedKeys?.includes(
         event.key.toLowerCase()

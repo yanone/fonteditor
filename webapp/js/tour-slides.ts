@@ -12,6 +12,12 @@ import {
     type TourAdvanceWhen,
     type TourDrawingGuides
 } from './tour-drawing';
+import {
+    getTourComponentCutout,
+    getTourCurrentEditingGlyphCutout,
+    getTourLetterCutout,
+    panTourLetterFullyIntoView
+} from './tour-components';
 
 export type TourCutoutRect = {
     left: number;
@@ -36,7 +42,7 @@ export type TourCutout = {
 
 export type TourTooltip = {
     title: string;
-    /** `**bold**`, `_italic_`. Wrap the action sentence in `_..._`. */
+    /** `**bold**`, `_italic_`, `` `code` ``. Wrap the action sentence in `_..._`. */
     body: string;
     targetCutoutId: string;
     continueLabel?: string;
@@ -95,6 +101,15 @@ export type TourSlide = {
     advanceWhen?: TourAdvanceWhen;
     /** Canvas clicks are blocked unless the Select tool is active. */
     requireSelectTool?: boolean;
+    /**
+     * Escape while a nested component is open pops one level.
+     * `exit-edit` also lets Escape leave Edit Mode.
+     */
+    escapePolicy?: 'component-levels' | 'exit-edit';
+    /** Advance when component nesting depth equals this value. */
+    advanceWhenComponentDepth?: number;
+    /** Advance when Edit Mode is left. */
+    advanceOnEditModeExit?: boolean;
     prepare?: () => void | Promise<void>;
 };
 
@@ -107,17 +122,29 @@ export const TOUR_EXTRABOLD_ITEM_SELECTOR =
     '.editor-layer-item[data-tour-master="ExtraBold"]';
 export const TOUR_WGHT_SLIDER_SELECTOR =
     '.editor-axis-slider[data-axis-tag="wght"]';
-export const TOUR_LAYERS_LIST_SELECTOR =
-    '#glyph-properties-section .editor-layers-widget:not(.editor-feature-variations-widget) .editor-layers-list';
+export const TOUR_LAYERS_WIDGET_SELECTOR =
+    '#glyph-properties-section .editor-layers-widget:not(.editor-feature-variations-widget)';
+export const TOUR_LAYERS_LIST_SELECTOR = `${TOUR_LAYERS_WIDGET_SELECTOR} .editor-layers-list`;
 export const TOUR_LAYER_ITEM_SELECTOR = `${TOUR_LAYERS_LIST_SELECTOR} .editor-layer-item`;
 export const TOUR_SELECT_TOOL_SELECTOR = '#editor-tool-select';
 export const TOUR_DRAW_TOOL_SELECTOR = '#editor-tool-pen';
 export const TOUR_INSERT_TOOL_SELECTOR = '#editor-tool-insert';
 export const TOUR_CONVERT_TOOL_SELECTOR = '#editor-tool-convert';
+export const TOUR_TEXT_TOOL_SELECTOR = '#editor-tool-text';
+export const TOUR_BREADCRUMB_SELECTOR = '#view-editor .editor-glyph-name';
+export const TOUR_BREADCRUMB_BASE_SELECTOR = `${TOUR_BREADCRUMB_SELECTOR} .editor-glyph-chip`;
+export const TOUR_ADIERESIS_LETTER = 'ä';
+export const TOUR_COMPONENT_A = 'a';
+export const TOUR_COMPONENT_DIERESIS = 'dieresiscomb';
+export const TOUR_COMPONENT_DOTACCENT = 'dotaccentcomb';
 
 function tourBody(text: string, action: string): string {
     const wrapped = action.startsWith('_') ? action : `_${action}_`;
     return `${text}\n\n${wrapped}`;
+}
+
+function tourAction(action: string): string {
+    return action.startsWith('_') ? action : `_${action}_`;
 }
 
 function delay(ms: number): Promise<void> {
@@ -468,9 +495,19 @@ function getDrawAreaAboveGlyphCutout(): TourCutoutRect | null {
 
 function getLayersListCutout(): TourCutoutRect | null {
     return (
+        getElementCutout(TOUR_LAYERS_WIDGET_SELECTOR) ||
         getElementCutout(TOUR_LAYERS_LIST_SELECTOR) ||
         getElementCutout('#glyph-properties-section .editor-layers-list')
     );
+}
+
+function getWghtSliderAreaCutout(): TourCutoutRect | null {
+    const slider = document.querySelector(TOUR_WGHT_SLIDER_SELECTOR);
+    const area =
+        slider instanceof Element
+            ? slider.closest('.editor-axis-container') || slider
+            : null;
+    return getElementCutoutFromElement(area);
 }
 
 function letterMCutout(interactive: boolean): TourCutout {
@@ -486,13 +523,14 @@ function letterMCutout(interactive: boolean): TourCutout {
 
 async function prepareLayersListSlide(): Promise<void> {
     await waitForElement(
-        `${TOUR_LAYERS_LIST_SELECTOR}, #glyph-properties-section .editor-layers-list`
+        `${TOUR_LAYERS_WIDGET_SELECTOR}, ${TOUR_LAYERS_LIST_SELECTOR}, #glyph-properties-section .editor-layers-list`
     );
-    const list =
+    const target =
+        document.querySelector(TOUR_LAYERS_WIDGET_SELECTOR) ||
         document.querySelector(TOUR_LAYERS_LIST_SELECTOR) ||
         document.querySelector('#glyph-properties-section .editor-layers-list');
-    if (list instanceof HTMLElement) {
-        scrollTourTargetIntoView(list);
+    if (target instanceof HTMLElement) {
+        scrollTourTargetIntoView(target);
     }
     await delay(50);
 }
@@ -537,6 +575,63 @@ function drawAreaCutout(): TourCutout {
         interactive: true,
         resolve: getDrawAreaAboveGlyphCutout
     };
+}
+
+function letterCutout(id: string, letter: string): TourCutout {
+    return {
+        id,
+        padding: 16,
+        hitPadding: 0,
+        radius: 12,
+        interactive: true,
+        resolve: () => getTourLetterCutout(letter)
+    };
+}
+
+function componentCutout(id: string, reference: string): TourCutout {
+    return {
+        id,
+        padding: 12,
+        hitPadding: 0,
+        radius: 12,
+        interactive: true,
+        resolve: () => getTourComponentCutout(reference)
+    };
+}
+
+function breadcrumbCutout(id: string, selector: string): TourCutout {
+    return {
+        id,
+        padding: 10,
+        radius: 8,
+        interactive: true,
+        resolve: () => getElementCutout(selector)
+    };
+}
+
+function editingGlyphCutout(): TourCutout {
+    return {
+        id: 'editing-glyph',
+        padding: 16,
+        radius: 12,
+        resolve: getTourCurrentEditingGlyphCutout
+    };
+}
+
+async function prepareAdieresisSlide(): Promise<void> {
+    await panTourLetterFullyIntoView(TOUR_ADIERESIS_LETTER);
+}
+
+async function prepareBreadcrumbSlide(minChips = 2): Promise<void> {
+    const started = Date.now();
+    while (Date.now() - started < 8000) {
+        const chips = document.querySelectorAll(TOUR_BREADCRUMB_BASE_SELECTOR);
+        if (chips.length >= minChips) {
+            break;
+        }
+        await delay(50);
+    }
+    await delay(50);
 }
 
 function prepareDrawToolSlide(): void {
@@ -657,7 +752,7 @@ export const TOUR_SLIDES: Record<string, TourSlide> = {
                 padding: 16,
                 radius: 8,
                 interactive: true,
-                resolve: () => getElementCutout(TOUR_WGHT_SLIDER_SELECTOR)
+                resolve: getWghtSliderAreaCutout
             }
         ]
     },
@@ -829,6 +924,121 @@ export const TOUR_SLIDES: Record<string, TourSlide> = {
             drawAreaCutout(),
             toolCutout('select-tool', TOUR_SELECT_TOOL_SELECTOR)
         ]
+    },
+    'component-glyphs': {
+        id: 'component-glyphs',
+        tooltip: {
+            title: 'Component Glyphs',
+            body: tourAction('Double-click a component glyph to edit it.'),
+            targetCutoutId: 'adieresis',
+            placement: 'top'
+        },
+        advanceOnGlyphDoubleClick: TOUR_ADIERESIS_LETTER,
+        advanceDelayMs: 1000,
+        prepare: prepareAdieresisSlide,
+        cutouts: [letterCutout('adieresis', TOUR_ADIERESIS_LETTER)]
+    },
+    'component-a': {
+        id: 'component-a',
+        tooltip: {
+            title: 'Component Glyphs',
+            body: tourBody(
+                'This glyph is composed of references to other glyphs, called **components**. Manually aligned components are colored faint orange, automatically aligned components are colored faint blue.',
+                "Double-click on the 'a' component to edit it in place."
+            ),
+            targetCutoutId: 'component-a',
+            placement: 'right'
+        },
+        advanceOnGlyphDoubleClick: TOUR_COMPONENT_A,
+        advanceWhenComponentDepth: 1,
+        advanceDelayMs: 1000,
+        cutouts: [componentCutout('component-a', TOUR_COMPONENT_A)]
+    },
+    'exit-components': {
+        id: 'exit-components',
+        tooltip: {
+            title: 'Exit Components',
+            body: tourAction(
+                'Press `Escape` or click the base glyph in the navigation breadcrumb to return to the base glyph.'
+            ),
+            targetCutoutId: 'breadcrumb-base',
+            placement: 'bottom'
+        },
+        escapePolicy: 'component-levels',
+        advanceWhenComponentDepth: 0,
+        advanceDelayMs: 500,
+        prepare: () => prepareBreadcrumbSlide(2),
+        cutouts: [
+            editingGlyphCutout(),
+            breadcrumbCutout('breadcrumb-base', TOUR_BREADCRUMB_BASE_SELECTOR)
+        ]
+    },
+    'enter-another-component': {
+        id: 'enter-another-component',
+        tooltip: {
+            title: 'Enter Another Component',
+            body: tourAction(
+                'Double-click on the dots to enter another component.'
+            ),
+            targetCutoutId: 'dieresiscomb',
+            placement: 'top'
+        },
+        advanceOnGlyphDoubleClick: TOUR_COMPONENT_DIERESIS,
+        advanceWhenComponentDepth: 1,
+        advanceDelayMs: 1000,
+        cutouts: [componentCutout('dieresiscomb', TOUR_COMPONENT_DIERESIS)]
+    },
+    'nested-components': {
+        id: 'nested-components',
+        tooltip: {
+            title: 'Nested Components',
+            body: tourBody(
+                'Components may be **nested**, meaning they may be composed of more component references.',
+                'Double-click again to enter the next nesting level.'
+            ),
+            targetCutoutId: 'dotaccentcomb',
+            placement: 'right'
+        },
+        advanceOnGlyphDoubleClick: TOUR_COMPONENT_DOTACCENT,
+        advanceWhenComponentDepth: 2,
+        advanceDelayMs: 1000,
+        cutouts: [componentCutout('dotaccentcomb', TOUR_COMPONENT_DOTACCENT)]
+    },
+    'exit-nested-components': {
+        id: 'exit-nested-components',
+        tooltip: {
+            title: 'Exit Nested Components',
+            body: tourBody(
+                'The so-called **breadcrumb** shows the nesting levels you have entered. The base glyph is the first glyph on the left, the nested glyph you’re currently editing is the last glyph on the right.',
+                'Return to the base glyph by clicking on the first glyph in the breadcrumb or by pressing `Escape` multiple times.'
+            ),
+            targetCutoutId: 'breadcrumb',
+            placement: 'bottom'
+        },
+        escapePolicy: 'component-levels',
+        advanceWhenComponentDepth: 0,
+        advanceDelayMs: 500,
+        prepare: () => prepareBreadcrumbSlide(3),
+        cutouts: [
+            editingGlyphCutout(),
+            breadcrumbCutout('breadcrumb', TOUR_BREADCRUMB_SELECTOR)
+        ]
+    },
+    'exit-edit-mode': {
+        id: 'exit-edit-mode',
+        tooltip: {
+            title: 'Exit Edit Mode',
+            body: tourAction(
+                'Use the Text tool (shortcut `t`) or press `Escape` again to return to Text Mode.'
+            ),
+            targetCutoutId: 'text-tool',
+            placement: 'bottom'
+        },
+        allowedKeys: ['t'],
+        escapePolicy: 'exit-edit',
+        advanceOnEditModeExit: true,
+        advanceDelayMs: 1000,
+        cutouts: [toolCutout('text-tool', TOUR_TEXT_TOOL_SELECTOR)]
     }
 };
 
@@ -845,7 +1055,14 @@ export const TOUR_SLIDE_ORDER: string[] = [
     'insert-tool',
     'triangle-peak',
     'convert-tool',
-    'smooth-curve-toggle'
+    'smooth-curve-toggle',
+    'component-glyphs',
+    'component-a',
+    'exit-components',
+    'enter-another-component',
+    'nested-components',
+    'exit-nested-components',
+    'exit-edit-mode'
 ];
 
 export function getTourSlide(id: string): TourSlide | null {

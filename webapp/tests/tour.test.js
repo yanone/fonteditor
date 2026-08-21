@@ -12,26 +12,39 @@ describe('tour intro', () => {
             <button id="editor-tool-insert" type="button">Insert</button>
             <button id="editor-tool-convert" type="button">Convert</button>
             <div id="glyph-editor-scroll-content">
-                <input
-                    class="editor-axis-slider"
-                    data-axis-tag="wght"
-                    type="range"
-                    min="400"
-                    max="800"
-                    value="800"
-                />
+                <div id="glyph-axes-section">
+                    <div class="editor-section-title">Variable Axes</div>
+                    <div class="editor-axis-container">
+                        <div class="editor-axis-label-row">
+                            <span class="editor-axis-name">Weight</span>
+                        </div>
+                        <input
+                            class="editor-axis-slider"
+                            data-axis-tag="wght"
+                            type="range"
+                            min="400"
+                            max="800"
+                            value="800"
+                        />
+                    </div>
+                </div>
                 <div class="editor-feature-row">
                     <button type="button" data-feature-tag="ss03">ss03</button>
                     <span>Stylistic Set 3</span>
                 </div>
             </div>
             <div id="glyph-properties-section">
-                <div class="editor-layers-list">
-                    <div class="editor-layer-item" data-master-id="regular">
-                        <div class="master-item-name">Regular</div>
+                <div class="editor-layers-widget">
+                    <div class="editor-section-title editor-layers-header">
+                        <span class="editor-section-title-text">Layers</span>
                     </div>
-                    <div class="editor-layer-item" data-master-id="extrabold">
-                        <div class="master-item-name">ExtraBold</div>
+                    <div class="editor-layers-list">
+                        <div class="editor-layer-item" data-master-id="regular">
+                            <div class="master-item-name">Regular</div>
+                        </div>
+                        <div class="editor-layer-item" data-master-id="extrabold">
+                            <div class="master-item-name">ExtraBold</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -686,10 +699,10 @@ describe('tour intro', () => {
                 {
                     closed: true,
                     nodes: [
-                        { x: 20, y: 230, nodetype: 'Line' },
-                        { x: 80, y: 230, nodetype: 'Line' },
-                        { x: 80, y: 270, nodetype: 'Line' },
-                        { x: 20, y: 270, nodetype: 'Line' }
+                        { x: 20, y: 280, nodetype: 'Line' },
+                        { x: 80, y: 280, nodetype: 'Line' },
+                        { x: 80, y: 320, nodetype: 'Line' },
+                        { x: 20, y: 320, nodetype: 'Line' }
                     ]
                 }
             ]
@@ -714,10 +727,10 @@ describe('tour intro', () => {
                     {
                         closed: true,
                         nodes: [
-                            { x: 20, y: 230, nodetype: 'Line' },
-                            { x: 80, y: 230, nodetype: 'Line' },
-                            { x: 80, y: 270, nodetype: 'Line' },
-                            { x: 20, y: 270, nodetype: 'Line' }
+                            { x: 20, y: 280, nodetype: 'Line' },
+                            { x: 80, y: 280, nodetype: 'Line' },
+                            { x: 80, y: 320, nodetype: 'Line' },
+                            { x: 20, y: 320, nodetype: 'Line' }
                         ]
                     }
                 ]
@@ -749,7 +762,7 @@ describe('tour intro', () => {
             0,
             {
                 x: 50,
-                y: 270,
+                y: 320,
                 nodetype: 'Line'
             }
         );
@@ -767,10 +780,10 @@ describe('tour intro', () => {
             expandTourDrawAreaForPeak
         } = require('../js/tour-drawing');
         const nodes = [
-            { x: 20, y: 230, nodetype: 'Line' },
-            { x: 80, y: 230, nodetype: 'Line' },
-            { x: 80, y: 270, nodetype: 'Line' },
-            { x: 20, y: 270, nodetype: 'Line' }
+            { x: 20, y: 280, nodetype: 'Line' },
+            { x: 80, y: 280, nodetype: 'Line' },
+            { x: 80, y: 320, nodetype: 'Line' },
+            { x: 20, y: 320, nodetype: 'Line' }
         ];
         window.glyphCanvas.outlineEditor = {
             active: true,
@@ -794,7 +807,7 @@ describe('tour intro', () => {
         });
         captureTourDrawArea();
         expandTourDrawAreaForPeak();
-        nodes.splice(3, 0, { x: 50, y: 270, nodetype: 'Line' });
+        nodes.splice(3, 0, { x: 50, y: 320, nodetype: 'Line' });
         let continued = false;
         await showTourSlide(getTourSlide('triangle-peak'), () => {
             continued = true;
@@ -826,11 +839,11 @@ describe('tour intro', () => {
             expandTourDrawAreaForPeak
         } = require('../js/tour-drawing');
         const nodes = [
-            { x: 20, y: 230, nodetype: 'Line' },
-            { x: 80, y: 230, nodetype: 'Line' },
-            { x: 80, y: 270, nodetype: 'Line' },
-            { x: 50, y: 320, nodetype: 'Line' },
-            { x: 20, y: 270, nodetype: 'Line' }
+            { x: 20, y: 280, nodetype: 'Line' },
+            { x: 80, y: 280, nodetype: 'Line' },
+            { x: 80, y: 320, nodetype: 'Line' },
+            { x: 50, y: 370, nodetype: 'Line' },
+            { x: 20, y: 320, nodetype: 'Line' }
         ];
         window.glyphCanvas.outlineEditor = {
             active: true,
@@ -878,10 +891,138 @@ describe('tour intro', () => {
         expect(rings().length).toBe(2);
         expect(rings()[0].getAttribute('cx')).not.toBe(firstCx);
     });
+
+    test('spotlights a.ss03 when looking up the a component', () => {
+        const { getTourComponentCutout } = require('../js/tour-components');
+        window.glyphCanvas.outlineEditor = {
+            active: true,
+            isEditingComponent: () => false,
+            getCurrentLayerDataFromStack: () => ({
+                shapes: [
+                    {
+                        reference: 'a.ss03',
+                        transform: [1, 0, 0, 1, 10, 20],
+                        layerData: {
+                            shapes: [
+                                {
+                                    closed: true,
+                                    nodes: [
+                                        { x: 0, y: 0, nodetype: 'Line' },
+                                        { x: 80, y: 0, nodetype: 'Line' },
+                                        { x: 80, y: 120, nodetype: 'Line' },
+                                        { x: 0, y: 120, nodetype: 'Line' }
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                ]
+            })
+        };
+        window.glyphCanvas.textRunEditor.selectedGlyphIndex = 0;
+        window.glyphCanvas.canvas.getBoundingClientRect = () => ({
+            x: 0,
+            y: 0,
+            left: 0,
+            top: 0,
+            right: 800,
+            bottom: 600,
+            width: 800,
+            height: 600,
+            toJSON() {}
+        });
+        const cutout = getTourComponentCutout('a');
+        expect(cutout).not.toBeNull();
+        expect(cutout.width).toBeGreaterThan(8);
+        expect(cutout.height).toBeGreaterThan(8);
+    });
+
+    test('applies decomposed component translation to the spotlight', () => {
+        const { getTourComponentCutout } = require('../js/tour-components');
+        const localNodes = [
+            { x: 0, y: 0, nodetype: 'Line' },
+            { x: 40, y: 0, nodetype: 'Line' },
+            { x: 40, y: 40, nodetype: 'Line' },
+            { x: 0, y: 40, nodetype: 'Line' }
+        ];
+        window.glyphCanvas.outlineEditor = {
+            active: true,
+            isEditingComponent: () => false,
+            getCurrentLayerDataFromStack: () => ({
+                shapes: [
+                    {
+                        reference: 'dieresiscomb',
+                        transform: { translation: [146, 0] },
+                        layerData: {
+                            shapes: [
+                                {
+                                    closed: true,
+                                    nodes: localNodes
+                                }
+                            ]
+                        }
+                    }
+                ]
+            })
+        };
+        window.glyphCanvas.textRunEditor.selectedGlyphIndex = 0;
+        window.glyphCanvas.canvas.getBoundingClientRect = () => ({
+            x: 0,
+            y: 0,
+            left: 0,
+            top: 0,
+            right: 800,
+            bottom: 600,
+            width: 800,
+            height: 600,
+            toJSON() {}
+        });
+        const cutout = getTourComponentCutout('dieresiscomb');
+        expect(cutout).not.toBeNull();
+        expect(cutout.left).toBe(146);
+        expect(cutout.width).toBe(40);
+    });
+
+    test('spotlights the nested glyph using the component bounding box', () => {
+        const {
+            getTourCurrentEditingGlyphCutout
+        } = require('../js/tour-components');
+        window.glyphCanvas.outlineEditor = {
+            active: true,
+            isEditingComponent: () => true,
+            getAccumulatedTransform: () => [1, 0, 0, 1, 10, 20],
+            calculateGlyphBoundingBox: () => ({
+                minX: 0,
+                minY: 0,
+                maxX: 80,
+                maxY: 120,
+                width: 80,
+                height: 120
+            })
+        };
+        window.glyphCanvas.textRunEditor.selectedGlyphIndex = 0;
+        window.glyphCanvas.canvas.getBoundingClientRect = () => ({
+            x: 0,
+            y: 0,
+            left: 0,
+            top: 0,
+            right: 800,
+            bottom: 600,
+            width: 800,
+            height: 600,
+            toJSON() {}
+        });
+        const cutout = getTourCurrentEditingGlyphCutout();
+        expect(cutout).not.toBeNull();
+        expect(cutout.left).toBe(10);
+        expect(cutout.top).toBe(20);
+        expect(cutout.width).toBe(80);
+        expect(cutout.height).toBe(120);
+    });
 });
 
 describe('tour slide order', () => {
-    test('orders text through smooth-curve-toggle slides', () => {
+    test('orders text through exit-edit-mode slides', () => {
         const { TOUR_SLIDE_ORDER, getTourSlide } = require('../js/tour-slides');
         expect(TOUR_SLIDE_ORDER).toEqual([
             'text-mode',
@@ -895,7 +1036,14 @@ describe('tour slide order', () => {
             'insert-tool',
             'triangle-peak',
             'convert-tool',
-            'smooth-curve-toggle'
+            'smooth-curve-toggle',
+            'component-glyphs',
+            'component-a',
+            'exit-components',
+            'enter-another-component',
+            'nested-components',
+            'exit-nested-components',
+            'exit-edit-mode'
         ]);
         expect(getTourSlide('ss03-features').tooltip.title).toBe(
             'Active OpenType features'
@@ -953,5 +1101,30 @@ describe('tour slide order', () => {
         expect(
             getTourSlide('smooth-curve-toggle').cutouts.map((c) => c.id)
         ).toEqual(['draw-area', 'select-tool']);
+        expect(getTourSlide('component-glyphs').tooltip.body).toBe(
+            '_Double-click a component glyph to edit it._'
+        );
+        expect(getTourSlide('component-a').advanceOnGlyphDoubleClick).toBe('a');
+        expect(getTourSlide('component-a').advanceWhenComponentDepth).toBe(1);
+        expect(
+            getTourSlide('exit-components').cutouts.map((c) => c.id)
+        ).toEqual(['editing-glyph', 'breadcrumb-base']);
+        expect(
+            getTourSlide('enter-another-component').advanceWhenComponentDepth
+        ).toBe(1);
+        expect(
+            getTourSlide('nested-components').advanceWhenComponentDepth
+        ).toBe(2);
+        expect(
+            getTourSlide('exit-nested-components').cutouts.map((c) => c.id)
+        ).toEqual(['editing-glyph', 'breadcrumb']);
+        expect(getTourSlide('exit-components').escapePolicy).toBe(
+            'component-levels'
+        );
+        expect(getTourSlide('exit-nested-components').escapePolicy).toBe(
+            'component-levels'
+        );
+        expect(getTourSlide('exit-edit-mode').escapePolicy).toBe('exit-edit');
+        expect(getTourSlide('exit-edit-mode').advanceOnEditModeExit).toBe(true);
     });
 });

@@ -171,7 +171,7 @@ function buildCompactRectangle(outline: FontRect): {
     const gap = Math.max(20, glyphHeight * 0.1);
     const minX = cx - width / 2;
     const maxX = cx + width / 2;
-    const minY = outline.maxY + gap;
+    const minY = outline.maxY + gap + 50;
     const maxY = minY + height;
     return {
         bl: { x: minX, y: minY },
