@@ -512,6 +512,117 @@ describe('tour intro', () => {
             return 200 >= left && 200 <= right && 120 >= top && 120 <= bottom;
         });
         expect(coversHole).toBe(false);
+        expect(pieces[0].style.pointerEvents).toBe('auto');
+    });
+
+    test('clicks outside interactive holes are blocked', async () => {
+        const row = document.querySelector('.editor-feature-row');
+        row.getBoundingClientRect = () => ({
+            x: 100,
+            y: 100,
+            left: 100,
+            top: 100,
+            right: 300,
+            bottom: 140,
+            width: 200,
+            height: 40,
+            toJSON() {}
+        });
+        const { getTourSlide } = require('../js/tour-slides');
+        const { showTourSlide } = require('../js/tour-spotlight');
+        await showTourSlide(getTourSlide('ss03-features'), () => {});
+        const settings = document.getElementById('settings-btn');
+        const handler = jest.fn();
+        settings.addEventListener('click', handler);
+        const event = new MouseEvent('click', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 8,
+            clientY: 8
+        });
+        settings.dispatchEvent(event);
+        expect(event.defaultPrevented).toBe(true);
+        expect(handler).not.toHaveBeenCalled();
+    });
+
+    test('wrong-tool canvas clicks flash the required tool', async () => {
+        const { getTourSlide } = require('../js/tour-slides');
+        const { showTourSlide } = require('../js/tour-spotlight');
+        const { captureTourDrawArea } = require('../js/tour-drawing');
+        window.glyphCanvas.outlineEditor = {
+            active: true,
+            getEditToolUiSnapshot: () => ({
+                isEditMode: true,
+                stickyTool: 'convert',
+                highlightedTool: 'convert',
+                availability: {
+                    text: true,
+                    select: true,
+                    pen: true,
+                    insert: true,
+                    convert: true,
+                    cut: true
+                },
+                pointerBadge: null
+            })
+        };
+        window.glyphCanvas.textRunEditor.selectedGlyphIndex = 0;
+        window.glyphCanvas.glyphBounds = [
+            { x: 0, y: 0, x1: 0, y1: 0, x2: 100, y2: 200 }
+        ];
+        window.glyphCanvas.canvas.getBoundingClientRect = () => ({
+            x: 0,
+            y: 0,
+            left: 0,
+            top: 0,
+            right: 800,
+            bottom: 600,
+            width: 800,
+            height: 600,
+            toJSON() {}
+        });
+        captureTourDrawArea();
+        await showTourSlide(getTourSlide('smooth-curve-toggle'), () => {});
+        const flashes = [];
+        window.addEventListener('editorEditToolFlash', (event) => {
+            flashes.push(event.detail.toolId);
+        });
+        const pieces = [
+            ...document.querySelectorAll('.tour-spotlight-hit-piece')
+        ];
+        let clientX = 0;
+        let clientY = 0;
+        let foundHole = false;
+        for (let y = 20; y < 580 && !foundHole; y += 20) {
+            for (let x = 20; x < 780; x += 20) {
+                const covered = pieces.some((el) => {
+                    const left = parseFloat(el.style.left);
+                    const top = parseFloat(el.style.top);
+                    const right = left + parseFloat(el.style.width);
+                    const bottom = top + parseFloat(el.style.height);
+                    return x >= left && x <= right && y >= top && y <= bottom;
+                });
+                if (!covered) {
+                    clientX = x;
+                    clientY = y;
+                    foundHole = true;
+                    break;
+                }
+            }
+        }
+        expect(foundHole).toBe(true);
+        const down = new MouseEvent('mousedown', {
+            bubbles: true,
+            cancelable: true,
+            clientX,
+            clientY
+        });
+        document.dispatchEvent(down);
+        expect(down.defaultPrevented).toBe(true);
+        await delay(50);
+        expect(flashes[0]).toBe('select');
+        await delay(900);
+        expect(flashes.filter((id) => id === 'select')).toHaveLength(3);
     });
 
     test('layer click advances interpolations without fading to sample text', async () => {
@@ -1092,12 +1203,15 @@ describe('tour slide order', () => {
         expect(getTourSlide('convert-tool').advanceWhen).toBe(
             'diagonals-converted'
         );
+        expect(getTourSlide('select-tool').requireTool).toBe('select');
+        expect(getTourSlide('draw-tool').requireTool).toBe('pen');
+        expect(getTourSlide('insert-tool').requireTool).toBe('insert');
+        expect(getTourSlide('triangle-peak').requireTool).toBe('select');
+        expect(getTourSlide('convert-tool').requireTool).toBe('convert');
         expect(getTourSlide('smooth-curve-toggle').advanceWhen).toBe(
             'nodes-smoothed'
         );
-        expect(getTourSlide('smooth-curve-toggle').requireSelectTool).toBe(
-            true
-        );
+        expect(getTourSlide('smooth-curve-toggle').requireTool).toBe('select');
         expect(
             getTourSlide('smooth-curve-toggle').cutouts.map((c) => c.id)
         ).toEqual(['draw-area', 'select-tool']);

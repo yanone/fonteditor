@@ -40,10 +40,9 @@
     fill-opacity: 1;
 }
 
-.tour-spotlight-hit {
+.tour-spotlight-hit-piece {
     position: absolute;
-    inset: 0;
-    pointer-events: none;
+    pointer-events: auto;
 }
 
 .tour-drawing-guides {

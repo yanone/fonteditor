@@ -11,13 +11,14 @@ import tippy, { type Instance as TippyInstance } from 'tippy.js';
 import 'tippy.js/dist/tippy.css';
 import { Logger } from './logger';
 import {
+    TOUR_REQUIRED_TOOL_SELECTOR,
     TOUR_SAMPLE_TEXT_CUTOUT,
-    TOUR_SELECT_TOOL_SELECTOR,
     type TourCutout,
     type TourCutoutRect,
     type TourSlide,
     type TourTooltip
 } from './tour-slides';
+import type { StickyEditTool } from './glyph-canvas/edit-tools';
 import {
     getTourComponentDepth,
     isTourEditingComponent
@@ -40,6 +41,11 @@ export const TOUR_AFTER_APPLY_MS = 1500;
 /** Native slider / glyph reaction: short hold before the next slide. */
 export const TOUR_AFTER_SLIDER_MS = 500;
 const DEFAULT_CUTOUT_PADDING = 24;
+const TOUR_TOOL_FLASH_MS = 420;
+const TOUR_TOOL_FLASH_TIMES = 3;
+
+let requiredToolFlashToken = 0;
+let requiredToolFlashStartedAt = 0;
 
 type FinishReactionOptions = {
     previewTextBeforeApply?: boolean;
@@ -172,6 +178,64 @@ function clientPointInRect(
         y >= rect.top &&
         y <= rect.top + rect.height
     );
+}
+
+function isTourChromeEvent(event: Event): boolean {
+    const eventTarget = event.target;
+    if (!(eventTarget instanceof Element)) {
+        return false;
+    }
+    return Boolean(
+        eventTarget.closest('.tippy-box[data-theme="tour"]') ||
+        eventTarget.closest('.tour-tooltip') ||
+        eventTarget.closest('[data-tour-action]')
+    );
+}
+
+function isRequiredToolButtonEvent(
+    event: Event,
+    tool: StickyEditTool
+): boolean {
+    const eventTarget = event.target;
+    if (!(eventTarget instanceof Element)) {
+        return false;
+    }
+    return Boolean(eventTarget.closest(TOUR_REQUIRED_TOOL_SELECTOR[tool]));
+}
+
+function isRequiredToolActive(tool: StickyEditTool): boolean {
+    const snapshot =
+        window.glyphCanvas?.outlineEditor?.getEditToolUiSnapshot?.();
+    if (!snapshot) {
+        return true;
+    }
+    return snapshot.stickyTool === tool;
+}
+
+function flashRequiredTourTool(tool: StickyEditTool): void {
+    const now = Date.now();
+    if (now - requiredToolFlashStartedAt < 80) {
+        return;
+    }
+    requiredToolFlashStartedAt = now;
+    requiredToolFlashToken += 1;
+    const token = requiredToolFlashToken;
+    for (let i = 0; i < TOUR_TOOL_FLASH_TIMES; i++) {
+        window.setTimeout(() => {
+            if (token !== requiredToolFlashToken) {
+                return;
+            }
+            window.dispatchEvent(
+                new CustomEvent('editorEditToolFlash', {
+                    detail: { toolId: tool }
+                })
+            );
+        }, i * TOUR_TOOL_FLASH_MS);
+    }
+}
+
+function shouldFlashRequiredTool(event: Event): boolean {
+    return event.type === 'pointerdown' || event.type === 'mousedown';
 }
 
 function subtractRect(
@@ -406,6 +470,57 @@ function bindSlideInteraction(slide: TourSlide): void {
     unbindSlideInteraction();
     const host = getHost();
     const cleanups: Array<() => void> = [];
+
+    const lockPointer = (event: Event) => {
+        if (!host.visible || host.slide !== slide || host.advancing) {
+            return;
+        }
+        if (!(event instanceof MouseEvent)) {
+            return;
+        }
+        if (isTourChromeEvent(event)) {
+            return;
+        }
+        const interactiveHoles = resolvedCutouts(slide.cutouts).filter(
+            ({ cutout }) => cutout.interactive
+        );
+        const inHole = interactiveHoles.some(({ hitRect }) =>
+            clientPointInRect(event.clientX, event.clientY, hitRect)
+        );
+        const hasClientPoint = event.clientX !== 0 || event.clientY !== 0;
+        if (hasClientPoint && interactiveHoles.length > 0 && !inHole) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            return;
+        }
+        const required = slide.requireTool;
+        if (!required) {
+            return;
+        }
+        if (isRequiredToolButtonEvent(event, required)) {
+            return;
+        }
+        if (isRequiredToolActive(required)) {
+            return;
+        }
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (shouldFlashRequiredTool(event)) {
+            flashRequiredTourTool(required);
+        }
+    };
+    document.addEventListener('pointerdown', lockPointer, true);
+    document.addEventListener('mousedown', lockPointer, true);
+    document.addEventListener('click', lockPointer, true);
+    document.addEventListener('dblclick', lockPointer, true);
+    document.addEventListener('contextmenu', lockPointer, true);
+    cleanups.push(() => {
+        document.removeEventListener('pointerdown', lockPointer, true);
+        document.removeEventListener('mousedown', lockPointer, true);
+        document.removeEventListener('click', lockPointer, true);
+        document.removeEventListener('dblclick', lockPointer, true);
+        document.removeEventListener('contextmenu', lockPointer, true);
+    });
 
     const selector = slide.advanceOnClick;
     if (selector) {
@@ -656,36 +771,6 @@ function bindSlideInteraction(slide: TourSlide): void {
         }
     }
 
-    if (slide.requireSelectTool) {
-        const guard = (event: Event) => {
-            if (!host.visible || host.slide !== slide || host.advancing) {
-                return;
-            }
-            const eventTarget = event.target;
-            if (
-                eventTarget instanceof Element &&
-                eventTarget.closest(TOUR_SELECT_TOOL_SELECTOR)
-            ) {
-                return;
-            }
-            const snapshot =
-                window.glyphCanvas?.outlineEditor?.getEditToolUiSnapshot?.();
-            if (snapshot?.highlightedTool === 'select') {
-                return;
-            }
-            event.preventDefault();
-            event.stopImmediatePropagation();
-        };
-        document.addEventListener('mousedown', guard, true);
-        document.addEventListener('click', guard, true);
-        document.addEventListener('dblclick', guard, true);
-        cleanups.push(() => {
-            document.removeEventListener('mousedown', guard, true);
-            document.removeEventListener('click', guard, true);
-            document.removeEventListener('dblclick', guard, true);
-        });
-    }
-
     if (slide.advanceWhenComponentDepth !== undefined) {
         const targetDepth = slide.advanceWhenComponentDepth;
         let advanced = false;
@@ -881,6 +966,8 @@ function paintSpotlight(
     )) {
         const el = document.createElement('div');
         el.className = 'tour-spotlight-hit-piece';
+        el.style.position = 'absolute';
+        el.style.pointerEvents = 'auto';
         el.style.left = `${piece.left}px`;
         el.style.top = `${piece.top}px`;
         el.style.width = `${piece.width}px`;

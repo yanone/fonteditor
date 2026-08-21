@@ -18,6 +18,7 @@ import {
     getTourLetterCutout,
     panTourLetterFullyIntoView
 } from './tour-components';
+import type { StickyEditTool } from './glyph-canvas/edit-tools';
 
 export type TourCutoutRect = {
     left: number;
@@ -99,8 +100,11 @@ export type TourSlide = {
     drawingGuides?: TourDrawingGuides;
     /** Advance when this drawing-exercise goal is met. */
     advanceWhen?: TourAdvanceWhen;
-    /** Canvas clicks are blocked unless the Select tool is active. */
-    requireSelectTool?: boolean;
+    /**
+     * Canvas / drawing actions are blocked unless this edit tool is active.
+     * Wrong-tool clicks flash the spotlighted tool button.
+     */
+    requireTool?: StickyEditTool;
     /**
      * Escape while a nested component is open pops one level.
      * `exit-edit` also lets Escape leave Edit Mode.
@@ -131,6 +135,13 @@ export const TOUR_DRAW_TOOL_SELECTOR = '#editor-tool-pen';
 export const TOUR_INSERT_TOOL_SELECTOR = '#editor-tool-insert';
 export const TOUR_CONVERT_TOOL_SELECTOR = '#editor-tool-convert';
 export const TOUR_TEXT_TOOL_SELECTOR = '#editor-tool-text';
+export const TOUR_REQUIRED_TOOL_SELECTOR: Record<StickyEditTool, string> = {
+    select: TOUR_SELECT_TOOL_SELECTOR,
+    pen: TOUR_DRAW_TOOL_SELECTOR,
+    insert: TOUR_INSERT_TOOL_SELECTOR,
+    convert: TOUR_CONVERT_TOOL_SELECTOR,
+    cut: '#editor-tool-cut'
+};
 export const TOUR_BREADCRUMB_SELECTOR = '#view-editor .editor-glyph-name';
 export const TOUR_BREADCRUMB_BASE_SELECTOR = `${TOUR_BREADCRUMB_SELECTOR} .editor-glyph-chip`;
 export const TOUR_ADIERESIS_LETTER = 'ä';
@@ -561,6 +572,7 @@ function toolCutout(id: string, selector: string): TourCutout {
     return {
         id,
         padding: 14,
+        hitPadding: 0,
         radius: 10,
         interactive: true,
         resolve: () => getElementCutout(selector)
@@ -603,6 +615,7 @@ function breadcrumbCutout(id: string, selector: string): TourCutout {
     return {
         id,
         padding: 10,
+        hitPadding: 0,
         radius: 8,
         interactive: true,
         resolve: () => getElementCutout(selector)
@@ -809,17 +822,12 @@ export const TOUR_SLIDES: Record<string, TourSlide> = {
             placement: 'bottom'
         },
         allowedKeys: ['v'],
+        requireTool: 'select',
         advanceOnNodeDrag: true,
         advanceDelayMs: 500,
         cutouts: [
             letterMCutout(true),
-            {
-                id: 'select-tool',
-                padding: 14,
-                radius: 10,
-                interactive: true,
-                resolve: () => getElementCutout(TOUR_SELECT_TOOL_SELECTOR)
-            }
+            toolCutout('select-tool', TOUR_SELECT_TOOL_SELECTOR)
         ]
     },
     'draw-tool': {
@@ -833,7 +841,8 @@ export const TOUR_SLIDES: Record<string, TourSlide> = {
             targetCutoutId: 'draw-area',
             placement: 'right'
         },
-        allowedKeys: ['p', 'v'],
+        allowedKeys: ['p'],
+        requireTool: 'pen',
         drawingGuides: 'rectangle',
         advanceWhen: 'closed-path',
         advanceDelayMs: 500,
@@ -854,7 +863,8 @@ export const TOUR_SLIDES: Record<string, TourSlide> = {
             targetCutoutId: 'insert-tool',
             placement: 'bottom'
         },
-        allowedKeys: ['i', 'p', 'v'],
+        allowedKeys: ['i'],
+        requireTool: 'insert',
         drawingGuides: 'insert-mid',
         advanceWhen: 'node-inserted',
         advanceDelayMs: 500,
@@ -875,7 +885,8 @@ export const TOUR_SLIDES: Record<string, TourSlide> = {
             targetCutoutId: 'select-tool',
             placement: 'bottom'
         },
-        allowedKeys: ['v', 'i'],
+        allowedKeys: ['v'],
+        requireTool: 'select',
         drawingGuides: 'triangle-peak',
         advanceWhen: 'peak-moved',
         advanceDelayMs: 500,
@@ -895,7 +906,8 @@ export const TOUR_SLIDES: Record<string, TourSlide> = {
             targetCutoutId: 'convert-tool',
             placement: 'bottom'
         },
-        allowedKeys: ['c', 'v'],
+        allowedKeys: ['c'],
+        requireTool: 'convert',
         drawingGuides: 'diagonals',
         advanceWhen: 'diagonals-converted',
         advanceDelayMs: 500,
@@ -919,7 +931,7 @@ export const TOUR_SLIDES: Record<string, TourSlide> = {
         drawingGuides: 'smooth-nodes',
         advanceWhen: 'nodes-smoothed',
         advanceDelayMs: 500,
-        requireSelectTool: true,
+        requireTool: 'select',
         cutouts: [
             drawAreaCutout(),
             toolCutout('select-tool', TOUR_SELECT_TOOL_SELECTOR)
