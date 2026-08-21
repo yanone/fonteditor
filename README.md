@@ -49,7 +49,7 @@ Coverage: 🟢 Should work · 🟡 Partial · 🔴 Missing
 | Outline drawing and editing | 🟢 | Basic drawing tools, no multi-line text yet |
 | Variable fonts | 🟢 | No `avar2` support yet |
 | Components | 🟢 | No variable components yet, maybe not all composition types implemented yet |
-| Sidebearings | 🟢 | Maybe not all metrics key types implemented yet |
+| Sidebearings | 🟢 | |
 | Kerning | 🟢 | |
 | Python scripting | 🟢 | API and docs need some work |
 | AI assistant | 🟢 | |
@@ -57,8 +57,8 @@ Coverage: 🟢 Should work · 🟡 Partial · 🔴 Missing
 | Multiple windows | 🟢 | Panel arrangement saved and restored only for main window currently |
 | Binary font export | 🟢 | |
 | Language database | 🟢 | Ships with Hyperglot temporarily as a demo, later as user-installable plugins |
+| Glyph composition | 🟢 | |
 | Documentation | 🟡 | Incomplete, bad screenshots |
-| Glyph composition | 🟡 | Not all composition types implemented yet |
 | Glyph overview and filters | 🟡 | Glyph categorization missing |
 | Source file I/O | 🟡 | UFO/DS and `.glyphspackage` writing is missing |
 | Plugin system | 🟡 | Most plugin types not yet implemented, no auto-update yet |
