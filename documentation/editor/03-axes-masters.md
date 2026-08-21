@@ -8,6 +8,6 @@ An **axis** is a design dimension such as weight or width. A **master** is a sto
 
 Define axes and masters in Font Info panel (**Axes** and **Masters** tabs). In the Editor, the axis sliders move the current design location. Edit a glyph at one master, then at another, and move the sliders to check the path between them. Compatible point structures matter. Smooth in-betweens are the target. A jump or kink on the slider usually means the masters do not match.
 
-A glyph that shows with **gray nodes and handles** is an interpolation which you can’t edit. To edit, you need to return to a precise master location (activate a layer from the layers list) first.
+A glyph that shows with **gray nodes and handles** is an interpolation which you can’t edit. Dragging a slider onto a stored layer location immediately restores that layer’s colored object-model outlines, still while the pointer is down. Layer locations are marked with small filled dots on the slider track (the same color as the track segment they sit on). The thumb snaps to a mark within 2px when approaching it; after you rest on a mark, dragging away is smooth until you leave that 2px window, then it can snap again.
 
 Stored layers and intermediate locations are in [Layer operations](05-layer-operations.md). Terms are in the [Glossary](../reference/glossary.md).

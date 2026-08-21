@@ -7417,6 +7417,78 @@ select.glyph-property-input {
     width: 100%;
 }
 
+.editor-axis-slider-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: 12px;
+}
+
+.editor-axis-slider-track {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 4px;
+    border-radius: 2px;
+    pointer-events: none;
+    z-index: 0;
+    background: linear-gradient(
+        to right,
+        var(--text-secondary) 0%,
+        var(--text-secondary) var(--value-percent, 50%),
+        var(--border-primary) var(--value-percent, 50%),
+        var(--border-primary) 100%
+    );
+}
+
+.editor-axis-layer-marks {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.editor-axis-layer-mark {
+    position: absolute;
+    top: 50%;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--border-primary);
+    transform: translate(-50%, -50%);
+    left: calc(6px + (100% - 12px) * var(--layer-location-t, 0));
+    z-index: 1;
+}
+
+.editor-axis-layer-mark-passed {
+    background: var(--text-secondary);
+}
+
+.editor-axis-slider-wrap .editor-axis-slider {
+    position: relative;
+    z-index: 2;
+    height: 12px;
+    background: transparent;
+    margin: 0;
+}
+
+.editor-axis-slider-wrap .editor-axis-slider::-webkit-slider-runnable-track {
+    background: transparent;
+    height: 4px;
+}
+
+.editor-axis-slider-wrap .editor-axis-slider::-moz-range-track {
+    background: transparent;
+}
+
+.editor-axis-slider-wrap .editor-axis-slider::-moz-range-progress {
+    background: transparent;
+}
+
+.editor-axis-slider-wrap .editor-axis-slider::-webkit-slider-thumb {
+    position: relative;
+    z-index: 3;
+}
+
 /* Empty state message */
 .editor-empty-message {
     font-size: 11px;

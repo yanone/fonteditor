@@ -11,6 +11,10 @@ import {
 
 const console = new Logger('Variations');
 
+export const AXIS_SLIDER_LAYER_SNAP_PX = 2;
+export const AXIS_SLIDER_THUMB_SIZE_PX = 12;
+const AXIS_SLIDER_LAYER_VALUE_EPSILON = 0.01;
+
 interface VariationAxis {
     tag: string;
     name: string;
@@ -28,6 +32,71 @@ interface LoopAnimationState {
     startTime: number;
     frameId: number | null;
     startValue: number;
+}
+
+function uniqueSortedAxisValues(values: number[]): number[] {
+    const sorted = values
+        .filter((value) => Number.isFinite(value))
+        .sort((left, right) => left - right);
+    const unique: number[] = [];
+    for (const value of sorted) {
+        if (
+            unique.length === 0 ||
+            Math.abs(unique[unique.length - 1] - value) >
+                AXIS_SLIDER_LAYER_VALUE_EPSILON
+        ) {
+            unique.push(value);
+        }
+    }
+    return unique;
+}
+
+/**
+ * Magnet snap for stored layer locations on an axis slider.
+ * Disarmed values (rested-on at drag start) pass through until the pointer
+ * leaves the snap window, then they arm again.
+ */
+export function applyAxisSliderLayerSnap(
+    rawValue: number,
+    snapValues: number[],
+    snapDelta: number,
+    disarmedValues: number[]
+): { value: number; disarmedValues: number[] } {
+    if (
+        !Number.isFinite(rawValue) ||
+        !Number.isFinite(snapDelta) ||
+        snapDelta <= 0
+    ) {
+        return { value: rawValue, disarmedValues: [...disarmedValues] };
+    }
+
+    const stillDisarmed = disarmedValues.filter(
+        (point) => Math.abs(rawValue - point) <= snapDelta
+    );
+
+    let nearest: number | null = null;
+    let nearestDist = Infinity;
+    for (const point of snapValues) {
+        if (
+            stillDisarmed.some(
+                (disarmed) =>
+                    Math.abs(disarmed - point) <=
+                    AXIS_SLIDER_LAYER_VALUE_EPSILON
+            )
+        ) {
+            continue;
+        }
+        const dist = Math.abs(rawValue - point);
+        if (dist <= snapDelta && dist < nearestDist) {
+            nearest = point;
+            nearestDist = dist;
+        }
+    }
+
+    return {
+        value: nearest === null ? rawValue : nearest,
+        disarmedValues: stillDisarmed
+    };
 }
 
 export class AxesManager {
@@ -49,6 +118,8 @@ export class AxesManager {
     loopAnimationStopCallbacks: (() => void)[];
     /** Per-axis persistent play-loop state (survives axes UI DOM rebuilds). */
     loopAnimationStates: Map<string, LoopAnimationState>;
+    /** Layer-location values disarmed for snap until the pointer leaves them. */
+    private sliderSnapDisarmedValues: Map<string, number[]>;
 
     constructor() {
         this.variationSettings = {}; // Current variation settings
@@ -69,6 +140,7 @@ export class AxesManager {
         this.isLoopAnimating = false;
         this.loopAnimationStopCallbacks = [];
         this.loopAnimationStates = new Map();
+        this.sliderSnapDisarmedValues = new Map();
 
         this.fontBytes = null; // To be set externally
         this.callbacks = {}; // Array of callbacks for each event
@@ -248,6 +320,11 @@ export class AxesManager {
                 const value = parseFloat(input.value);
                 const percent = ((value - min) / (max - min)) * 100;
                 input.style.setProperty('--value-percent', `${percent}%`);
+                const wrap = input.closest('.editor-axis-slider-wrap');
+                if (wrap instanceof HTMLElement) {
+                    wrap.style.setProperty('--value-percent', `${percent}%`);
+                    this.updateLayerMarkPassedState(wrap, value, min, max);
+                }
             }
         });
 
@@ -278,6 +355,7 @@ export class AxesManager {
                 );
             }
         });
+        this.refreshAllLayerLocationMarks();
     }
 
     /**
@@ -492,6 +570,17 @@ export class AxesManager {
 
             slider.value = initialValue.toString();
 
+            const sliderWrap = document.createElement('div');
+            sliderWrap.className = 'editor-axis-slider-wrap';
+            const sliderTrack = document.createElement('div');
+            sliderTrack.className = 'editor-axis-slider-track';
+            sliderTrack.setAttribute('aria-hidden', 'true');
+            const layerMarks = document.createElement('div');
+            layerMarks.className = 'editor-axis-layer-marks';
+            sliderTrack.appendChild(layerMarks);
+            sliderWrap.appendChild(sliderTrack);
+            sliderWrap.appendChild(slider);
+
             // Initialize variation setting
             this.variationSettings[axis.tag] = initialValue;
 
@@ -511,10 +600,13 @@ export class AxesManager {
                 const theValue = parseFloat(slider.value);
                 const percent = ((theValue - min) / (max - min)) * 100;
                 slider.style.setProperty('--value-percent', `${percent}%`);
+                sliderWrap.style.setProperty('--value-percent', `${percent}%`);
+                this.updateLayerMarkPassedState(sliderWrap, theValue, min, max);
             };
 
             // Set initial fill
             updateSliderFill();
+            this.renderLayerLocationMarks(sliderWrap, axis);
 
             const animateAxis = () => {
                 if (!state!.active) return;
@@ -624,7 +716,7 @@ export class AxesManager {
 
             // Slider
             axisContainer.appendChild(labelRow);
-            axisContainer.appendChild(slider);
+            axisContainer.appendChild(sliderWrap);
             tempContainer.appendChild(axisContainer);
 
             // Handle value input changes
@@ -718,6 +810,7 @@ export class AxesManager {
             // Enter preview mode on mousedown
             slider.addEventListener('mousedown', () => {
                 this.isSliderActive = true;
+                this.disarmSliderSnapAtCurrentValue(axis, slider);
                 this.call('sliderMouseDown');
             });
 
@@ -761,7 +854,10 @@ export class AxesManager {
             // Update on change
             slider.addEventListener('input', (e) => {
                 // @ts-ignore
-                const value = parseFloat(e.target.value);
+                let value = parseFloat(e.target.value);
+                if (!this.isLoopAnimating) {
+                    value = this.snapSliderInputValue(axis, slider, value);
+                }
                 syncAxisValueFields(value);
 
                 // Update slider fill
@@ -824,6 +920,226 @@ export class AxesManager {
                 }
             }
         });
+    }
+
+    getStoredLayerUserspaceValuesForAxis(
+        axisTag: string,
+        min: number,
+        max: number
+    ): number[] {
+        const fontModel = window.currentFontModel as
+            | {
+                  axes?: any[];
+                  masters?: Array<{
+                      id?: string;
+                      location?: Record<string, number>;
+                  }>;
+                  glyphs?: Array<{
+                      name?: string;
+                      layers?: any[];
+                  }>;
+                  findGlyph?: (name: string) => any;
+              }
+            | null
+            | undefined;
+        if (!fontModel?.axes?.length) {
+            return [];
+        }
+
+        const values: number[] = [];
+        const addLocation = (
+            designLocation: Record<string, number> | undefined
+        ) => {
+            if (!designLocation) {
+                return;
+            }
+            const userspace = designspaceToUserspace(
+                designLocation,
+                fontModel.axes || []
+            ) as Record<string, number>;
+            const value = Number(userspace[axisTag]);
+            if (
+                Number.isFinite(value) &&
+                value >= min - AXIS_SLIDER_LAYER_VALUE_EPSILON &&
+                value <= max + AXIS_SLIDER_LAYER_VALUE_EPSILON
+            ) {
+                values.push(Math.min(max, Math.max(min, value)));
+            }
+        };
+
+        for (const master of fontModel.masters || []) {
+            addLocation(master.location);
+        }
+
+        const glyphCanvas = window.glyphCanvas;
+        const glyphName =
+            glyphCanvas?.outlineEditor?.currentGlyphName ||
+            glyphCanvas?.getCurrentGlyphName?.();
+        const glyph = glyphName
+            ? fontModel.findGlyph?.(glyphName) ||
+              fontModel.glyphs?.find(
+                  (candidate) => candidate.name === glyphName
+              )
+            : null;
+        for (const layer of glyph?.layers || []) {
+            if (layer?.is_background) {
+                continue;
+            }
+            const hasLayerLocation =
+                !!layer?.location && Object.keys(layer.location).length > 0;
+            if (hasLayerLocation) {
+                addLocation(layer.location);
+                continue;
+            }
+            const masterId = layer?.master?.master || layer?._master;
+            const master = (fontModel.masters || []).find(
+                (candidate) => candidate.id === masterId
+            );
+            addLocation(master?.location);
+        }
+
+        return uniqueSortedAxisValues(values);
+    }
+
+    private getSliderSnapDeltaUserspace(
+        slider: HTMLInputElement,
+        min: number,
+        max: number
+    ): number {
+        const width = slider.getBoundingClientRect().width;
+        if (!Number.isFinite(width) || width <= 0) {
+            return 0;
+        }
+        const usable = Math.max(1, width - AXIS_SLIDER_THUMB_SIZE_PX);
+        return (AXIS_SLIDER_LAYER_SNAP_PX * (max - min)) / usable;
+    }
+
+    private disarmSliderSnapAtCurrentValue(
+        axis: VariationAxis,
+        slider: HTMLInputElement
+    ): void {
+        const min = Number(axis.min);
+        const max = Number(axis.max);
+        const snapValues = this.getStoredLayerUserspaceValuesForAxis(
+            axis.tag,
+            min,
+            max
+        );
+        const snapDelta = this.getSliderSnapDeltaUserspace(slider, min, max);
+        const current = parseFloat(slider.value);
+        this.sliderSnapDisarmedValues.set(
+            axis.tag,
+            snapValues.filter((point) => Math.abs(point - current) <= snapDelta)
+        );
+    }
+
+    private snapSliderInputValue(
+        axis: VariationAxis,
+        slider: HTMLInputElement,
+        rawValue: number
+    ): number {
+        const min = Number(axis.min);
+        const max = Number(axis.max);
+        const snapValues = this.getStoredLayerUserspaceValuesForAxis(
+            axis.tag,
+            min,
+            max
+        );
+        const snapDelta = this.getSliderSnapDeltaUserspace(slider, min, max);
+        const snapped = applyAxisSliderLayerSnap(
+            rawValue,
+            snapValues,
+            snapDelta,
+            this.sliderSnapDisarmedValues.get(axis.tag) || []
+        );
+        this.sliderSnapDisarmedValues.set(axis.tag, snapped.disarmedValues);
+        if (snapped.value !== rawValue) {
+            slider.value = snapped.value.toString();
+        }
+        return snapped.value;
+    }
+
+    private updateLayerMarkPassedState(
+        wrap: HTMLElement,
+        value: number,
+        min: number,
+        max: number
+    ): void {
+        wrap.querySelectorAll('.editor-axis-layer-mark').forEach((mark) => {
+            const location = Number(
+                (mark as HTMLElement).dataset.layerLocation
+            );
+            const passed =
+                Number.isFinite(location) &&
+                (max < min ? location >= value : location <= value);
+            mark.classList.toggle('editor-axis-layer-mark-passed', passed);
+        });
+    }
+
+    private renderLayerLocationMarks(
+        wrap: HTMLElement,
+        axis: VariationAxis
+    ): void {
+        const marks = wrap.querySelector('.editor-axis-layer-marks');
+        if (!(marks instanceof HTMLElement)) {
+            return;
+        }
+        const min = Number(axis.min);
+        const max = Number(axis.max);
+        const span = max - min;
+        marks.replaceChildren();
+        if (!Number.isFinite(span) || span === 0) {
+            return;
+        }
+        const values = this.getStoredLayerUserspaceValuesForAxis(
+            axis.tag,
+            min,
+            max
+        );
+        for (const location of values) {
+            const mark = document.createElement('span');
+            mark.className = 'editor-axis-layer-mark';
+            mark.dataset.layerLocation = location.toString();
+            const t = (location - min) / span;
+            mark.style.setProperty('--layer-location-t', String(t));
+            marks.appendChild(mark);
+        }
+        this.updateLayerMarkPassedState(
+            wrap,
+            parseFloat(
+                wrap.querySelector<HTMLInputElement>('.editor-axis-slider')
+                    ?.value || String(min)
+            ),
+            min,
+            max
+        );
+    }
+
+    private refreshAllLayerLocationMarks(): void {
+        if (!this.axesSection) {
+            return;
+        }
+        this.axesSection
+            .querySelectorAll('.editor-axis-slider-wrap')
+            .forEach((wrap) => {
+                const slider = wrap.querySelector<HTMLInputElement>(
+                    '.editor-axis-slider[data-axis-tag]'
+                );
+                if (!slider) {
+                    return;
+                }
+                const axisTag = slider.getAttribute('data-axis-tag');
+                if (!axisTag) {
+                    return;
+                }
+                this.renderLayerLocationMarks(wrap as HTMLElement, {
+                    tag: axisTag,
+                    name: axisTag,
+                    min: parseFloat(slider.min),
+                    max: parseFloat(slider.max),
+                    default: parseFloat(slider.value)
+                });
+            });
     }
 
     setVariation(axisTag: string, value: number) {

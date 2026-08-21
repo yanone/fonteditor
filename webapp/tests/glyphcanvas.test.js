@@ -22525,6 +22525,66 @@ describe('AxesManager coordinate fields', () => {
             global.requestAnimationFrame = originalRequestAnimationFrame;
         }
     });
+
+    test('snaps toward a stored layer location and releases after leaving the window', () => {
+        const {
+            applyAxisSliderLayerSnap
+        } = require('../js/glyph-canvas/variations');
+
+        const approaching = applyAxisSliderLayerSnap(49, [50], 2, []);
+        expect(approaching.value).toBe(50);
+        expect(approaching.disarmedValues).toEqual([]);
+
+        const leavingRest = applyAxisSliderLayerSnap(49, [50], 2, [50]);
+        expect(leavingRest.value).toBe(49);
+        expect(leavingRest.disarmedValues).toEqual([50]);
+
+        const rearmed = applyAxisSliderLayerSnap(47, [50], 2, [50]);
+        expect(rearmed.value).toBe(47);
+        expect(rearmed.disarmedValues).toEqual([]);
+
+        const snapAgain = applyAxisSliderLayerSnap(49, [50], 2, []);
+        expect(snapAgain.value).toBe(50);
+    });
+
+    test('draws filled layer-location marks that follow the passed track color', async () => {
+        const originalRequestAnimationFrame = global.requestAnimationFrame;
+        global.requestAnimationFrame = (callback) => {
+            callback(0);
+            return 1;
+        };
+
+        window.currentFontModel.masters = [
+            { id: 'light', location: { wght: 100 } },
+            { id: 'regular', location: { wght: 500 } },
+            { id: 'bold', location: { wght: 900 } }
+        ];
+        canvas.axesManager.variationSettings = { wght: 50 };
+
+        try {
+            await canvas.axesManager.updateAxesUI();
+            const marks = [
+                ...document.querySelectorAll('.editor-axis-layer-mark')
+            ];
+            expect(marks).toHaveLength(3);
+            expect(marks.map((mark) => mark.dataset.layerLocation)).toEqual([
+                '0',
+                '50',
+                '100'
+            ]);
+            expect(
+                marks[0].classList.contains('editor-axis-layer-mark-passed')
+            ).toBe(true);
+            expect(
+                marks[1].classList.contains('editor-axis-layer-mark-passed')
+            ).toBe(true);
+            expect(
+                marks[2].classList.contains('editor-axis-layer-mark-passed')
+            ).toBe(false);
+        } finally {
+            global.requestAnimationFrame = originalRequestAnimationFrame;
+        }
+    });
 });
 
 // ==================== Text Run Editor Mirrored Functions ====================
