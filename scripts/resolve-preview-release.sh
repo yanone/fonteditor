@@ -4,6 +4,10 @@
 # Does not create a GitHub tag or release.
 # When GITHUB_OUTPUT is set, writes TAG, DISPLAY_VERSION, COMMIT_SHA, COMMIT_SHORT.
 # Always writes release-notes.md in the repo root.
+#
+# Display/tag: DATE-build-N / v0.0.0-preview.DATE.N
+# N is a monotonic build number (not reset per day). DATE is the UTC day of
+# this cut and keeps semver/git version-sort descending.
 
 set -e
 
@@ -12,38 +16,32 @@ cd "$(dirname "$0")/.."
 CHANGELOG_FILE="CHANGELOG.md"
 RELEASE_NOTES_FILE="release-notes.md"
 
-if ! command -v gh >/dev/null 2>&1; then
-    echo "Error: GitHub CLI (gh) is required"
-    exit 1
-fi
-
 DATE=$(date -u +"%Y%m%d")
 COMMIT_SHA=$(git rev-parse HEAD)
 COMMIT_SHORT=$(git rev-parse --short HEAD)
 
-MAX_N=0
+git fetch origin --tags --force >/dev/null 2>&1 || true
+
+TAG=""
+DISPLAY_VERSION=""
 PREV_TAG=""
-while IFS=$'\t' read -r name tag; do
-    [ -z "$name" ] && continue
-    num=$(printf '%s\n' "$name" | sed -n 's/^[0-9][0-9]*-build-\([0-9][0-9]*\)$/\1/p')
-    if [ -z "$num" ]; then
-        num=$(printf '%s\n' "$name" | sed -n 's/^preview-build-\([0-9][0-9]*\)-on-.*$/\1/p')
-    fi
-    if [ -z "$num" ]; then
-        num=$(printf '%s\n' "$tag" | sed -n 's/^v0\.0\.0-preview\.[0-9][0-9]*\.\([0-9][0-9]*\)$/\1/p')
-    fi
-    if [ -n "$num" ] && [ "$num" -gt "$MAX_N" ]; then
-        MAX_N=$num
-        PREV_TAG=$tag
-    fi
+NEXT_N=""
+while IFS= read -r line; do
+    case "$line" in
+        TAG=*) TAG=${line#TAG=} ;;
+        DISPLAY_VERSION=*) DISPLAY_VERSION=${line#DISPLAY_VERSION=} ;;
+        PREV_TAG=*) PREV_TAG=${line#PREV_TAG=} ;;
+        NEXT_N=*) NEXT_N=${line#NEXT_N=} ;;
+    esac
 done < <(
-    gh release list --limit 100 --json name,tagName,isPrerelease \
-        --jq '.[] | select(.isPrerelease) | [.name, .tagName] | @tsv'
+    git tag -l 'v0.0.0-preview.*' |
+        node scripts/preview-version.mjs --date="$DATE"
 )
 
-NEXT_N=$((MAX_N + 1))
-DISPLAY_VERSION="${DATE}-build-${NEXT_N}"
-TAG="v0.0.0-preview.${DATE}.${NEXT_N}"
+if [ -z "$TAG" ] || [ -z "$DISPLAY_VERSION" ]; then
+    echo "Error: could not resolve next preview version"
+    exit 1
+fi
 
 if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
     echo "Error: remote tag $TAG already exists"
