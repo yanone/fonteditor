@@ -394,8 +394,12 @@ function appendBouncySentence(parent: HTMLElement, text: string): void {
         const letter = document.createElement('span');
         letter.className = 'tour-bounce-letter';
         letter.textContent = character;
-        letter.style.animationDelay = `${(-Math.random() * 1.4).toFixed(3)}s`;
-        letter.style.animationDuration = `${(1.1 + Math.random() * 0.7).toFixed(3)}s`;
+        letter.style.animationDelay = `${(-Math.random() * 0.7).toFixed(3)}s`;
+        letter.style.animationDuration = `${(0.38 + Math.random() * 0.28).toFixed(3)}s`;
+        letter.style.setProperty(
+            '--tour-bounce-lift',
+            `${(-0.26 - Math.random() * 0.12).toFixed(3)}em`
+        );
         paragraph.append(letter);
     }
     parent.append(paragraph);
@@ -1185,13 +1189,17 @@ function isBrowserReloadShortcut(event: KeyboardEvent): boolean {
     );
 }
 
-function onTourKeyDown(event: KeyboardEvent): void {
+/**
+ * While the spotlight is visible, only keys the current slide asks for
+ * (plus hard-reload) may reach the rest of the app.
+ */
+export function isTourKeyEventAllowed(event: KeyboardEvent): boolean {
     const host = getHost();
     if (!host.visible) {
-        return;
+        return true;
     }
     if (isBrowserReloadShortcut(event)) {
-        return;
+        return true;
     }
     const cmdOrCtrl = event.metaKey || event.ctrlKey;
     const key = typeof event.key === 'string' ? event.key.toLowerCase() : '';
@@ -1201,7 +1209,7 @@ function onTourKeyDown(event: KeyboardEvent): void {
         !event.altKey &&
         isViewShortcutAllowedDuringTour(key)
     ) {
-        return;
+        return true;
     }
     if (
         cmdOrCtrl &&
@@ -1210,26 +1218,37 @@ function onTourKeyDown(event: KeyboardEvent): void {
         !event.altKey &&
         isTourCmdEscapeAllowed()
     ) {
-        return;
+        return true;
     }
-    if (event.key === 'Escape') {
+    if (event.key === 'Escape' && !cmdOrCtrl) {
         const policy = host.slide?.escapePolicy;
         if (policy === 'exit-edit') {
-            return;
+            return true;
         }
         if (policy === 'component-levels' && isTourEditingComponent()) {
-            return;
+            return true;
         }
     }
-    const allowedKey = host.slide?.allowedKeys?.includes(
-        event.key.toLowerCase()
-    );
-    if (allowedKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
-        return;
+    if (
+        host.slide?.allowedKeys?.includes(event.key.toLowerCase()) &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey
+    ) {
+        return true;
     }
     const target = event.target as HTMLElement | null;
-    const onContinue = target?.closest?.('[data-tour-action="continue"]');
-    if (onContinue && (event.key === 'Enter' || event.key === ' ')) {
+    if (
+        target?.closest?.('[data-tour-action="continue"]') &&
+        (event.key === 'Enter' || event.key === ' ')
+    ) {
+        return true;
+    }
+    return false;
+}
+
+function onTourKeyDown(event: KeyboardEvent): void {
+    if (isTourKeyEventAllowed(event)) {
         return;
     }
     event.preventDefault();
@@ -1363,18 +1382,18 @@ export async function showTourSlide(
     host.previewingSampleText = false;
     stopSampleTextTracking();
     setViewShortcutLock(slide);
-    fillTooltip(slide);
-    await slide.prepare?.();
-    const keepCutouts = options?.keepCutouts === true;
-    paintSpotlight(slide, { punchHits: keepCutouts });
-
     if (!host.listenersBound) {
-        document.addEventListener('keydown', onTourKeyDown, true);
+        window.addEventListener('keydown', onTourKeyDown, true);
         window.addEventListener('resize', onTourGeometryChange);
         window.addEventListener('glyphCanvasRendered', onTourGeometryChange);
         window.addEventListener('editorModeChanged', onTourGeometryChange);
         host.listenersBound = true;
     }
+    fillTooltip(slide);
+    await slide.prepare?.();
+    const keepCutouts = options?.keepCutouts === true;
+    paintSpotlight(slide, { punchHits: keepCutouts });
+
     if (!host.resizeObserver && typeof ResizeObserver !== 'undefined') {
         host.resizeObserver = new ResizeObserver(() => {
             if (host.slide && host.visible && !host.advancing) {
@@ -1456,7 +1475,7 @@ export function hideTourSpotlight(): void {
     setHitPassthrough(false);
     unbindSlideInteraction();
     setViewShortcutLock(null);
-    document.removeEventListener('keydown', onTourKeyDown, true);
+    window.removeEventListener('keydown', onTourKeyDown, true);
     window.removeEventListener('resize', onTourGeometryChange);
     window.removeEventListener('glyphCanvasRendered', onTourGeometryChange);
     window.removeEventListener('editorModeChanged', onTourGeometryChange);

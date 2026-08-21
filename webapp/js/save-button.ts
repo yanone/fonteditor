@@ -4,6 +4,7 @@
  */
 
 import { beginLoadingCursor, endLoadingCursor } from './loading-cursor';
+import { isTourKeyEventAllowed } from './tour-spotlight';
 
 declare const $: any;
 
@@ -20,6 +21,10 @@ class SaveButton {
             // Cmd+S (Mac) or Ctrl+S (Windows/Linux)
             // Cmd+Shift+S is reserved for font Save As
             if ((e.metaKey || e.ctrlKey) && e.key === 's' && !e.shiftKey) {
+                if (!isTourKeyEventAllowed(e)) {
+                    e.preventDefault();
+                    return;
+                }
                 e.preventDefault();
                 void this.handleSave();
             }

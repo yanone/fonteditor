@@ -28,6 +28,7 @@ import { canDeleteSelectedGlyphs } from './delete-glyphs-dialog';
 import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
 import { openConvertToCounterpunchDialog } from './convert-to-counterpunch-dialog';
 import { openTourIntro } from './tour';
+import { isTourKeyEventAllowed } from './tour-spotlight';
 
 const console = new Logger('ToolbarMenus');
 
@@ -600,6 +601,12 @@ function installGlobalShortcuts(): void {
         'keydown',
         (event: KeyboardEvent) => {
             if (event.defaultPrevented) {
+                return;
+            }
+            if (!isTourKeyEventAllowed(event)) {
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation();
                 return;
             }
 

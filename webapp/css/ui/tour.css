@@ -188,7 +188,7 @@
         transform: translateY(0);
     }
     to {
-        transform: translateY(-0.12em);
+        transform: translateY(var(--tour-bounce-lift, -0.32em));
     }
 }
 

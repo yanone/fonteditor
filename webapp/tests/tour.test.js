@@ -281,6 +281,17 @@ describe('tour intro', () => {
         });
         document.dispatchEvent(blocked);
         expect(blocked.defaultPrevented).toBe(true);
+
+        const openFont = new KeyboardEvent('keydown', {
+            key: 'o',
+            code: 'KeyO',
+            metaKey: true,
+            shiftKey: false,
+            bubbles: true,
+            cancelable: true
+        });
+        window.dispatchEvent(openFont);
+        expect(openFont.defaultPrevented).toBe(true);
     });
 
     test('Cancel on unsaved changes keeps the intro open', async () => {

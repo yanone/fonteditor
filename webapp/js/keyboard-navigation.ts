@@ -2,6 +2,7 @@ import { getClosestExpandedTopRowViewId } from './view-focus';
 import {
     isTourBlockingViewShortcuts,
     isTourCmdEscapeAllowed,
+    isTourKeyEventAllowed,
     isViewShortcutAllowedDuringTour,
     consumeAllowedTourViewShortcut
 } from './tour-spotlight';
@@ -1692,6 +1693,13 @@ import {
      * Handle keyboard shortcuts
      */
     function handleKeyDown(event: KeyboardEvent) {
+        if (isTourBlockingViewShortcuts() && !isTourKeyEventAllowed(event)) {
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+            return;
+        }
+
         const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
         const cmdKey = isMac ? event.metaKey : event.ctrlKey;
         const shiftKey = event.shiftKey;
