@@ -116,7 +116,10 @@ describe('tour intro', () => {
         };
         window.glyphCanvas = {
             canvas: document.createElement('canvas'),
-            outlineEditor: { active: false },
+            outlineEditor: {
+                active: false,
+                setGuidelinesVisible: jest.fn()
+            },
             selectMaster: jest.fn().mockResolvedValue(undefined),
             textRunEditor: {
                 setTextBuffer: jest.fn(),
@@ -243,6 +246,9 @@ describe('tour intro', () => {
             'regular',
             { wght: 400 }
         );
+        expect(
+            window.glyphCanvas.outlineEditor.setGuidelinesVisible
+        ).toHaveBeenCalledWith(false);
         expect(window.focusView).toHaveBeenCalledWith('view-editor');
         expect(window.resizeView).toHaveBeenCalledWith('view-editor');
         expect(document.querySelector('.tour-tooltip h3').textContent).toBe(
@@ -1145,12 +1151,15 @@ describe('tour intro', () => {
         await showTourSlide(getTourSlide('glyph-overview-panel'), () => {});
         const chips = [...document.querySelectorAll('.tour-shortcut')];
         expect(chips.length).toBeGreaterThan(0);
-        const keys = [...chips[0].querySelectorAll('kbd')].map(
-            (node) => node.textContent
-        );
-        expect(keys[0]).toMatch(/^(Cmd|Ctrl)$/);
-        expect(keys).toContain('Shift');
-        expect(keys).toContain('O');
+        expect(chips[0].textContent).toMatch(/^(Cmd|Ctrl)\+Shift\+O$/);
+    });
+
+    test('formats tool letter shortcuts as pre chips', async () => {
+        const { getTourSlide } = require('../js/tour-slides');
+        const { showTourSlide } = require('../js/tour-spotlight');
+        await showTourSlide(getTourSlide('select-tool'), () => {});
+        const chips = [...document.querySelectorAll('.tour-shortcut')];
+        expect(chips.some((chip) => chip.textContent === 'v')).toBe(true);
     });
 
     test('formats print() as a pre chip like shortcuts', async () => {
@@ -1159,11 +1168,6 @@ describe('tour intro', () => {
         await showTourSlide(getTourSlide('konsole'), () => {});
         const chips = [...document.querySelectorAll('.tour-shortcut')];
         expect(chips.some((chip) => chip.textContent === 'print()')).toBe(true);
-        expect(
-            chips
-                .find((chip) => chip.textContent === 'print()')
-                ?.querySelector('kbd')
-        ).toBeNull();
     });
 
     test('bounces the closing sentence and completes the tour', async () => {

@@ -3,6 +3,7 @@ const path = require('path');
 const Y = require('yjs');
 
 const fontManager = require('../js/font-manager').default;
+const { setStartupEditingCompileGateForTests } = require('../js/font-manager');
 const { PatchSyncEngine: ChangeBridge } = require('../js/patch-sync-engine');
 const { fontCompilation } = require('../js/font-compilation');
 const { Font, withSuppressedModelRecording } = require('../js/babelfont-model');
@@ -1493,6 +1494,7 @@ describe('FontManager editing subset inclusion', () => {
         hideErrorSpy?.mockRestore();
         fontManager.clearLiveDragPreview();
         fontManager.updateEditingSubsetSnapshot([]);
+        setStartupEditingCompileGateForTests({ active: false });
         fontManager.openedFonts = originalOpenedFonts;
         fontManager.currentFontId = originalCurrentFontId;
         window.glyphCanvas = originalGlyphCanvas;
@@ -2312,6 +2314,70 @@ describe('FontManager editing subset inclusion', () => {
         } finally {
             deriveSpy.mockRestore();
         }
+    });
+
+    test('compileEditingFont uses URL text for the first subset before startup restore', async () => {
+        const urlState = require('../js/url-state');
+        const stateRestore = require('../js/state-restore');
+        const readUrlSpy = jest
+            .spyOn(urlState, 'readUrlState')
+            .mockReturnValue({ text: 'Hämburger' });
+        const startupReadySpy = jest
+            .spyOn(stateRestore, 'isStartupStateReady')
+            .mockReturnValue(false);
+        window.glyphCanvas.textRunEditor.textBuffer = 'Hamburgevons';
+        window.glyphCanvas.textRunEditor.glyphNameBuffer = ['H'];
+        window.glyphCanvas.outlineEditor.currentGlyphName = null;
+        window.glyphCanvas.getCurrentGlyphName = jest.fn(() => null);
+        fontManager.currentText = '';
+        const deriveSpy = jest
+            .spyOn(fontManager, 'deriveSubsetGlyphsFromText')
+            .mockReturnValue(['H', 'adieresis', 'm', 'b', 'u', 'r', 'g', 'e']);
+
+        try {
+            await fontManager.compileEditingFont();
+
+            expect(deriveSpy).toHaveBeenCalledWith('Hämburger');
+            expect(compileEditingSpy).toHaveBeenCalledTimes(1);
+            expect(compileEditingSpy.mock.calls[0][2]).toEqual(
+                expect.arrayContaining(['adieresis'])
+            );
+            expect(fontManager.currentText).toBe('Hämburger');
+        } finally {
+            deriveSpy.mockRestore();
+            readUrlSpy.mockRestore();
+            startupReadySpy.mockRestore();
+        }
+    });
+
+    test('open-session compile gate still compiles when the subset widens', async () => {
+        window.glyphCanvas.outlineEditor.currentGlyphName = null;
+        window.glyphCanvas.getCurrentGlyphName = jest.fn(() => null);
+        setStartupEditingCompileGateForTests({ active: true });
+
+        await fontManager.compileEditingFont(
+            'Hamburgevons',
+            [],
+            ['H', 'a', 'm']
+        );
+        expect(compileEditingSpy).toHaveBeenCalledTimes(1);
+
+        await fontManager.compileEditingFont(
+            'Hämburger',
+            [],
+            ['H', 'adieresis', 'm']
+        );
+        expect(compileEditingSpy).toHaveBeenCalledTimes(2);
+        expect(compileEditingSpy.mock.calls[1][2]).toEqual(
+            expect.arrayContaining(['adieresis'])
+        );
+
+        await fontManager.compileEditingFont(
+            'Hämburger',
+            [],
+            ['H', 'adieresis', 'm']
+        );
+        expect(compileEditingSpy).toHaveBeenCalledTimes(2);
     });
 
     test('getAutomaticCompositionDragScopeGlyphNames keeps only visible dependents and required bridges', () => {

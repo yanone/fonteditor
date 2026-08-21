@@ -943,7 +943,7 @@ export const TOUR_SLIDES: Record<string, TourSlide> = {
         tooltip: {
             title: 'Select Tool',
             body: tourBody(
-                'The Select tool (shortcut **v**) is on by default when you enter.',
+                'The Select tool (shortcut `v`) is on by default when you enter.',
                 'Select a node by mouse and move it a bit.'
             ),
             targetCutoutId: 'select-tool',
@@ -963,7 +963,7 @@ export const TOUR_SLIDES: Record<string, TourSlide> = {
         tooltip: {
             title: 'Draw Tool',
             body: tourBody(
-                'The Draw tool (shortcut **p**) places nodes one by one to build a contour.',
+                'The Draw tool (shortcut `p`) places nodes one by one to build a contour.',
                 'Select the Draw tool and click the four gray marks. Close the shape by returning to the first node — a red crosshair appears when you hover it.'
             ),
             targetCutoutId: 'draw-area',
@@ -985,7 +985,7 @@ export const TOUR_SLIDES: Record<string, TourSlide> = {
         tooltip: {
             title: 'Insert Tool',
             body: tourBody(
-                'The Insert tool (shortcut **i**) adds a node on an existing segment.',
+                'The Insert tool (shortcut `i`) adds a node on an existing segment.',
                 'Select the Insert tool and click the gray mark in the middle of the top edge.'
             ),
             targetCutoutId: 'insert-tool',
@@ -1007,7 +1007,7 @@ export const TOUR_SLIDES: Record<string, TourSlide> = {
         tooltip: {
             title: 'Select Tool',
             body: tourBody(
-                'The Select tool (shortcut **v**) moves nodes.',
+                'The Select tool (shortcut `v`) moves nodes.',
                 'Select the Select tool and drag the new middle node up to the gray mark to form a triangle.'
             ),
             targetCutoutId: 'select-tool',
@@ -1028,7 +1028,7 @@ export const TOUR_SLIDES: Record<string, TourSlide> = {
         tooltip: {
             title: 'Convert Tool',
             body: tourBody(
-                'The Convert tool (shortcut **c**) turns a straight segment into a curve.',
+                'The Convert tool (shortcut `c`) turns a straight segment into a curve.',
                 'Select the Convert tool and click the gray mark on each diagonal.'
             ),
             targetCutoutId: 'convert-tool',

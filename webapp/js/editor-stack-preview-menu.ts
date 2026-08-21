@@ -57,7 +57,7 @@ export function createStackPreviewMenuHtml(): string {
         !window.glyphCanvas?.stackPreviewAnimator?.isReversing;
     const stackPreviewCheckmark = stackPreviewActive ? 'check' : '';
     const guidelinesVisible =
-        window.glyphCanvas?.outlineEditor?.guidelinesVisible !== false;
+        window.glyphCanvas?.outlineEditor?.guidelinesVisible === true;
     const guidelinesCheckmark = guidelinesVisible ? 'check' : '';
     const pairedLayerVisible =
         window.glyphCanvas?.outlineEditor?.isPairedLayerVisible() ?? false;

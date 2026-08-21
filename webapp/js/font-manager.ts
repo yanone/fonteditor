@@ -45,8 +45,10 @@ const NO_OP_YJS_UPDATE = new Uint8Array([0, 0]);
 import { beginLoadingCursor, endLoadingCursor } from './loading-cursor';
 import {
     ensureStartupStateReady,
+    isStartupStateReady,
     resetStartupStateReady
 } from './state-restore';
+import { readUrlState } from './url-state';
 import {
     normalizeWorkerReplayTargets,
     type WorkerReplayTarget
@@ -69,6 +71,17 @@ const console = new Logger('FontManager');
 
 let startupOpenSessionActive = false;
 let startupOpenSessionEditingCompileCount = 0;
+let startupCompiledSubsetKey = '';
+
+export function setStartupEditingCompileGateForTests(options: {
+    active: boolean;
+    compileCount?: number;
+    compiledSubsetKey?: string;
+}): void {
+    startupOpenSessionActive = options.active;
+    startupOpenSessionEditingCompileCount = options.compileCount ?? 0;
+    startupCompiledSubsetKey = options.compiledSubsetKey ?? '';
+}
 
 export async function serializeFontForSourceSave(
     path: string,
@@ -2195,6 +2208,34 @@ class FontManager {
         return [...this.editingSubsetSnapshotGlyphs];
     }
 
+    resolveEditingTextForCompile(explicitText: string = ''): string {
+        if (explicitText) {
+            return explicitText;
+        }
+
+        // The one-shot startup compile runs before URL/state restore applies
+        // `?text=` to the live buffer. Prefer that URL/state text over the
+        // constructor default ("Hamburgevons") so glyphs like adieresis are
+        // in the first editing subset.
+        if (!isStartupStateReady()) {
+            const urlText = readUrlState().text;
+            if (urlText) {
+                return urlText;
+            }
+            const stateText = window.stateManager?.editor_text_buffer;
+            if (stateText) {
+                return stateText;
+            }
+        }
+
+        return (
+            window.glyphCanvas?.textRunEditor?.textBuffer ||
+            this.currentText ||
+            localStorage.getItem('glyphCanvasTextBuffer') ||
+            'Hamburgevons'
+        );
+    }
+
     getLiveVisibleGlyphNames(): string[] {
         const glyphNameBuffer =
             window.glyphCanvas?.textRunEditor?.glyphNameBuffer || [];
@@ -2589,7 +2630,8 @@ class FontManager {
         }
 
         // Store current text and features for future use
-        this.currentText = text;
+        const resolvedText = this.resolveEditingTextForCompile(text);
+        this.currentText = resolvedText;
         this.selectedFeatures = features;
 
         let responseRevisionKey = String(
@@ -2697,11 +2739,7 @@ class FontManager {
             let glyphsToInclude = subsetGlyphs;
             if (!glyphsToInclude || glyphsToInclude.length === 0) {
                 const fallbackText =
-                    text ||
-                    window.glyphCanvas?.textRunEditor?.textBuffer ||
-                    this.currentText ||
-                    localStorage.getItem('glyphCanvasTextBuffer') ||
-                    'Hamburgevons';
+                    this.resolveEditingTextForCompile(resolvedText);
                 glyphsToInclude = this.deriveSubsetGlyphsFromText(fallbackText);
                 if (glyphsToInclude.length > 0) {
                     this.updateEditingSubsetSnapshot(glyphsToInclude);
@@ -2747,7 +2785,11 @@ class FontManager {
             }
 
             if (startupOpenSessionActive) {
-                if (startupOpenSessionEditingCompileCount >= 1) {
+                const incomingSubsetKey = this.createSubsetKey(glyphsToInclude);
+                if (
+                    startupOpenSessionEditingCompileCount >= 1 &&
+                    incomingSubsetKey === startupCompiledSubsetKey
+                ) {
                     console.log(
                         '[FontManager] Skipping extra editing compile during font.openSession'
                     );
@@ -2759,6 +2801,7 @@ class FontManager {
                     return this.editingFont;
                 }
                 startupOpenSessionEditingCompileCount += 1;
+                startupCompiledSubsetKey = incomingSubsetKey;
                 consumedStartupCompileSlot = true;
             }
 
@@ -3259,11 +3302,9 @@ class FontManager {
         // text run still shows more glyphs) must not win over the current
         // editing text / visible run. Merge text-derived and live-visible
         // glyphs so dependents like adieresis stay in the editing subset.
-        const textBuffer =
-            this.currentText ||
-            window.glyphCanvas?.textRunEditor?.textBuffer ||
-            localStorage.getItem('glyphCanvasTextBuffer') ||
-            '';
+        const textBuffer = this.resolveEditingTextForCompile(
+            this.currentText || ''
+        );
         subsetGlyphs = this.normalizeSubsetGlyphs([
             ...subsetGlyphs,
             ...this.getLiveVisibleGlyphNames()
@@ -5964,6 +6005,7 @@ window.addEventListener('fontLoaded', async (event: Event) => {
 
         startupOpenSessionActive = false;
         startupOpenSessionEditingCompileCount = 0;
+        startupCompiledSubsetKey = '';
 
         if (canvasReadyListener) {
             window.removeEventListener(
@@ -6015,6 +6057,7 @@ window.addEventListener('fontLoaded', async (event: Event) => {
 
         startupOpenSessionActive = true;
         startupOpenSessionEditingCompileCount = 0;
+        startupCompiledSubsetKey = '';
         beginStartupInteractionLock();
 
         emitOpenLifecycle(openSessionId, 'fontLoaded', {

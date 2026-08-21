@@ -259,6 +259,7 @@ async function prepareEditorForFirstSlide(): Promise<void> {
         canvas.exitGlyphEditMode();
     }
     await selectTourMasterByName(TOUR_REGULAR_MASTER_NAME);
+    canvas?.outlineEditor?.setGuidelinesVisible?.(false);
     canvas?.textRunEditor?.setTextBuffer(TOUR_SAMPLE_TEXT);
     await canvas?.applyInitialViewportFit?.();
     await wait(50);

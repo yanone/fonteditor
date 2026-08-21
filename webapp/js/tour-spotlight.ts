@@ -353,33 +353,10 @@ function localizeTourModifiers(text: string): string {
         .replaceAll('Alt/Option', option);
 }
 
-function isShortcutMarkup(text: string): boolean {
-    if (/[()]/.test(text)) {
-        return false;
-    }
-    if (text.length === 1) {
-        return true;
-    }
-    return /cmd\/ctrl|shift|alt\/option|escape|enter|\+/i.test(text);
-}
-
 function appendPreChip(parent: HTMLElement, raw: string): void {
-    const localized = localizeTourModifiers(raw);
     const pre = document.createElement('pre');
     pre.className = 'tour-shortcut';
-    if (isShortcutMarkup(raw)) {
-        const keys = localized
-            .split('+')
-            .map((part) => part.trim())
-            .filter(Boolean);
-        for (const key of keys) {
-            const kbd = document.createElement('kbd');
-            kbd.textContent = key;
-            pre.append(kbd);
-        }
-    } else {
-        pre.textContent = localized;
-    }
+    pre.textContent = localizeTourModifiers(raw);
     parent.append(pre);
 }
 

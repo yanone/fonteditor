@@ -3262,6 +3262,10 @@ export class OutlineEditor {
     private selectionResizeSnapshot: SelectionResizeSnapshot | null = null;
     private strokeAwareScalingPreference: boolean = false;
 
+    /**
+     * Preference: show master and layer guidelines on the canvas.
+     * Default false — opt in via Editing View → View menu → Guidelines.
+     */
     private readonly GUIDELINES_STORAGE_KEY = 'editorGuidelinesVisible';
     private readonly PAIRED_LAYER_VISIBILITY_STORAGE_KEY =
         'editorPairedLayerVisible';
@@ -3460,11 +3464,9 @@ export class OutlineEditor {
 
     private loadGuidelinesVisible(): boolean {
         try {
-            return (
-                localStorage.getItem(this.GUIDELINES_STORAGE_KEY) !== 'false'
-            );
+            return localStorage.getItem(this.GUIDELINES_STORAGE_KEY) === 'true';
         } catch (_error) {
-            return true;
+            return false;
         }
     }
 

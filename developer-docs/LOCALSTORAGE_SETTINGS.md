@@ -26,7 +26,7 @@ IndexedDB keys such as directory handles and export destinations are not include
 | [`canvasPluginsEnabled`](#key-canvaspluginsenabled) | Persists canvas plugins enabled. | getItem, setItem | `webapp/js/canvas-plugin-manager.ts` |
 | [`docsLastPageId`](#key-docslastpageid) | Persists docs last page id. | getItem, setItem | `webapp/js/docs-viewer.ts` |
 | [`docsViewWidth`](#key-docsviewwidth) | Persists docs view width. | getItem, setItem | `webapp/js/docs-viewer.ts`, `webapp/js/resizer.ts` |
-| [`editorGuidelinesVisible`](#key-editorguidelinesvisible) | Persists editor guidelines visible. | getItem, setItem | `webapp/js/glyph-canvas/outline-editor.ts` |
+| [`editorGuidelinesVisible`](#key-editorguidelinesvisible) | Preference: show master and layer guidelines on the canvas. | getItem, setItem | `webapp/js/glyph-canvas/outline-editor.ts` |
 | [`editorNodeSnapping`](#key-editornodesnapping) | Preference: snap outline points while dragging or drawing. | getItem, setItem | `webapp/js/node-snapping-pref.ts` |
 | [`editorPairedLayerVisible`](#key-editorpairedlayervisible) | Persists editor paired layer visible. | getItem, setItem | `webapp/js/glyph-canvas/outline-editor.ts` |
 | [`editorPreviewArea`](#key-editorpreviewarea) | Preference: how much chrome Space preview fades, and which rectangle the dotted viewport guide follows. | getItem, setItem | `webapp/js/editor-preview-area-pref.ts` |
@@ -79,7 +79,7 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Default when unset: `false`
 - Sites:
   - webapp/js/ai-assistant.ts:795 `getItem` via constructor `constructor`
-  - webapp/js/ai-assistant.ts:928 `setItem` via method `initUI`
+  - webapp/js/ai-assistant.ts:947 `setItem` via method `initUI`
 
 <a id="key-canvasplugin-curvaturecombplugin-exponent"></a>
 
@@ -197,13 +197,13 @@ IndexedDB keys such as directory handles and export destinations are not include
 
 ## `editorGuidelinesVisible`
 
-- Purpose: Persists editor guidelines visible.
+- Purpose: Preference: show master and layer guidelines on the canvas.
 - Kind: literal
 - Operations: `getItem`, `setItem`
-- Default when unset: `true`
+- Default when unset: `false`
 - Sites:
-  - webapp/js/glyph-canvas/outline-editor.ts:3464 `getItem` via method `loadGuidelinesVisible`
-  - webapp/js/glyph-canvas/outline-editor.ts:3493 `setItem` via method `setGuidelinesVisible`
+  - webapp/js/glyph-canvas/outline-editor.ts:3468 `getItem` via method `loadGuidelinesVisible`
+  - webapp/js/glyph-canvas/outline-editor.ts:3497 `setItem` via method `setGuidelinesVisible`
 
 <a id="key-editornodesnapping"></a>
 
@@ -226,8 +226,8 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Operations: `getItem`, `setItem`
 - Default when unset: `false`
 - Sites:
-  - webapp/js/glyph-canvas/outline-editor.ts:3474 `getItem` via method `loadPairedLayerVisible`
-  - webapp/js/glyph-canvas/outline-editor.ts:3908 `setItem` via method `setPairedLayerVisible`
+  - webapp/js/glyph-canvas/outline-editor.ts:3478 `getItem` via method `loadPairedLayerVisible`
+  - webapp/js/glyph-canvas/outline-editor.ts:3912 `setItem` via method `setPairedLayerVisible`
 
 <a id="key-editorpreviewarea"></a>
 
@@ -272,9 +272,8 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Operations: `getItem`, `setItem`, `removeItem`
 - Default when unset: `Hamburgevons`
 - Sites:
-  - webapp/js/font-manager.ts:2099 `removeItem` via method `handleNewFont`
-  - webapp/js/font-manager.ts:2705 `getItem` via method `compileEditingFont`
-  - webapp/js/font-manager.ts:3267 `getItem` via method `recompileEditingFont`
+  - webapp/js/font-manager.ts:2110 `removeItem` via method `handleNewFont`
+  - webapp/js/font-manager.ts:2234 `getItem` via method `resolveEditingTextForCompile`
   - webapp/js/glyph-canvas/textrun.ts:113 `getItem` via constructor `constructor`
   - webapp/js/glyph-canvas/textrun.ts:380 `setItem` via method `setTextBuffer`
   - webapp/js/glyph-canvas/textrun.ts:1927 `setItem` via method `loadTextBufferFromFont`
@@ -348,7 +347,7 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Sites:
   - webapp/js/docs-viewer.ts:209 `getItem` via method `close`
   - webapp/js/fonteditor.ts:210 `getItem` via function `initFontEditor`
-  - webapp/js/keyboard-navigation.ts:1468 `setItem` via function `focusView`
+  - webapp/js/keyboard-navigation.ts:1469 `setItem` via function `focusView`
 
 <a id="key-lastfilesystemcontext"></a>
 
@@ -371,7 +370,7 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Default when unset: `auto`
 - Sites:
   - webapp/js/font-info.ts:2518 `getItem` via function `getInitialTheme`
-  - webapp/js/script-editor.ts:331 `getItem` via function `getInitialTheme`
+  - webapp/js/script-editor.ts:332 `getItem` via function `getInitialTheme`
   - webapp/js/theme-switcher.ts:55 `getItem` via method `init`
   - webapp/js/theme-switcher.ts:57 `setItem` via method `init`
   - webapp/js/theme-switcher.ts:113 `getItem` via method `init`
@@ -387,11 +386,11 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Operations: `getItem`, `setItem`
 - Default when unset: `# Write your Python script here...`
 - Sites:
-  - webapp/js/script-editor.ts:293 `getItem` via function `init`
-  - webapp/js/script-editor.ts:415 `setItem` via function `init`
-  - webapp/js/script-editor.ts:1150 `setItem` via function `handleNew`
-  - webapp/js/script-editor.ts:1393 `setItem` via function `openFile`
-  - webapp/js/script-editor.ts:1783 `setItem` via function `reloadFileFromDisk`
+  - webapp/js/script-editor.ts:294 `getItem` via function `init`
+  - webapp/js/script-editor.ts:416 `setItem` via function `init`
+  - webapp/js/script-editor.ts:1151 `setItem` via function `handleNew`
+  - webapp/js/script-editor.ts:1391 `setItem` via function `openFile`
+  - webapp/js/script-editor.ts:1781 `setItem` via function `reloadFileFromDisk`
 
 <a id="key-pythonscriptsavedcontent"></a>
 
@@ -401,8 +400,8 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Kind: literal
 - Operations: `getItem`, `setItem`
 - Sites:
-  - webapp/js/script-editor.ts:112 `setItem` via function `persistSavedContent`
-  - webapp/js/script-editor.ts:295 `getItem` via function `init`
+  - webapp/js/script-editor.ts:113 `setItem` via function `persistSavedContent`
+  - webapp/js/script-editor.ts:296 `getItem` via function `init`
 
 <a id="key-pythonscripttimestamp"></a>
 
@@ -412,10 +411,10 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Kind: literal
 - Operations: `getItem`, `setItem`
 - Sites:
-  - webapp/js/script-editor.ts:661 `getItem` via function `tryStartWatcher`
-  - webapp/js/script-editor.ts:1269 `setItem` via function `handleSave`
-  - webapp/js/script-editor.ts:1402 `setItem` via function `openFile`
-  - webapp/js/script-editor.ts:1789 `setItem` via function `reloadFileFromDisk`
+  - webapp/js/script-editor.ts:662 `getItem` via function `tryStartWatcher`
+  - webapp/js/script-editor.ts:1267 `setItem` via function `handleSave`
+  - webapp/js/script-editor.ts:1400 `setItem` via function `openFile`
+  - webapp/js/script-editor.ts:1787 `setItem` via function `reloadFileFromDisk`
 
 <a id="key-pythonscripturi"></a>
 
@@ -425,12 +424,12 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Kind: literal
 - Operations: `getItem`, `setItem`, `removeItem`
 - Sites:
-  - webapp/js/script-editor.ts:223 `setItem` via function `updateFilePath`
-  - webapp/js/script-editor.ts:300 `getItem` via function `init`
-  - webapp/js/script-editor.ts:311 `setItem` via function `init`
-  - webapp/js/script-editor.ts:1149 `removeItem` via function `handleNew`
-  - webapp/js/script-editor.ts:1394 `setItem` via function `openFile`
-  - webapp/js/script-editor.ts:1840 `removeItem` via module `top-level module code`
+  - webapp/js/script-editor.ts:224 `setItem` via function `updateFilePath`
+  - webapp/js/script-editor.ts:301 `getItem` via function `init`
+  - webapp/js/script-editor.ts:312 `setItem` via function `init`
+  - webapp/js/script-editor.ts:1150 `removeItem` via function `handleNew`
+  - webapp/js/script-editor.ts:1392 `setItem` via function `openFile`
+  - webapp/js/script-editor.ts:1838 `removeItem` via module `top-level module code`
 
 <a id="key-runpythonscriptlastrun"></a>
 
