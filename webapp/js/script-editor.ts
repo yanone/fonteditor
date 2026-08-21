@@ -28,6 +28,7 @@ import {
 } from './managed-file-events';
 import type { FileSystemAdapter } from './file-system-adapter';
 import { createGlyphFilterTemplate } from './glyph-filter-template';
+import { showNamedUnsavedChangesDialog } from './ui/confirm-dialog';
 
 (function () {
     type ScriptDocumentState = {
@@ -1164,9 +1165,6 @@ import { createGlyphFilterTemplate } from './glyph-filter-template';
             return true;
         }
 
-        const { showNamedUnsavedChangesDialog } = await import(
-            /* webpackChunkName: "confirm-dialog" */ './ui/confirm-dialog'
-        );
         const scriptName = currentFilePath?.split('/').pop() || 'Untitled';
         const choice = await showNamedUnsavedChangesDialog({
             subjectType: 'Script',

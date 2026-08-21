@@ -35,9 +35,6 @@ const PRECACHE_ASSETS = [
     './js/translations.js',
     './js/overview-view.js',
 
-    // Async chunks (named via webpackChunkName magic comments)
-    './js/confirm-dialog.js',
-
     // Python files
     './py/fonteditor.py',
     './py/generate_api_docs.py',

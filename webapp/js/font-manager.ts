@@ -34,6 +34,7 @@ import {
 import { sidebarErrorDisplay } from './sidebar-error-display';
 import type { FilesystemPlugin } from './filesystem-plugins';
 import { Logger } from './logger';
+import { showUnsavedChangesDialog } from './ui/confirm-dialog';
 import {
     timelineMark,
     timelineSpanEnd,
@@ -2049,9 +2050,6 @@ class FontManager {
             // Prompt if there are unsynced changes (works for cloud and non-cloud)
             if (currentFont && this.hasUnsyncedChanges(currentFont)) {
                 console.log('[FontManager] handleNewFont: showing dialog');
-                const { showUnsavedChangesDialog } = await import(
-                    /* webpackChunkName: "confirm-dialog" */ './ui/confirm-dialog'
-                );
                 const fontName = currentFont.name || 'Untitled';
                 const choice = await showUnsavedChangesDialog(fontName);
                 console.log(
