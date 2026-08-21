@@ -2390,6 +2390,7 @@ test.describe('automatic adieresis anchor browser commit', () => {
 
         await openFustatAutomaticAdieresisEditScenario(page);
         const rightNeighborSnapCandidateCount = await page.evaluate(() => {
+            localStorage.setItem('editorNodeSnapping', 'true');
             const win = window as any;
             const outlineEditor = win.glyphCanvas?.outlineEditor;
             const glyph = win.currentFontModel?.findGlyph?.('a');

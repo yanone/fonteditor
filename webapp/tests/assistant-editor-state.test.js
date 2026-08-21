@@ -517,6 +517,10 @@ describe('get_editor_state text-buffer interpretation', () => {
 
     test('renders replace_python_text_in_editor diffs inline in chat', async () => {
         const assistant = new AIAssistant();
+        await Promise.resolve();
+        assistant.isAuthenticated = true;
+        assistant.subscription = { canUseAssistant: true };
+        assistant.updateAuthUI();
         assistant.promptInput.value = 'Update script';
         assistant.messagesContainer =
             document.getElementById('assistant-messages');
