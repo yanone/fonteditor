@@ -496,6 +496,48 @@ function getCurrentGlyphOutlineCutout(): TourCutoutRect | null {
     return getTextRunLetterCutout('m');
 }
 
+let frozenEnterEditLetterRect: TourCutoutRect | null = null;
+
+/**
+ * Keep the Text Mode `m` hole until this slide fades out, even after
+ * Edit Mode has already swapped in the smaller outline bounds.
+ */
+function getEnterEditLetterCutout(): TourCutoutRect | null {
+    if (
+        window.glyphCanvas?.outlineEditor?.active &&
+        frozenEnterEditLetterRect
+    ) {
+        return frozenEnterEditLetterRect;
+    }
+    const live = getTextRunLetterCutout('m');
+    if (live) {
+        frozenEnterEditLetterRect = live;
+        return live;
+    }
+    return frozenEnterEditLetterRect;
+}
+
+function letterMCutout(interactive: boolean): TourCutout {
+    return {
+        id: 'letter-m',
+        padding: 20,
+        radius: 12,
+        interactive,
+        resolve: getCurrentGlyphOutlineCutout
+    };
+}
+
+function enterEditLetterCutout(): TourCutout {
+    return {
+        id: 'letter-m',
+        padding: 20,
+        hitPadding: 0,
+        radius: 12,
+        interactive: true,
+        resolve: getEnterEditLetterCutout
+    };
+}
+
 function getDrawAreaAboveGlyphCutout(): TourCutoutRect | null {
     const area = getDrawAreaFontRect();
     if (!area) {
@@ -519,17 +561,6 @@ function getWghtSliderAreaCutout(): TourCutoutRect | null {
             ? slider.closest('.editor-axis-container') || slider
             : null;
     return getElementCutoutFromElement(area);
-}
-
-function letterMCutout(interactive: boolean): TourCutout {
-    return {
-        id: 'letter-m',
-        padding: 20,
-        hitPadding: interactive ? 0 : undefined,
-        radius: 12,
-        interactive,
-        resolve: getCurrentGlyphOutlineCutout
-    };
 }
 
 async function prepareLayersListSlide(): Promise<void> {
@@ -645,6 +676,10 @@ async function prepareBreadcrumbSlide(minChips = 2): Promise<void> {
         await delay(50);
     }
     await delay(50);
+}
+
+function prepareEnterEditModeSlide(): void {
+    frozenEnterEditLetterRect = null;
 }
 
 function prepareDrawToolSlide(): void {
@@ -782,7 +817,8 @@ export const TOUR_SLIDES: Record<string, TourSlide> = {
         },
         advanceOnGlyphDoubleClick: 'm',
         advanceDelayMs: 1000,
-        cutouts: [letterMCutout(true)]
+        prepare: prepareEnterEditModeSlide,
+        cutouts: [enterEditLetterCutout()]
     },
     'cant-edit-interpolations': {
         id: 'cant-edit-interpolations',
@@ -1005,7 +1041,7 @@ export const TOUR_SLIDES: Record<string, TourSlide> = {
         tooltip: {
             title: 'Nested Components',
             body: tourBody(
-                'Components may be **nested**, meaning they may be composed of more component references.',
+                'Components may be **nested**, meaning they may be composed of more component references. These two dots are composed of two single-dot components.',
                 'Double-click again to enter the next nesting level.'
             ),
             targetCutoutId: 'dotaccentcomb',
@@ -1031,10 +1067,7 @@ export const TOUR_SLIDES: Record<string, TourSlide> = {
         advanceWhenComponentDepth: 0,
         advanceDelayMs: 500,
         prepare: () => prepareBreadcrumbSlide(3),
-        cutouts: [
-            editingGlyphCutout(),
-            breadcrumbCutout('breadcrumb', TOUR_BREADCRUMB_SELECTOR)
-        ]
+        cutouts: [breadcrumbCutout('breadcrumb', TOUR_BREADCRUMB_SELECTOR)]
     },
     'exit-edit-mode': {
         id: 'exit-edit-mode',

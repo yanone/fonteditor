@@ -714,6 +714,56 @@ describe('tour intro', () => {
         expect(continued).toBe(true);
     }, 15000);
 
+    test('dragging a node keeps pointer events on the canvas', async () => {
+        const { getTourSlide } = require('../js/tour-slides');
+        const { showTourSlide } = require('../js/tour-spotlight');
+        window.glyphCanvas.outlineEditor = {
+            active: true,
+            getEditToolUiSnapshot: () => ({
+                isEditMode: true,
+                stickyTool: 'select',
+                highlightedTool: 'select',
+                availability: {
+                    text: true,
+                    select: true,
+                    pen: true,
+                    insert: true,
+                    convert: true,
+                    cut: true
+                },
+                pointerBadge: null
+            })
+        };
+        window.glyphCanvas.textRunEditor.selectedGlyphIndex = 0;
+        window.glyphCanvas.glyphBounds = [
+            { x: 0, y: 0, x1: 0, y1: 0, x2: 100, y2: 200 }
+        ];
+        window.glyphCanvas.canvas.getBoundingClientRect = () => ({
+            x: 0,
+            y: 0,
+            left: 0,
+            top: 0,
+            right: 800,
+            bottom: 600,
+            width: 800,
+            height: 600,
+            toJSON() {}
+        });
+        await showTourSlide(getTourSlide('select-tool'), () => {});
+        const root = document.querySelector('.tour-spotlight-root');
+        document.dispatchEvent(
+            new MouseEvent('mousedown', {
+                bubbles: true,
+                cancelable: true,
+                clientX: 70,
+                clientY: 120
+            })
+        );
+        expect(root.classList.contains('is-hit-passthrough')).toBe(true);
+        window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+        expect(root.classList.contains('is-hit-passthrough')).toBe(false);
+    });
+
     test('glyph canvas renders update the m cutout while interpolating', async () => {
         const { getTourSlide } = require('../js/tour-slides');
         const { showTourSlide } = require('../js/tour-spotlight');
@@ -740,6 +790,81 @@ describe('tour intro', () => {
             { x: 0, y: 0, x1: 0, y1: 0, x2: 280, y2: 400 }
         ];
         window.dispatchEvent(new CustomEvent('glyphCanvasRendered'));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        expect(path.getAttribute('d')).not.toBe(before);
+    });
+
+    test('enter-edit-mode keeps the text-run m hole after edit mode starts', async () => {
+        const { getTourSlide } = require('../js/tour-slides');
+        const { showTourSlide } = require('../js/tour-spotlight');
+        window.glyphCanvas.outlineEditor = { active: false };
+        window.glyphCanvas.canvas.getBoundingClientRect = () => ({
+            x: 0,
+            y: 0,
+            left: 0,
+            top: 0,
+            right: 800,
+            bottom: 600,
+            width: 800,
+            height: 600,
+            toJSON() {}
+        });
+        await showTourSlide(getTourSlide('enter-edit-mode'), () => {});
+        const path = document.querySelector('.tour-spotlight-holes');
+        const before = path.getAttribute('d');
+        expect(before).toBeTruthy();
+        window.glyphCanvas.outlineEditor = { active: true };
+        window.glyphCanvas.textRunEditor.shapedGlyphs = [];
+        window.glyphCanvas.glyphBounds = [
+            { x: 0, y: 0, x1: 0, y1: 0, x2: 40, y2: 50 }
+        ];
+        window.dispatchEvent(new CustomEvent('editorModeChanged'));
+        window.dispatchEvent(new CustomEvent('glyphCanvasRendered'));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        expect(path.getAttribute('d')).toBe(before);
+    });
+
+    test('ss03 reaction sample-text hole tracks glyph width changes', async () => {
+        const { TOUR_FADE_MS } = require('../js/tour-spotlight');
+        const { getTourSlide } = require('../js/tour-slides');
+        const { showTourSlide } = require('../js/tour-spotlight');
+        const row = document.querySelector('.editor-feature-row');
+        row.getBoundingClientRect = () => ({
+            x: 100,
+            y: 100,
+            left: 100,
+            top: 100,
+            right: 300,
+            bottom: 140,
+            width: 200,
+            height: 40,
+            toJSON() {}
+        });
+        window.glyphCanvas.canvas.getBoundingClientRect = () => ({
+            x: 0,
+            y: 0,
+            left: 0,
+            top: 0,
+            right: 800,
+            bottom: 600,
+            width: 800,
+            height: 600,
+            toJSON() {}
+        });
+        await showTourSlide(getTourSlide('ss03-features'), () => {});
+        document
+            .querySelector('[data-feature-tag="ss03"]')
+            .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await delay(TOUR_FADE_MS * 2 + 80);
+        const path = document.querySelector('.tour-spotlight-holes');
+        const before = path.getAttribute('d');
+        window.glyphCanvas.textRunEditor.shapedGlyphs = [
+            { ax: 900, dx: 0, dy: 0, cl: 0, g: 1 },
+            { ax: 900, dx: 0, dy: 0, cl: 1, g: 2 },
+            { ax: 900, dx: 0, dy: 0, cl: 2, g: 3 }
+        ];
         await new Promise((resolve) => requestAnimationFrame(resolve));
         await new Promise((resolve) => requestAnimationFrame(resolve));
         expect(path.getAttribute('d')).not.toBe(before);
@@ -1231,7 +1356,7 @@ describe('tour slide order', () => {
         ).toBe(2);
         expect(
             getTourSlide('exit-nested-components').cutouts.map((c) => c.id)
-        ).toEqual(['editing-glyph', 'breadcrumb']);
+        ).toEqual(['breadcrumb']);
         expect(getTourSlide('exit-components').escapePolicy).toBe(
             'component-levels'
         );

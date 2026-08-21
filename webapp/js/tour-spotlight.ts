@@ -64,6 +64,8 @@ type SpotlightHost = {
     slide: TourSlide | null;
     visible: boolean;
     advancing: boolean;
+    previewingSampleText: boolean;
+    sampleTextTrackFrame: number;
     onContinue: (() => void) | null;
     resizeObserver: ResizeObserver | null;
     listenersBound: boolean;
@@ -85,6 +87,8 @@ function getHost(): SpotlightHost {
             slide: null,
             visible: false,
             advancing: false,
+            previewingSampleText: false,
+            sampleTextTrackFrame: 0,
             onContinue: null,
             resizeObserver: null,
             listenersBound: false,
@@ -407,14 +411,51 @@ async function fadeInTextBufferSpotlight(): Promise<void> {
     if (!host.slide) {
         return;
     }
+    host.previewingSampleText = true;
+    paintSampleTextPreview();
+    startSampleTextTracking();
+    await wait(0);
+    setCutoutsVisible(true);
+    await wait(FADE_MS);
+}
+
+function paintSampleTextPreview(): void {
+    const host = getHost();
+    if (!host.slide) {
+        return;
+    }
     paintSpotlight(host.slide, {
         punchHits: false,
         cutouts: [TOUR_SAMPLE_TEXT_CUTOUT],
         showTooltip: false
     });
-    await wait(0);
-    setCutoutsVisible(true);
-    await wait(FADE_MS);
+}
+
+function startSampleTextTracking(): void {
+    const host = getHost();
+    stopSampleTextTracking();
+    const tick = () => {
+        const current = getHost();
+        if (
+            !current.previewingSampleText ||
+            !current.visible ||
+            !current.slide
+        ) {
+            current.sampleTextTrackFrame = 0;
+            return;
+        }
+        paintSampleTextPreview();
+        current.sampleTextTrackFrame = window.requestAnimationFrame(tick);
+    };
+    host.sampleTextTrackFrame = window.requestAnimationFrame(tick);
+}
+
+function stopSampleTextTracking(): void {
+    const host = getHost();
+    if (host.sampleTextTrackFrame) {
+        window.cancelAnimationFrame(host.sampleTextTrackFrame);
+        host.sampleTextTrackFrame = 0;
+    }
 }
 
 function restoreSlideChrome(slide: TourSlide): void {
@@ -462,8 +503,14 @@ async function finishWithReaction(
         }
         host.onContinue?.();
     } finally {
+        stopSampleTextTracking();
+        host.previewingSampleText = false;
         host.advancing = false;
     }
+}
+
+function setHitPassthrough(active: boolean): void {
+    getHost().root?.classList.toggle('is-hit-passthrough', active);
 }
 
 function bindSlideInteraction(slide: TourSlide): void {
@@ -494,32 +541,44 @@ function bindSlideInteraction(slide: TourSlide): void {
             return;
         }
         const required = slide.requireTool;
-        if (!required) {
-            return;
+        if (required) {
+            if (isRequiredToolButtonEvent(event, required)) {
+                return;
+            }
+            if (!isRequiredToolActive(required)) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                if (shouldFlashRequiredTool(event)) {
+                    flashRequiredTourTool(required);
+                }
+                return;
+            }
         }
-        if (isRequiredToolButtonEvent(event, required)) {
-            return;
+        if (event.type === 'pointerdown' || event.type === 'mousedown') {
+            setHitPassthrough(true);
         }
-        if (isRequiredToolActive(required)) {
-            return;
-        }
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        if (shouldFlashRequiredTool(event)) {
-            flashRequiredTourTool(required);
-        }
+    };
+    const endPassthrough = () => {
+        setHitPassthrough(false);
     };
     document.addEventListener('pointerdown', lockPointer, true);
     document.addEventListener('mousedown', lockPointer, true);
     document.addEventListener('click', lockPointer, true);
     document.addEventListener('dblclick', lockPointer, true);
     document.addEventListener('contextmenu', lockPointer, true);
+    window.addEventListener('pointerup', endPassthrough, true);
+    window.addEventListener('pointercancel', endPassthrough, true);
+    window.addEventListener('mouseup', endPassthrough, true);
     cleanups.push(() => {
         document.removeEventListener('pointerdown', lockPointer, true);
         document.removeEventListener('mousedown', lockPointer, true);
         document.removeEventListener('click', lockPointer, true);
         document.removeEventListener('dblclick', lockPointer, true);
         document.removeEventListener('contextmenu', lockPointer, true);
+        window.removeEventListener('pointerup', endPassthrough, true);
+        window.removeEventListener('pointercancel', endPassthrough, true);
+        window.removeEventListener('mouseup', endPassthrough, true);
+        setHitPassthrough(false);
     });
 
     const selector = slide.advanceOnClick;
@@ -1154,6 +1213,8 @@ export async function showTourSlide(
     host.onContinue = onContinue;
     host.visible = true;
     host.advancing = false;
+    host.previewingSampleText = false;
+    stopSampleTextTracking();
     setViewShortcutLock(slide);
     fillTooltip(slide);
     await slide.prepare?.();
@@ -1205,8 +1266,16 @@ function onTourGeometryChange(): void {
     geometryFrame = window.requestAnimationFrame(() => {
         geometryFrame = 0;
         const host = getHost();
-        if (host.slide && host.visible && !host.advancing) {
-            paintSpotlight(host.slide);
+        if (
+            host.slide &&
+            host.visible &&
+            (!host.advancing || host.previewingSampleText)
+        ) {
+            if (host.previewingSampleText) {
+                paintSampleTextPreview();
+            } else {
+                paintSpotlight(host.slide);
+            }
         }
     });
 }
@@ -1235,6 +1304,9 @@ export function hideTourSpotlight(): void {
     host.slide = null;
     host.onContinue = null;
     host.advancing = false;
+    host.previewingSampleText = false;
+    stopSampleTextTracking();
+    setHitPassthrough(false);
     unbindSlideInteraction();
     setViewShortcutLock(null);
     document.removeEventListener('keydown', onTourKeyDown, true);
