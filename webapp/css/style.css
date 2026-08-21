@@ -1648,6 +1648,10 @@ kbd + kbd {
 .view-title-shortcut {
     color: var(--text-faint);
     font-size: 10px;
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 
 /* Keyboard shortcut styling in buttons — match view title shortcut tone */
