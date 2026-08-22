@@ -359,12 +359,13 @@ function localizeTourModifiers(text: string): string {
 
 function appendPreChip(parent: HTMLElement, raw: string): void {
     const spec = shortcutSpecFromHandbook(raw);
-    if (spec !== null) {
-        parent.insertAdjacentHTML('beforeend', keyboardShortcutHtml(spec));
-        return;
-    }
     const pre = document.createElement('pre');
     pre.className = 'tour-shortcut';
+    if (spec !== null) {
+        pre.innerHTML = keyboardShortcutHtml(spec);
+        parent.append(pre);
+        return;
+    }
     pre.textContent = localizeTourModifiers(raw);
     parent.append(pre);
 }

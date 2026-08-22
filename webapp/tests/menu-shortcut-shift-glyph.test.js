@@ -61,6 +61,9 @@ describe('unified keyboard shortcut chips', () => {
         expect(shortcutSpecFromHandbook('Cmd+Enter')).toBe(
             `${MENU_COMMAND_SYMBOL}${MENU_RETURN_SYMBOL}`
         );
+        expect(shortcutSpecFromHandbook('Cmd/Ctrl+Escape')).toBe(
+            `${MENU_COMMAND_SYMBOL}Esc`
+        );
         expect(shortcutSpecFromHandbook('v')).toBeNull();
         expect(shortcutSpecFromHandbook('print()')).toBeNull();
     });

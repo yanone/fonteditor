@@ -1149,8 +1149,9 @@ describe('tour intro', () => {
         const { getTourSlide } = require('../js/tour-slides');
         const { showTourSlide } = require('../js/tour-spotlight');
         await showTourSlide(getTourSlide('glyph-overview-panel'), () => {});
-        const chips = [...document.querySelectorAll('.keyboard-shortcut')];
+        const chips = [...document.querySelectorAll('.tour-shortcut')];
         expect(chips.length).toBeGreaterThan(0);
+        expect(chips[0].querySelector('.keyboard-shortcut')).not.toBeNull();
         expect(
             chips[0].querySelector('.shortcut-command-modifier')
         ).not.toBeNull();

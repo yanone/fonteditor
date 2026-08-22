@@ -285,6 +285,18 @@
     border-radius: 3px;
 }
 
+.docs-article :not(pre) > code.docs-shortcut-chip {
+    display: inline-flex;
+    align-items: center;
+    vertical-align: baseline;
+}
+
+.docs-article :not(pre) > code .keyboard-shortcut {
+    margin: 0;
+    color: inherit;
+    font-size: inherit;
+}
+
 .docs-article pre,
 .docs-article .ace_static_highlight {
     font-family: 'IBM Plex Mono', var(--font-mono, ui-monospace, monospace);

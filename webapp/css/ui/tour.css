@@ -160,8 +160,8 @@
 }
 
 .tour-tooltip .keyboard-shortcut {
-    margin: 0 0.15em;
-    color: var(--tour-tooltip-text);
+    margin: 0;
+    color: inherit;
 }
 
 .tour-bounce-line {

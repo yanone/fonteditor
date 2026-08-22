@@ -109,8 +109,8 @@ const HANDBOOK_TOKEN_TO_CHAR: Record<string, string> = {
     'Alt': MENU_OPTION_SYMBOL,
     'Enter': MENU_RETURN_SYMBOL,
     'Return': MENU_RETURN_SYMBOL,
-    'Escape': '\u238B',
-    'Esc': '\u238B'
+    'Escape': 'Esc',
+    'Esc': 'Esc'
 };
 
 /**

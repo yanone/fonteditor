@@ -559,12 +559,8 @@ export class DocsViewer {
             if (spec === null) {
                 return;
             }
-            const holder = document.createElement('span');
-            holder.innerHTML = keyboardShortcutHtml(spec);
-            const chip = holder.firstElementChild;
-            if (chip) {
-                code.replaceWith(chip);
-            }
+            code.classList.add('docs-shortcut-chip');
+            code.innerHTML = keyboardShortcutHtml(spec);
         });
         wrap.querySelectorAll('pre > code').forEach((code) => {
             const hasLanguage = [...code.classList].some(
