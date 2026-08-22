@@ -259,6 +259,7 @@ if (typeof APP_SETTINGS === 'undefined') {
             HANDLE_HOVER_SCALE: 1.22,
             HANDLE_SELECTED_SCALE: 1.38,
             CHROME_HOVER_MIX: 0.5,
+            SEGMENT_HOVER_END_ZONE: 0.15,
             NODE_CHROME_STROKE_WIDTH: 1.25,
             NODE_SMOOTH_DOT_RATIO: 0.4,
             NODE_ZONE_HALO_SIZE_RATIO: 1,

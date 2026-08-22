@@ -82,6 +82,9 @@ const APP_SETTINGS = {
         HANDLE_SELECTED_SCALE: 1.38,
         // Hover paints related chrome halfway from rest to selected.
         CHROME_HOVER_MIX: 0.5,
+        // Ends of a hovered path segment (Bezier t, or line parameter)
+        // count as hovering the nearest on-curve node instead.
+        SEGMENT_HOVER_END_ZONE: 0.15,
 
         // Outline stroke for unfilled nodes/handles (screen px)
         NODE_CHROME_STROKE_WIDTH: 1.25,

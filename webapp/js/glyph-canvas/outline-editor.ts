@@ -16083,25 +16083,42 @@ export class OutlineEditor {
             }
         }
 
-        const pointChanged =
-            JSON.stringify(bestPoint) !==
-            JSON.stringify(this.hoveredPointIndex);
-        const anchorChanged = bestAnchorIndex !== this.hoveredAnchorIndex;
-
         let bestSegment: HoveredPathSegment | null = null;
         if (bestPoint === null && bestAnchorIndex === null) {
             const hit = this.findClosestPathSegmentHit();
             if (hit) {
-                bestSegment = {
-                    shapeIndex: hit.shapeIndex,
-                    segmentId: hit.descriptor.segmentId,
-                    type: hit.descriptor.type,
-                    startNodeIndex: hit.descriptor.startNodeIndex,
-                    endNodeIndex: hit.descriptor.endNodeIndex,
-                    controlNodeIndices: [...hit.descriptor.controlNodeIndices]
-                };
+                const endZone =
+                    APP_SETTINGS.OUTLINE_EDITOR.SEGMENT_HOVER_END_ZONE;
+                const t = hit.projection.t;
+                if (t <= endZone) {
+                    bestPoint = {
+                        contourIndex: hit.shapeIndex,
+                        nodeIndex: hit.descriptor.startNodeIndex
+                    };
+                } else if (t >= 1 - endZone) {
+                    bestPoint = {
+                        contourIndex: hit.shapeIndex,
+                        nodeIndex: hit.descriptor.endNodeIndex
+                    };
+                } else {
+                    bestSegment = {
+                        shapeIndex: hit.shapeIndex,
+                        segmentId: hit.descriptor.segmentId,
+                        type: hit.descriptor.type,
+                        startNodeIndex: hit.descriptor.startNodeIndex,
+                        endNodeIndex: hit.descriptor.endNodeIndex,
+                        controlNodeIndices: [
+                            ...hit.descriptor.controlNodeIndices
+                        ]
+                    };
+                }
             }
         }
+
+        const pointChanged =
+            JSON.stringify(bestPoint) !==
+            JSON.stringify(this.hoveredPointIndex);
+        const anchorChanged = bestAnchorIndex !== this.hoveredAnchorIndex;
         const segmentChanged =
             JSON.stringify(bestSegment) !==
             JSON.stringify(this.hoveredPathSegment);
