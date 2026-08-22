@@ -3191,10 +3191,11 @@ export class GlyphCanvasRenderer {
             }
             this.ctx.stroke();
         } else {
-            pathDescriptors.forEach((descriptor) => {
-                const segmentSelected =
-                    isNodeSelected(descriptor.startNodeIndex) &&
-                    isNodeSelected(descriptor.endNodeIndex);
+            const strokeSegment = (
+                descriptor: (typeof pathDescriptors)[number],
+                strokeStyle: string,
+                lineWidth: number
+            ): void => {
                 const pieces =
                     segmentPreview &&
                     descriptor.segmentId === segmentPreview.segmentId
@@ -3208,13 +3209,38 @@ export class GlyphCanvasRenderer {
                 pieces.forEach((piece) => {
                     this.appendPreviewSegmentToPath(this.ctx, piece);
                 });
-                this.ctx.strokeStyle = segmentSelected
-                    ? colors.OUTLINE_SELECTED
-                    : isSegmentHoverCluster(descriptor)
-                      ? hoverMix(unselectedOutline, colors.OUTLINE_SELECTED)
-                      : unselectedOutline;
-                this.ctx.lineWidth = outlineWidth;
+                this.ctx.strokeStyle = strokeStyle;
+                this.ctx.lineWidth = lineWidth;
                 this.ctx.stroke();
+            };
+            pathDescriptors.forEach((descriptor) => {
+                const segmentSelected =
+                    isNodeSelected(descriptor.startNodeIndex) &&
+                    isNodeSelected(descriptor.endNodeIndex);
+                const isHoveredSegment = isSegmentHoverCluster(descriptor);
+                if (segmentSelected || isHoveredSegment) {
+                    return;
+                }
+                strokeSegment(descriptor, unselectedOutline, outlineWidth);
+            });
+            pathDescriptors.forEach((descriptor) => {
+                const segmentSelected =
+                    isNodeSelected(descriptor.startNodeIndex) &&
+                    isNodeSelected(descriptor.endNodeIndex);
+                const isHoveredSegment = isSegmentHoverCluster(descriptor);
+                if (!segmentSelected && !isHoveredSegment) {
+                    return;
+                }
+                strokeSegment(
+                    descriptor,
+                    segmentSelected
+                        ? colors.OUTLINE_SELECTED
+                        : hoverMix(unselectedOutline, colors.OUTLINE_SELECTED),
+                    outlineWidth *
+                        (segmentSelected
+                            ? 1
+                            : outlineChromeStateScale(false, true))
+                );
             });
         }
 

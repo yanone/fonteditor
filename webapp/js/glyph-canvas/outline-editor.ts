@@ -11591,12 +11591,11 @@ export class OutlineEditor {
                 this.hoveredComponentIndex === null &&
                 this.hoveredAnchorIndex === null
             ) {
-                const hoveredSegment = this.findClosestPathSegmentHit();
-                if (
-                    hoveredSegment &&
-                    this.selectAllNodesInContour(hoveredSegment.shapeIndex)
-                ) {
-                    return true;
+                const segmentClick = this.resolvePathSegmentClick();
+                if (segmentClick) {
+                    return this.selectAllNodesInContour(
+                        segmentClick.shapeIndex
+                    );
                 }
             }
         }
@@ -11976,6 +11975,10 @@ export class OutlineEditor {
                 this.glyphCanvas.render();
             }
             return; // Don't start canvas panning
+        }
+
+        if (this.handlePathSegmentSelectionClick(e)) {
+            return;
         }
 
         this.beginMarqueeSelection(e);
@@ -16227,6 +16230,180 @@ export class OutlineEditor {
         );
 
         return bestHit;
+    }
+
+    private isNodeInSelection(
+        contourIndex: number,
+        nodeIndex: number
+    ): boolean {
+        return this.selectedPoints.some(
+            (point) =>
+                point.contourIndex === contourIndex &&
+                point.nodeIndex === nodeIndex
+        );
+    }
+
+    private addNodeToSelection(contourIndex: number, nodeIndex: number): void {
+        if (!this.isNodeInSelection(contourIndex, nodeIndex)) {
+            this.selectedPoints.push({ contourIndex, nodeIndex });
+        }
+    }
+
+    private removeNodeFromSelection(
+        contourIndex: number,
+        nodeIndex: number
+    ): void {
+        this.selectedPoints = this.selectedPoints.filter(
+            (point) =>
+                !(
+                    point.contourIndex === contourIndex &&
+                    point.nodeIndex === nodeIndex
+                )
+        );
+    }
+
+    private isSegmentFullySelected(
+        contourIndex: number,
+        startNodeIndex: number,
+        endNodeIndex: number
+    ): boolean {
+        return (
+            this.isNodeInSelection(contourIndex, startNodeIndex) &&
+            this.isNodeInSelection(contourIndex, endNodeIndex)
+        );
+    }
+
+    private hasSelectedNeighborSegment(
+        contourIndex: number,
+        segmentId: number,
+        nodeIndex: number
+    ): boolean {
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const contour = getEditableContour(
+            currentLayerData?.shapes?.[contourIndex]
+        );
+        if (!contour) {
+            return false;
+        }
+        return Layer.getPathSegmentDescriptors({
+            nodes: contour.nodes,
+            closed: contour.closed
+        }).some(
+            (descriptor) =>
+                descriptor.segmentId !== segmentId &&
+                (descriptor.startNodeIndex === nodeIndex ||
+                    descriptor.endNodeIndex === nodeIndex) &&
+                this.isSegmentFullySelected(
+                    contourIndex,
+                    descriptor.startNodeIndex,
+                    descriptor.endNodeIndex
+                )
+        );
+    }
+
+    private resolvePathSegmentClick(): {
+        shapeIndex: number;
+        segmentId: number;
+        startNodeIndex: number;
+        endNodeIndex: number;
+    } | null {
+        const hit = this.findClosestPathSegmentHit();
+        if (!hit) {
+            return null;
+        }
+        const endZone = APP_SETTINGS.OUTLINE_EDITOR.SEGMENT_HOVER_END_ZONE;
+        const t = hit.projection.t;
+        if (t <= endZone || t >= 1 - endZone) {
+            return null;
+        }
+        return {
+            shapeIndex: hit.shapeIndex,
+            segmentId: hit.descriptor.segmentId,
+            startNodeIndex: hit.descriptor.startNodeIndex,
+            endNodeIndex: hit.descriptor.endNodeIndex
+        };
+    }
+
+    private selectSegmentNodesExclusive(segment: {
+        shapeIndex: number;
+        startNodeIndex: number;
+        endNodeIndex: number;
+    }): void {
+        this.selectedPoints = [
+            {
+                contourIndex: segment.shapeIndex,
+                nodeIndex: segment.startNodeIndex
+            },
+            {
+                contourIndex: segment.shapeIndex,
+                nodeIndex: segment.endNodeIndex
+            }
+        ];
+        this.selectedAnchors = [];
+        this.selectedComponents = [];
+        this.selectedGuideHandle = null;
+        this.selectedSidebearingHandle = null;
+        this.glyphCanvas.updatePropertyPanel();
+        this.glyphCanvas.render();
+    }
+
+    private toggleSegmentNodeSelection(segment: {
+        shapeIndex: number;
+        segmentId: number;
+        startNodeIndex: number;
+        endNodeIndex: number;
+    }): void {
+        const { shapeIndex, segmentId, startNodeIndex, endNodeIndex } = segment;
+        const startHasNeighbor = this.hasSelectedNeighborSegment(
+            shapeIndex,
+            segmentId,
+            startNodeIndex
+        );
+        const endHasNeighbor = this.hasSelectedNeighborSegment(
+            shapeIndex,
+            segmentId,
+            endNodeIndex
+        );
+        const segmentSelected = this.isSegmentFullySelected(
+            shapeIndex,
+            startNodeIndex,
+            endNodeIndex
+        );
+
+        if (segmentSelected) {
+            if (startHasNeighbor && !endHasNeighbor) {
+                this.removeNodeFromSelection(shapeIndex, endNodeIndex);
+            } else if (endHasNeighbor && !startHasNeighbor) {
+                this.removeNodeFromSelection(shapeIndex, startNodeIndex);
+            } else {
+                this.removeNodeFromSelection(shapeIndex, startNodeIndex);
+                this.removeNodeFromSelection(shapeIndex, endNodeIndex);
+            }
+        } else {
+            this.addNodeToSelection(shapeIndex, startNodeIndex);
+            this.addNodeToSelection(shapeIndex, endNodeIndex);
+        }
+        this.glyphCanvas.updatePropertyPanel();
+        this.glyphCanvas.render();
+    }
+
+    private handlePathSegmentSelectionClick(e: MouseEvent): boolean {
+        if (e.altKey || e.metaKey || e.ctrlKey) {
+            return false;
+        }
+        if (!this.isNeutralCommandCanvasTarget()) {
+            return false;
+        }
+        const segmentClick = this.resolvePathSegmentClick();
+        if (!segmentClick) {
+            return false;
+        }
+        if (e.shiftKey) {
+            this.toggleSegmentNodeSelection(segmentClick);
+        } else {
+            this.selectSegmentNodesExclusive(segmentClick);
+        }
+        return true;
     }
 
     private selectAllNodesInContour(contourIndex: number): boolean {

@@ -81,6 +81,8 @@ const APP_SETTINGS = {
         HANDLE_HOVER_SCALE: 1.22,
         HANDLE_SELECTED_SCALE: 1.38,
         // Hover paints related chrome halfway from rest to selected.
+        // Segment hover mixes the path stroke the same way; in-segment
+        // handles use the same fill mix as hovering their on-curve node.
         CHROME_HOVER_MIX: 0.5,
         // Ends of a hovered path segment (Bezier t, or line parameter)
         // count as hovering the nearest on-curve node instead.
@@ -98,7 +100,7 @@ const APP_SETTINGS = {
 
         // Anchors use the same two-tier node interpolation, scaled up so they
         // stay larger than corner, smooth, and diamond on-curve nodes.
-        ANCHOR_SIZE_RATIO: 1.5,
+        ANCHOR_SIZE_RATIO: 1.7,
 
         // Component marker size
         COMPONENT_MARKER_SIZE: 10, // px - size of component origin marker

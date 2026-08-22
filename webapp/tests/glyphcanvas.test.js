@@ -11462,9 +11462,18 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
                 })
             ).toBe(true);
             expect(canvas.outlineEditor.selectedPoints).toEqual([
-                { contourIndex: 0, nodeIndex: 0 },
-                { contourIndex: 0, nodeIndex: 1 },
-                { contourIndex: 0, nodeIndex: 2 }
+                {
+                    contourIndex: 0,
+                    nodeIndex: 0
+                },
+                {
+                    contourIndex: 0,
+                    nodeIndex: 1
+                },
+                {
+                    contourIndex: 0,
+                    nodeIndex: 2
+                }
             ]);
 
             canvas.outlineEditor.selectedPoints = [];
@@ -21137,7 +21146,7 @@ describe('OutlineEditor per-layer selection memory', () => {
         expect(canvas.outlineEditor.selectedComponents).toEqual([1]);
     });
 
-    test('double-clicking a path segment selects all nodes on that contour without targeting the preceding component', () => {
+    test('double-clicking a path segment selects every node on that contour without targeting the preceding component', () => {
         canvas.outlineEditor.active = true;
         canvas.outlineEditor.selectedLayerId = 'master-layer';
         canvas.outlineEditor.layerData = {
@@ -21173,7 +21182,7 @@ describe('OutlineEditor per-layer selection memory', () => {
         canvas.updatePropertyPanel = jest.fn();
         canvas.render = jest.fn();
 
-        const handled = canvas.outlineEditor.onDoubleClick({});
+        const handled = canvas.outlineEditor.onDoubleClick({ detail: 2 });
 
         expect(handled).toBe(true);
         expect(canvas.outlineEditor.selectedPoints).toEqual([
@@ -21183,6 +21192,126 @@ describe('OutlineEditor per-layer selection memory', () => {
         ]);
         expect(canvas.outlineEditor.selectedAnchors).toEqual([]);
         expect(canvas.outlineEditor.selectedComponents).toEqual([]);
+    });
+
+    test('clicking a path segment selects that segment’s two on-curve nodes', async () => {
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.selectedLayerId = 'master-layer';
+        canvas.outlineEditor.layerData = {
+            id: 'master-layer',
+            width: 500,
+            shapes: [
+                {
+                    nodes: [
+                        { x: 0, y: 0, nodetype: 'Move' },
+                        { x: 100, y: 0, nodetype: 'Line' },
+                        { x: 100, y: 100, nodetype: 'Line' }
+                    ],
+                    closed: false
+                }
+            ],
+            anchors: [],
+            guides: [],
+            isInterpolated: false
+        };
+        canvas.outlineEditor.hoveredPointIndex = null;
+        canvas.outlineEditor.hoveredAnchorIndex = null;
+        canvas.outlineEditor.hoveredComponentIndex = null;
+        canvas.outlineEditor.hoveredGuideHandle = null;
+        canvas.outlineEditor.hoveredSidebearingHandle = null;
+        canvas.outlineEditor.hoveredGlyphIndex = -1;
+        canvas.outlineEditor.selectedPoints = [];
+        canvas.outlineEditor.transformMouseToComponentSpace = jest.fn(() => ({
+            glyphX: 50,
+            glyphY: 0
+        }));
+        canvas.updatePropertyPanel = jest.fn();
+        canvas.render = jest.fn();
+
+        await canvas.outlineEditor.onSingleClick({
+            clientX: 0,
+            clientY: 0,
+            detail: 1,
+            shiftKey: false,
+            altKey: false,
+            metaKey: false,
+            ctrlKey: false
+        });
+
+        expect(canvas.outlineEditor.selectedPoints).toEqual([
+            { contourIndex: 0, nodeIndex: 0 },
+            { contourIndex: 0, nodeIndex: 1 }
+        ]);
+    });
+
+    test('shift-clicking a path segment toggles only the unshared node next to a selected neighbor', async () => {
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.selectedLayerId = 'master-layer';
+        canvas.outlineEditor.layerData = {
+            id: 'master-layer',
+            width: 500,
+            shapes: [
+                {
+                    nodes: [
+                        { x: 0, y: 0, nodetype: 'Move' },
+                        { x: 100, y: 0, nodetype: 'Line' },
+                        { x: 200, y: 0, nodetype: 'Line' },
+                        { x: 300, y: 0, nodetype: 'Line' }
+                    ],
+                    closed: false
+                }
+            ],
+            anchors: [],
+            guides: [],
+            isInterpolated: false
+        };
+        canvas.outlineEditor.hoveredPointIndex = null;
+        canvas.outlineEditor.hoveredAnchorIndex = null;
+        canvas.outlineEditor.hoveredComponentIndex = null;
+        canvas.outlineEditor.hoveredGuideHandle = null;
+        canvas.outlineEditor.hoveredSidebearingHandle = null;
+        canvas.outlineEditor.hoveredGlyphIndex = -1;
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 0 },
+            { contourIndex: 0, nodeIndex: 1 }
+        ];
+        canvas.outlineEditor.transformMouseToComponentSpace = jest.fn(() => ({
+            glyphX: 150,
+            glyphY: 0
+        }));
+        canvas.updatePropertyPanel = jest.fn();
+        canvas.render = jest.fn();
+
+        await canvas.outlineEditor.onSingleClick({
+            clientX: 0,
+            clientY: 0,
+            detail: 1,
+            shiftKey: true,
+            altKey: false,
+            metaKey: false,
+            ctrlKey: false
+        });
+
+        expect(canvas.outlineEditor.selectedPoints).toEqual([
+            { contourIndex: 0, nodeIndex: 0 },
+            { contourIndex: 0, nodeIndex: 1 },
+            { contourIndex: 0, nodeIndex: 2 }
+        ]);
+
+        await canvas.outlineEditor.onSingleClick({
+            clientX: 0,
+            clientY: 0,
+            detail: 1,
+            shiftKey: true,
+            altKey: false,
+            metaKey: false,
+            ctrlKey: false
+        });
+
+        expect(canvas.outlineEditor.selectedPoints).toEqual([
+            { contourIndex: 0, nodeIndex: 0 },
+            { contourIndex: 0, nodeIndex: 1 }
+        ]);
     });
 
     test('keyboard glyph switching restores the original glyph selection after switching away and back', async () => {

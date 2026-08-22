@@ -17,7 +17,7 @@ Pen only draws. Insert only inserts. Convert only converts. Cut only cuts. Switc
 
 ## Select, move, and measure
 
-With Select, click a point, then drag. Handles appear on curve points. Make small moves first so you can tell whether you changed one segment or the whole rhythm.
+With Select, click a point, then drag. Handles appear on curve points. Make small moves first so you can tell whether you changed one segment or the whole rhythm. Click a line or curve (away from its ends) to select that segment’s two on-curve nodes. Double-click selects the whole contour. Shift-click a segment to add or remove it: a neighbor already selected adds or removes only the new end node; a segment between two selected neighbors adds or removes both of its nodes and leaves the outer nodes selected.
 
 Right-click a component and choose **Decompose** to replace it with the transformed outlines in that same place. Linked layers get the same action on the matching component; a background layer stays local. Automatic vs manual placement is in [Automatic composition](07-automatic-composition.md).
 

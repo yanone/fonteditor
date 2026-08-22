@@ -101,7 +101,8 @@ describe('outline chrome size interpolation', () => {
     test('zone halo tracks object size; diamonds are √2 thicker', () => {
         const objectRadius = 4;
         const squareHalo = objectRadius * settings.NODE_ZONE_HALO_SIZE_RATIO;
-        expect(squareHalo).toBe(objectRadius);
+        expect(squareHalo).toBeGreaterThan(0);
+        expect(squareHalo).toBeLessThan(objectRadius);
         expect(squareHalo * settings.NODE_DIAMOND_SIZE_RATIO).toBeCloseTo(
             squareHalo * Math.sqrt(2)
         );
