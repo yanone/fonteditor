@@ -56,13 +56,15 @@
                 return !window.isDevelopment();
             };
             window.isTestMode = function () {
-                // Detect test mode via URL parameter
+                // Detect test mode via URL parameter only (`?test=true`).
                 const urlParams = new URLSearchParams(window.location.search);
                 return urlParams.has('test');
             };
             window.isTest = function () {
-                // Detect automated test environment (Playwright/Selenium)
-                return !!window.navigator.webdriver;
+                // Same as isTestMode. Do not use navigator.webdriver: Chrome
+                // reports it whenever a debugger/CDP client is attached
+                // (Cursor, DevTools Protocol), including production/preview.
+                return window.isTestMode();
             };
 
             // Prevent webpack dev server reload errors during development and tests
@@ -288,10 +290,10 @@
                     .then((response) => response.text())
                     .then((text) => {
                         const versionMatch = text.match(
-                            /const\s+VERSION\s*=\s*['"](v[^\s'"]+)['"]/
+                            /\bVERSION\s*=\s*['"](v[^'"]+)['"]/
                         );
                         const displayMatch = text.match(
-                            /const\s+DISPLAY_VERSION\s*=\s*['"]([^'"]+)['"]/
+                            /\bDISPLAY_VERSION\s*=\s*['"]([^'"]+)['"]/
                         );
                         if (versionMatch && versionMatch[1]) {
                             const versionSpan =
@@ -2196,6 +2198,14 @@
                             >
                                 Update
                             </button>
+                            <button
+                                type="button"
+                                id="settings-force-update-btn"
+                                class="settings-action-btn"
+                                hidden
+                            >
+                                Force update
+                            </button>
                         </div>
                         <div
                             id="settings-update-status"
@@ -2427,10 +2437,10 @@
                                             return; // message arrived in the meantime
                                         }
                                         const match = text.match(
-                                            /const\s+VERSION\s*=\s*['"](v[^\s'"]+)['"]/
+                                            /\bVERSION\s*=\s*['"](v[^'"]+)['"]/
                                         );
                                         const displayMatch = text.match(
-                                            /const\s+DISPLAY_VERSION\s*=\s*['"]([^'"]+)['"]/
+                                            /\bDISPLAY_VERSION\s*=\s*['"]([^'"]+)['"]/
                                         );
                                         const version =
                                             (match && match[1]) || 'unknown';

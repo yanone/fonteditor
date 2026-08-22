@@ -102,6 +102,7 @@ declare global {
         // From index.html helper functions
         isDevelopment: () => boolean;
         isProduction: () => boolean;
+        /** True when the URL has `?test=` (`isTestMode`). Not `navigator.webdriver`. */
         isTestMode: () => boolean;
         isTest: () => boolean;
         __liveTextDiagnostics:
@@ -625,7 +626,9 @@ declare global {
         // From index.html (inline script)
         isDevelopment: () => boolean;
         isProduction: () => boolean;
+        /** True when the URL has `?test=` (`isTestMode`). Not `navigator.webdriver`. */
         isTestMode: () => boolean;
+        isTest: () => boolean;
 
         // From settings.js
         APP_SETTINGS: Record<string, any>;

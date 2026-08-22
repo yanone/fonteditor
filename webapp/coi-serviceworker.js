@@ -234,13 +234,17 @@ if (typeof window === 'undefined') {
                     console.log(
                         '[SW] ✅ All resources cached - app ready for offline use'
                     );
-                    // Leave a replacement worker waiting until the user applies
-                    // the update. The first install still activates on its own.
                     return self.clients.matchAll().then((clients) => {
                         clients.forEach((client) => {
                             client.postMessage({ type: 'OFFLINE_READY' });
                         });
                     });
+                })
+                .then(() => {
+                    // Activate immediately so clients still running the broken
+                    // update detector (which never shows Preferences → Update)
+                    // can receive SW_UPDATED and load this cut.
+                    return self.skipWaiting();
                 })
                 .catch((error) => {
                     console.error(
@@ -248,6 +252,7 @@ if (typeof window === 'undefined') {
                         '[SW] ❌ Cache failed:',
                         error
                     );
+                    return self.skipWaiting();
                 })
         );
     });
@@ -276,16 +281,21 @@ if (typeof window === 'undefined') {
                 .then(() => {
                     // Notify all clients that a new version is available
                     console.log('[SW] 🔄 Notifying clients of update');
-                    return self.clients.matchAll().then((clients) => {
-                        clients.forEach((client) => {
-                            client.postMessage({
-                                type: 'SW_UPDATED',
-                                cacheName: CACHE_NAME,
-                                version: VERSION,
-                                displayVersion: DISPLAY_VERSION
+                    return self.clients
+                        .matchAll({
+                            includeUncontrolled: true,
+                            type: 'window'
+                        })
+                        .then((clients) => {
+                            clients.forEach((client) => {
+                                client.postMessage({
+                                    type: 'SW_UPDATED',
+                                    cacheName: CACHE_NAME,
+                                    version: VERSION,
+                                    displayVersion: DISPLAY_VERSION
+                                });
                             });
                         });
-                    });
                 })
         );
     });

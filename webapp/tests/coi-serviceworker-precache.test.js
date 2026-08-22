@@ -208,13 +208,14 @@ describe('COI ServiceWorker PRECACHE_ASSETS', () => {
         expect(orphaned).toEqual([]);
     });
 
-    test('does not activate a replacement worker until SKIP_WAITING', () => {
+    test('replacement install calls skipWaiting so a waiting worker can activate', () => {
         const swContent = fs.readFileSync(SW_PATH, 'utf-8');
         const installBlock = swContent.match(
             /self\.addEventListener\(\s*'install'[\s\S]*?self\.addEventListener\(\s*'activate'/
         );
         expect(installBlock).not.toBeNull();
-        expect(installBlock[0]).not.toMatch(/skipWaiting\s*\(/);
+        expect(installBlock[0]).toMatch(/skipWaiting\s*\(/);
         expect(swContent).toMatch(/['"]SKIP_WAITING['"]/);
+        expect(swContent).toMatch(/includeUncontrolled:\s*true/);
     });
 });
