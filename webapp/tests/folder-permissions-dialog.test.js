@@ -88,11 +88,14 @@ describe('folder permissions unavailable copy', () => {
         );
         expect(copy.intro).toMatch(/Brave/);
         expect(copy.intro).toMatch(/Firefox/);
+        expect(copy.intro).toMatch(
+            /<strong>Chrome\/Chromium, Safari, or Edge<\/strong>/
+        );
         expect(
             folderPermissions.getFolderPermissionsDialogCopy(
                 missingStatus,
                 true
             ).title
-        ).toBe('Link folders');
+        ).toBe('Link Folders');
     });
 });

@@ -66,8 +66,8 @@ const FOLDER_KIND_CALLOUT_MESSAGE: Record<FolderSetupKind, string> = {
 export const LINK_FOLDERS_BUTTON_LABEL = 'Link Folders';
 
 export const FOLDER_ACCESS_UNAVAILABLE_COPY = {
-    title: 'Folder access unavailable',
-    intro: 'This browser cannot link folders on disk. Counterpunch needs Chrome’s File System Access directory picker. Brave turns that API off by default, and Firefox does not provide it, so Disk, the project folder, and the Settings Folder are unavailable here. Memory storage still works.'
+    title: 'Folder Access Unavailable',
+    intro: 'This browser cannot link folders on disk. Use <strong>Chrome/Chromium, Safari, or Edge</strong>. Counterpunch needs the File System Access directory picker. Brave turns that API off by default, and Firefox does not provide it, so Disk, the project folder, and the Settings Folder are unavailable here. Memory storage still works.'
 };
 
 type FolderPermissionsHost = {
@@ -319,18 +319,18 @@ export function getFolderPermissionsDialogCopy(
 
     if (needsRenewal && !anyMissing) {
         return {
-            title: 'Restore folder access',
+            title: 'Restore Folder Access',
             intro: 'The browser has withdrawn write access to a folder you already linked. Restore access so Counterpunch can keep reading and writing those files. This confirms the existing folder; it does not pick a new one.'
         };
     }
     if (needsRenewal && anyMissing) {
         return {
-            title: 'Set up folders',
+            title: 'Set Up Folders',
             intro: 'This app runs inside a browser, so it needs access to two folders. One still needs to be chosen. Another already has a folder on file, but Chrome has withdrawn permission — restore that access without choosing a different folder.'
         };
     }
     return {
-        title: 'Link folders',
+        title: 'Link Folders',
         intro: 'Since this app runs inside a browser, you need to grant access to two folders.'
     };
 }
@@ -496,7 +496,7 @@ export async function openFolderPermissionsDialog(): Promise<void> {
     overlay.innerHTML = `
         <div class="info-popup confirm-dialog folder-permissions-dialog">
             <div class="info-popup-header">
-                <h3 id="folder-permissions-title">Link folders</h3>
+                <h3 id="folder-permissions-title">Link Folders</h3>
                 <button type="button" class="info-popup-close confirm-dialog-close-btn" aria-label="Skip">
                     <span class="material-symbols-outlined">close</span>
                 </button>
