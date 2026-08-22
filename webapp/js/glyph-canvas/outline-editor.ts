@@ -4804,6 +4804,8 @@ export class OutlineEditor {
         const previousWidth = Number(currentLayerData.width) || 0;
         const previousSidebearings =
             this.getDirectSidebearingsForLayerData(currentLayerData);
+        const rightEdgeAnchorScreen =
+            this.getEditModeAdvanceRightLockScreenPosition();
 
         const restingLayer = toRestingLayerJson(
             {
@@ -5046,6 +5048,10 @@ export class OutlineEditor {
                       { render: false }
                   )
             : false;
+
+        if (editedSide === 'left') {
+            this.applyAdvanceRightEdgeScreenAnchor(rightEdgeAnchorScreen);
+        }
 
         if (editedSide === 'left') {
             const rightNeighborWidthDelta =
@@ -6938,6 +6944,25 @@ export class OutlineEditor {
         x: number;
         y: number;
     } | null {
+        return this.getEditModeHorizontalLockFontPosition(false);
+    }
+
+    /**
+     * Opposite advance edge from {@link getEditModeOriginLockFontPosition}:
+     * LTR `(xAdvance, 0)`, RTL `(0, 0)`. Used when keyed LSB realignment
+     * grows width while translating content.
+     */
+    getEditModeAdvanceRightLockFontPosition(): {
+        x: number;
+        y: number;
+    } | null {
+        return this.getEditModeHorizontalLockFontPosition(true);
+    }
+
+    private getEditModeHorizontalLockFontPosition(lockAdvanceEdge: boolean): {
+        x: number;
+        y: number;
+    } | null {
         const textRun = this.glyphCanvas.textRunEditor;
         const glyphOrigin = this.getActiveGlyphRunOrigin();
         if (!glyphOrigin || !textRun) {
@@ -6950,15 +6975,23 @@ export class OutlineEditor {
         const isRTL = textRun.isPositionRTL(cluster);
         const shapedAdvance = shapedGlyph?.ax;
         const layerWidth = this.getCurrentLayerDataFromStack()?.width;
-        const advance =
-            typeof shapedAdvance === 'number' && Number.isFinite(shapedAdvance)
-                ? shapedAdvance
-                : typeof layerWidth === 'number' && Number.isFinite(layerWidth)
-                  ? layerWidth
-                  : 0;
+        const advance = lockAdvanceEdge
+            ? typeof layerWidth === 'number' && Number.isFinite(layerWidth)
+                ? layerWidth
+                : typeof shapedAdvance === 'number' &&
+                    Number.isFinite(shapedAdvance)
+                  ? shapedAdvance
+                  : 0
+            : typeof shapedAdvance === 'number' &&
+                Number.isFinite(shapedAdvance)
+              ? shapedAdvance
+              : typeof layerWidth === 'number' && Number.isFinite(layerWidth)
+                ? layerWidth
+                : 0;
+        const lockAtAdvance = lockAdvanceEdge ? !isRTL : isRTL;
 
         return {
-            x: glyphOrigin.x + (isRTL ? advance : 0),
+            x: glyphOrigin.x + (lockAtAdvance ? advance : 0),
             y: glyphOrigin.y
         };
     }
@@ -7002,12 +7035,51 @@ export class OutlineEditor {
             y: number;
         } | null
     ): void {
-        if (!anchorScreen || !this.glyphCanvas.viewportManager) {
-            return;
+        this.applyFontPointScreenAnchor(
+            anchorScreen,
+            this.getBoundingBoxCenterFontPosition()
+        );
+    }
+
+    private getEditModeAdvanceRightLockScreenPosition(): {
+        x: number;
+        y: number;
+    } | null {
+        const fontPosition = this.getEditModeAdvanceRightLockFontPosition();
+        if (!fontPosition || !this.glyphCanvas.viewportManager) {
+            return null;
         }
 
-        const fontPosition = this.getBoundingBoxCenterFontPosition();
-        if (!fontPosition) {
+        return this.glyphCanvas.viewportManager.fontToScreenCoordinates(
+            fontPosition.x,
+            fontPosition.y
+        );
+    }
+
+    private applyAdvanceRightEdgeScreenAnchor(
+        anchorScreen: {
+            x: number;
+            y: number;
+        } | null
+    ): void {
+        this.applyFontPointScreenAnchor(
+            anchorScreen,
+            this.getEditModeAdvanceRightLockFontPosition()
+        );
+    }
+
+    private applyFontPointScreenAnchor(
+        anchorScreen: {
+            x: number;
+            y: number;
+        } | null,
+        fontPosition: { x: number; y: number } | null
+    ): void {
+        if (
+            !anchorScreen ||
+            !fontPosition ||
+            !this.glyphCanvas.viewportManager
+        ) {
             return;
         }
 

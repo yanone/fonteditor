@@ -2268,12 +2268,26 @@ function committedPacketLocksActiveGlyphBbox(
     );
 }
 
+function committedPacketLocksActiveGlyphRightEdge(
+    entries: ChangeLogEntry[]
+): boolean {
+    if (!window.glyphCanvas?.outlineEditor?.active) {
+        return false;
+    }
+    if (committedPacketLocksActiveGlyphBbox(entries)) {
+        return false;
+    }
+    return flattenCommittedSemanticEntries(entries).some(
+        (entry) => entry.visualAnchorSide === 'left'
+    );
+}
+
 /**
  * Capture this window's idle viewer lock before a committed packet mutates
  * the canvas. Same lock for local, remote, undo, and redo. Live drags and
  * sidebearing bursts on this window still bypass it. Edit mode locks origin
- * unless the packet is a sidebearing edit, which always locks this window's
- * active glyph bbox center.
+ * unless the packet is a sidebearing edit (bbox center) or a keyed LSB
+ * outline/component realignment (advance right edge).
  */
 function applyIdleViewLock(entries: ChangeLogEntry[]): boolean {
     const gc = window.glyphCanvas;
@@ -2282,7 +2296,8 @@ function applyIdleViewLock(entries: ChangeLogEntry[]): boolean {
     }
     return gc.captureIdleViewLock({
         kerningPair: committedPacketLocksKerningPair(entries),
-        bboxCenter: committedPacketLocksActiveGlyphBbox(entries)
+        bboxCenter: committedPacketLocksActiveGlyphBbox(entries),
+        rightEdge: committedPacketLocksActiveGlyphRightEdge(entries)
     });
 }
 

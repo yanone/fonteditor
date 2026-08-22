@@ -182,6 +182,13 @@ function expectViewportUnchanged(beforeViewport) {
     expect(canvas.viewportManager.scale).toBeCloseTo(beforeViewport.scale, 5);
 }
 
+function expectAdvanceRightEdgeAnchored(beforeEdges) {
+    const afterEdges = getActiveGlyphAdvanceEdgesScreen();
+
+    expect(afterEdges.right).toBeCloseTo(beforeEdges.right, 5);
+    expect(afterEdges.scale).toBeCloseTo(beforeEdges.scale, 5);
+}
+
 function makeBidirectionalNeighborMetricsFont() {
     return Font.fromData({
         upm: 1000,
@@ -784,7 +791,7 @@ describe('Sidebearing keys: live recompute during mouse drags', () => {
         // Width must increase: LSB key translates nodes right, advance widens.
         expect(widthDelta).toBeGreaterThan(0.5);
 
-        expectViewportUnchanged(anchorEdges);
+        expectAdvanceRightEdgeAnchored(anchorEdges);
 
         // Advance widths include the active glyph and downstream dependents.
         expect(result).not.toBeNull();
@@ -941,7 +948,7 @@ describe('Sidebearing keys: viewport anchoring', () => {
         // Width must increase: the LSB key translates nodes right, widening the advance.
         expect(widthDelta).toBeGreaterThan(0.5);
 
-        expectViewportUnchanged(anchorEdges);
+        expectAdvanceRightEdgeAnchored(anchorEdges);
     });
 
     test('both keys: dragging only the rightmost node keeps the left edge anchored', () => {
@@ -1186,7 +1193,7 @@ describe('Sidebearing keys: viewport anchoring', () => {
         // Width must have changed for this test to be meaningful
         expect(Math.abs(widthDelta)).toBeGreaterThan(0.5);
 
-        expectViewportUnchanged(anchorEdges);
+        expectAdvanceRightEdgeAnchored(anchorEdges);
     });
 
     // ── Sidebearing handle drag (RSB on l): panX unchanged (glyph a downstream) ──
@@ -1366,8 +1373,6 @@ describe('Sidebearing keys: viewport anchoring', () => {
         // RSB key maintained → advance widened by rightmost-node displacement
         expect(widthAfterRsb).toBeGreaterThan(initialWidth);
 
-        const panXAfterRsb = canvas.viewportManager.panX;
-
         // ── Phase 2: LSB drag (moves leftmost node left by 15) ────────────────
         canvas.outlineEditor.isDraggingPoint = true;
 
@@ -1398,8 +1403,7 @@ describe('Sidebearing keys: viewport anchoring', () => {
 
         // LSB key must still fire and update the width even after a prior RSB drag.
         expect(widthAfterLsb).not.toBe(widthAfterRsb);
-        expectViewportUnchanged(anchorEdges);
-        expect(canvas.viewportManager.panX).toBe(panXAfterRsb);
+        expectAdvanceRightEdgeAnchored(anchorEdges);
     });
 });
 
@@ -1778,7 +1782,7 @@ describe('Sidebearing keys: component drags', () => {
         );
         expect(accentTxAfter).toBeGreaterThan(accentTxBefore);
 
-        expectViewportUnchanged(anchorEdges);
+        expectAdvanceRightEdgeAnchored(anchorEdges);
 
         expect(canvas.outlineEditor._metricsKeyEditedSide).toBe('left');
     });
@@ -1863,7 +1867,7 @@ describe('Sidebearing keys: component drags', () => {
         const minPathX = Math.min(...nodesArray.map((n) => n.x));
         expect(minPathX).toBeGreaterThan(30);
 
-        expectViewportUnchanged(anchorEdges);
+        expectAdvanceRightEdgeAnchored(anchorEdges);
     });
 
     test('component drag records _metricsKeyEditedSide for undo', () => {

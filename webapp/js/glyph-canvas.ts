@@ -718,9 +718,13 @@ class GlyphCanvas {
 
     /**
      * Edit-mode idle lock: origin (LTR 0,0 / RTL xAdvance,0) unless this
-     * packet is a sidebearing edit on the active glyph (bbox center).
+     * packet is a sidebearing edit on the active glyph (bbox center) or a
+     * keyed LSB outline/component realignment (advance right edge).
      */
-    getIdleViewLockFontPosition(options?: { bboxCenter?: boolean }): {
+    getIdleViewLockFontPosition(options?: {
+        bboxCenter?: boolean;
+        rightEdge?: boolean;
+    }): {
         x: number;
         y: number;
     } | null {
@@ -730,6 +734,12 @@ class GlyphCanvas {
                     this.outlineEditor.getBoundingBoxCenterFontPosition();
                 if (bboxCenter) {
                     return bboxCenter;
+                }
+            } else if (options?.rightEdge) {
+                const rightEdge =
+                    this.outlineEditor.getEditModeAdvanceRightLockFontPosition();
+                if (rightEdge) {
+                    return rightEdge;
                 }
             }
             const origin =
@@ -760,13 +770,15 @@ class GlyphCanvas {
     /**
      * Capture this window's idle viewer lock before a committed packet
      * mutates the canvas (local, remote, undo, or redo). Edit mode locks
-     * the active glyph origin, or its bbox center for a sidebearing edit
-     * on that glyph; text-mode kerning locks the pair's reference glyph;
-     * other text-mode packets lock the caret.
+     * the active glyph origin, its bbox center for a sidebearing edit on
+     * that glyph, or its advance right edge for keyed LSB realignment;
+     * text-mode kerning locks the pair's reference glyph; other text-mode
+     * packets lock the caret.
      */
     captureIdleViewLock(options?: {
         kerningPair?: boolean;
         bboxCenter?: boolean;
+        rightEdge?: boolean;
     }): boolean {
         this.clearIdleViewLock();
         if (this.shouldSkipIdleViewLock() || !this.viewportManager) {
@@ -787,8 +799,13 @@ class GlyphCanvas {
 
         const useBboxCenter =
             !!options?.bboxCenter && !!this.outlineEditor?.active;
+        const useRightEdge =
+            !useBboxCenter &&
+            !!options?.rightEdge &&
+            !!this.outlineEditor?.active;
         const fontPosition = this.getIdleViewLockFontPosition({
-            bboxCenter: useBboxCenter
+            bboxCenter: useBboxCenter,
+            rightEdge: useRightEdge
         });
         if (!fontPosition) {
             return false;
@@ -799,6 +816,7 @@ class GlyphCanvas {
         );
         this.pendingIdleViewLock = 'content';
         this.idleViewLockUsesBbox = useBboxCenter;
+        this.idleViewLockUsesRightEdge = useRightEdge;
         return true;
     }
 
@@ -816,7 +834,8 @@ class GlyphCanvas {
         }
 
         const fontPosition = this.getIdleViewLockFontPosition({
-            bboxCenter: this.idleViewLockUsesBbox
+            bboxCenter: this.idleViewLockUsesBbox,
+            rightEdge: this.idleViewLockUsesRightEdge
         });
         if (!fontPosition || !this.idleViewLockScreen) {
             return false;
@@ -865,6 +884,7 @@ class GlyphCanvas {
         this.pendingIdleViewLock = null;
         this.idleViewLockScreen = null;
         this.idleViewLockUsesBbox = false;
+        this.idleViewLockUsesRightEdge = false;
     }
 
     /**
@@ -1145,6 +1165,7 @@ class GlyphCanvas {
     private pendingIdleViewLock: 'content' | 'kerning-pair' | null = null;
     private idleViewLockScreen: { x: number; y: number } | null = null;
     private idleViewLockUsesBbox = false;
+    private idleViewLockUsesRightEdge = false;
 
     // Flag to suppress rendering during critical operations (e.g., layer data swap)
     renderSuppressed: boolean = false;
@@ -11256,6 +11277,8 @@ class GlyphCanvas {
                         },
                         pendingIdleViewLock: this.hasPendingIdleViewLock(),
                         idleViewLockUsesBbox: this.idleViewLockUsesBbox,
+                        idleViewLockUsesRightEdge:
+                            this.idleViewLockUsesRightEdge,
                         renderSuppressed: this.renderSuppressed
                     }
                 );
@@ -11321,6 +11344,7 @@ class GlyphCanvas {
                 },
                 pendingIdleViewLock: this.hasPendingIdleViewLock(),
                 idleViewLockUsesBbox: this.idleViewLockUsesBbox,
+                idleViewLockUsesRightEdge: this.idleViewLockUsesRightEdge,
                 renderSuppressed: this.renderSuppressed
             });
             window.dispatchEvent(

@@ -2876,7 +2876,8 @@ describe('handleRemoteChangeRefresh', () => {
 
             expect(glyphCanvas.captureIdleViewLock).toHaveBeenCalledWith({
                 kerningPair: false,
-                bboxCenter: true
+                bboxCenter: true,
+                rightEdge: false
             });
             expect(glyphCanvas.reapplyIdleViewLock).toHaveBeenCalled();
             expect(glyphCanvas.render).not.toHaveBeenCalled();
@@ -2908,7 +2909,44 @@ describe('handleRemoteChangeRefresh', () => {
 
             expect(glyphCanvas.captureIdleViewLock).toHaveBeenCalledWith({
                 kerningPair: false,
-                bboxCenter: false
+                bboxCenter: false,
+                rightEdge: false
+            });
+            expect(glyphCanvas.reapplyIdleViewLock).toHaveBeenCalled();
+        });
+
+        test("remote keyed LSB outline packet locks this window's advance right edge", async () => {
+            const { glyphCanvas } = installReceiverHarness({
+                activeGlyphName: 'm',
+                activeLayerId: 'master-regular',
+                currentLayerWidth: 560,
+                initialPanX: 200,
+                initialScale: 2
+            });
+
+            await handleRemoteChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Drag point',
+                        path: 'glyphs.m:layers.master-regular:',
+                        visualAnchorSide: 'left',
+                        editSource: 'mouse-drag-outline',
+                        compileChangeSource: 'mouse-drag-outline',
+                        compileEditType: 'outline',
+                        oldValue: { width: 500 },
+                        newValue: { width: 560 }
+                    }
+                ],
+                {
+                    requestCompile: jest.fn(async () => {}),
+                    queueCacheRefresh: jest.fn(async () => {})
+                }
+            );
+
+            expect(glyphCanvas.captureIdleViewLock).toHaveBeenCalledWith({
+                kerningPair: false,
+                bboxCenter: false,
+                rightEdge: true
             });
             expect(glyphCanvas.reapplyIdleViewLock).toHaveBeenCalled();
         });
@@ -2940,7 +2978,8 @@ describe('handleRemoteChangeRefresh', () => {
 
             expect(glyphCanvas.captureIdleViewLock).toHaveBeenCalledWith({
                 kerningPair: true,
-                bboxCenter: false
+                bboxCenter: false,
+                rightEdge: false
             });
             expect(glyphCanvas.reapplyIdleViewLock).toHaveBeenCalled();
         });
@@ -2972,7 +3011,8 @@ describe('handleRemoteChangeRefresh', () => {
 
             expect(glyphCanvas.captureIdleViewLock).toHaveBeenCalledWith({
                 kerningPair: false,
-                bboxCenter: true
+                bboxCenter: true,
+                rightEdge: false
             });
             expect(glyphCanvas.reapplyIdleViewLock).toHaveBeenCalled();
         });
@@ -3005,12 +3045,13 @@ describe('handleRemoteChangeRefresh', () => {
 
             expect(glyphCanvas.captureIdleViewLock).toHaveBeenCalledWith({
                 kerningPair: false,
-                bboxCenter: true
+                bboxCenter: true,
+                rightEdge: false
             });
             expect(glyphCanvas.reapplyIdleViewLock).toHaveBeenCalled();
         });
 
-        test('local component drag commit with keyed visualAnchorSide locks origin', async () => {
+        test('local component drag commit with keyed visualAnchorSide locks the right edge', async () => {
             const { glyphCanvas } = installReceiverHarness({
                 activeGlyphName: 'adieresis',
                 activeLayerId: 'master-regular',
@@ -3041,7 +3082,8 @@ describe('handleRemoteChangeRefresh', () => {
 
             expect(glyphCanvas.captureIdleViewLock).toHaveBeenCalledWith({
                 kerningPair: false,
-                bboxCenter: false
+                bboxCenter: false,
+                rightEdge: true
             });
             expect(glyphCanvas.reapplyIdleViewLock).toHaveBeenCalled();
         });

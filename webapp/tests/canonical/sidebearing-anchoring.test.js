@@ -46,6 +46,26 @@ function snapshotGlyphOriginScreen(target, { rtl = false } = {}) {
     );
 }
 
+function snapshotGlyphRightEdgeScreen(target, { rtl = false } = {}) {
+    const glyphPosition = target.textRunEditor._getGlyphPosition(
+        target.textRunEditor.selectedGlyphIndex
+    );
+    const shapedGlyph =
+        target.textRunEditor.shapedGlyphs?.[
+            target.textRunEditor.selectedGlyphIndex
+        ];
+    const advance =
+        typeof shapedGlyph?.ax === 'number'
+            ? shapedGlyph.ax
+            : target.outlineEditor.layerData.width;
+    const localX = rtl ? 0 : advance;
+
+    return target.viewportManager.fontToScreenCoordinates(
+        glyphPosition.xPosition + glyphPosition.xOffset + localX,
+        glyphPosition.yOffset
+    );
+}
+
 function expectLayerCenterAnchored(target, beforeCenter) {
     const afterCenter = snapshotLayerCenterScreen(target);
 
@@ -58,6 +78,13 @@ function expectGlyphOriginAnchored(target, beforeOrigin, options) {
 
     expect(afterOrigin.x).toBeCloseTo(beforeOrigin.x, 5);
     expect(afterOrigin.y).toBeCloseTo(beforeOrigin.y, 5);
+}
+
+function expectGlyphRightEdgeAnchored(target, beforeRight, options) {
+    const afterRight = snapshotGlyphRightEdgeScreen(target, options);
+
+    expect(afterRight.x).toBeCloseTo(beforeRight.x, 5);
+    expect(afterRight.y).toBeCloseTo(beforeRight.y, 5);
 }
 
 function shiftLayerNodes(target, dx) {
@@ -636,7 +663,7 @@ describe('Sidebearing undo viewport stability', () => {
 
     test.each([
         {
-            label: 'undo drag metadata with visualAnchorSide left leaves the viewport unchanged',
+            label: 'undo drag metadata with visualAnchorSide left keeps the idle lock request',
             side: 'left'
         },
         {
@@ -949,6 +976,23 @@ describe('Idle committed viewer lock', () => {
         expectGlyphOriginAnchored(canvas, beforeOrigin);
         const afterCenter = snapshotLayerCenterScreen(canvas);
         expect(afterCenter.x).not.toBeCloseTo(beforeCenter.x, 5);
+        canvas.clearIdleViewLock();
+    });
+
+    test('edit mode LSB-keyed lock keeps the advance right edge after a width change', () => {
+        const beforeRight = snapshotGlyphRightEdgeScreen(canvas);
+        expect(
+            canvas.captureIdleViewLock({
+                kerningPair: false,
+                rightEdge: true
+            })
+        ).toBe(true);
+
+        canvas.outlineEditor.layerData.width = 580;
+        canvas.textRunEditor.shapedGlyphs = [{ ax: 580, cl: 0 }];
+
+        expect(canvas.reapplyIdleViewLock()).toBe(true);
+        expectGlyphRightEdgeAnchored(canvas, beforeRight);
         canvas.clearIdleViewLock();
     });
 

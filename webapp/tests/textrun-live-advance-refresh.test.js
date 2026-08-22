@@ -732,7 +732,8 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         expect(syncCurrentOutlineLayerDataFromModel).not.toHaveBeenCalled();
         expect(captureIdleViewLock).toHaveBeenCalledWith({
             kerningPair: false,
-            bboxCenter: true
+            bboxCenter: true,
+            rightEdge: false
         });
         expect(reapplyIdleViewLock).toHaveBeenCalled();
         expect(render).not.toHaveBeenCalled();
