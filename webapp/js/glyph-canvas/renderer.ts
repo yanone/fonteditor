@@ -3181,6 +3181,38 @@ export class GlyphCanvasRenderer {
             nodes,
             closed
         });
+        const selectedPathSegments = pathDescriptors.filter(
+            (descriptor) =>
+                isNodeSelected(descriptor.startNodeIndex) &&
+                isNodeSelected(descriptor.endNodeIndex)
+        );
+        const isHandleImplicitlySelected = (handleIndex: number): boolean => {
+            if (nodes[handleIndex]?.nodetype !== 'OffCurve') {
+                return false;
+            }
+            const owner = getOffCurveOnCurveIndex(handleIndex);
+            if (owner === null || !isNodeSelected(owner)) {
+                return false;
+            }
+            const ownerOnSelectedSegment = selectedPathSegments.filter(
+                (segment) =>
+                    segment.startNodeIndex === owner ||
+                    segment.endNodeIndex === owner
+            );
+            if (ownerOnSelectedSegment.length === 0) {
+                return true;
+            }
+            if (
+                ownerOnSelectedSegment.some((segment) =>
+                    segment.controlNodeIndices.includes(handleIndex)
+                )
+            ) {
+                return true;
+            }
+            return ownerOnSelectedSegment.some(
+                (segment) => segment.type === 'line' && !!nodes[owner]?.smooth
+            );
+        };
         if (pathDescriptors.length === 0) {
             this.ctx.beginPath();
             this.ctx.strokeStyle = unselectedOutline;
@@ -3373,7 +3405,8 @@ export class GlyphCanvasRenderer {
                 toRadius: number
             ): void => {
                 const isActive =
-                    isNodeSelected(fromIndex) || isNodeSelected(toIndex);
+                    isNodeSelected(fromIndex) ||
+                    isHandleImplicitlySelected(fromIndex);
                 const isHoveredLine = isHandleLineHoverCluster(fromIndex);
                 this.ctx.strokeStyle = isActive
                     ? colors.HANDLE_LINE_SELECTED
@@ -3535,11 +3568,8 @@ export class GlyphCanvasRenderer {
             }
 
             const isOffCurve = type === 'OffCurve';
-            const onCurveOwnerIndex = isOffCurve
-                ? getOffCurveOnCurveIndex(nodeIndex)
-                : null;
             const onCurveOwnerSelected =
-                onCurveOwnerIndex !== null && isNodeSelected(onCurveOwnerIndex);
+                isOffCurve && isHandleImplicitlySelected(nodeIndex);
             const handleLooksSelected =
                 isOffCurve && (isSelected || onCurveOwnerSelected);
             const restStroke = isOffCurve
