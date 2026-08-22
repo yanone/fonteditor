@@ -3043,24 +3043,102 @@ export class GlyphCanvasRenderer {
             ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
             : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
 
-        // Draw the outline path
-        this.ctx.beginPath();
-        const outlineOpacity = APP_SETTINGS.OUTLINE_EDITOR.OUTLINE_OPACITY;
-        this.ctx.strokeStyle = isDarkTheme
-            ? `rgba(255, 255, 255, ${outlineOpacity})`
-            : `rgba(0, 0, 0, ${outlineOpacity})`;
-        this.ctx.lineWidth =
+        const isNodeHovered = (nodeIndex: number): boolean =>
+            !isInterpolated &&
+            !!this.glyphCanvas.outlineEditor.hoveredPointIndex &&
+            this.glyphCanvas.outlineEditor.hoveredPointIndex.contourIndex ===
+                contourIndex &&
+            this.glyphCanvas.outlineEditor.hoveredPointIndex.nodeIndex ===
+                nodeIndex;
+
+        const isNodeSelected = (nodeIndex: number): boolean =>
+            !isInterpolated &&
+            this.glyphCanvas.outlineEditor.selectedPoints.some(
+                (p: { contourIndex: number; nodeIndex: number }) =>
+                    p.contourIndex === contourIndex && p.nodeIndex === nodeIndex
+            );
+
+        const getOffCurveOnCurveIndex = (nodeIndex: number): number | null => {
+            if (nodes[nodeIndex]?.nodetype !== 'OffCurve') {
+                return null;
+            }
+            let prevIdx = nodeIndex - 1;
+            if (prevIdx < 0) {
+                prevIdx = nodes.length - 1;
+            }
+            let nextIdx = nodeIndex + 1;
+            if (nextIdx >= nodes.length) {
+                nextIdx = 0;
+            }
+            if (nodes[prevIdx].nodetype === 'OffCurve') {
+                let targetIdx = nextIdx;
+                if (nodes[nextIdx].nodetype === 'OffCurve') {
+                    targetIdx++;
+                    if (targetIdx >= nodes.length) {
+                        targetIdx = 0;
+                    }
+                }
+                return nodes[targetIdx].nodetype === 'OffCurve'
+                    ? null
+                    : targetIdx;
+            }
+            const prevType = nodes[prevIdx].nodetype;
+            if (
+                prevType === 'Move' ||
+                prevType === 'Curve' ||
+                prevType === 'QCurve' ||
+                prevType === 'Line'
+            ) {
+                return prevIdx;
+            }
+            return null;
+        };
+
+        const unselectedOutline = isDarkTheme
+            ? `rgba(255, 255, 255, ${APP_SETTINGS.OUTLINE_EDITOR.OUTLINE_OPACITY})`
+            : `rgba(0, 0, 0, ${APP_SETTINGS.OUTLINE_EDITOR.OUTLINE_OPACITY})`;
+        const outlineWidth =
             APP_SETTINGS.OUTLINE_EDITOR.OUTLINE_STROKE_WIDTH * invScale;
-
-        // Build the path using the helper method
-        const startIdx = segmentPreview
-            ? this.buildPathWithAddPointPreview(nodes, closed, segmentPreview)
-            : this.buildPathFromNodes(nodes, closed);
-
-        if (!segmentPreview && closed) {
-            this.ctx.closePath();
+        const pathDescriptors = Layer.getPathSegmentDescriptors({
+            nodes,
+            closed
+        });
+        if (pathDescriptors.length === 0) {
+            this.ctx.beginPath();
+            this.ctx.strokeStyle = unselectedOutline;
+            this.ctx.lineWidth = outlineWidth;
+            this.buildPathFromNodes(nodes, closed);
+            if (closed) {
+                this.ctx.closePath();
+            }
+            this.ctx.stroke();
+        } else {
+            pathDescriptors.forEach((descriptor) => {
+                const segmentSelected =
+                    isNodeSelected(descriptor.startNodeIndex) &&
+                    isNodeSelected(descriptor.endNodeIndex);
+                const pieces =
+                    segmentPreview &&
+                    descriptor.segmentId === segmentPreview.segmentId
+                        ? segmentPreview.segments
+                        : [descriptor];
+                if (pieces.length === 0 || pieces[0].points.length < 2) {
+                    return;
+                }
+                this.ctx.beginPath();
+                this.ctx.moveTo(pieces[0].points[0].x, pieces[0].points[0].y);
+                pieces.forEach((piece) => {
+                    this.appendPreviewSegmentToPath(this.ctx, piece);
+                });
+                this.ctx.strokeStyle = segmentSelected
+                    ? colors.OUTLINE_SELECTED
+                    : unselectedOutline;
+                this.ctx.lineWidth = outlineWidth;
+                this.ctx.stroke();
+            });
         }
-        this.ctx.stroke();
+
+        const startIdx = this.getPathStartIndex(nodes);
 
         const commandPathPreviewLine =
             !isInterpolated &&
@@ -3094,21 +3172,6 @@ export class GlyphCanvasRenderer {
         const smoothRatio = settings.NODE_SMOOTH_SIZE_RATIO;
         const diamondRatio = settings.NODE_DIAMOND_SIZE_RATIO;
         const strokePad = strokeWidth / 2;
-
-        const isNodeHovered = (nodeIndex: number): boolean =>
-            !isInterpolated &&
-            !!this.glyphCanvas.outlineEditor.hoveredPointIndex &&
-            this.glyphCanvas.outlineEditor.hoveredPointIndex.contourIndex ===
-                contourIndex &&
-            this.glyphCanvas.outlineEditor.hoveredPointIndex.nodeIndex ===
-                nodeIndex;
-
-        const isNodeSelected = (nodeIndex: number): boolean =>
-            !isInterpolated &&
-            this.glyphCanvas.outlineEditor.selectedPoints.some(
-                (p: { contourIndex: number; nodeIndex: number }) =>
-                    p.contourIndex === contourIndex && p.nodeIndex === nodeIndex
-            );
 
         const chromeOuterRadius = (
             node: Babelfont.Node,
@@ -3190,10 +3253,34 @@ export class GlyphCanvasRenderer {
             // Draw control point handle lines (from off-curve to adjacent on-curve points)
             const handleOpacity =
                 APP_SETTINGS.OUTLINE_EDITOR.HANDLE_LINE_OPACITY;
-            this.ctx.strokeStyle = isDarkTheme
+            const idleHandleLine = isDarkTheme
                 ? `rgba(255, 255, 255, ${handleOpacity})`
                 : `rgba(0, 0, 0, ${handleOpacity})`;
-            this.ctx.lineWidth = 1 * invScale;
+            const strokeHandleLine = (
+                fromIndex: number,
+                toIndex: number,
+                fromX: number,
+                fromY: number,
+                toX: number,
+                toY: number,
+                fromRadius: number,
+                toRadius: number
+            ): void => {
+                const isActive =
+                    isNodeSelected(fromIndex) || isNodeSelected(toIndex);
+                this.ctx.strokeStyle = isActive
+                    ? colors.HANDLE_LINE_SELECTED
+                    : idleHandleLine;
+                this.ctx.lineWidth = 1 * invScale;
+                this.strokeTrimmedHandleLine(
+                    fromX,
+                    fromY,
+                    toX,
+                    toY,
+                    fromRadius,
+                    toRadius
+                );
+            };
 
             nodes.forEach((node: Babelfont.Node, nodeIndex: number) => {
                 const { x, y, nodetype: type } = node;
@@ -3231,7 +3318,9 @@ export class GlyphCanvasRenderer {
                         } = nodes[targetIdx];
                         // Connect to on-curve points, including Move for open contours.
                         if (targetType !== 'OffCurve') {
-                            this.strokeTrimmedHandleLine(
+                            strokeHandleLine(
+                                nodeIndex,
+                                targetIdx,
                                 x,
                                 y,
                                 targetX,
@@ -3255,7 +3344,9 @@ export class GlyphCanvasRenderer {
                             targetType === 'QCurve' ||
                             targetType === 'Line'
                         ) {
-                            this.strokeTrimmedHandleLine(
+                            strokeHandleLine(
+                                nodeIndex,
+                                targetIdx,
                                 x,
                                 y,
                                 targetX,
@@ -3271,6 +3362,8 @@ export class GlyphCanvasRenderer {
             if (segmentPreview) {
                 const previewOffRadius = pointSize * controlRatio + strokePad;
                 const previewOnRadius = pointSize + strokePad;
+                this.ctx.strokeStyle = idleHandleLine;
+                this.ctx.lineWidth = 1 * invScale;
                 segmentPreview.segments.forEach((segment) => {
                     if (segment.type === 'quadratic') {
                         this.strokeTrimmedHandleLine(
@@ -3332,15 +3425,28 @@ export class GlyphCanvasRenderer {
             }
 
             const isOffCurve = type === 'OffCurve';
+            const onCurveOwnerIndex = isOffCurve
+                ? getOffCurveOnCurveIndex(nodeIndex)
+                : null;
+            const onCurveOwnerSelected =
+                onCurveOwnerIndex !== null && isNodeSelected(onCurveOwnerIndex);
+            const handleLooksSelected =
+                isOffCurve && (isSelected || onCurveOwnerSelected);
             const restStroke = isOffCurve
-                ? colors.CONTROL_POINT_OUTLINE
+                ? handleLooksSelected
+                    ? colors.HANDLE_LINE_SELECTED
+                    : colors.CONTROL_POINT_OUTLINE
                 : colors.NODE_NORMAL;
             let strokeColor = restStroke;
-            let fillColor = isSelected
-                ? isOffCurve
+            let fillColor = isOffCurve
+                ? isSelected
                     ? colors.CONTROL_POINT_SELECTED
-                    : colors.NODE_NORMAL
-                : colors.NODE_UNSELECTED_FILL;
+                    : onCurveOwnerSelected
+                      ? colors.CONTROL_POINT_OWNER_SELECTED_FILL
+                      : colors.NODE_UNSELECTED_FILL
+                : isSelected
+                  ? colors.NODE_NORMAL
+                  : colors.NODE_UNSELECTED_FILL;
             if (isInterpolated) {
                 strokeColor = desaturateColor(strokeColor);
                 if (fillColor) {

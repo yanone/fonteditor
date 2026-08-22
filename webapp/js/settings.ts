@@ -102,7 +102,7 @@ const APP_SETTINGS = {
         // Stroke widths
         OUTLINE_STROKE_WIDTH: 1, // px - width of glyph outline paths
         OUTLINE_OPACITY: 0.4, // opacity of glyph outline paths in editing mode
-        HANDLE_LINE_OPACITY: 0.3, // opacity of off-curve point handle lines in editing mode
+        HANDLE_LINE_OPACITY: 0.2, // idle handle lines (both ends unselected)
         // Canvas component strokes are derived from fill by darkening this much.
         // 100 would be black; keep below that so the hue still reads.
         COMPONENT_STROKE_DARKEN_PERCENT: 60,
@@ -188,6 +188,9 @@ const APP_SETTINGS = {
             CONTROL_POINT_HOVERED: '#6e6e6e',
             CONTROL_POINT_SELECTED: '#000000',
             CONTROL_POINT_STROKE: '#6e6e6e',
+            CONTROL_POINT_OWNER_SELECTED_FILL: 'rgba(110, 110, 110, 0.3)',
+            HANDLE_LINE_SELECTED: '#000000',
+            OUTLINE_SELECTED: '#000000',
 
             // Sidebearing handles. Rest/selected hue is --view-console (light).
             SIDEBEARING_NORMAL: '#e0b41c',
@@ -266,13 +269,16 @@ const APP_SETTINGS = {
             NODE_ZONE_HALO_STROKE: '#dcdcdc',
             NODE_ZONE_HALO_OPACITY: 0.4,
 
-            // Off-curve: gray outline, unselected NODE_UNSELECTED_FILL, black
+            // Off-curve: gray outline, unselected NODE_UNSELECTED_FILL, white
             // selection fill. Hover is size-only.
             CONTROL_POINT_NORMAL: '#000000',
             CONTROL_POINT_OUTLINE: '#9a9a9a',
             CONTROL_POINT_HOVERED: '#9a9a9a',
-            CONTROL_POINT_SELECTED: '#000000',
+            CONTROL_POINT_SELECTED: '#ffffff',
             CONTROL_POINT_STROKE: '#9a9a9a',
+            CONTROL_POINT_OWNER_SELECTED_FILL: 'rgba(200, 200, 200, 0.3)',
+            HANDLE_LINE_SELECTED: '#ffffff',
+            OUTLINE_SELECTED: '#ffffff',
 
             // Sidebearing handles. Rest/selected hue is --view-console (dark).
             SIDEBEARING_NORMAL: '#fbc540',
