@@ -18,8 +18,10 @@ import { Logger } from './logger';
 import { timelineSpanStart, timelineSpanEnd } from './perf-timeline';
 import {
     addTippyBackdropSupport,
+    formatMenuShortcut,
     getOrCreateBackdrop,
     getTheme,
+    MENU_SHIFT_SYMBOL,
     setupMenuKeyboardNav
 } from './tippy-utils';
 import { isOverviewFollowStackScrollEnabled } from './glyph-overview-follow-stack-pref';
@@ -3169,7 +3171,7 @@ class GlyphOverview {
                 <div class="plugin-menu-item${disabledClass}" data-action="rename-glyphs"${disabledAttr}>
                     <span class="material-symbols-outlined">edit</span>
                     <span>Rename Glyph(s)…</span>
-                    <span class="plugin-menu-shortcut">⌘⇧F</span>
+                    <span class="plugin-menu-shortcut">${formatMenuShortcut(`⌘${MENU_SHIFT_SYMBOL}F`)}</span>
                 </div>
                 <div class="plugin-menu-item${disabledClass}" data-action="delete-glyphs"${disabledAttr}>
                     <span class="material-symbols-outlined">delete</span>

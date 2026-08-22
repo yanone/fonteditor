@@ -2,8 +2,10 @@ import tippy, { Instance as TippyInstance } from 'tippy.js';
 import 'tippy.js/dist/tippy.css';
 import {
     addTippyBackdropSupport,
+    formatMenuShortcut,
     getOrCreateBackdrop,
     getTheme,
+    MENU_SHIFT_SYMBOL,
     setupMenuKeyboardNav
 } from './tippy-utils';
 import { Logger } from './logger';
@@ -60,7 +62,7 @@ function createMenuHtml(items: ToolbarMenuItem[], prefix = ''): string {
             const disabledClass = item.disabled ? ' disabled' : '';
             const submenuClass = item.children ? ' has-submenu' : '';
             const renderedShortcut = item.shortcut
-                ? `<span class="plugin-menu-shortcut">${escapeHtml(item.shortcut)}</span>`
+                ? `<span class="plugin-menu-shortcut">${formatMenuShortcut(item.shortcut)}</span>`
                 : '';
             const renderedSubmenu = item.children
                 ? `<div class="toolbar-menu-submenu">${createMenuHtml(item.children, `${menuId}.`)}</div><span class="material-symbols-outlined toolbar-menu-chevron">chevron_right</span>`
@@ -140,7 +142,7 @@ function getFileMenuItems(): ToolbarMenuItem[] {
         {
             label: 'Save As…',
             icon: 'save_as',
-            shortcut: '⌘⇧S',
+            shortcut: `⌘${MENU_SHIFT_SYMBOL}S`,
             disabled: !saveButton?.canSaveAs?.(),
             action: async () => {
                 await window.showFontFileDialog?.({ mode: 'save-as' });
@@ -156,7 +158,7 @@ function getFileMenuItems(): ToolbarMenuItem[] {
         {
             label: 'Export binary font as…',
             icon: 'save_as',
-            shortcut: '⌘⇧E',
+            shortcut: `⌘${MENU_SHIFT_SYMBOL}E`,
             disabled: !hasFontOpen,
             action: exportBinaryFontAs
         }
@@ -183,7 +185,7 @@ function getEditMenuItems(): ToolbarMenuItem[] {
         {
             label: 'Redo',
             icon: 'redo',
-            shortcut: '⌘⇧Z',
+            shortcut: `⌘${MENU_SHIFT_SYMBOL}Z`,
             disabled: !hasFontOpen,
             action: triggerRedo
         },
@@ -198,7 +200,7 @@ function getEditMenuItems(): ToolbarMenuItem[] {
         {
             label: 'Rename Glyph(s)…',
             icon: 'edit',
-            shortcut: '⌘⇧F',
+            shortcut: `⌘${MENU_SHIFT_SYMBOL}F`,
             disabled: !hasFontOpen || !hasGlyphSelection,
             action: async () => {
                 window.renameGlyphsDialog?.open();
@@ -244,7 +246,7 @@ function getFontMenuItems(): ToolbarMenuItem[] {
         {
             label: 'Add Glyph(s)…',
             icon: 'add_circle',
-            shortcut: '⌘⇧G',
+            shortcut: `⌘${MENU_SHIFT_SYMBOL}G`,
             disabled: !hasFontOpen,
             action: async () => {
                 await window.addGlyphsDialog?.open();
