@@ -230,6 +230,8 @@ const APP_SETTINGS = {
             SNAP_DEBUG_NODE: 'rgba(0, 120, 200, 0.5)', // Snap candidate node marker color
             SNAP_HIGHLIGHT_NODE: '#ff7700', // Active snap target node marker
             SNAP_HIGHLIGHT_LINE: '#ff7700', // Line from dragged node to snap target
+            // Close/join bullseye on open contour ends (hover and snap).
+            CLOSE_TARGET: '#ff3b30',
 
             // Hover labels (glyph tooltips and component labels)
             HOVER_LABEL_BG: '#c7c7c7',
@@ -318,6 +320,7 @@ const APP_SETTINGS = {
             SNAP_DEBUG_NODE: 'rgba(80, 180, 255, 0.5)', // Snap candidate node marker color
             SNAP_HIGHLIGHT_NODE: '#ff9900', // Active snap target node marker
             SNAP_HIGHLIGHT_LINE: '#ff9900', // Line from dragged node to snap target
+            CLOSE_TARGET: '#ff3b30',
 
             // Hover labels (glyph tooltips and component labels)
             HOVER_LABEL_BG: '#444444',

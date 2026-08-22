@@ -4281,10 +4281,10 @@ export class GlyphCanvasRenderer {
             snapVisualizationState
         );
         const highlightLineColor = exactOriginReturn
-            ? colors.NODE_SELECTED
+            ? colors.CLOSE_TARGET
             : colors.SNAP_HIGHLIGHT_LINE;
         const highlightNodeColor = exactOriginReturn
-            ? colors.NODE_SELECTED
+            ? colors.CLOSE_TARGET
             : colors.SNAP_HIGHLIGHT_NODE;
 
         const isCloseTargetSnap = (snappedX: number, snappedY: number) =>
@@ -4305,7 +4305,7 @@ export class GlyphCanvasRenderer {
                 this.ctx.save();
                 this.ctx.fillStyle = colors.SNAP_DEBUG_NODE;
                 this.ctx.strokeStyle = exactOriginReturn
-                    ? colors.NODE_SELECTED
+                    ? colors.CLOSE_TARGET
                     : colors.SNAP_HIGHLIGHT_NODE;
                 this.ctx.lineWidth = 1 * invScale;
                 for (const c of candidates) {
@@ -4483,8 +4483,8 @@ export class GlyphCanvasRenderer {
         if (closeTargets.length > 0) {
             const targetRadius = 5 * invScale;
             this.ctx.save();
-            this.ctx.strokeStyle = colors.NODE_SELECTED;
-            this.ctx.fillStyle = colors.NODE_SELECTED;
+            this.ctx.strokeStyle = colors.CLOSE_TARGET;
+            this.ctx.fillStyle = colors.CLOSE_TARGET;
             this.ctx.lineWidth = 1 * invScale;
             for (const target of closeTargets) {
                 const ringRadius = targetRadius * (target.active ? 2.75 : 2);

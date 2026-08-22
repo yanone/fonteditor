@@ -196,7 +196,11 @@ if (typeof APP_SETTINGS === 'undefined') {
                 COMPONENT_FILL_SELECTED: 'rgba(255, 0, 255, 0.3)',
                 COMPONENT_FILL_AUTO_NORMAL: 'rgba(93, 129, 182, 0.8)',
                 COMPONENT_FILL_AUTO_HOVERED: 'rgba(72, 122, 199, 0.8)',
-                COMPONENT_FILL_AUTO_SELECTED: 'rgba(0, 102, 255, 1)'
+                COMPONENT_FILL_AUTO_SELECTED: 'rgba(0, 102, 255, 1)',
+                SNAP_DEBUG_NODE: 'rgba(80, 180, 255, 0.5)',
+                SNAP_HIGHLIGHT_NODE: '#ff9900',
+                SNAP_HIGHLIGHT_LINE: '#ff9900',
+                CLOSE_TARGET: '#ff3b30'
             },
             GLYPH_OVERVIEW_COLORS_DARK: {
                 PATH: '#777777'
@@ -241,7 +245,11 @@ if (typeof APP_SETTINGS === 'undefined') {
                 COMPONENT_FILL_SELECTED: 'rgba(204, 0, 204, 0.25)',
                 COMPONENT_FILL_AUTO_NORMAL: 'rgba(93, 129, 182, 0.8)',
                 COMPONENT_FILL_AUTO_HOVERED: 'rgba(72, 122, 199, 0.8)',
-                COMPONENT_FILL_AUTO_SELECTED: 'rgba(0, 102, 255, 1)'
+                COMPONENT_FILL_AUTO_SELECTED: 'rgba(0, 102, 255, 1)',
+                SNAP_DEBUG_NODE: 'rgba(0, 120, 200, 0.5)',
+                SNAP_HIGHLIGHT_NODE: '#ff7700',
+                SNAP_HIGHLIGHT_LINE: '#ff7700',
+                CLOSE_TARGET: '#ff3b30'
             },
             MIN_ZOOM_FOR_GRID: 1,
             MIN_ZOOM_FOR_HANDLES: 0.04,
