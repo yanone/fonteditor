@@ -12,6 +12,7 @@ use fea_rs::{
     Diagnostic, GlyphMap,
 };
 use fea_rs_ast::FeatureFile;
+use serde::de::DeserializeOwned;
 use smol_str::SmolStr;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Write as _;
@@ -398,6 +399,17 @@ fn refresh_debug_font_caches_from_canonical_cache() -> Result<(), JsValue> {
     Ok(())
 }
 
+/// Drop debug compiled-font caches after a Yjs apply without hashing canonical JSON.
+fn rotate_debug_font_caches_for_document_epoch(document_epoch: u64) {
+    reset_debug_font_caches_with_fingerprint(Some(format!("ydoc-{document_epoch:016x}")));
+}
+
+fn deserialize_json<T: DeserializeOwned>(
+    value: &serde_json::Value,
+) -> Result<T, serde_json::Error> {
+    serde::Deserialize::deserialize(value)
+}
+
 fn build_glyph_index(font_json: &serde_json::Value) -> HashMap<String, usize> {
     font_json
         .get("glyphs")
@@ -649,7 +661,7 @@ fn layer_field_from_json<T>(
     value: &serde_json::Value,
 ) -> Result<T, JsValue>
 where
-    T: serde::de::DeserializeOwned,
+    T: DeserializeOwned,
 {
     let normalized_value = match field_name {
         "location" | "smart_component_location" => {
@@ -797,6 +809,7 @@ fn validate_glyph_json_for_native_cache(
     }
 }
 
+#[allow(dead_code)]
 fn validate_active_subset_ydoc_layers_for_native_cache<T: ReadTxn>(txn: &T) -> Result<(), String> {
     let active_subset_glyphs: Vec<String> = SUBSET_JSON_CACHE
         .lock()
@@ -866,7 +879,7 @@ fn deserialize_subset_font_for_native_cache(
     subset_key: &str,
     subset_json: &serde_json::Value,
 ) -> Result<babelfont::Font, String> {
-    serde_json::from_value(subset_json.clone()).map_err(|error| {
+    deserialize_json(subset_json).map_err(|error| {
         let layer_diagnostic = describe_subset_layer_deserialization_failure(subset_json);
         let path_diagnostic = serde_json::to_string(subset_json)
             .ok()
@@ -1395,7 +1408,7 @@ fn get_or_rebuild_font_cache() -> Result<babelfont::Font, JsValue> {
         .as_ref()
         .ok_or_else(|| JsValue::from_str("No font loaded. Open a font first."))?;
 
-    let font: babelfont::Font = serde_json::from_value(json_value.clone())
+    let font: babelfont::Font = deserialize_json(json_value)
         .map_err(|e| JsValue::from_str(&format!("Font deserialization error: {}", e)))?;
 
     let mut cache = FONT_CACHE.lock().unwrap();
@@ -1531,7 +1544,7 @@ fn apply_filter_pipeline(
     font: &babelfont::Font,
     options: &CompilationOptions,
 ) -> Result<babelfont::Font, JsValue> {
-    apply_filter_pipeline_with_glyph_retention(font, options, true)
+    apply_filter_pipeline_owned(font.clone(), options, true)
 }
 
 /// Apply generation filters to a font already reduced by `RetainGlyphs`.
@@ -1541,15 +1554,14 @@ fn apply_filter_pipeline_to_subset(
     font: &babelfont::Font,
     options: &CompilationOptions,
 ) -> Result<babelfont::Font, JsValue> {
-    apply_filter_pipeline_with_glyph_retention(font, options, false)
+    apply_filter_pipeline_owned(font.clone(), options, false)
 }
 
-fn apply_filter_pipeline_with_glyph_retention(
-    font: &babelfont::Font,
+fn apply_filter_pipeline_owned(
+    mut filtered: babelfont::Font,
     options: &CompilationOptions,
     retain_exported_glyphs: bool,
 ) -> Result<babelfont::Font, JsValue> {
-    let mut filtered = font.clone();
     remove_background_layers_for_generation(&mut filtered);
 
     if options.drop_incompatible_paths {
@@ -1880,7 +1892,7 @@ fn compile_with_feature_debug_context(
     context: &str,
 ) -> Result<Vec<u8>, JsValue> {
     match BabelfontIrSource::compile(font.clone(), options.clone()) {
-        Ok(compiled) => Ok(zero_head_timestamps(&compiled)),
+        Ok(compiled) => Ok(zero_head_timestamps(compiled)),
         Err(err) => Err(feature_debug_error_from_babelfont_error(
             "Compilation failed",
             &err,
@@ -1894,9 +1906,9 @@ fn compile_with_feature_debug_context(
 /// compiling the same input produces byte-identical output.  Without this,
 /// fontc embeds fresh timestamps on every compile, making pixel-level
 /// canvas snapshot comparison across compiles impossible.
-fn zero_head_timestamps(font_data: &[u8]) -> Vec<u8> {
+fn zero_head_timestamps(mut font_data: Vec<u8>) -> Vec<u8> {
     if font_data.len() < 12 {
-        return font_data.to_vec();
+        return font_data;
     }
     // Parse sfVersion + numTables (2) + searchRange (2) + entrySelector (2) + rangeShift (2) = 12
     let num_tables = u16::from_be_bytes([font_data[4], font_data[5]]) as usize;
@@ -1904,7 +1916,7 @@ fn zero_head_timestamps(font_data: &[u8]) -> Vec<u8> {
     let dir_end = dir_start + num_tables * 16;
 
     if font_data.len() < dir_end {
-        return font_data.to_vec();
+        return font_data;
     }
 
     // "head" table tag as big-endian u32
@@ -1944,21 +1956,20 @@ fn zero_head_timestamps(font_data: &[u8]) -> Vec<u8> {
             // Offset 18: unitsPerEm    (2 bytes, uint16)
             // Offset 20: created       (8 bytes, LONGDATETIME)
             // Offset 28: modified      (8 bytes, LONGDATETIME)
-            let mut result = font_data.to_vec();
             let created_offset = offset + 20;
             let modified_offset = offset + 28;
 
-            if created_offset + 8 <= result.len() {
-                result[created_offset..created_offset + 8].fill(0);
+            if created_offset + 8 <= font_data.len() {
+                font_data[created_offset..created_offset + 8].fill(0);
             }
-            if modified_offset + 8 <= result.len() {
-                result[modified_offset..modified_offset + 8].fill(0);
+            if modified_offset + 8 <= font_data.len() {
+                font_data[modified_offset..modified_offset + 8].fill(0);
             }
-            return result;
+            return font_data;
         }
     }
 
-    font_data.to_vec()
+    font_data
 }
 
 const PERF_PREFIX: &str = "cp:wasm";
@@ -3489,8 +3500,9 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                 validate_glyph_json_for_native_cache(glyph_name, glyph_json)
                     .map_err(|error| JsValue::from_str(&error))?;
             }
-            validate_active_subset_ydoc_layers_for_native_cache(&txn)
-                .map_err(|error| JsValue::from_str(&error))?;
+            // Packet-affected snapshots above are the native-cache gate (policy 13).
+            // Do not walk/deserialize every active-subset Y.Doc layer here — that
+            // cloned the whole editing subset on every outline commit.
 
             // -- 3. Update CANONICAL_JSON_CACHE -----------------------------------
             if changed_glyphs.is_empty()
@@ -3715,22 +3727,6 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                             }
                         }
 
-                        if let Some((subset_key, _, _)) = subset_cache_refresh.as_ref() {
-                            let subset_json = SUBSET_JSON_CACHE
-                        .lock()
-                        .unwrap()
-                        .as_ref()
-                        .filter(|(cached_key, _, _)| cached_key == subset_key)
-                        .map(|(_, _, subset_json)| subset_json.clone())
-                        .ok_or_else(|| {
-                            JsValue::from_str(
-                                "apply_yjs_update: active subset cache disappeared before validation",
-                            )
-                        })?;
-                            deserialize_subset_font_for_native_cache(subset_key, &subset_json)
-                                .map_err(|error| JsValue::from_str(&error))?;
-                        }
-
                         if let Some(ref mut font_cache) = *FONT_CACHE.lock().unwrap() {
                             if !glyph_renames.is_empty()
                                 && !rename_glyphs_in_font_cache(
@@ -3889,7 +3885,7 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
             }
 
             drop(txn);
-            refresh_debug_font_caches_from_canonical_cache()?;
+            rotate_debug_font_caches_for_document_epoch(document_epoch);
 
             // -- 5. Return changed-glyph list for JS subset-cache replay ------------
             let result = serde_json::json!({
@@ -5063,7 +5059,7 @@ pub fn compile_preview_cached_font_from_last_layout_closure(
                 let mut compile_font = subset_font;
                 bake_automatic_sidebearing_offsets_in_font(&mut compile_font, &skip_layers);
                 let filtered =
-                    apply_filter_pipeline_to_subset(&compile_font, &compilation_options)?;
+                    apply_filter_pipeline_owned(compile_font, &compilation_options, false)?;
                 let filtered_arc = Arc::new(filtered);
                 overlay.filtered_font_cache = Some(PreviewFilteredFontCacheEntry {
                     subset_key: prepared_subset_key.clone(),
@@ -5086,9 +5082,10 @@ pub fn compile_preview_cached_font_from_last_layout_closure(
                 None => build_subset_font_from_closure_subset(&closure_subset)?,
             };
             let compile_font = prepare_compile_facing_font(subset_font, &[])?;
-            Arc::new(apply_filter_pipeline_to_subset(
-                &compile_font,
+            Arc::new(apply_filter_pipeline_owned(
+                compile_font,
                 &compilation_options,
+                false,
             )?)
         }
     };
@@ -5205,9 +5202,10 @@ pub fn compile_cached_font_from_last_layout_closure(options: &JsValue) -> Result
         PerfSpan::start("compile_cached_font_from_last_layout_closure.filter_cache");
     let filtered_font = if !overlay_layers.is_empty() {
         let compile_font = prepare_compile_facing_font(subset_font, &overlay_layers)?;
-        Arc::new(apply_filter_pipeline_to_subset(
-            &compile_font,
+        Arc::new(apply_filter_pipeline_owned(
+            compile_font,
             &compilation_options,
+            false,
         )?)
     } else {
         // Use filtered font cache: bake + apply_filters() once, then reuse.
@@ -5231,7 +5229,7 @@ pub fn compile_cached_font_from_last_layout_closure(options: &JsValue) -> Result
                 "compile_cached_font_from_last_layout_closure.filter_cache.apply_filters",
             );
             let compile_font = prepare_compile_facing_font(subset_font, &[])?;
-            let filtered = apply_filter_pipeline_to_subset(&compile_font, &compilation_options)?;
+            let filtered = apply_filter_pipeline_owned(compile_font, &compilation_options, false)?;
             drop(_apply_span);
 
             let filtered_arc = Arc::new(filtered);
@@ -5341,7 +5339,7 @@ pub fn compile_debug_cached_font_from_last_layout_closure(
         None => build_subset_font_from_closure_subset(&closure_subset)?,
     };
 
-    let filtered_font = apply_filter_pipeline_to_subset(&subset_font, &compilation_options)?;
+    let filtered_font = apply_filter_pipeline_owned(subset_font, &compilation_options, false)?;
     let compiled_font = compile_with_feature_debug_context(
         &filtered_font,
         &compilation_options,
@@ -7016,6 +7014,261 @@ mod tests {
     #[wasm_bindgen_test]
     fn wasm_apply_yjs_update_visual_layer_patch_advances_filter_epoch() {
         apply_yjs_update_visual_layer_patch_advances_filter_epoch();
+    }
+
+    fn test_cached_layer_width(font: &babelfont::Font, glyph_name: &str) -> f32 {
+        font.glyphs
+            .iter()
+            .find(|glyph| glyph.name.as_str() == glyph_name)
+            .and_then(|glyph| glyph.layers.first())
+            .map(|layer| layer.width)
+            .unwrap_or(f32::NAN)
+    }
+
+    #[test]
+    fn apply_yjs_update_unlisted_subset_layer_is_not_a_native_cache_write() {
+        clear_font_cache();
+
+        let mut font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        let mut glyph_b = font_json["glyphs"][0].clone();
+        glyph_b["name"] = json!("B");
+        glyph_b["codepoints"] = json!([66]);
+        glyph_b["layers"][0]["width"] = json!(620);
+        font_json["glyphs"].as_array_mut().unwrap().push(glyph_b);
+        store_font_from_value(font_json.clone()).unwrap();
+
+        let subset_font: babelfont::Font = serde_json::from_value(font_json.clone()).unwrap();
+        store_subset_font_cache("A\u{1f}B", &subset_font).unwrap();
+
+        let author_doc = Doc::new();
+        let font_map = author_doc.get_or_insert_map("font");
+        let layer_a: yrs::MapRef;
+        let layer_b: yrs::MapRef;
+        {
+            let mut txn = author_doc.transact_mut();
+            let glyphs_map: yrs::MapRef =
+                font_map.insert(&mut txn, "glyphs", MapPrelim::<Any>::new());
+            let glyph_a: yrs::MapRef = glyphs_map.insert(&mut txn, "A", MapPrelim::<Any>::new());
+            let layers_a: yrs::MapRef = glyph_a.insert(&mut txn, "layers", MapPrelim::<Any>::new());
+            layer_a = layers_a.insert(&mut txn, "layer-1", MapPrelim::<Any>::new());
+            layer_a.insert(&mut txn, "id", "layer-1");
+            layer_a.insert(&mut txn, "width", Any::Number(600.0));
+            layer_a.insert(&mut txn, "shapes", ArrayPrelim::from(Vec::<Any>::new()));
+            layer_a.insert(&mut txn, "anchors", ArrayPrelim::from(Vec::<Any>::new()));
+
+            let glyph_b_map: yrs::MapRef =
+                glyphs_map.insert(&mut txn, "B", MapPrelim::<Any>::new());
+            let layers_b: yrs::MapRef =
+                glyph_b_map.insert(&mut txn, "layers", MapPrelim::<Any>::new());
+            layer_b = layers_b.insert(&mut txn, "layer-1", MapPrelim::<Any>::new());
+            layer_b.insert(&mut txn, "id", "layer-1");
+            layer_b.insert(&mut txn, "width", Any::Number(620.0));
+            layer_b.insert(&mut txn, "shapes", ArrayPrelim::from(Vec::<Any>::new()));
+            layer_b.insert(&mut txn, "anchors", ArrayPrelim::from(Vec::<Any>::new()));
+        }
+
+        let initial_update = author_doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let base_state_vector = author_doc.transact().state_vector();
+        {
+            let mut txn = author_doc.transact_mut();
+            layer_a.insert(&mut txn, "width", Any::Number(610.0));
+            layer_b.insert(&mut txn, "width", Any::Number(630.0));
+        }
+        let incremental_update = author_doc.transact().encode_diff_v1(&base_state_vector);
+
+        let worker_doc = Doc::new();
+        {
+            let update = yrs::Update::decode_v1(initial_update.as_slice()).unwrap();
+            let mut txn = worker_doc.transact_mut();
+            txn.apply_update(update);
+        }
+        *Y_DOC.lock().unwrap() = Some(worker_doc);
+
+        apply_yjs_update(
+            incremental_update.as_slice(),
+            r#"{
+                "changedGlyphs": ["A"],
+                "layerTargets": [{ "glyphName": "A", "layerId": "layer-1" }]
+            }"#,
+        )
+        .unwrap();
+
+        fn json_glyph_width(font_json: &serde_json::Value, glyph_name: &str) -> f64 {
+            font_json["glyphs"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|glyph| glyph["name"] == json!(glyph_name))
+                .and_then(|glyph| glyph["layers"][0]["width"].as_f64())
+                .expect("glyph layer width")
+        }
+
+        {
+            let ydoc = Y_DOC.lock().unwrap();
+            let txn = ydoc.as_ref().unwrap().transact();
+            let ydoc_b = ydoc_get_layer_json_with_txn("B", "layer-1", &txn)
+                .expect("Y.Doc should contain the unlisted B layer after apply");
+            assert_eq!(
+                ydoc_b["width"].as_f64().unwrap(),
+                630.0,
+                "unlisted subset layers still land in Y.Doc"
+            );
+        }
+
+        let canonical = CANONICAL_JSON_CACHE.lock().unwrap();
+        assert_eq!(json_glyph_width(canonical.as_ref().unwrap(), "A"), 610.0);
+        assert_eq!(
+            json_glyph_width(canonical.as_ref().unwrap(), "B"),
+            620.0,
+            "unlisted B must not be written into canonical JSON"
+        );
+        drop(canonical);
+
+        let subset_json = SUBSET_JSON_CACHE.lock().unwrap();
+        assert_eq!(
+            json_glyph_width(&subset_json.as_ref().unwrap().2, "A"),
+            610.0
+        );
+        assert_eq!(
+            json_glyph_width(&subset_json.as_ref().unwrap().2, "B"),
+            620.0,
+            "unlisted B must not be written into subset JSON"
+        );
+        drop(subset_json);
+
+        {
+            let font_cache = FONT_CACHE.lock().unwrap();
+            let font = font_cache.as_ref().expect("FONT_CACHE must remain");
+            assert_eq!(test_cached_layer_width(font, "A"), 610.0);
+            assert_eq!(
+                test_cached_layer_width(font, "B"),
+                620.0,
+                "unlisted B must not be written into FONT_CACHE"
+            );
+        }
+
+        {
+            let subset_font_cache = SUBSET_FONT_CACHE.lock().unwrap();
+            let subset_font = &subset_font_cache
+                .as_ref()
+                .expect("SUBSET_FONT_CACHE must remain")
+                .2;
+            assert_eq!(test_cached_layer_width(subset_font, "A"), 610.0);
+            assert_eq!(
+                test_cached_layer_width(subset_font, "B"),
+                620.0,
+                "unlisted B must not be written into SUBSET_FONT_CACHE"
+            );
+        }
+
+        clear_font_cache();
+    }
+
+    #[test]
+    fn apply_yjs_update_packet_affected_invalid_layer_json_quarantines_ydoc() {
+        clear_font_cache();
+
+        let font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        store_font_from_value(font_json.clone()).unwrap();
+        let subset_font: babelfont::Font = serde_json::from_value(font_json).unwrap();
+        store_subset_font_cache("A", &subset_font).unwrap();
+
+        let author_doc = Doc::new();
+        let font_map = author_doc.get_or_insert_map("font");
+        let layer_map: yrs::MapRef;
+        {
+            let mut txn = author_doc.transact_mut();
+            let glyphs_map: yrs::MapRef =
+                font_map.insert(&mut txn, "glyphs", MapPrelim::<Any>::new());
+            let glyph_map: yrs::MapRef = glyphs_map.insert(&mut txn, "A", MapPrelim::<Any>::new());
+            let layers_map: yrs::MapRef =
+                glyph_map.insert(&mut txn, "layers", MapPrelim::<Any>::new());
+            layer_map = layers_map.insert(&mut txn, "layer-1", MapPrelim::<Any>::new());
+            layer_map.insert(&mut txn, "id", "layer-1");
+            layer_map.insert(&mut txn, "width", Any::Number(600.0));
+            layer_map.insert(&mut txn, "shapes", ArrayPrelim::from(Vec::<Any>::new()));
+            layer_map.insert(&mut txn, "anchors", ArrayPrelim::from(Vec::<Any>::new()));
+        }
+
+        let initial_update = author_doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let base_state_vector = author_doc.transact().state_vector();
+        {
+            let mut txn = author_doc.transact_mut();
+            layer_map.insert(&mut txn, "width", Any::from("not-a-number"));
+        }
+        let incremental_update = author_doc.transact().encode_diff_v1(&base_state_vector);
+
+        let worker_doc = Doc::new();
+        {
+            let update = yrs::Update::decode_v1(initial_update.as_slice()).unwrap();
+            let mut txn = worker_doc.transact_mut();
+            txn.apply_update(update);
+        }
+        *Y_DOC.lock().unwrap() = Some(worker_doc);
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let result = apply_yjs_update(
+                incremental_update.as_slice(),
+                r#"{
+                    "changedGlyphs": ["A"],
+                    "layerTargets": [{ "glyphName": "A", "layerId": "layer-1" }]
+                }"#,
+            );
+            assert!(
+                result.is_err(),
+                "packet-affected invalid layer JSON must fail apply_yjs_update: {:?}",
+                result.ok()
+            );
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // wasm-bindgen's JsValue::from_str aborts off-wasm, so native cargo
+            // tests exercise the same gate apply_yjs_update uses, then the
+            // same reject arm (discard Y.Doc + caches).
+            {
+                let mut ydoc_lock = Y_DOC.lock().unwrap();
+                let doc = ydoc_lock.as_mut().unwrap();
+                let update = yrs::Update::decode_v1(incremental_update.as_slice()).unwrap();
+                doc.transact_mut().apply_update(update);
+            }
+            let layer_json = {
+                let ydoc = Y_DOC.lock().unwrap();
+                let txn = ydoc.as_ref().unwrap().transact();
+                ydoc_get_layer_json_with_txn("A", "layer-1", &txn)
+                    .expect("packet-affected layer snapshot must exist")
+            };
+            let validation = validate_layer_json_for_native_cache("A", "layer-1", &layer_json);
+            assert!(
+                validation.is_err(),
+                "packet-affected invalid layer JSON must fail native-cache validation: {:?}",
+                validation
+            );
+            *Y_DOC.lock().unwrap() = None;
+            clear_font_cache();
+        }
+
+        assert!(
+            Y_DOC.lock().unwrap().is_none(),
+            "rejected packet must quarantine the worker Y.Doc"
+        );
+        assert!(
+            FONT_CACHE.lock().unwrap().is_none(),
+            "rejected packet must discard native font caches"
+        );
+        assert!(CANONICAL_JSON_CACHE.lock().unwrap().is_none());
+        assert!(SUBSET_JSON_CACHE.lock().unwrap().is_none());
+        assert!(SUBSET_FONT_CACHE.lock().unwrap().is_none());
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    #[wasm_bindgen_test]
+    fn wasm_apply_yjs_update_packet_affected_invalid_layer_json_quarantines_ydoc() {
+        apply_yjs_update_packet_affected_invalid_layer_json_quarantines_ydoc();
     }
 
     #[test]

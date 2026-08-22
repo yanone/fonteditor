@@ -1019,6 +1019,28 @@ export class FontCompilation {
     }
 
     /**
+     * Transfer a message Uint8Array instead of structured-cloning it.
+     * Skip 2-byte no-op updates so a shared constant buffer is never detached.
+     */
+    private appendBinaryTransfer(
+        message: Record<string, unknown>,
+        field: string,
+        enabled: boolean,
+        transferList: Transferable[]
+    ): void {
+        if (!enabled) {
+            return;
+        }
+        const bytes = message[field];
+        if (!(bytes instanceof Uint8Array) || bytes.byteLength <= 2) {
+            return;
+        }
+        const buffer = takeTransferableArrayBuffer(bytes);
+        message[field] = new Uint8Array(buffer);
+        transferList.push(buffer);
+    }
+
+    /**
      * Send a generic message to the worker and wait for response
      */
     async sendMessage(data: any, transfer?: Transferable[]): Promise<any> {
@@ -1157,16 +1179,15 @@ export class FontCompilation {
                     }
                 };
                 const transferList = [...(transfer || [])];
-                if (
-                    messageType === 'seedYdoc' &&
-                    message.state instanceof Uint8Array
-                ) {
-                    const seedBuffer = takeTransferableArrayBuffer(
-                        message.state
-                    );
-                    message.state = new Uint8Array(seedBuffer);
-                    transferList.push(seedBuffer);
-                }
+                this.appendBinaryTransfer(
+                    message,
+                    'state',
+                    messageType === 'seedYdoc',
+                    transferList
+                );
+                // Do not transfer applyYjsUpdate bytes. Yrs/Yjs encode
+                // buffers are often reused; detaching them drops later
+                // incremental packets (worker Y.Doc then lags the bridge).
                 if (transferList.length > 0) {
                     this.worker!.postMessage(message, transferList);
                 } else {

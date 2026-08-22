@@ -131,6 +131,73 @@ describe('FontCompilation worker document readiness', () => {
         );
     });
 
+    test('applyYjsUpdate does not transfer the update ArrayBuffer', async () => {
+        const { fontCompilation } = createReadyFontCompilation();
+        const update = new Uint8Array([4, 5, 6, 7]);
+
+        const messagePromise = fontCompilation.sendMessage({
+            type: 'applyYjsUpdate',
+            update,
+            changedGlyphs: ['a']
+        });
+
+        expect(fontCompilation.worker.postMessage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyYjsUpdate',
+                update
+            })
+        );
+        expect(
+            fontCompilation.worker.postMessage.mock.calls[0][1]
+        ).toBeUndefined();
+
+        const posted = fontCompilation.worker.postMessage.mock.calls[0][0];
+        fontCompilation.handleWorkerMessage({
+            data: {
+                id: posted.id,
+                type: 'applyYjsUpdate',
+                success: true
+            }
+        });
+
+        await expect(messagePromise).resolves.toEqual(
+            expect.objectContaining({ success: true })
+        );
+    });
+
+    test('applyYjsUpdate does not transfer a 2-byte no-op update', async () => {
+        const { fontCompilation } = createReadyFontCompilation();
+        const update = new Uint8Array([0, 0]);
+
+        const messagePromise = fontCompilation.sendMessage({
+            type: 'applyYjsUpdate',
+            update,
+            changedGlyphs: ['a']
+        });
+
+        expect(fontCompilation.worker.postMessage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyYjsUpdate'
+            })
+        );
+        expect(
+            fontCompilation.worker.postMessage.mock.calls[0][1]
+        ).toBeUndefined();
+
+        const posted = fontCompilation.worker.postMessage.mock.calls[0][0];
+        fontCompilation.handleWorkerMessage({
+            data: {
+                id: posted.id,
+                type: 'applyYjsUpdate',
+                success: true
+            }
+        });
+
+        await expect(messagePromise).resolves.toEqual(
+            expect.objectContaining({ success: true })
+        );
+    });
+
     test('failed applyYjsUpdate keeps the worker document sync rejected and not ready', async () => {
         const { fontCompilation, getPostedMessage } =
             createReadyFontCompilation();

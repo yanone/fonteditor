@@ -1,6 +1,7 @@
 # Unreleased
 
 - **Startup**: Drop redundant open-path JSON/cache copies. Worker convert no longer `store_font`s before Yjs seed; the first editing compile skips a full `toJSONString`/validate when the worker document is ready or seeding; overview tiles rebuild once on `fontReady`; seed Yjs bytes and compiled TTFs avoid extra structured-clone/`slice` copies; `.glyphs` bytes enter WASM without per-byte `String.fromCharCode`.
+- **Editing compile**: Drop redundant copies on the layer-edit → Yjs → fontc path. `apply_yjs_update` validates packet-affected snapshots only (no full-subset Y.Doc walk or discarded subset-JSON clone); debug fingerprint rotation is O(1) instead of hashing canonical JSON; filter/bake reuse the owned subset clone; compiled TTF timestamps are zeroed in place. Incremental `applyYjsUpdate` bytes stay structured-cloned so Yjs encoder buffers are not detached.
 - **Link Folders**: The title-bar control stays visible until both folders are linked. Preferences opens the same dialog. If the browser has no directory picker (Brave, Firefox), the dialog explains that disk folders are unavailable instead of throwing.
 - **PWA updates**: New service workers stay waiting until Preferences → Update. Reloads and window focus no longer activate a newly deployed build on their own.
 - **Service worker precache**: Cache the glyph-data catalog, matplotlib patch, shipped wheels, and handbook/examples manifests; drop the missing `generate_api_docs.py` entry. Navigation requests with query strings fall back to cached `index.html`.
