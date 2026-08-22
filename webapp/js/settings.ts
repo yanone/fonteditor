@@ -98,8 +98,8 @@ const APP_SETTINGS = {
 
         CONTOUR_DIRECTION_ARROW_OPACITY: 0.5,
 
-        // Anchors use the same two-tier node interpolation, scaled up so they
-        // stay larger than corner, smooth, and diamond on-curve nodes.
+        // Anchors match diamond on-curve size, except when they sit on a node
+        // (`ANCHOR_SIZE_RATIO`) so the outer ring stays independently pickable.
         ANCHOR_SIZE_RATIO: 1.7,
 
         // Component marker size

@@ -64,12 +64,13 @@ describe('outline chrome size interpolation', () => {
         );
     });
 
-    test('anchors follow the same knots, scaled larger than nodes', () => {
+    test('standalone anchors match diamond node size; coincident anchors stay larger', () => {
         const largestNodeRatio = Math.max(
             settings.NODE_SMOOTH_SIZE_RATIO,
             settings.NODE_DIAMOND_SIZE_RATIO
         );
         expect(settings.ANCHOR_SIZE_RATIO).toBeGreaterThan(largestNodeRatio);
+        expect(settings.NODE_DIAMOND_SIZE_RATIO).toBeCloseTo(Math.sqrt(2));
 
         for (const scale of [
             settings.MIN_ZOOM_FOR_HANDLES,
@@ -82,9 +83,9 @@ describe('outline chrome size interpolation', () => {
                 settings.NODE_SIZE_AT_MID_ZOOM,
                 settings.NODE_SIZE_AT_MAX_ZOOM
             );
-            expect(nodeSize * settings.ANCHOR_SIZE_RATIO).toBeGreaterThan(
-                nodeSize * largestNodeRatio
-            );
+            const diamondSize = nodeSize * settings.NODE_DIAMOND_SIZE_RATIO;
+            const coincidentSize = nodeSize * settings.ANCHOR_SIZE_RATIO;
+            expect(coincidentSize).toBeGreaterThan(diamondSize);
         }
     });
 

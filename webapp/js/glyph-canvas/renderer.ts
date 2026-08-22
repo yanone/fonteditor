@@ -1706,10 +1706,17 @@ export class GlyphCanvasRenderer {
         );
     }
 
-    private getAnchorChromeFontRadius(invScale: number): number {
+    private getAnchorChromeFontRadius(
+        invScale: number,
+        coincidentWithNode: boolean
+    ): number {
+        const nodeRadius = this.getNodeChromeFontRadius(invScale);
+        const settings = APP_SETTINGS.OUTLINE_EDITOR;
         return (
-            this.getNodeChromeFontRadius(invScale) *
-            APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_RATIO
+            nodeRadius *
+            (coincidentWithNode
+                ? settings.ANCHOR_SIZE_RATIO
+                : settings.NODE_DIAMOND_SIZE_RATIO)
         );
     }
 
@@ -2585,7 +2592,6 @@ export class GlyphCanvasRenderer {
             currentLayerData.anchors &&
             currentLayerData.anchors.length > 0
         ) {
-            const anchorSize = this.getAnchorChromeFontRadius(invScale);
             const fontSize = 12 * invScale;
 
             currentLayerData.anchors.forEach((anchor: any, index: number) => {
@@ -2600,6 +2606,15 @@ export class GlyphCanvasRenderer {
                     this.glyphCanvas.outlineEditor.selectedAnchors.includes(
                         index
                     );
+                const coincidentWithNode =
+                    this.glyphCanvas.outlineEditor.anchorSharesLocationWithNode(
+                        x,
+                        y
+                    );
+                const anchorSize = this.getAnchorChromeFontRadius(
+                    invScale,
+                    coincidentWithNode
+                );
 
                 // Inverse transform keeps anchors square in screen space.
                 this.ctx.save();
@@ -2625,7 +2640,7 @@ export class GlyphCanvasRenderer {
                 const scaledAnchorSize =
                     anchorSize *
                     outlineChromeStateScale(isSelected, isHovered) *
-                    (isDiamond
+                    (isDiamond && coincidentWithNode
                         ? APP_SETTINGS.OUTLINE_EDITOR.NODE_DIAMOND_SIZE_RATIO
                         : 1);
                 const strokeWidth =
@@ -2641,7 +2656,11 @@ export class GlyphCanvasRenderer {
                             : colors.NODE_ZONE_HALO_STROKE,
                         colors.NODE_ZONE_HALO_OPACITY,
                         this.getZoneHaloWidth(
-                            anchorSize *
+                            this.getNodeChromeFontRadius(invScale) *
+                                (coincidentWithNode
+                                    ? APP_SETTINGS.OUTLINE_EDITOR
+                                          .ANCHOR_SIZE_RATIO
+                                    : 1) *
                                 outlineChromeStateScale(isSelected, isHovered),
                             shapeKind
                         )

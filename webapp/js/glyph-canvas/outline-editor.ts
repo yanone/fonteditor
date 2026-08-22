@@ -10658,16 +10658,43 @@ export class OutlineEditor {
         );
     }
 
+    /**
+     * True when an anchor sits on a path node (same layer), within delimiter
+     * tolerance. Those anchors keep the larger chrome so they stay pickable.
+     */
+    anchorSharesLocationWithNode(x: number, y: number): boolean {
+        const tolerance =
+            APP_SETTINGS.OUTLINE_EDITOR.NODE_ON_DELIMITER_TOLERANCE;
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        if (!currentLayerData?.shapes) {
+            return false;
+        }
+        for (const shape of currentLayerData.shapes) {
+            const contour = getEditableContour(shape);
+            if (!contour?.nodes?.length) {
+                continue;
+            }
+            for (const node of contour.nodes) {
+                if (Math.hypot(node.x - x, node.y - y) <= tolerance) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     /** Screen-pixel pick radius for glyph anchors (visual size + padding, floored). */
-    private getAnchorHitRadiusScreen(): number {
-        const visual =
-            this.getZoomInterpolatedScreenSize(
-                APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MIN_ZOOM,
-                APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MID_ZOOM,
-                APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MAX_ZOOM
-            ) *
-            APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_RATIO *
-            APP_SETTINGS.OUTLINE_EDITOR.NODE_DIAMOND_SIZE_RATIO;
+    private getAnchorHitRadiusScreen(coincidentWithNode: boolean): number {
+        const nodeSize = this.getZoomInterpolatedScreenSize(
+            APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MIN_ZOOM,
+            APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MID_ZOOM,
+            APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MAX_ZOOM
+        );
+        const visual = coincidentWithNode
+            ? nodeSize *
+              APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_RATIO *
+              APP_SETTINGS.OUTLINE_EDITOR.NODE_DIAMOND_SIZE_RATIO
+            : nodeSize * APP_SETTINGS.OUTLINE_EDITOR.NODE_DIAMOND_SIZE_RATIO;
         return Math.max(
             APP_SETTINGS.OUTLINE_EDITOR.POINT_HIT_RADIUS_MIN,
             visual + APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_HIT_PADDING
@@ -16074,7 +16101,6 @@ export class OutlineEditor {
         const scale = Math.max(this.glyphCanvas.viewportManager!.scale, 0.001);
         const { glyphX, glyphY } = this.transformMouseToComponentSpace();
         const nodeHitRadius = this.getNodeHitRadiusScreen() / scale;
-        const anchorHitRadius = this.getAnchorHitRadiusScreen() / scale;
         const onCurveBias =
             APP_SETTINGS.OUTLINE_EDITOR.ON_CURVE_HIT_PREFERENCE / scale;
 
@@ -16141,6 +16167,13 @@ export class OutlineEditor {
                         anchor.x - glyphX,
                         anchor.y - glyphY
                     );
+                    const anchorHitRadius =
+                        this.getAnchorHitRadiusScreen(
+                            this.anchorSharesLocationWithNode(
+                                anchor.x,
+                                anchor.y
+                            )
+                        ) / scale;
                     if (dist <= anchorHitRadius && dist < bestAnchorDist) {
                         bestAnchorDist = dist;
                         bestAnchorIndex = index;
