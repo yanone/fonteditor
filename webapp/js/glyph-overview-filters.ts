@@ -99,6 +99,7 @@ interface GlyphFilterPlugin {
     hasCandidateFunction?: boolean;
     cachedDataVersion?: number;
     cachedContextVersion?: number;
+    cachedOpenGeneration?: number;
 }
 
 type FilterPyodide = {
@@ -195,6 +196,10 @@ export class GlyphOverviewFilterManager {
     private tippyInstances: TippyInstance[] = []; // Context menu instances
     private refreshRetryTimer: number | null = null;
     private deferredCountRefreshScheduled: boolean = false;
+    private pluginRefreshInFlight: boolean = false;
+    private openRecountPending: boolean = false;
+    private openGeneration: number = 0;
+    private filterWorkChain: Promise<void> = Promise.resolve();
     private inFlightCountRequests: number = 0;
     private sharedPluginContext: Record<string, any> = {};
     private sharedPluginContextVersion: number = 1;
@@ -240,6 +245,19 @@ export class GlyphOverviewFilterManager {
             MANAGED_FILE_CHANGED_EVENT,
             this.managedFileChangeListener
         );
+        window.addEventListener('fontLoaded', () => {
+            this.openGeneration += 1;
+            this.openRecountPending = true;
+        });
+    }
+
+    private enqueueFilterWork(work: () => Promise<void>): Promise<void> {
+        const run = this.filterWorkChain.then(work, work);
+        this.filterWorkChain = run.then(
+            () => undefined,
+            () => undefined
+        );
+        return run;
     }
 
     private normalizeFilterPath(path: string): string {
@@ -894,6 +912,7 @@ export class GlyphOverviewFilterManager {
         plugin.lastResults = undefined;
         plugin.cachedDataVersion = undefined;
         plugin.cachedContextVersion = undefined;
+        plugin.cachedOpenGeneration = undefined;
         // Keep sourceLoaded so font-open rebuilds reuse already-exec'd Python.
         // Drop the displayed count so the sidebar shows "—" while a reload
         // runs (event-engine batches, font open, file-change re-run).
@@ -1075,22 +1094,10 @@ export class GlyphOverviewFilterManager {
             // Re-render sidebar with plugins
             this.renderSidebar();
 
-            // Run initial filter if one is active and font is loaded
-            if (this.activeFilter && window.currentFontModel) {
-                await this.runFilter(this.activeFilter);
-            }
-
-            // Run all plugins to get initial counts if font is loaded
-            if (window.currentFontModel) {
-                for (const plugin of this.plugins) {
-                    if (plugin !== this.activeFilter) {
-                        await this.runPluginForCount(plugin);
-                    }
-                }
-            }
-
-            // Discover user filters from disk
             await this.discoverUserFilters();
+            if (window.currentFontModel) {
+                await this.refreshPlugins({ deferCounts: true });
+            }
         } catch (error) {
             console.error('Failed to discover plugins:', error);
             this.plugins = [];
@@ -1106,10 +1113,23 @@ export class GlyphOverviewFilterManager {
         skipObserverSetup: boolean = false,
         renamedToDisplayName: string | null = null
     ): Promise<void> {
+        return this.enqueueFilterWork(() =>
+            this.discoverUserFiltersWork(
+                skipObserverSetup,
+                renamedToDisplayName
+            )
+        );
+    }
+
+    private async discoverUserFiltersWork(
+        skipObserverSetup: boolean = false,
+        renamedToDisplayName: string | null = null
+    ): Promise<void> {
         const scanGeneration = ++this.userFilterScanGeneration;
         const isCurrentScan = () =>
             scanGeneration === this.userFilterScanGeneration;
 
+        const previousUserFilters = this.userFilters;
         // Remember active user filter keyword to restore after reload
         const activeUserFilterKeyword = this.activeFilter?.isUserFilter
             ? this.activeFilter.keyword
@@ -1291,20 +1311,12 @@ export class GlyphOverviewFilterManager {
                 return;
             }
 
-            // Re-render sidebar
+            this.restoreUserFilterRuntimeState(previousUserFilters);
             this.renderSidebar();
 
-            // Update counts for user filters if font is loaded
-            if (window.currentFontModel) {
-                for (const filter of this.userFilters) {
-                    if (filter.validationDiagnostic) {
-                        continue;
-                    }
-                    await this.runPluginForCount(filter);
-                    if (!isCurrentScan()) {
-                        return;
-                    }
-                }
+            await this.countUserFiltersIfIdle();
+            if (!isCurrentScan()) {
+                return;
             }
 
             // Set up file system observer for auto-refresh (skip if called from observer)
@@ -1315,6 +1327,64 @@ export class GlyphOverviewFilterManager {
             if (isCurrentScan()) {
                 console.error('Error discovering user filters:', error);
             }
+        }
+    }
+
+    private restoreUserFilterRuntimeState(
+        previousUserFilters: GlyphFilterPlugin[]
+    ): void {
+        if (previousUserFilters.length === 0 || this.userFilters.length === 0) {
+            return;
+        }
+        const previousByKeyword = new Map(
+            previousUserFilters.map((filter) => [filter.keyword, filter])
+        );
+        for (const filter of this.userFilters) {
+            const prior = previousByKeyword.get(filter.keyword);
+            if (!prior || prior.pythonCode !== filter.pythonCode) {
+                continue;
+            }
+            filter.classifications = prior.classifications;
+            filter.lastResults = prior.lastResults;
+            filter.groups = prior.groups;
+            filter.sourceLoaded = prior.sourceLoaded;
+            filter.sourceNamespace = prior.sourceNamespace;
+            filter.hasCandidateFunction = prior.hasCandidateFunction;
+            filter.cachedDataVersion = prior.cachedDataVersion;
+            filter.cachedContextVersion = prior.cachedContextVersion;
+            filter.cachedOpenGeneration = prior.cachedOpenGeneration;
+            filter.glyphCount = prior.glyphCount;
+            filter.hasError = prior.hasError;
+            filter.hasNoFilterFunction = prior.hasNoFilterFunction;
+            filter.instance = prior.instance;
+        }
+    }
+
+    private shouldCountUserFiltersNow(): boolean {
+        return (
+            !!window.currentFontModel &&
+            !this.openRecountPending &&
+            !this.pluginRefreshInFlight
+        );
+    }
+
+    private async countUserFiltersIfIdle(): Promise<void> {
+        if (!this.shouldCountUserFiltersNow()) {
+            return;
+        }
+        const generation = this.userFilterScanGeneration;
+        for (const filter of this.userFilters) {
+            if (generation !== this.userFilterScanGeneration) {
+                return;
+            }
+            if (filter.validationDiagnostic) {
+                continue;
+            }
+            if (this.canUseCachedFilterResults(filter)) {
+                this.updatePluginCount(filter);
+                continue;
+            }
+            await this.runPluginForCount(filter);
         }
     }
 
@@ -2143,12 +2213,23 @@ export class GlyphOverviewFilterManager {
         plugin: GlyphFilterPlugin,
         _dataVersion?: number | null
     ): boolean {
+        const cachedGeneration = plugin.cachedOpenGeneration ?? 0;
+        const sourceReady =
+            plugin.keyword === ALL_GLYPHS_FILTER_KEYWORD ||
+            plugin.sourceLoaded === true;
         return (
-            plugin.sourceLoaded === true &&
+            sourceReady &&
             Array.isArray(plugin.lastResults) &&
+            cachedGeneration === this.openGeneration &&
             !plugin.hasError &&
             !plugin.hasNoFilterFunction
         );
+    }
+
+    private stampFilterCache(plugin: GlyphFilterPlugin): void {
+        plugin.cachedOpenGeneration = this.openGeneration;
+        plugin.cachedDataVersion = this.getCurrentDataVersion() ?? undefined;
+        plugin.cachedContextVersion = this.sharedPluginContextVersion;
     }
 
     private getCurrentDataVersion(): number | null {
@@ -2253,6 +2334,7 @@ export class GlyphOverviewFilterManager {
         plugin.classifications.clear();
         this.classifyGlyphs(plugin, window.currentFontModel?.glyphs || []);
         this.derivePluginResults(plugin);
+        this.stampFilterCache(plugin);
     }
 
     private async applyCommittedChanges(
@@ -2832,29 +2914,51 @@ export class GlyphOverviewFilterManager {
      * Refresh all plugins (re-run active filter and update counts)
      */
     async refreshPlugins(options: RefreshPluginsOptions = {}): Promise<void> {
+        return this.enqueueFilterWork(() => this.refreshPluginsWork(options));
+    }
+
+    private async refreshPluginsWork(
+        options: RefreshPluginsOptions = {}
+    ): Promise<void> {
         const fontSnapshotJson = this.getCurrentFontSnapshotJson();
         if (!fontSnapshotJson) {
             this.scheduleRefreshRetry();
             return;
         }
 
-        // Show "—" on every filter while counts refresh (font open, etc.).
-        for (const plugin of this.getAllLoadedPlugins()) {
-            this.invalidatePluginCache(plugin);
-        }
+        this.pluginRefreshInFlight = true;
+        try {
+            for (const plugin of this.getAllLoadedPlugins()) {
+                if (!this.canUseCachedFilterResults(plugin)) {
+                    this.invalidatePluginCache(plugin);
+                }
+            }
 
-        // Refresh active filter first so visible glyphs and count update immediately.
-        // runFilter() already updates count and cache metadata.
-        if (this.activeFilter) {
-            await this.runFilter(this.activeFilter);
-        }
+            if (this.activeFilter) {
+                if (this.canUseCachedFilterResults(this.activeFilter)) {
+                    this.applyCachedFilterResults(this.activeFilter);
+                } else {
+                    await this.runFilter(this.activeFilter);
+                }
+            }
 
-        if (options.deferCounts) {
-            this.scheduleDeferredCountRefresh();
-            return;
-        }
+            if (options.deferCounts) {
+                this.deferredCountRefreshScheduled = true;
+                await new Promise<void>((resolve) => {
+                    window.setTimeout(resolve, 0);
+                });
+                this.deferredCountRefreshScheduled = false;
+            }
 
-        await this.refreshNonActivePluginCounts(fontSnapshotJson);
+            await this.refreshNonActivePluginCounts(fontSnapshotJson);
+        } finally {
+            this.finishOpenRecount();
+        }
+    }
+
+    private finishOpenRecount(): void {
+        this.pluginRefreshInFlight = false;
+        this.openRecountPending = false;
     }
 
     private async refreshNonActivePluginCounts(
@@ -2882,21 +2986,6 @@ export class GlyphOverviewFilterManager {
             }
             await this.runPluginForCount(filter, snapshotJson);
         }
-    }
-
-    private scheduleDeferredCountRefresh(): void {
-        if (this.deferredCountRefreshScheduled) {
-            return;
-        }
-
-        this.deferredCountRefreshScheduled = true;
-        window.setTimeout(async () => {
-            try {
-                await this.refreshNonActivePluginCounts();
-            } finally {
-                this.deferredCountRefreshScheduled = false;
-            }
-        }, 0);
     }
 
     /**

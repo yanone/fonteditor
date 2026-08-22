@@ -164,4 +164,66 @@ describe('GlyphOverviewFilterManager simple filters', () => {
         expect(filter.glyphCount).toBeUndefined();
         expect(filter.classifications.size).toBe(0);
     });
+
+    test('refreshPlugins does not reclassify filters already counted for this open', async () => {
+        const allGlyphs = makeFilter('com.context.allglyphs');
+        allGlyphs.lastResults = [
+            { glyph_name: 'A', groups: [] },
+            { glyph_name: 'B', groups: [] }
+        ];
+        allGlyphs.cachedOpenGeneration = 1;
+        const encoded = makeFilter('com.context.encoded', [
+            'glyph.unicode.changed'
+        ]);
+        encoded.lastResults = [{ glyph_name: 'A', groups: [] }];
+        encoded.cachedOpenGeneration = 1;
+        manager.openGeneration = 1;
+        manager.openRecountPending = true;
+        manager.plugins = [allGlyphs, encoded];
+        manager.activeFilter = allGlyphs;
+
+        const classify = jest
+            .spyOn(manager, 'classifyGlyphs')
+            .mockReturnValue(undefined);
+
+        await manager.refreshPlugins({ deferCounts: false });
+
+        expect(classify).not.toHaveBeenCalled();
+        expect(manager.openRecountPending).toBe(false);
+    });
+
+    test('skips user-filter counts while a font-open refresh is pending', async () => {
+        const filter = makeFilter('user.foo', ['glyph.unicode.changed']);
+        filter.isUserFilter = true;
+        filter.lastResults = undefined;
+        manager.userFilters = [filter];
+        manager.openRecountPending = true;
+
+        const runCount = jest
+            .spyOn(manager, 'runPluginForCount')
+            .mockResolvedValue(undefined);
+
+        await manager.countUserFiltersIfIdle();
+
+        expect(runCount).not.toHaveBeenCalled();
+
+        manager.openRecountPending = false;
+        await manager.countUserFiltersIfIdle();
+
+        expect(runCount).toHaveBeenCalledTimes(1);
+    });
+
+    test('a new open generation makes previous-font caches miss', () => {
+        const filter = makeFilter('com.context.encoded', [
+            'glyph.unicode.changed'
+        ]);
+        filter.lastResults = [{ glyph_name: 'A', groups: [] }];
+        filter.cachedOpenGeneration = 0;
+        manager.plugins = [filter];
+
+        expect(manager.canUseCachedFilterResults(filter)).toBe(true);
+        manager.openGeneration = 1;
+        manager.openRecountPending = true;
+        expect(manager.canUseCachedFilterResults(filter)).toBe(false);
+    });
 });
