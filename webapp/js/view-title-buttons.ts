@@ -1,4 +1,5 @@
 import { Logger } from './logger';
+import { formatPlainShortcut } from './keyboard-shortcut-display';
 const console = new Logger('ViewTitleButtons');
 
 /**
@@ -212,7 +213,7 @@ function addButtonsToView(viewConfig: ViewInfo): void {
     // Create maximize button
     const maximizeBtn = document.createElement('button');
     maximizeBtn.className = 'view-title-action-btn view-title-maximize-btn';
-    maximizeBtn.title = `Maximize view (${viewConfig.shortcut})`;
+    maximizeBtn.title = `Maximize view (${formatPlainShortcut(viewConfig.shortcut)})`;
     maximizeBtn.innerHTML = `<span class="material-symbols-outlined">open_in_full</span>`;
     maximizeBtn.addEventListener('click', (e) => {
         e.preventDefault();
@@ -223,7 +224,7 @@ function addButtonsToView(viewConfig: ViewInfo): void {
     // Append buttons to left-side window actions
     const collapseBtn = document.createElement('button');
     collapseBtn.className = 'view-title-action-btn view-title-collapse-btn';
-    collapseBtn.title = 'Collapse view (⌘⎋)';
+    collapseBtn.title = `Collapse view (${formatPlainShortcut('⌘⎋')})`;
     collapseBtn.innerHTML = `<span class="material-symbols-outlined">close</span>`;
     collapseBtn.addEventListener('click', (e) => {
         e.preventDefault();

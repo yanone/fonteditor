@@ -759,13 +759,34 @@ kbd + kbd {
     margin-left: 2px;
 }
 
-.view-title-shortcut .material-symbols-outlined {
-    top: -1px;
-    position: relative;
-}
-
 .material-symbols-outlined + .material-symbols-outlined {
     margin-left: -0.12em;
+}
+
+.shortcut-command-modifier::before {
+    content: 'keyboard_command_key';
+    font-family: 'Material Symbols Outlined';
+    font-weight: normal;
+    font-style: normal;
+    -webkit-font-feature-settings: 'liga';
+    font-feature-settings: 'liga';
+}
+
+html[data-command-modifier='ctrl'] .shortcut-command-modifier::before {
+    content: 'keyboard_control_key';
+}
+
+.shortcut-option-modifier::before {
+    content: 'keyboard_option_key';
+    font-family: 'Material Symbols Outlined';
+    font-weight: normal;
+    font-style: normal;
+    -webkit-font-feature-settings: 'liga';
+    font-feature-settings: 'liga';
+}
+
+html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
+    content: 'keyboard_alt_key';
 }
 
 /* Loading overlay */
@@ -1643,7 +1664,9 @@ kbd + kbd {
     font-size: 10px;
 }
 
-.view-title-shortcut {
+.keyboard-shortcut,
+.view-title-shortcut,
+.button-shortcut {
     color: var(--text-faint);
     font-size: 10px;
     display: inline-flex;
@@ -1652,18 +1675,12 @@ kbd + kbd {
     white-space: nowrap;
 }
 
-/* Keyboard shortcut styling in buttons — match view title shortcut tone */
-.button-shortcut {
-    font-size: 10px !important;
-    white-space: nowrap;
-    color: var(--text-faint);
-}
-
-/* Keyboard shortcut styling in buttons */
+.keyboard-shortcut .material-symbols-outlined,
+.view-title-shortcut .material-symbols-outlined,
 .button-shortcut .material-symbols-outlined {
-    font-size: 12px !important;
-    position: relative;
     top: -1px;
+    position: relative;
+    font-size: 1.2em;
     color: inherit;
 }
 
@@ -3790,16 +3807,11 @@ kbd + kbd {
 
 .plugin-menu-item .plugin-menu-shortcut {
     margin-left: auto;
-    color: var(--text-faint);
-    font-family: var(--font-families-mono);
-    font-size: 10px;
-    display: inline-flex;
-    align-items: center;
-    white-space: nowrap;
 }
 
+.plugin-menu-item .keyboard-shortcut .material-symbols-outlined,
 .plugin-menu-item .plugin-menu-shortcut .material-symbols-outlined {
-    font-size: 12px;
+    font-size: 1.2em;
     position: relative;
     top: -1px;
     color: inherit;
@@ -4898,7 +4910,8 @@ kbd + kbd {
 /* Shared AI account gate styles — assistant uses .folder-setup-callout */
 
 /* Keep header button shortcuts visible */
-.view-title-bar .ai-button-shortcut {
+.view-title-bar .ai-button-shortcut,
+.view-title-bar .keyboard-shortcut {
     display: inline-flex;
 }
 

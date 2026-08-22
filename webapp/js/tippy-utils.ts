@@ -4,34 +4,15 @@
  */
 
 import { Logger } from './logger';
+import {
+    formatMenuShortcut,
+    keyboardShortcutHtml,
+    MENU_SHIFT_SYMBOL
+} from './keyboard-shortcut-display';
 
 const console = new Logger('TippyUtils');
 
-/** Unicode shift glyph formerly shown in menus; render with `formatMenuShortcut`. */
-export const MENU_SHIFT_SYMBOL = '\u21E7';
-
-function escapeShortcutText(text: string): string {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-/**
- * Format a menu shortcut for tippy/plugin menus. Shift uses the same
- * Material `arrow_upward` icon as view title-bar shortcuts.
- */
-export function formatMenuShortcut(shortcut: string): string {
-    let html = '';
-    for (const ch of shortcut) {
-        if (ch === MENU_SHIFT_SYMBOL) {
-            html +=
-                '<span class="material-symbols-outlined">arrow_upward</span>';
-        } else {
-            html += escapeShortcutText(ch);
-        }
-    }
-    return html;
-}
+export { formatMenuShortcut, keyboardShortcutHtml, MENU_SHIFT_SYMBOL };
 
 type EscapeHandler = () => void;
 

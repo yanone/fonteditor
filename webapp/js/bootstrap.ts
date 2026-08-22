@@ -536,6 +536,7 @@ import './theme-switcher';
 import './toolbar-menus';
 import './update-manager';
 import './window-buttons';
+import './keyboard-shortcut-display';
 import { initViewTitleButtons } from './view-title-buttons';
 import { CloudPlugin } from './cloud-plugin';
 import { pluginRegistry } from './filesystem-plugins';

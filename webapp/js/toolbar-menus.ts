@@ -2,9 +2,9 @@ import tippy, { Instance as TippyInstance } from 'tippy.js';
 import 'tippy.js/dist/tippy.css';
 import {
     addTippyBackdropSupport,
-    formatMenuShortcut,
     getOrCreateBackdrop,
     getTheme,
+    keyboardShortcutHtml,
     MENU_SHIFT_SYMBOL,
     setupMenuKeyboardNav
 } from './tippy-utils';
@@ -62,7 +62,7 @@ function createMenuHtml(items: ToolbarMenuItem[], prefix = ''): string {
             const disabledClass = item.disabled ? ' disabled' : '';
             const submenuClass = item.children ? ' has-submenu' : '';
             const renderedShortcut = item.shortcut
-                ? `<span class="plugin-menu-shortcut">${formatMenuShortcut(item.shortcut)}</span>`
+                ? keyboardShortcutHtml(item.shortcut, 'plugin-menu-shortcut')
                 : '';
             const renderedSubmenu = item.children
                 ? `<div class="toolbar-menu-submenu">${createMenuHtml(item.children, `${menuId}.`)}</div><span class="material-symbols-outlined toolbar-menu-chevron">chevron_right</span>`

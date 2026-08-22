@@ -1,9 +1,10 @@
 import tippy, { Instance as TippyInstance } from 'tippy.js';
 import 'tippy.js/dist/tippy.css';
 import {
-    getOrCreateBackdrop,
     addTippyBackdropSupport,
+    getOrCreateBackdrop,
     getTheme,
+    keyboardShortcutHtml,
     setupMenuKeyboardNav
 } from './tippy-utils';
 import {
@@ -85,33 +86,33 @@ export function createStackPreviewMenuHtml(): string {
             <div class="plugin-menu-item" data-action="zoom-in" role="menuitem" tabindex="-1">
                 <span class="plugin-menu-check material-symbols-outlined empty"></span>
                 <span>Zoom In</span>
-                <span class="plugin-menu-shortcut">⌘+</span>
+                ${keyboardShortcutHtml('⌘+', 'plugin-menu-shortcut')}
             </div>
             <div class="plugin-menu-item" data-action="zoom-out" role="menuitem" tabindex="-1">
                 <span class="plugin-menu-check material-symbols-outlined empty"></span>
                 <span>Zoom Out</span>
-                <span class="plugin-menu-shortcut">⌘-</span>
+                ${keyboardShortcutHtml('⌘-', 'plugin-menu-shortcut')}
             </div>
             <div class="plugin-menu-item" data-action="zoom-to-fit" role="menuitem" tabindex="-1">
                 <span class="plugin-menu-check material-symbols-outlined empty"></span>
                 <span>Zoom to Fit</span>
-                <span class="plugin-menu-shortcut">⌘0 1-2×</span>
+                ${keyboardShortcutHtml('⌘0 1-2×', 'plugin-menu-shortcut')}
             </div>
             <div class="plugin-menu-separator"></div>
             <div class="plugin-menu-item${viewMenuItemClass(isEditMode)}" data-action="toggle-stack-preview" role="menuitemcheckbox" aria-checked="${stackPreviewActive}"${viewMenuItemDisabledAttr(isEditMode)} tabindex="-1">
                 <span class="plugin-menu-check material-symbols-outlined${stackPreviewActive ? '' : ' empty'}">${stackPreviewCheckmark}</span>
                 <span>Stack Preview</span>
-                <span class="plugin-menu-shortcut">⌘⌥S</span>
+                ${keyboardShortcutHtml('⌘⌥S', 'plugin-menu-shortcut')}
             </div>
             <div class="plugin-menu-item${viewMenuItemClass(isEditMode)}" data-action="toggle-guidelines" role="menuitemcheckbox" aria-checked="${guidelinesVisible}"${viewMenuItemDisabledAttr(isEditMode)} tabindex="-1">
                 <span class="plugin-menu-check material-symbols-outlined${guidelinesVisible ? '' : ' empty'}">${guidelinesCheckmark}</span>
                 <span>Guidelines</span>
-                <span class="plugin-menu-shortcut">⌘⌥G</span>
+                ${keyboardShortcutHtml('⌘⌥G', 'plugin-menu-shortcut')}
             </div>
             <div class="plugin-menu-item${viewMenuItemClass(isEditMode)}" data-action="toggle-paired-layer" role="menuitemcheckbox" aria-checked="${pairedLayerVisible}"${viewMenuItemDisabledAttr(isEditMode)} tabindex="-1">
                 <span class="plugin-menu-check material-symbols-outlined${pairedLayerVisible ? '' : ' empty'}">${pairedLayerCheckmark}</span>
                 <span>Show Foreground/Background</span>
-                <span class="plugin-menu-shortcut">⌘⌥B</span>
+                ${keyboardShortcutHtml('⌘⌥B', 'plugin-menu-shortcut')}
             </div>
             <div class="plugin-menu-item${viewMenuItemClass(isEditMode)}" data-action="toggle-show-all-metrics" role="menuitemcheckbox" aria-checked="${showAllMetrics}"${viewMenuItemDisabledAttr(isEditMode)} tabindex="-1">
                 <span class="plugin-menu-check material-symbols-outlined${showAllMetrics ? '' : ' empty'}">${showAllMetricsCheckmark}</span>

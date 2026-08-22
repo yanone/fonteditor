@@ -18,9 +18,9 @@ import { Logger } from './logger';
 import { timelineSpanStart, timelineSpanEnd } from './perf-timeline';
 import {
     addTippyBackdropSupport,
-    formatMenuShortcut,
     getOrCreateBackdrop,
     getTheme,
+    keyboardShortcutHtml,
     MENU_SHIFT_SYMBOL,
     setupMenuKeyboardNav
 } from './tippy-utils';
@@ -3166,17 +3166,17 @@ class GlyphOverview {
                 <div class="plugin-menu-item${disabledClass}" data-action="duplicate-glyphs"${disabledAttr}>
                     <span class="material-symbols-outlined">content_copy</span>
                     <span>Duplicate Glyph(s)</span>
-                    <span class="plugin-menu-shortcut">⌘D</span>
+                    ${keyboardShortcutHtml('⌘D', 'plugin-menu-shortcut')}
                 </div>
                 <div class="plugin-menu-item${disabledClass}" data-action="rename-glyphs"${disabledAttr}>
                     <span class="material-symbols-outlined">edit</span>
                     <span>Rename Glyph(s)…</span>
-                    <span class="plugin-menu-shortcut">${formatMenuShortcut(`⌘${MENU_SHIFT_SYMBOL}F`)}</span>
+                    ${keyboardShortcutHtml(`⌘${MENU_SHIFT_SYMBOL}F`, 'plugin-menu-shortcut')}
                 </div>
                 <div class="plugin-menu-item${disabledClass}" data-action="delete-glyphs"${disabledAttr}>
                     <span class="material-symbols-outlined">delete</span>
                     <span>Delete Glyph(s)</span>
-                    <span class="plugin-menu-shortcut">⌫</span>
+                    ${keyboardShortcutHtml('⌫', 'plugin-menu-shortcut')}
                 </div>
             </div>
         `;

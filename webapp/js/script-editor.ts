@@ -8,6 +8,11 @@ import {
     getTheme,
     setupMenuKeyboardNav
 } from './tippy-utils';
+import {
+    keyboardShortcutHtml,
+    MENU_COMMAND_SYMBOL,
+    MENU_RETURN_SYMBOL
+} from './keyboard-shortcut-display';
 import { Logger } from './logger';
 import {
     getPythonDocumentKindInfo,
@@ -43,8 +48,11 @@ import { showNamedUnsavedChangesDialog } from './ui/confirm-dialog';
     const SCRIPT_URI_STORAGE_KEY = 'pythonScriptUri';
     const SCRIPT_SAVED_CONTENT_STORAGE_KEY = 'pythonScriptSavedContent';
     const SCRIPT_TIMESTAMP_STORAGE_KEY = 'pythonScriptTimestamp';
-    const RUN_BUTTON_DEFAULT_HTML =
-        'Run <span class="button-shortcut run-script-shortcut" hidden><span class="material-symbols-outlined">keyboard_command_key</span><span class="material-symbols-outlined">keyboard_return</span></span>';
+    const RUN_BUTTON_DEFAULT_HTML = `Run ${keyboardShortcutHtml(
+        `${MENU_COMMAND_SYMBOL}${MENU_RETURN_SYMBOL}`,
+        'run-script-shortcut',
+        'hidden'
+    )}`;
 
     const GENERAL_SCRIPT_TEMPLATE = '# New Python script\n';
     const GLYPH_FILTER_TEMPLATE = createGlyphFilterTemplate();

@@ -11,6 +11,10 @@ import tippy, { type Instance as TippyInstance } from 'tippy.js';
 import 'tippy.js/dist/tippy.css';
 import { Logger } from './logger';
 import {
+    keyboardShortcutHtml,
+    shortcutSpecFromHandbook
+} from './keyboard-shortcut-display';
+import {
     TOUR_REQUIRED_TOOL_SELECTOR,
     TOUR_SAMPLE_TEXT_CUTOUT,
     type TourCutout,
@@ -354,6 +358,11 @@ function localizeTourModifiers(text: string): string {
 }
 
 function appendPreChip(parent: HTMLElement, raw: string): void {
+    const spec = shortcutSpecFromHandbook(raw);
+    if (spec !== null) {
+        parent.insertAdjacentHTML('beforeend', keyboardShortcutHtml(spec));
+        return;
+    }
     const pre = document.createElement('pre');
     pre.className = 'tour-shortcut';
     pre.textContent = localizeTourModifiers(raw);

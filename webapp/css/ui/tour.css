@@ -159,6 +159,11 @@
     white-space: nowrap;
 }
 
+.tour-tooltip .keyboard-shortcut {
+    margin: 0 0.15em;
+    color: var(--tour-tooltip-text);
+}
+
 .tour-bounce-line {
     min-height: 1.55em;
 }

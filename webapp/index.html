@@ -13,6 +13,12 @@
         <meta name="apple-mobile-web-app-title" content="counterpunch" />
         <title>Counterpunch Editor</title>
         <script>
+            document.documentElement.dataset.commandModifier =
+                /Mac|iPhone|iPad|iPod/i.test(navigator.platform || '')
+                    ? 'mac'
+                    : 'ctrl';
+        </script>
+        <script>
             performance.mark('cp:app.html.headStart');
         </script>
         <!-- Favicon -->
@@ -568,13 +574,10 @@
                         </div>
                         <div class="view-title-heading">
                             <span class="view-title-name">Docs</span>
-                            <span class="view-title-shortcut"
-                                ><span class="material-symbols-outlined"
-                                    >keyboard_command_key</span
-                                ><span class="material-symbols-outlined"
-                                    >arrow_upward</span
-                                >D</span
-                            >
+                            <span
+                                class="keyboard-shortcut view-title-shortcut"
+                                data-keyboard-shortcut="⌘⇧D"
+                            ></span>
                         </div>
                     </div>
                 </div>
@@ -598,13 +601,10 @@
                                     <span class="view-title-name"
                                         >Font Info</span
                                     >
-                                    <span class="view-title-shortcut"
-                                        ><span class="material-symbols-outlined"
-                                            >keyboard_command_key</span
-                                        ><span class="material-symbols-outlined"
-                                            >arrow_upward</span
-                                        >I</span
-                                    >
+                                    <span
+                                        class="keyboard-shortcut view-title-shortcut"
+                                        data-keyboard-shortcut="⌘⇧I"
+                                    ></span>
                                 </div>
                                 <div class="view-title-actions"></div>
                             </div>
@@ -661,13 +661,10 @@
                                     <span class="view-title-name"
                                         >Overview</span
                                     >
-                                    <span class="view-title-shortcut"
-                                        ><span class="material-symbols-outlined"
-                                            >keyboard_command_key</span
-                                        ><span class="material-symbols-outlined"
-                                            >arrow_upward</span
-                                        >O</span
-                                    >
+                                    <span
+                                        class="keyboard-shortcut view-title-shortcut"
+                                        data-keyboard-shortcut="⌘⇧O"
+                                    ></span>
                                 </div>
                                 <div class="view-title-actions"></div>
                             </div>
@@ -736,13 +733,10 @@
                             <div class="view-title-left">
                                 <div class="view-title-heading">
                                     <span class="view-title-name">Editor</span>
-                                    <span class="view-title-shortcut"
-                                        ><span class="material-symbols-outlined"
-                                            >keyboard_command_key</span
-                                        ><span class="material-symbols-outlined"
-                                            >arrow_upward</span
-                                        >E</span
-                                    >
+                                    <span
+                                        class="keyboard-shortcut view-title-shortcut"
+                                        data-keyboard-shortcut="⌘⇧E"
+                                    ></span>
                                 </div>
                                 <div class="view-title-actions">
                                     <button
@@ -889,13 +883,10 @@
                                     <span class="view-title-name"
                                         >Assistant</span
                                     >
-                                    <span class="view-title-shortcut"
-                                        ><span class="material-symbols-outlined"
-                                            >keyboard_command_key</span
-                                        ><span class="material-symbols-outlined"
-                                            >arrow_upward</span
-                                        >A</span
-                                    >
+                                    <span
+                                        class="keyboard-shortcut view-title-shortcut"
+                                        data-keyboard-shortcut="⌘⇧A"
+                                    ></span>
                                 </div>
                                 <div class="view-title-actions">
                                     <button
@@ -1065,13 +1056,10 @@
                             <div class="view-title-left">
                                 <div class="view-title-heading">
                                     <span class="view-title-name">Scripts</span>
-                                    <span class="view-title-shortcut"
-                                        ><span class="material-symbols-outlined"
-                                            >keyboard_command_key</span
-                                        ><span class="material-symbols-outlined"
-                                            >arrow_upward</span
-                                        >Y</span
-                                    >
+                                    <span
+                                        class="keyboard-shortcut view-title-shortcut"
+                                        data-keyboard-shortcut="⌘⇧Y"
+                                    ></span>
                                 </div>
                                 <div class="view-title-actions">
                                     <button
@@ -1120,14 +1108,10 @@
                                 >
                                     Run
                                     <span
-                                        class="button-shortcut run-script-shortcut"
+                                        class="keyboard-shortcut run-script-shortcut"
                                         hidden
-                                        ><span class="material-symbols-outlined"
-                                            >keyboard_command_key</span
-                                        ><span class="material-symbols-outlined"
-                                            >keyboard_return</span
-                                        ></span
-                                    >
+                                        data-keyboard-shortcut="⌘⏎"
+                                    ></span>
                                 </button>
                             </div>
                         </div>
@@ -1142,13 +1126,10 @@
                             <div class="view-title-left">
                                 <div class="view-title-heading">
                                     <span class="view-title-name">Konsole</span>
-                                    <span class="view-title-shortcut"
-                                        ><span class="material-symbols-outlined"
-                                            >keyboard_command_key</span
-                                        ><span class="material-symbols-outlined"
-                                            >arrow_upward</span
-                                        >K</span
-                                    >
+                                    <span
+                                        class="keyboard-shortcut view-title-shortcut"
+                                        data-keyboard-shortcut="⌘⇧K"
+                                    ></span>
                                 </div>
                                 <div class="view-title-actions"></div>
                             </div>
@@ -1156,15 +1137,13 @@
                                 <button
                                     id="clear-console-btn"
                                     class="view-title-button"
-                                    title="Clear console globally (Cmd+K)"
+                                    title="Clear console globally (⌘K)"
                                 >
                                     Clear
                                     <span
-                                        class="button-shortcut console-clear-shortcut"
-                                        ><span class="material-symbols-outlined"
-                                            >keyboard_command_key</span
-                                        >K</span
-                                    >
+                                        class="keyboard-shortcut console-clear-shortcut"
+                                        data-keyboard-shortcut="⌘K"
+                                    ></span>
                                 </button>
                             </div>
                         </div>
@@ -1181,13 +1160,10 @@
                             <div class="view-title-left">
                                 <div class="view-title-heading">
                                     <span class="view-title-name">History</span>
-                                    <span class="view-title-shortcut"
-                                        ><span class="material-symbols-outlined"
-                                            >keyboard_command_key</span
-                                        ><span class="material-symbols-outlined"
-                                            >arrow_upward</span
-                                        >H</span
-                                    >
+                                    <span
+                                        class="keyboard-shortcut view-title-shortcut"
+                                        data-keyboard-shortcut="⌘⇧H"
+                                    ></span>
                                 </div>
                                 <div class="view-title-actions"></div>
                             </div>
@@ -1372,13 +1348,10 @@
                         id="diff-accept-btn"
                     >
                         Open in Script Editor
-                        <span class="button-shortcut ai-button-shortcut"
-                            ><span class="material-symbols-outlined"
-                                >keyboard_command_key</span
-                            ><span class="material-symbols-outlined"
-                                >keyboard_return</span
-                            ></span
-                        >
+                        <span
+                            class="keyboard-shortcut ai-button-shortcut"
+                            data-keyboard-shortcut="⌘⏎"
+                        ></span>
                     </button>
                 </div>
             </div>
@@ -1856,8 +1829,11 @@
                         <h4>Text Mode</h4>
                         <ul>
                             <li>
-                                <kbd>Cmd</kbd><kbd>Enter</kbd> Enter outline
-                                editing mode at cursor position
+                                <span
+                                    class="keyboard-shortcut"
+                                    data-keyboard-shortcut="⌘⏎"
+                                ></span>
+                                Enter outline editing mode at cursor position
                             </li>
                             <li>
                                 <strong>Double-click on glyph outline:</strong>
@@ -1882,33 +1858,27 @@
                                 selected layer
                             </li>
                             <li>
-                                <kbd>Cmd</kbd
-                                ><kbd
-                                    ><span class="material-symbols-outlined"
-                                        >arrow_back</span
-                                    ></kbd
-                                >
-                                / <kbd>Cmd</kbd
-                                ><kbd
-                                    ><span class="material-symbols-outlined"
-                                        >arrow_forward</span
-                                    ></kbd
-                                >
+                                <span
+                                    class="keyboard-shortcut"
+                                    data-keyboard-shortcut="⌘←"
+                                ></span>
+                                /
+                                <span
+                                    class="keyboard-shortcut"
+                                    data-keyboard-shortcut="⌘→"
+                                ></span>
                                 Navigate glyphs like the text cursor moves
                             </li>
                             <li>
-                                <kbd>Cmd</kbd
-                                ><kbd
-                                    ><span class="material-symbols-outlined"
-                                        >arrow_upward</span
-                                    ></kbd
-                                >
-                                / <kbd>Cmd</kbd
-                                ><kbd
-                                    ><span class="material-symbols-outlined"
-                                        >arrow_downward</span
-                                    ></kbd
-                                >
+                                <span
+                                    class="keyboard-shortcut"
+                                    data-keyboard-shortcut="⌘↑"
+                                ></span>
+                                /
+                                <span
+                                    class="keyboard-shortcut"
+                                    data-keyboard-shortcut="⌘↓"
+                                ></span>
                                 Cycle through layers
                             </li>
                             <li>
@@ -1930,7 +1900,11 @@
                                     ></kbd
                                 >
                                 Move selected objects (10x with
-                                <kbd>Shift</kbd>)
+                                <span
+                                    class="keyboard-shortcut"
+                                    data-keyboard-shortcut="⇧"
+                                ></span
+                                >)
                             </li>
                             <li><kbd>Space</kbd> Preview outline fill</li>
                             <li>
@@ -1943,12 +1917,20 @@
                             <li><kbd>I</kbd> Insert node on segment</li>
                             <li><kbd>C</kbd> Convert tool</li>
                             <li>
-                                <kbd>Cmd/Ctrl</kbd> +
+                                <span
+                                    class="keyboard-shortcut"
+                                    data-keyboard-shortcut="⌘"
+                                ></span>
+                                +
                                 <strong>Click on segment:</strong> Add point to
                                 segment
                             </li>
                             <li>
-                                <kbd>Alt</kbd> +
+                                <span
+                                    class="keyboard-shortcut"
+                                    data-keyboard-shortcut="⌥"
+                                ></span>
+                                +
                                 <strong>Click on straight segment:</strong>
                                 Convert
                             </li>
@@ -1958,25 +1940,43 @@
                         <h4>Panning and Zooming</h4>
                         <ul>
                             <li>
-                                <kbd>Cmd</kbd><kbd>+</kbd>/<kbd>Cmd</kbd
-                                ><kbd>-</kbd> Zoom in or out
+                                <span
+                                    class="keyboard-shortcut"
+                                    data-keyboard-shortcut="⌘+"
+                                ></span>
+                                /
+                                <span
+                                    class="keyboard-shortcut"
+                                    data-keyboard-shortcut="⌘-"
+                                ></span>
+                                Zoom in or out
                             </li>
                             <li>
-                                <kbd>Cmd</kbd><kbd>0</kbd> Reset zoom and
-                                position
+                                <span
+                                    class="keyboard-shortcut"
+                                    data-keyboard-shortcut="⌘0"
+                                ></span>
+                                Reset zoom and position
                             </li>
                             <li>
                                 <kbd>Space</kbd> +
                                 <strong>Mouse drag:</strong> Pan canvas
                             </li>
                             <li>
-                                <kbd>Alt</kbd> +
+                                <span
+                                    class="keyboard-shortcut"
+                                    data-keyboard-shortcut="⌥"
+                                ></span>
+                                +
                                 <strong>Wheel/Trackpad:</strong> Zoom in/out
                             </li>
                             <li>
                                 <strong>Wheel</strong>: Pan vertically,
-                                <kbd>Shift</kbd>+<strong>Wheel</strong>: Pan
-                                horizontally
+                                <span
+                                    class="keyboard-shortcut"
+                                    data-keyboard-shortcut="⇧"
+                                ></span
+                                >+<strong>Wheel</strong>: Pan horizontally
                             </li>
                         </ul>
                     </div>

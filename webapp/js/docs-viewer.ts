@@ -1,6 +1,10 @@
 import { Logger } from './logger';
 import { buildDocsHref } from './link-navigation';
 import { hasVisibleTippyMenus } from './tippy-utils';
+import {
+    keyboardShortcutHtml,
+    shortcutSpecFromHandbook
+} from './keyboard-shortcut-display';
 
 const console = new Logger('DocsViewer');
 
@@ -545,6 +549,21 @@ export class DocsViewer {
                 if (resolved.heading) {
                     anchor.dataset.docsHeading = resolved.heading;
                 }
+            }
+        });
+        wrap.querySelectorAll('code').forEach((code) => {
+            if (code.parentElement?.tagName === 'PRE') {
+                return;
+            }
+            const spec = shortcutSpecFromHandbook(code.textContent || '');
+            if (spec === null) {
+                return;
+            }
+            const holder = document.createElement('span');
+            holder.innerHTML = keyboardShortcutHtml(spec);
+            const chip = holder.firstElementChild;
+            if (chip) {
+                code.replaceWith(chip);
             }
         });
         wrap.querySelectorAll('pre > code').forEach((code) => {

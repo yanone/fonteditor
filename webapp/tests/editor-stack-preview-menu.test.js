@@ -46,7 +46,9 @@ describe('editor View menu', () => {
         expect(html).toContain('data-action="zoom-in"');
         expect(html).toContain('data-action="zoom-out"');
         expect(html).toContain('data-action="zoom-to-fit"');
-        expect(html).toContain('⌘0 1-2×');
+        expect(html).toContain('shortcut-command-modifier');
+        expect(html).toContain('1-2×');
+        expect(html).not.toContain('⌘0');
         expect(html).not.toMatch(
             /data-action="zoom-in"[^>]*aria-disabled="true"/
         );

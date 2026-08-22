@@ -1149,9 +1149,11 @@ describe('tour intro', () => {
         const { getTourSlide } = require('../js/tour-slides');
         const { showTourSlide } = require('../js/tour-spotlight');
         await showTourSlide(getTourSlide('glyph-overview-panel'), () => {});
-        const chips = [...document.querySelectorAll('.tour-shortcut')];
+        const chips = [...document.querySelectorAll('.keyboard-shortcut')];
         expect(chips.length).toBeGreaterThan(0);
-        expect(chips[0].textContent).toMatch(/^(Cmd|Ctrl)\+Shift\+O$/);
+        expect(
+            chips[0].querySelector('.shortcut-command-modifier')
+        ).not.toBeNull();
     });
 
     test('formats tool letter shortcuts as pre chips', async () => {
