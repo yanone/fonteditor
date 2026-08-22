@@ -20,7 +20,6 @@ import {
     getTheme,
     setupMenuKeyboardNav
 } from './tippy-utils';
-import { runAssistantPythonExecution } from './assistant-execution-context';
 import { createGlyphFilterTemplate } from './glyph-filter-template';
 import {
     MANAGED_FILE_CHANGED_EVENT,
@@ -97,9 +96,51 @@ interface GlyphFilterPlugin {
     classifications: Map<string, GlyphClassification>;
     sourceLoaded?: boolean;
     sourceNamespace?: string;
+    hasCandidateFunction?: boolean;
     cachedDataVersion?: number;
     cachedContextVersion?: number;
 }
+
+type FilterPyodide = {
+    globals: {
+        set: (name: string, value: unknown) => void;
+    };
+    runPython?: (code: string) => unknown;
+    _originalRunPython?: (code: string) => unknown;
+};
+
+const FILTER_SOURCE_LOAD_USER = [
+    'globals()[__glyph_filter_namespace] = {}',
+    'exec(__glyph_filter_source, globals()[__glyph_filter_namespace])',
+    "if not callable(globals()[__glyph_filter_namespace].get('classify_glyph')):",
+    "    raise ValueError('Missing classify_glyph(glyph).')",
+    "callable(globals()[__glyph_filter_namespace].get('is_candidate'))"
+].join('\n');
+
+const FILTER_SOURCE_LOAD_INSTANCE = [
+    "if not callable(getattr(__glyph_filter_instance, 'classify_glyph', None)):",
+    "    raise ValueError('Missing classify_glyph(glyph).')",
+    "callable(getattr(__glyph_filter_instance, 'is_candidate', None))"
+].join('\n');
+
+const FILTER_CLASSIFY_BATCH = [
+    'if __glyph_filter_is_user:',
+    '    _ns = globals()[__glyph_filter_namespace]',
+    "    _classify = _ns.get('classify_glyph')",
+    "    _candidate = _ns.get('is_candidate') if __glyph_filter_use_candidate else None",
+    'else:',
+    "    _classify = getattr(__glyph_filter_instance, 'classify_glyph', None)",
+    '    _candidate = (',
+    "        getattr(__glyph_filter_instance, 'is_candidate', None)",
+    '        if __glyph_filter_use_candidate',
+    '        else None',
+    '    )',
+    '_cp_classify_filter_glyphs(',
+    '    __glyph_filter_glyphs,',
+    '    _classify,',
+    '    _candidate if callable(_candidate) else None,',
+    ')'
+].join('\n');
 
 interface GlyphClassification {
     groups: Array<{ name: string; color: string }>;
@@ -798,6 +839,7 @@ export class GlyphOverviewFilterManager {
         }
 
         for (const plugin of this.getAllLoadedPlugins()) {
+            const glyphsToClassify: object[] = [];
             for (const change of lifecycleChanges) {
                 if (change.kind === 'deleted') {
                     plugin.classifications.delete(change.glyphName);
@@ -810,8 +852,11 @@ export class GlyphOverviewFilterManager {
                     change.glyphName
                 );
                 if (glyph) {
-                    await this.classifyGlyph(plugin, glyph);
+                    glyphsToClassify.push(glyph);
                 }
+            }
+            if (glyphsToClassify.length > 0) {
+                this.classifyGlyphs(plugin, glyphsToClassify);
             }
             this.derivePluginResults(plugin);
             if (plugin === this.activeFilter) {
@@ -846,7 +891,10 @@ export class GlyphOverviewFilterManager {
 
     private invalidatePluginCache(plugin: GlyphFilterPlugin): void {
         plugin.classifications.clear();
-        plugin.sourceLoaded = false;
+        plugin.lastResults = undefined;
+        plugin.cachedDataVersion = undefined;
+        plugin.cachedContextVersion = undefined;
+        // Keep sourceLoaded so font-open rebuilds reuse already-exec'd Python.
         // Drop the displayed count so the sidebar shows "—" while a reload
         // runs (event-engine batches, font open, file-change re-run).
         plugin.glyphCount = undefined;
@@ -2203,9 +2251,7 @@ export class GlyphOverviewFilterManager {
 
     private async rebuildFilterCache(plugin: GlyphFilterPlugin): Promise<void> {
         plugin.classifications.clear();
-        for (const glyph of window.currentFontModel?.glyphs || []) {
-            await this.classifyGlyph(plugin, glyph);
-        }
+        this.classifyGlyphs(plugin, window.currentFontModel?.glyphs || []);
         this.derivePluginResults(plugin);
     }
 
@@ -2222,46 +2268,88 @@ export class GlyphOverviewFilterManager {
                 }
             }
         }
+        const glyphsToClassify: object[] = [];
         for (const name of names) {
             const glyph = window.currentFontModel?.findGlyph(name);
             if (glyph) {
-                await this.classifyGlyph(plugin, glyph);
+                glyphsToClassify.push(glyph);
             } else {
                 plugin.classifications.delete(name);
             }
         }
+        if (glyphsToClassify.length > 0) {
+            this.classifyGlyphs(plugin, glyphsToClassify);
+        }
         this.derivePluginResults(plugin);
     }
 
-    private async classifyGlyph(
+    private classifyGlyphs(
         plugin: GlyphFilterPlugin,
-        glyph: { name?: string }
-    ): Promise<void> {
-        if (!glyph.name) {
+        glyphs: ReadonlyArray<{ name?: string }>
+    ): void {
+        const namedGlyphs = glyphs.filter(
+            (glyph): glyph is { name: string } =>
+                typeof glyph?.name === 'string' && glyph.name.length > 0
+        );
+        if (namedGlyphs.length === 0) {
             return;
         }
-        await this.ensureFilterSource(plugin);
-        const candidate = await this.callFilterFunction(
-            plugin,
-            'is_candidate',
-            glyph,
-            true
-        );
-        plugin.classifications.delete(glyph.name);
-        if (candidate === false) {
+
+        if (plugin.keyword === ALL_GLYPHS_FILTER_KEYWORD) {
+            for (const glyph of namedGlyphs) {
+                plugin.classifications.set(glyph.name, { groups: [] });
+            }
             return;
         }
-        const classification = await this.callFilterFunction(
-            plugin,
-            'classify_glyph',
-            glyph,
-            null
+
+        this.ensureFilterSource(plugin);
+        const pyodide = this.getFilterPyodide();
+        pyodide.globals.set('__glyph_filter_glyphs', namedGlyphs);
+        pyodide.globals.set(
+            '__glyph_filter_use_candidate',
+            plugin.hasCandidateFunction === true
         );
+        pyodide.globals.set(
+            '__glyph_filter_is_user',
+            plugin.isUserFilter === true
+        );
+        if (plugin.isUserFilter) {
+            pyodide.globals.set(
+                '__glyph_filter_namespace',
+                plugin.sourceNamespace
+            );
+        } else {
+            pyodide.globals.set('__glyph_filter_instance', plugin.instance);
+        }
+
+        const raw = this.runFilterPython(FILTER_CLASSIFY_BATCH);
+        try {
+            const converted = this.toJsObject(raw);
+            for (const [glyphName, classification] of Object.entries(
+                converted
+            )) {
+                this.applyGlyphClassification(
+                    plugin,
+                    glyphName,
+                    classification
+                );
+            }
+        } finally {
+            this.destroyPyProxy(raw);
+        }
+    }
+
+    private applyGlyphClassification(
+        plugin: GlyphFilterPlugin,
+        glyphName: string,
+        classification: unknown
+    ): void {
+        plugin.classifications.delete(glyphName);
         if (classification === false) {
             return;
         }
         if (classification === true) {
-            plugin.classifications.set(glyph.name, { groups: [] });
+            plugin.classifications.set(glyphName, { groups: [] });
             return;
         }
         if (!classification || typeof classification !== 'object') {
@@ -2293,96 +2381,76 @@ export class GlyphOverviewFilterManager {
                 color: (group as { color: string }).color
             };
         });
-        plugin.classifications.set(glyph.name, { groups: normalizedGroups });
+        plugin.classifications.set(glyphName, { groups: normalizedGroups });
     }
 
-    private async ensureFilterSource(plugin: GlyphFilterPlugin): Promise<void> {
+    private getFilterPyodide(): FilterPyodide {
+        const pyodide = window.pyodide as FilterPyodide | undefined;
+        if (!pyodide) {
+            throw new Error('Pyodide is not available.');
+        }
+        return pyodide;
+    }
+
+    private runFilterPython(code: string): unknown {
+        const pyodide = this.getFilterPyodide();
+        const run = pyodide._originalRunPython || pyodide.runPython;
+        if (typeof run !== 'function') {
+            throw new Error('Pyodide runPython is not available.');
+        }
+        return run.call(pyodide, code);
+    }
+
+    private toJsObject(value: unknown): Record<string, unknown> {
+        if (!value || typeof value !== 'object') {
+            return {};
+        }
+        const proxy = value as {
+            toJs?: (options: {
+                dict_converter: typeof Object.fromEntries;
+                create_pyproxies?: boolean;
+            }) => unknown;
+        };
+        const converted = proxy.toJs
+            ? proxy.toJs({
+                  dict_converter: Object.fromEntries,
+                  create_pyproxies: false
+              })
+            : value;
+        if (converted instanceof Map) {
+            return Object.fromEntries(converted);
+        }
+        if (converted && typeof converted === 'object') {
+            return converted as Record<string, unknown>;
+        }
+        return {};
+    }
+
+    private destroyPyProxy(value: unknown): void {
+        const proxy = value as { destroy?: () => void };
+        proxy?.destroy?.();
+    }
+
+    private ensureFilterSource(plugin: GlyphFilterPlugin): void {
         if (plugin.sourceLoaded) {
             return;
         }
-        if (!window.pyodide) {
-            throw new Error('Pyodide is not available.');
-        }
+        const pyodide = this.getFilterPyodide();
         plugin.sourceNamespace = `__glyph_filter_${plugin.keyword.replace(/[^A-Za-z0-9_]/g, '_')}`;
-        await runAssistantPythonExecution(
-            {
-                id: `glyph-filter:${plugin.keyword}`,
-                allowFontEdits: false,
-                historySummary: null
-            },
-            async () => {
-                const pyodide = window.pyodide as any;
-                pyodide.globals.set(
-                    '__glyph_filter_namespace',
-                    plugin.sourceNamespace
-                );
-                if (plugin.isUserFilter) {
-                    pyodide.globals.set(
-                        '__glyph_filter_source',
-                        plugin.pythonCode || ''
-                    );
-                    await (
-                        pyodide._originalRunPythonAsync ||
-                        pyodide.runPythonAsync
-                    )(
-                        "globals()[__glyph_filter_namespace] = {}\nexec(__glyph_filter_source, globals()[__glyph_filter_namespace])\nif not callable(globals()[__glyph_filter_namespace].get('classify_glyph')):\n    raise ValueError('Missing classify_glyph(glyph).')"
-                    );
-                } else {
-                    pyodide.globals.set(
-                        '__glyph_filter_instance',
-                        plugin.instance
-                    );
-                    await (
-                        pyodide._originalRunPythonAsync ||
-                        pyodide.runPythonAsync
-                    )(
-                        "if not callable(getattr(__glyph_filter_instance, 'classify_glyph', None)):\n    raise ValueError('Missing classify_glyph(glyph).')"
-                    );
-                }
-            }
-        );
+        pyodide.globals.set('__glyph_filter_namespace', plugin.sourceNamespace);
+        let hasCandidate: unknown;
+        if (plugin.isUserFilter) {
+            pyodide.globals.set(
+                '__glyph_filter_source',
+                plugin.pythonCode || ''
+            );
+            hasCandidate = this.runFilterPython(FILTER_SOURCE_LOAD_USER);
+        } else {
+            pyodide.globals.set('__glyph_filter_instance', plugin.instance);
+            hasCandidate = this.runFilterPython(FILTER_SOURCE_LOAD_INSTANCE);
+        }
+        plugin.hasCandidateFunction = hasCandidate === true;
         plugin.sourceLoaded = true;
-    }
-
-    private async callFilterFunction(
-        plugin: GlyphFilterPlugin,
-        functionName: 'is_candidate' | 'classify_glyph',
-        glyph: object,
-        fallback: boolean | null
-    ): Promise<unknown> {
-        return runAssistantPythonExecution(
-            {
-                id: `glyph-filter:${plugin.keyword}`,
-                allowFontEdits: false,
-                historySummary: null
-            },
-            async () => {
-                const pyodide = window.pyodide as any;
-                pyodide.globals.set('__glyph_filter_glyph', glyph);
-                pyodide.globals.set('__glyph_filter_function', functionName);
-                pyodide.globals.set('__glyph_filter_fallback', fallback);
-                if (!plugin.isUserFilter) {
-                    pyodide.globals.set(
-                        '__glyph_filter_instance',
-                        plugin.instance
-                    );
-                }
-                const result = await (
-                    pyodide._originalRunPythonAsync || pyodide.runPythonAsync
-                )(
-                    plugin.isUserFilter
-                        ? '_fn = globals()[__glyph_filter_namespace].get(__glyph_filter_function)\n_glyph = _cp_wrap_js_value(__glyph_filter_glyph)\n_filter_result = __glyph_filter_fallback if _fn is None else _fn(_glyph)\n_filter_result'
-                        : '_fn = getattr(__glyph_filter_instance, __glyph_filter_function, None)\n_glyph = _cp_wrap_js_value(__glyph_filter_glyph)\n_filter_result = __glyph_filter_fallback if _fn is None else _fn(_glyph)\n_filter_result'
-                );
-                try {
-                    return result?.toJs
-                        ? result.toJs({ dict_converter: Object.fromEntries })
-                        : result;
-                } finally {
-                    result?.destroy?.();
-                }
-            }
-        );
     }
 
     private derivePluginResults(plugin: GlyphFilterPlugin): void {

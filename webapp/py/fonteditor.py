@@ -729,6 +729,29 @@ def _cp_wrap_js_value(value):
     return _wrap_js_value(value)
 
 
+def _cp_classify_filter_glyphs(glyphs, classify_fn, candidate_fn=None):
+    """Classify a JS glyph list in one Python pass.
+
+    Each glyph is wrapped with the live object model. Returns a dict of
+    glyph name → classify_glyph result (or False when is_candidate rejects).
+    """
+    if not callable(classify_fn):
+        raise ValueError('Missing classify_glyph(glyph).')
+
+    results = {}
+    for glyph in glyphs:
+        wrapped = _cp_wrap_js_value(glyph)
+        name = getattr(wrapped, 'name', None)
+        if not name:
+            continue
+        name = str(name)
+        if candidate_fn is not None and candidate_fn(wrapped) is False:
+            results[name] = False
+            continue
+        results[name] = classify_fn(wrapped)
+    return results
+
+
 def _cp_get_active_outline_editor():
     host = _cp_get_host_object()
     glyph_canvas = getattr(host, 'glyphCanvas', None)

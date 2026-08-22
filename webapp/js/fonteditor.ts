@@ -134,7 +134,7 @@ async function initFontEditor() {
             window.updateLoadingStatus('Loading font editor...');
         }
         const fonteditorModule = await fetch(
-            './py/fonteditor.py?rev=glyph-data-wrap-2'
+            './py/fonteditor.py?rev=glyph-filter-batch-1'
         );
         const fonteditorCode = await fonteditorModule.text();
         await window.pyodide.runPython(fonteditorCode);

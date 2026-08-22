@@ -77,8 +77,8 @@ describe('GlyphOverviewFilterManager simple filters', () => {
         manager.plugins = [subscribed, unrelated];
 
         const classify = jest
-            .spyOn(manager, 'classifyGlyph')
-            .mockResolvedValue(undefined);
+            .spyOn(manager, 'classifyGlyphs')
+            .mockReturnValue(undefined);
 
         await manager.handleCommittedGlyphFilterBatch({
             changes: [
@@ -90,7 +90,7 @@ describe('GlyphOverviewFilterManager simple filters', () => {
         });
 
         expect(classify).toHaveBeenCalledTimes(1);
-        expect(classify).toHaveBeenCalledWith(subscribed, { name: 'A' });
+        expect(classify).toHaveBeenCalledWith(subscribed, [{ name: 'A' }]);
     });
 
     test('handles deletion for every filter without calling Python', async () => {
@@ -100,8 +100,8 @@ describe('GlyphOverviewFilterManager simple filters', () => {
         });
         manager.plugins = [filter];
         const classify = jest
-            .spyOn(manager, 'classifyGlyph')
-            .mockResolvedValue(undefined);
+            .spyOn(manager, 'classifyGlyphs')
+            .mockReturnValue(undefined);
 
         await manager.handleCommittedChangeEntries([
             {
@@ -132,5 +132,36 @@ describe('GlyphOverviewFilterManager simple filters', () => {
             { glyph_name: 'A', groups: ['Review'] },
             { glyph_name: 'B', groups: ['Review'] }
         ]);
+    });
+
+    test('classifies All Glyphs in JavaScript without Python', () => {
+        const allGlyphs = makeFilter('com.context.allglyphs');
+        manager.plugins = [allGlyphs];
+        window.pyodide = undefined;
+
+        manager.rebuildFilterCache(allGlyphs);
+
+        expect([...allGlyphs.classifications.keys()]).toEqual(['A', 'B']);
+        expect(allGlyphs.lastResults).toEqual([
+            { glyph_name: 'A', groups: [] },
+            { glyph_name: 'B', groups: [] }
+        ]);
+    });
+
+    test('font-open cache invalidation keeps loaded Python source', () => {
+        const filter = makeFilter('user.cached', ['glyph.unicode.changed']);
+        filter.sourceLoaded = true;
+        filter.lastResults = [{ glyph_name: 'A', groups: [] }];
+        filter.cachedDataVersion = 4;
+        filter.glyphCount = 1;
+        manager.plugins = [filter];
+
+        manager.invalidatePluginCache(filter);
+
+        expect(filter.sourceLoaded).toBe(true);
+        expect(filter.lastResults).toBeUndefined();
+        expect(filter.cachedDataVersion).toBeUndefined();
+        expect(filter.glyphCount).toBeUndefined();
+        expect(filter.classifications.size).toBe(0);
     });
 });
