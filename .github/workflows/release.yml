@@ -12,7 +12,7 @@ permissions:
 
 jobs:
     release:
-        if: ${{ !startsWith(github.ref, 'refs/tags/v0.0.0-preview') }}
+        if: ${{ !contains(github.ref, '-preview') && !contains(github.ref, '-pre.') }}
         runs-on: macos-latest
         needs: []
         steps:

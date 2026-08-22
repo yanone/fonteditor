@@ -60,6 +60,17 @@ const DISPLAY_VERSION_ASSIGN_RE = /\bDISPLAY_VERSION\s*=\s*['"]([^'"]+)['"]/;
 const GITHUB_RELEASES_URL =
     'https://api.github.com/repos/counterpunchspace/editor/releases?per_page=15';
 
+export function isPreviewReleaseId(
+    tag: string,
+    displayVersion: string = tag
+): boolean {
+    return (
+        /preview|-pre\./.test(tag) ||
+        /preview|-pre\./.test(displayVersion) ||
+        /^\d+-build-\d+$/.test(displayVersion)
+    );
+}
+
 export function parseSwVersions(text: string): SwVersionInfo | null {
     const versionMatch = text.match(VERSION_ASSIGN_RE);
     if (!versionMatch?.[1]) {
@@ -71,10 +82,7 @@ export function parseSwVersions(text: string): SwVersionInfo | null {
     return {
         tag,
         displayVersion,
-        isPreview:
-            tag.includes('preview') ||
-            displayVersion.includes('preview') ||
-            /^\d+-build-\d+$/.test(displayVersion)
+        isPreview: isPreviewReleaseId(tag, displayVersion)
     };
 }
 
@@ -253,14 +261,13 @@ export function pickLatestGitHubRelease(
     if (!release?.tag_name) {
         return null;
     }
-    const displayVersion = release.name || release.tag_name;
+    const displayVersion = release.tag_name;
     return {
         tag: release.tag_name,
         displayVersion,
         isPreview:
             !!release.prerelease ||
-            release.tag_name.includes('preview') ||
-            /^\d+-build-\d+$/.test(displayVersion)
+            isPreviewReleaseId(release.tag_name, displayVersion)
     };
 }
 

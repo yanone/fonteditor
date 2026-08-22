@@ -6,7 +6,8 @@ const {
     pickLatestGitHubRelease,
     shouldShowForceUpdate,
     isAppWindowActive,
-    didAppWindowBecomeActive
+    didAppWindowBecomeActive,
+    isPreviewReleaseId
 } = require('../js/update-manager.ts');
 
 describe('update-manager version helpers', () => {
@@ -120,7 +121,7 @@ describe('update-manager version helpers', () => {
         );
         expect(picked).toEqual({
             tag: 'v0.0.0-preview.20260822.6',
-            displayVersion: '20260822-build-6',
+            displayVersion: 'v0.0.0-preview.20260822.6',
             isPreview: true
         });
         expect(
@@ -132,6 +133,35 @@ describe('update-manager version helpers', () => {
             tag: 'v0.2.1',
             displayVersion: 'v0.2.1',
             isPreview: false
+        });
+    });
+
+    test('treats v0.0.N-pre.DATE as a preview id', () => {
+        expect(isPreviewReleaseId('v0.0.11-pre.20260822')).toBe(true);
+        expect(isPreviewReleaseId('v0.2.1')).toBe(false);
+        const info = parseSwVersions(
+            'const VERSION="v0.0.11-pre.20260822",DISPLAY_VERSION="v0.0.11-pre.20260822";'
+        );
+        expect(info).toEqual({
+            tag: 'v0.0.11-pre.20260822',
+            displayVersion: 'v0.0.11-pre.20260822',
+            isPreview: true
+        });
+        expect(
+            pickLatestGitHubRelease(
+                [
+                    {
+                        tag_name: 'v0.0.11-pre.20260822',
+                        name: 'v0.0.11-pre.20260822',
+                        prerelease: true
+                    }
+                ],
+                true
+            )
+        ).toEqual({
+            tag: 'v0.0.11-pre.20260822',
+            displayVersion: 'v0.0.11-pre.20260822',
+            isPreview: true
         });
     });
 });

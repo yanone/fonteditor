@@ -35,9 +35,8 @@ jobs:
             - name: Inject preview versions
               run: |
                   TAG="${{ steps.version.outputs.TAG }}"
-                  DISPLAY_VERSION="${{ steps.version.outputs.DISPLAY_VERSION }}"
                   sed -i.bak "s/const VERSION = '[^']*'/const VERSION = '${TAG}'/" webapp/coi-serviceworker.js
-                  sed -i.bak "s/const DISPLAY_VERSION = '[^']*'/const DISPLAY_VERSION = '${DISPLAY_VERSION}'/" webapp/coi-serviceworker.js
+                  sed -i.bak "s/const DISPLAY_VERSION = '[^']*'/const DISPLAY_VERSION = '${TAG}'/" webapp/coi-serviceworker.js
                   rm webapp/coi-serviceworker.js.bak
 
             - name: Setup Node.js
@@ -51,7 +50,7 @@ jobs:
             - name: Build webapp with webpack
               run: npm run build --prefix webapp
               env:
-                  EDITOR_VERSION: ${{ steps.version.outputs.DISPLAY_VERSION }}
+                  EDITOR_VERSION: ${{ steps.version.outputs.TAG }}
                   BUILD_HASH_FULL: ${{ steps.version.outputs.COMMIT_SHA }}
                   BUILD_HASH_SHORT: ${{ steps.version.outputs.COMMIT_SHORT }}
 
@@ -61,7 +60,6 @@ jobs:
               run: |
                   gh release create "${{ steps.version.outputs.TAG }}" \
                       --target "${{ steps.version.outputs.COMMIT_SHA }}" \
-                      --title "${{ steps.version.outputs.DISPLAY_VERSION }}" \
                       --notes-file release-notes.md \
                       --prerelease
 
@@ -77,6 +75,6 @@ jobs:
 
             - name: Deployment summary
               run: |
-                  echo "✅ Preview ${{ steps.version.outputs.DISPLAY_VERSION }} deployed successfully!"
+                  echo "✅ Preview ${{ steps.version.outputs.TAG }} deployed successfully!"
                   echo "📦 GitHub prerelease ${{ steps.version.outputs.TAG }}"
                   echo "🚀 Deployed to https://preview.editor.counterpunch.space"

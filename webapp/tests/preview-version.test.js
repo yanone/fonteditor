@@ -26,8 +26,7 @@ describe('preview version numbering', () => {
             'v0.0.0-preview.20260816.2',
             'v0.0.0-preview.20260816.3'
         ]);
-        expect(resolved.DISPLAY_VERSION).toBe('20260821-build-4');
-        expect(resolved.TAG).toBe('v0.0.0-preview.20260821.4');
+        expect(resolved.TAG).toBe('v0.0.4-pre.20260821');
         expect(resolved.PREV_TAG).toBe('v0.0.0-preview.20260816.3');
         expect(resolved.NEXT_N).toBe('4');
     });
@@ -37,15 +36,14 @@ describe('preview version numbering', () => {
             'v0.0.0-preview.20260816.3',
             'v0.0.0-preview.20260821.1'
         ]);
-        expect(resolved.DISPLAY_VERSION).toBe('20260822-build-4');
-        expect(resolved.TAG).toBe('v0.0.0-preview.20260822.4');
-        expect(resolved.PREV_TAG).toBe('v0.0.0-preview.20260821.1');
+        expect(resolved.TAG).toBe('v0.0.4-pre.20260822');
+        expect(resolved.PREV_TAG).toBe('v0.0.0-preview.20260816.3');
+        expect(resolved.NEXT_N).toBe('4');
     });
 
     test('starts at 1 when there are no preview tags', () => {
         const resolved = resolve('20260821', []);
-        expect(resolved.DISPLAY_VERSION).toBe('20260821-build-1');
-        expect(resolved.TAG).toBe('v0.0.0-preview.20260821.1');
+        expect(resolved.TAG).toBe('v0.0.1-pre.20260821');
         expect(resolved.PREV_TAG).toBe('');
     });
 
@@ -53,5 +51,15 @@ describe('preview version numbering', () => {
         const resolved = resolve('20260821', ['20260816-build-3']);
         expect(resolved.NEXT_N).toBe('4');
         expect(resolved.PREV_TAG).toBe('');
+    });
+
+    test('increments from v0.0.N-pre.DATE tags', () => {
+        const resolved = resolve('20260822', [
+            'v0.0.0-preview.20260822.10',
+            'v0.0.11-pre.20260822'
+        ]);
+        expect(resolved.TAG).toBe('v0.0.12-pre.20260822');
+        expect(resolved.PREV_TAG).toBe('v0.0.11-pre.20260822');
+        expect(resolved.NEXT_N).toBe('12');
     });
 });

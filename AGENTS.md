@@ -147,7 +147,7 @@ npm run test:update-snapshots
 4. Creates and pushes git tag
 5. Triggers GitHub Actions to create release and deploy to Cloudflare Pages
 
-`previewrelease.sh` pushes unpushed `main` commits and starts the Preview Release workflow. That workflow waits for a green `ci.yml` run on that commit, then builds with `DATE-build-N` (UTC date plus a monotonic build number that does not reset each day) and creates the `v0.0.0-preview.DATE.N` tag and prerelease and deploys to preview.editor.counterpunch.space. Notes are the Unreleased changelog diff since the previous preview. It does not rewrite `CHANGELOG.md` or re-run the test suite.
+`previewrelease.sh` pushes unpushed `main` commits and starts the Preview Release workflow. That workflow waits for a green `ci.yml` run on that commit, then builds with tag `v0.0.N-pre.DATE` (monotonic N across days; DATE is the UTC day of the cut) as the GitHub prerelease title and app version, and deploys to preview.editor.counterpunch.space. Notes are the Unreleased changelog diff since the previous preview. It does not rewrite `CHANGELOG.md` or re-run the test suite.
 
 ## Code Style Guidelines
 

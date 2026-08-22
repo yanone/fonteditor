@@ -2,17 +2,18 @@
 /**
  * Next preview version from existing preview tags.
  * N is a monotonic build number across days. DATE is the UTC day of this cut.
- * Tag form v0.0.0-preview.DATE.N still sorts descending: DATE is compared
- * first (YYYYMMDD), then N numerically, and N never decreases.
+ * Tag form v0.0.N-pre.DATE so GitHub sorts by semver core (patch = N).
  *
- * Usage: git tag -l 'v0.0.0-preview.*' | node scripts/preview-version.mjs --date=YYYYMMDD
- * Prints TAG, DISPLAY_VERSION, PREV_TAG, NEXT_N as KEY=value lines.
+ * Usage: git tag -l 'v0.0.*-pre.*' 'v0.0.*-preview.*' | node scripts/preview-version.mjs --date=YYYYMMDD
+ * Prints TAG, PREV_TAG, NEXT_N as KEY=value lines.
  */
 
 import { pathToFileURL } from 'url';
 import { readFileSync } from 'fs';
 
-const DOTTED_TAG = /^v0\.0\.0-preview\.(\d+)\.(\d+)$/;
+const CORE_PRE_TAG = /^v0\.0\.(\d+)-pre\.(\d{8})$/;
+const CORE_PREVIEW_TAG = /^v0\.0\.(\d+)-preview\.(\d{8})$/;
+const LEGACY_DOTTED_TAG = /^v0\.0\.0-preview\.(\d+)\.(\d+)$/;
 const DISPLAY_NAME = /^(\d+)-build-(\d+)$/;
 const LEGACY_NAME = /^preview-build-(\d+)-on-(\d+)$/;
 
@@ -29,7 +30,15 @@ export function parsePreviewRef(value) {
     if (!trimmed) {
         return null;
     }
-    let match = trimmed.match(DOTTED_TAG);
+    let match = trimmed.match(CORE_PRE_TAG);
+    if (match) {
+        return { n: Number(match[1]), date: match[2], tag: trimmed };
+    }
+    match = trimmed.match(CORE_PREVIEW_TAG);
+    if (match) {
+        return { n: Number(match[1]), date: match[2], tag: trimmed };
+    }
+    match = trimmed.match(LEGACY_DOTTED_TAG);
     if (match) {
         return { date: match[1], n: Number(match[2]), tag: trimmed };
     }
@@ -52,10 +61,10 @@ function isNewerPreview(candidate, current) {
     if (!current) {
         return true;
     }
-    if (Number(candidate.date) !== Number(current.date)) {
-        return Number(candidate.date) > Number(current.date);
+    if (candidate.n !== current.n) {
+        return candidate.n > current.n;
     }
-    return candidate.n > current.n;
+    return Number(candidate.date) > Number(current.date);
 }
 
 /**
@@ -84,10 +93,10 @@ export function resolveNextPreviewVersion(refs, date) {
     }
 
     const nextN = maxN + 1;
+    const tag = `v0.0.${nextN}-pre.${date}`;
     return {
         nextN,
-        displayVersion: `${date}-build-${nextN}`,
-        tag: `v0.0.0-preview.${date}.${nextN}`,
+        tag,
         prevTag: previous?.tag ?? ''
     };
 }
@@ -110,7 +119,6 @@ export function main(argv = process.argv.slice(2), refs = readRefsFromStdin()) {
     process.stdout.write(
         [
             `TAG=${resolved.tag}`,
-            `DISPLAY_VERSION=${resolved.displayVersion}`,
             `PREV_TAG=${resolved.prevTag}`,
             `NEXT_N=${resolved.nextN}`
         ].join('\n') + '\n'

@@ -304,8 +304,8 @@
                                     (displayMatch && displayMatch[1]) ||
                                     version;
                                 const isPreview =
-                                    version.includes('preview') ||
-                                    displayVersion.includes('preview') ||
+                                    /preview|-pre\./.test(version) ||
+                                    /preview|-pre\./.test(displayVersion) ||
                                     /^\d+-build-\d+$/.test(displayVersion);
                                 versionSpan.dataset.version = version;
                                 versionSpan.dataset.displayVersion =
@@ -2396,9 +2396,9 @@
                                         version: displayVersion,
                                         tag: newVersion,
                                         isPreview:
-                                            newVersion.includes('preview') ||
-                                            displayVersion.includes(
-                                                'preview'
+                                            /preview|-pre\./.test(newVersion) ||
+                                            /preview|-pre\./.test(
+                                                displayVersion
                                             ) ||
                                             /^\d+-build-\d+$/.test(
                                                 displayVersion
@@ -2451,9 +2451,11 @@
                                             version: displayVersion,
                                             tag: version,
                                             isPreview:
-                                                version.includes('preview') ||
-                                                displayVersion.includes(
-                                                    'preview'
+                                                /preview|-pre\./.test(
+                                                    version
+                                                ) ||
+                                                /preview|-pre\./.test(
+                                                    displayVersion
                                                 ) ||
                                                 /^\d+-build-\d+$/.test(
                                                     displayVersion
