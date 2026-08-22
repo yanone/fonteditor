@@ -16093,27 +16093,41 @@ export class OutlineEditor {
                 const endZone =
                     APP_SETTINGS.OUTLINE_EDITOR.SEGMENT_HOVER_END_ZONE;
                 const t = hit.projection.t;
-                if (t <= endZone) {
+                const startPoint = hit.descriptor.points[0];
+                const endPoint =
+                    hit.descriptor.points[hit.descriptor.points.length - 1];
+                const distToStart = Math.hypot(
+                    startPoint.x - glyphX,
+                    startPoint.y - glyphY
+                );
+                const distToEnd = Math.hypot(
+                    endPoint.x - glyphX,
+                    endPoint.y - glyphY
+                );
+                const hoveredSegment = {
+                    shapeIndex: hit.shapeIndex,
+                    segmentId: hit.descriptor.segmentId,
+                    type: hit.descriptor.type,
+                    startNodeIndex: hit.descriptor.startNodeIndex,
+                    endNodeIndex: hit.descriptor.endNodeIndex,
+                    controlNodeIndices: [...hit.descriptor.controlNodeIndices]
+                };
+                // End-zone hits only count as node hover when the pointer
+                // is actually within the node pick radius. Segment hit
+                // radius is larger, so a distant cmd-hover must not steal
+                // metric snap by pretending an endpoint is hovered.
+                if (t <= endZone && distToStart <= nodeHitRadius) {
                     bestPoint = {
                         contourIndex: hit.shapeIndex,
                         nodeIndex: hit.descriptor.startNodeIndex
                     };
-                } else if (t >= 1 - endZone) {
+                } else if (t >= 1 - endZone && distToEnd <= nodeHitRadius) {
                     bestPoint = {
                         contourIndex: hit.shapeIndex,
                         nodeIndex: hit.descriptor.endNodeIndex
                     };
                 } else {
-                    bestSegment = {
-                        shapeIndex: hit.shapeIndex,
-                        segmentId: hit.descriptor.segmentId,
-                        type: hit.descriptor.type,
-                        startNodeIndex: hit.descriptor.startNodeIndex,
-                        endNodeIndex: hit.descriptor.endNodeIndex,
-                        controlNodeIndices: [
-                            ...hit.descriptor.controlNodeIndices
-                        ]
-                    };
+                    bestSegment = hoveredSegment;
                 }
             }
         }

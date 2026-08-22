@@ -2968,7 +2968,17 @@ describe('Outline Editing canonical behavior', () => {
             0,
             Math.PI * 2
         );
-        expect(canvas.renderer.ctx.lineTo).toHaveBeenCalledTimes(1);
+        const moveCalls = canvas.renderer.ctx.moveTo.mock.calls;
+        const lineCalls = canvas.renderer.ctx.lineTo.mock.calls;
+        const drewHorizontalUnderline = moveCalls.some(([moveX, moveY]) =>
+            lineCalls.some(
+                ([lineX, lineY]) =>
+                    moveY === lineY &&
+                    Math.abs(moveX + lineX) < 0.001 &&
+                    Math.abs(moveX) > 0
+            )
+        );
+        expect(drewHorizontalUnderline).toBe(true);
         expect(canvas.renderer.ctx.stroke).toHaveBeenCalled();
     });
 

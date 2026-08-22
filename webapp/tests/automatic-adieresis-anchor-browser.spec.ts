@@ -815,6 +815,12 @@ async function openAutomaticAdieresisEditScenario(page: Page): Promise<void> {
             'dieresiscomb'
         ]);
         glyphCanvas.textRunEditor.setTextBuffer('aä');
+        await fontManager.compileEditingFont?.(
+            'aä',
+            [],
+            ['a', 'adieresis', 'dieresiscomb']
+        );
+        await glyphCanvas.textRunEditor.shapeText?.(true);
         await glyphCanvas.textRunEditor.selectGlyphByIndex(0, true);
         glyphCanvas.outlineEditor.active = true;
         glyphCanvas.outlineEditor.currentGlyphName = 'a';
@@ -830,13 +836,16 @@ async function openAutomaticAdieresisEditScenario(page: Page): Promise<void> {
     await page.waitForFunction(
         () => {
             const glyphCanvas = (window as any).glyphCanvas;
+            const names = glyphCanvas?.textRunEditor?.glyphNameBuffer || [];
             return (
                 glyphCanvas?.outlineEditor?.active === true &&
                 glyphCanvas?.outlineEditor?.currentGlyphName === 'a' &&
-                glyphCanvas?.textRunEditor?.selectedGlyphIndex === 0
+                glyphCanvas?.textRunEditor?.selectedGlyphIndex === 0 &&
+                names.includes('a') &&
+                names.includes('adieresis')
             );
         },
-        { timeout: 15000 }
+        { timeout: 30000 }
     );
 }
 

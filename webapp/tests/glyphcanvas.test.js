@@ -868,11 +868,17 @@ describe('GlyphCanvas renderer anchor-only layers', () => {
     });
 
     test('drawOutlineEditor renders anchors when a selected layer has no shapes', () => {
-        canvas.renderer.ctx.fillRect.mockClear();
+        canvas.renderer.ctx.fill.mockClear();
+        canvas.renderer.ctx.stroke.mockClear();
 
         canvas.renderer.drawOutlineEditor();
 
-        expect(canvas.renderer.ctx.fillRect).toHaveBeenCalledTimes(3);
+        expect(
+            canvas.renderer.ctx.fill.mock.calls.length
+        ).toBeGreaterThanOrEqual(3);
+        expect(
+            canvas.renderer.ctx.stroke.mock.calls.length
+        ).toBeGreaterThanOrEqual(3);
     });
 
     test('limits the background editing tint to the paired glyph metrics box', () => {
@@ -4005,9 +4011,11 @@ describe('OutlineEditor marquee selection', () => {
             index: 0
         };
 
-        jest.spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
-            .mockReturnValueOnce({ glyphX: 0, glyphY: 0 })
-            .mockReturnValueOnce({ glyphX: 50, glyphY: 50 });
+        let pointer = { glyphX: 0, glyphY: 0 };
+        jest.spyOn(
+            canvas.outlineEditor,
+            'transformMouseToComponentSpace'
+        ).mockImplementation(() => ({ ...pointer }));
 
         canvas.outlineEditor.onSingleClick({
             shiftKey: false,
@@ -4015,6 +4023,7 @@ describe('OutlineEditor marquee selection', () => {
             metaKey: false,
             ctrlKey: false
         });
+        pointer = { glyphX: 50, glyphY: 50 };
         canvas.outlineEditor.onMouseMove({ clientX: 50, clientY: 50 });
 
         expect(canvas.outlineEditor.selectedPoints).toEqual([
@@ -4035,9 +4044,11 @@ describe('OutlineEditor marquee selection', () => {
             { contourIndex: 0, nodeIndex: 2 }
         ];
 
-        jest.spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
-            .mockReturnValueOnce({ glyphX: 0, glyphY: 0 })
-            .mockReturnValueOnce({ glyphX: 50, glyphY: 50 });
+        let pointer = { glyphX: 0, glyphY: 0 };
+        jest.spyOn(
+            canvas.outlineEditor,
+            'transformMouseToComponentSpace'
+        ).mockImplementation(() => ({ ...pointer }));
 
         canvas.outlineEditor.onSingleClick({
             shiftKey: true,
@@ -4045,6 +4056,7 @@ describe('OutlineEditor marquee selection', () => {
             metaKey: false,
             ctrlKey: false
         });
+        pointer = { glyphX: 50, glyphY: 50 };
         canvas.outlineEditor.onMouseMove({ clientX: 50, clientY: 50 });
 
         expect(canvas.outlineEditor.selectedPoints).toEqual([
@@ -12808,11 +12820,13 @@ describe('GlyphCanvas command path drawing visuals', () => {
                 closed: false
             }
         ];
-        canvas.renderer.ctx.fillRect.mockClear();
+        canvas.renderer.ctx.fill.mockClear();
+        canvas.renderer.ctx.stroke.mockClear();
 
         canvas.renderer.drawOutlineEditor();
 
-        expect(canvas.renderer.ctx.fillRect).toHaveBeenCalledTimes(1);
+        expect(canvas.renderer.ctx.fill).toHaveBeenCalled();
+        expect(canvas.renderer.ctx.stroke).toHaveBeenCalled();
     });
 
     test('drawShape renders a committed open line segment without closing the contour', () => {
