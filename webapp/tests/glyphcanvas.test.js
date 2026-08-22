@@ -1395,6 +1395,24 @@ describe('GlyphCanvas renderer kerning overlays', () => {
 
         expect(canvas.renderer.ctx.fillRect).not.toHaveBeenCalled();
     });
+
+    test('hides kerning overlays during Space preview', () => {
+        jest.spyOn(canvas, 'getTextModeKerningOverlayStates').mockReturnValue([
+            {
+                minX: 10,
+                maxX: 50,
+                topY: 800,
+                bottomY: -200,
+                value: -40
+            }
+        ]);
+        canvas.outlineEditor.isPreviewMode = true;
+        canvas.renderer.ctx.fillRect.mockClear();
+
+        canvas.renderer.drawTextModeKerningOverlay();
+
+        expect(canvas.renderer.ctx.fillRect).not.toHaveBeenCalled();
+    });
 });
 
 describe('GlyphCanvas renderer snap visualization', () => {

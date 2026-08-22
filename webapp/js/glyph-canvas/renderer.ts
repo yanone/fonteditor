@@ -1434,6 +1434,9 @@ export class GlyphCanvasRenderer {
         if (this.glyphCanvas.outlineEditor.active) {
             return;
         }
+        if (this.glyphCanvas.outlineEditor.isPreviewMode) {
+            return;
+        }
         if (this.glyphCanvas.featureChangeAnimator?.isActive()) {
             return;
         }
