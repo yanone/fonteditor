@@ -278,7 +278,7 @@ function renderFolderSection(
             : `<button type="button" class="dialog-button dialog-button-primary" data-folder-action="select" data-folder-kind="${kind}"${actionDisabled}>Select Folder</button>`;
     const stateNote =
         status.state === 'needsRenewal'
-            ? '<p class="folder-permissions-status-note">Access expired — restore it to keep using this folder.</p>'
+            ? '<p class="folder-permissions-status-note folder-permissions-renewal-message">Access expired — restore it to keep using this folder.</p>'
             : status.state === 'ready'
               ? '<p class="folder-permissions-status-note">Access granted.</p>'
               : '';
@@ -356,8 +356,14 @@ async function paintDialog(): Promise<void> {
         title.textContent = copy.title;
     }
     if (content) {
+        const introClass = pickerAvailable
+            ? status.project.state === 'needsRenewal' ||
+              status.settings.state === 'needsRenewal'
+                ? 'folder-permissions-renewal-message'
+                : ''
+            : 'folder-permissions-unavailable';
         content.innerHTML = `
-            <p class="${pickerAvailable ? '' : 'folder-permissions-unavailable'}">${copy.intro}</p>
+            <p class="${introClass}">${copy.intro}</p>
             ${renderFolderSection(
                 'project',
                 'Font Project Folder',

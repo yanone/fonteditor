@@ -361,6 +361,11 @@
     font-size: 12px;
 }
 
+.folder-permissions-renewal-message {
+    color: var(--accent-orange);
+    font-weight: bold;
+}
+
 .folder-permissions-unavailable {
     padding: 10px 12px;
     border: 1px solid var(--folder-setup-callout-border);
