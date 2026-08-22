@@ -379,8 +379,6 @@ const TEXT_CARET_FONT_Y_CENTER =
 const CURSOR_VIEW_MARGIN = 30;
 const BACKSPACE_PRECEDING_GLYPH_COUNT = 2;
 const BACKSPACE_SAFE_VIEWPORT_FRACTION = 1 / 5;
-const PREVIEW_CHROME_ANIMATION_FRAMES = 10;
-
 class GlyphCanvas {
     static COLLAPSED_EDITOR_VIEWPORT_FREEZE_WIDTH = 96;
 
@@ -389,10 +387,6 @@ class GlyphCanvas {
     canvasStage: HTMLElement | null = null;
     canvas: HTMLCanvasElement | null = null;
     previewChromeOpacity: number = 1;
-    previewChromeTarget: number = 1;
-    previewChromeRaf: number | null = null;
-    private previewChromeAnimating: boolean = false;
-    private previewChromeSettledCallbacks: Array<() => void> = [];
     previewViewportGuide: ViewportFrame | null = null;
     ctx: CanvasRenderingContext2D | null = null;
     outlineEditor: OutlineEditor = new OutlineEditor(this);
@@ -1748,71 +1742,25 @@ class GlyphCanvas {
         this.outlineEditor.isPreviewMode = active;
         if (active && !wasActive) {
             this.previewViewportGuide = this.getPreviewViewportGuide();
-            // Punch chrome hits through before the fade ticks so pan can
-            // start on the first Space frame, not after opacity hits 0.
-            this.applyPreviewChromeClasses();
-            this.animatePreviewChrome(0);
+            this.applyPreviewChrome(0);
         } else if (!active && wasActive) {
-            this.animatePreviewChrome(1);
+            this.applyPreviewChrome(1);
         } else {
             this.render();
         }
     }
 
-    private animatePreviewChrome(target: number): void {
-        this.previewChromeTarget = target;
-        this.applyPreviewChromeClasses();
-        if (this.previewChromeAnimating) {
-            return;
+    private applyPreviewChrome(opacity: number): void {
+        this.previewChromeOpacity = opacity;
+        if (opacity === 1) {
+            this.previewViewportGuide = null;
         }
-        this.previewChromeAnimating = true;
-        const increment = 1 / PREVIEW_CHROME_ANIMATION_FRAMES;
-        const tick = (): boolean => {
-            const delta = this.previewChromeTarget - this.previewChromeOpacity;
-            if (Math.abs(delta) <= increment) {
-                this.previewChromeOpacity = this.previewChromeTarget;
-                this.previewChromeRaf = null;
-                this.previewChromeAnimating = false;
-                this.applyPreviewChromeOpacity();
-                if (this.previewChromeOpacity === 1) {
-                    this.previewViewportGuide = null;
-                }
-                this.render();
-                this.flushPreviewChromeSettled();
-                return false;
-            }
-            this.previewChromeOpacity += Math.sign(delta) * increment;
-            this.applyPreviewChromeOpacity();
-            this.render();
-            return true;
-        };
-        if (tick()) {
-            const step = () => {
-                if (tick()) {
-                    this.previewChromeRaf = requestAnimationFrame(step);
-                }
-            };
-            this.previewChromeRaf = requestAnimationFrame(step);
-        }
+        this.applyPreviewChromeOpacity();
+        this.render();
     }
 
     runAfterPreviewChromeSettled(callback: () => void): void {
-        if (
-            !this.previewChromeAnimating &&
-            this.previewChromeOpacity === this.previewChromeTarget
-        ) {
-            callback();
-            return;
-        }
-        this.previewChromeSettledCallbacks.push(callback);
-    }
-
-    private flushPreviewChromeSettled(): void {
-        const callbacks = this.previewChromeSettledCallbacks;
-        this.previewChromeSettledCallbacks = [];
-        for (const callback of callbacks) {
-            callback();
-        }
+        callback();
     }
 
     private applyPreviewChromeOpacity(): void {
@@ -1825,9 +1773,7 @@ class GlyphCanvas {
 
     private applyPreviewChromeClasses(): void {
         const keepPreviewVisuals =
-            this.outlineEditor.isPreviewMode ||
-            this.previewChromeOpacity < 1 ||
-            this.previewChromeTarget < 1;
+            this.outlineEditor.isPreviewMode || this.previewChromeOpacity < 1;
         const area = getPreviewArea();
         const fadeChrome = keepPreviewVisuals && area !== 'small';
         document.body.classList.toggle('preview-mode-chrome', fadeChrome);
@@ -1854,11 +1800,7 @@ class GlyphCanvas {
     }
 
     private handlePreviewAreaChanged = (): void => {
-        if (
-            this.outlineEditor.isPreviewMode ||
-            this.previewChromeOpacity < 1 ||
-            this.previewChromeTarget < 1
-        ) {
+        if (this.outlineEditor.isPreviewMode || this.previewChromeOpacity < 1) {
             this.previewViewportGuide = this.getPreviewViewportGuide();
         }
         this.applyPreviewChromeClasses();
@@ -11264,25 +11206,22 @@ class GlyphCanvas {
                     ? 'canvas.render.deferredSuppressed'
                     : 'canvas.render.deferredIdleViewLock'
             );
-            if (!this.previewChromeAnimating) {
-                recordLiveTextDiagnostic(
-                    'canvas.render.deferred',
-                    this.textRunEditor,
-                    {
-                        reason: deferReason,
-                        viewport: {
-                            panX: this.viewportManager?.panX ?? null,
-                            panY: this.viewportManager?.panY ?? null,
-                            scale: this.viewportManager?.scale ?? null
-                        },
-                        pendingIdleViewLock: this.hasPendingIdleViewLock(),
-                        idleViewLockUsesBbox: this.idleViewLockUsesBbox,
-                        idleViewLockUsesRightEdge:
-                            this.idleViewLockUsesRightEdge,
-                        renderSuppressed: this.renderSuppressed
-                    }
-                );
-            }
+            recordLiveTextDiagnostic(
+                'canvas.render.deferred',
+                this.textRunEditor,
+                {
+                    reason: deferReason,
+                    viewport: {
+                        panX: this.viewportManager?.panX ?? null,
+                        panY: this.viewportManager?.panY ?? null,
+                        scale: this.viewportManager?.scale ?? null
+                    },
+                    pendingIdleViewLock: this.hasPendingIdleViewLock(),
+                    idleViewLockUsesBbox: this.idleViewLockUsesBbox,
+                    idleViewLockUsesRightEdge: this.idleViewLockUsesRightEdge,
+                    renderSuppressed: this.renderSuppressed
+                }
+            );
             return;
         }
 
@@ -11291,8 +11230,6 @@ class GlyphCanvas {
             this.syncCanvasBackingStore();
         }
         this.featureChangeAnimator?.applyViewportAnchor(this.viewportManager);
-        const recordRenderDiagnostics = !this.previewChromeAnimating;
-
         // Update glyph_stack label if it exists (development mode only, not in test mode)
         if (window.isDevelopment?.() && !window.isTestMode?.()) {
             // If we don't have a reference, try to find it in the DOM (in case it was created asynchronously)
@@ -11308,51 +11245,47 @@ class GlyphCanvas {
         }
 
         this.renderer!.render();
-        if (recordRenderDiagnostics) {
-            const renderVerticalMetrics =
-                this.outlineEditor.renderVerticalMetrics ?? {};
-            const renderVerticalMetricEntries = Object.entries(
-                renderVerticalMetrics
-            );
-            const lastRenderState =
-                ((window as any).__glyphCanvasRenderState as
-                    { sequence?: number } | undefined) ?? undefined;
-            const nextRenderState = {
-                sequence: (lastRenderState?.sequence ?? 0) + 1,
-                mode: this.outlineEditor.active ? 'edit' : 'text',
-                selectedGlyphIndex:
-                    this.textRunEditor?.selectedGlyphIndex ?? -1,
-                selectedLayerId: this.outlineEditor.selectedLayerId ?? null,
-                glyphStack: this.outlineEditor.glyphStack || '',
-                hasLayerData: Boolean(this.outlineEditor.layerData),
-                isInterpolated: Boolean(
-                    this.outlineEditor.layerData?.isInterpolated
-                ),
-                isPreviewMode: this.outlineEditor.isPreviewMode,
-                hasRenderVerticalMetrics:
-                    renderVerticalMetricEntries.length > 0,
-                renderVerticalMetricCount: renderVerticalMetricEntries.length,
-                renderVerticalMetrics
-            };
-            (window as any).__glyphCanvasRenderState = nextRenderState;
-            recordLiveTextDiagnostic('canvas.render', this.textRunEditor, {
-                render: nextRenderState,
-                viewport: {
-                    panX: this.viewportManager?.panX ?? null,
-                    panY: this.viewportManager?.panY ?? null,
-                    scale: this.viewportManager?.scale ?? null
-                },
-                pendingIdleViewLock: this.hasPendingIdleViewLock(),
-                idleViewLockUsesBbox: this.idleViewLockUsesBbox,
-                idleViewLockUsesRightEdge: this.idleViewLockUsesRightEdge,
-                renderSuppressed: this.renderSuppressed
-            });
-            window.dispatchEvent(
-                new CustomEvent('glyphCanvasRendered', {
-                    detail: nextRenderState
-                })
-            );
-        }
+        const renderVerticalMetrics =
+            this.outlineEditor.renderVerticalMetrics ?? {};
+        const renderVerticalMetricEntries = Object.entries(
+            renderVerticalMetrics
+        );
+        const lastRenderState =
+            ((window as any).__glyphCanvasRenderState as
+                { sequence?: number } | undefined) ?? undefined;
+        const nextRenderState = {
+            sequence: (lastRenderState?.sequence ?? 0) + 1,
+            mode: this.outlineEditor.active ? 'edit' : 'text',
+            selectedGlyphIndex: this.textRunEditor?.selectedGlyphIndex ?? -1,
+            selectedLayerId: this.outlineEditor.selectedLayerId ?? null,
+            glyphStack: this.outlineEditor.glyphStack || '',
+            hasLayerData: Boolean(this.outlineEditor.layerData),
+            isInterpolated: Boolean(
+                this.outlineEditor.layerData?.isInterpolated
+            ),
+            isPreviewMode: this.outlineEditor.isPreviewMode,
+            hasRenderVerticalMetrics: renderVerticalMetricEntries.length > 0,
+            renderVerticalMetricCount: renderVerticalMetricEntries.length,
+            renderVerticalMetrics
+        };
+        (window as any).__glyphCanvasRenderState = nextRenderState;
+        recordLiveTextDiagnostic('canvas.render', this.textRunEditor, {
+            render: nextRenderState,
+            viewport: {
+                panX: this.viewportManager?.panX ?? null,
+                panY: this.viewportManager?.panY ?? null,
+                scale: this.viewportManager?.scale ?? null
+            },
+            pendingIdleViewLock: this.hasPendingIdleViewLock(),
+            idleViewLockUsesBbox: this.idleViewLockUsesBbox,
+            idleViewLockUsesRightEdge: this.idleViewLockUsesRightEdge,
+            renderSuppressed: this.renderSuppressed
+        });
+        window.dispatchEvent(
+            new CustomEvent('glyphCanvasRendered', {
+                detail: nextRenderState
+            })
+        );
         timelineMark('canvas.render.completed');
     }
 
@@ -11438,12 +11371,6 @@ class GlyphCanvas {
         this.textRunEditor!.destroyHarfbuzz();
 
         // Remove canvas
-        if (this.previewChromeRaf !== null) {
-            cancelAnimationFrame(this.previewChromeRaf);
-            this.previewChromeRaf = null;
-        }
-        this.previewChromeAnimating = false;
-        this.previewChromeSettledCallbacks = [];
         document.body.classList.remove(
             'has-full-window-glyph-canvas',
             'preview-mode-chrome',

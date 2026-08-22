@@ -55,7 +55,7 @@ Each view title bar shows the same shortcut.
 - `Cmd/Ctrl+Shift+B` — toggle editing the background layer
 - `Cmd/Ctrl+Alt/Option+B` — show or hide the paired layer
 - Arrow keys — nudge selected objects (`Shift` for 10×)
-- `Space` — preview outline fill; chrome and fill fade together over 10 frames according to Editing View → View → Preview Area, and a dotted rectangle marks the canvas viewport (property panel deducted) so you can pan the drawing onto it (grab cursor; drag to pan). Medium and Full make the canvas pannable from the first fade-out frame. Release Space to fade chrome back.
+- `Space` — preview outline fill in one paint according to Editing View → View → Preview Area, and a dotted rectangle marks the canvas viewport (property panel deducted) so you can pan the drawing onto it (grab cursor; drag to pan). Medium hides the editor title bar, sidebar, and property panel but keeps the focused view border; Full hides toolbar and app shell. Medium and Full make the canvas pannable in that same frame. Release Space to restore chrome in one paint.
 - `Tab` — measurement tool; click and drag for a custom line
 - `T` — text mode (leave glyph editing)
 - `V` — select tool

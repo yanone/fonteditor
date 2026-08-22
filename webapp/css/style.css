@@ -6497,10 +6497,12 @@ body.preview-mode-chrome.preview-area-full .app-shell {
     transition: none;
 }
 
-body.preview-mode-chrome.preview-area-medium #view-editor {
+body.preview-mode-chrome.preview-area-medium #view-editor .view-title-bar,
+body.preview-mode-chrome.preview-area-medium #view-editor .view-sidebar,
+body.preview-mode-chrome.preview-area-medium
+    #glyph-canvas-container
+    > .glyph-property-panel {
     opacity: var(--preview-chrome-opacity, 1);
-    border-color: transparent;
-    box-shadow: none;
     transition: none;
 }
 

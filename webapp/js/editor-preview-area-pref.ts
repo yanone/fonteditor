@@ -1,9 +1,10 @@
 /**
- * Preference: how much chrome Space preview fades, and which rectangle the
+ * Preference: how much chrome Space preview hides, and which rectangle the
  * dotted viewport guide follows. Default small.
  *
- * Small: no chrome fade (guide on the editor view). Medium: fade editor
- * chrome (guide on the canvas cutout). Full: fade toolbar and app shell
+ * Small: chrome stays visible (guide on the editor view). Medium: hide editor
+ * title bar, sidebar, and property panel, but keep the focused view border
+ * (guide on the canvas cutout). Full: hide toolbar and app shell
  * (guide on the canvas cutout).
  */
 

@@ -787,9 +787,9 @@ export class GlyphCanvasRenderer {
                 const isExplicitToken = !!explicitGlyphName;
 
                 // Selected glyph: compiled fill only while Space preview is
-                // on (including fade-in). Fade-off uses the outline editor
-                // instead so component fills and path strokes do not sit on
-                // top of a second fading HarfBuzz fill.
+                // on. Leaving preview uses the outline editor instead so
+                // component fills and path strokes do not sit on top of a
+                // second HarfBuzz fill.
                 const skipHarfBuzz =
                     isSelected &&
                     this.glyphCanvas.outlineEditor.active &&

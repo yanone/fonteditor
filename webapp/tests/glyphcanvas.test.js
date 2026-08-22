@@ -720,7 +720,7 @@ describe('GlyphCanvas initialization', () => {
         localStorage.clear();
     });
 
-    test('Small Space preview does not fade chrome', () => {
+    test('Small Space preview does not hide chrome', () => {
         const { setPreviewArea } = require('../js/editor-preview-area-pref');
         setPreviewArea('small');
         canvas = new GlyphCanvas('test-container');
@@ -728,11 +728,11 @@ describe('GlyphCanvas initialization', () => {
         expect(document.body.classList.contains('preview-mode-chrome')).toBe(
             false
         );
-        expect(canvas.getPreviewFillAlpha()).toBeCloseTo(0.1);
+        expect(canvas.getPreviewFillAlpha()).toBe(1);
         localStorage.clear();
     });
 
-    test('Medium Space preview fades editor chrome', () => {
+    test('Medium Space preview hides editor chrome', () => {
         const { setPreviewArea } = require('../js/editor-preview-area-pref');
         setPreviewArea('medium');
         canvas = new GlyphCanvas('test-container');
@@ -746,24 +746,27 @@ describe('GlyphCanvas initialization', () => {
         localStorage.clear();
     });
 
-    test('Medium Space preview is click-through before the fade starts', () => {
+    test('Medium Space preview is click-through immediately', () => {
         const { setPreviewArea } = require('../js/editor-preview-area-pref');
         setPreviewArea('medium');
         canvas = new GlyphCanvas('test-container');
-        jest.spyOn(canvas, 'animatePreviewChrome').mockImplementation(() => {});
         canvas.setPreviewMode(true);
-        expect(canvas.previewChromeOpacity).toBe(1);
+        expect(canvas.previewChromeOpacity).toBe(0);
         expect(document.body.classList.contains('preview-mode-chrome')).toBe(
             true
         );
         localStorage.clear();
     });
 
-    test('Space preview fade does not record live text diagnostics', () => {
+    test('Space preview restores chrome in one frame', () => {
         canvas = new GlyphCanvas('test-container');
-        const before = window.__liveTextDiagnostics?.entries?.length ?? 0;
         canvas.setPreviewMode(true);
-        expect(window.__liveTextDiagnostics?.entries?.length ?? 0).toBe(before);
+        expect(canvas.previewChromeOpacity).toBe(0);
+        canvas.setPreviewMode(false);
+        expect(canvas.previewChromeOpacity).toBe(1);
+        expect(document.body.classList.contains('preview-mode-chrome')).toBe(
+            false
+        );
         localStorage.clear();
     });
 
