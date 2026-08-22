@@ -4,7 +4,9 @@ const {
     pendingUpdateFromSw,
     hasAvailableUpdate,
     pickLatestGitHubRelease,
-    shouldShowForceUpdate
+    shouldShowForceUpdate,
+    isAppWindowActive,
+    didAppWindowBecomeActive
 } = require('../js/update-manager.ts');
 
 describe('update-manager version helpers', () => {
@@ -73,6 +75,15 @@ describe('update-manager version helpers', () => {
                 'v0.0.0-preview.20260822.6'
             )
         ).toBe(false);
+    });
+
+    test('treats window activation as visible plus hasFocus', () => {
+        expect(isAppWindowActive('visible', true)).toBe(true);
+        expect(isAppWindowActive('visible', false)).toBe(false);
+        expect(isAppWindowActive('hidden', true)).toBe(false);
+        expect(didAppWindowBecomeActive(false, true)).toBe(true);
+        expect(didAppWindowBecomeActive(true, true)).toBe(false);
+        expect(didAppWindowBecomeActive(false, false)).toBe(false);
     });
 
     test('offers force update only after a manual check with no pending build', () => {

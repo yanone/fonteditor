@@ -17,6 +17,7 @@ const CHANGELOG_RELEASES_URL =
 
 export const AUTO_CHECK_THROTTLE_MS = 60 * 1000;
 export const AUTO_CHECK_INTERVAL_MS = 10 * 60 * 1000;
+export const FOCUS_POLL_MS = 1000;
 
 let lastAutoCheckAt = 0;
 let checkInFlight = false;
@@ -82,6 +83,20 @@ export function shouldShowForceUpdate(
     offeredAfterManualCheck: boolean
 ): boolean {
     return !pending && offeredAfterManualCheck;
+}
+
+export function isAppWindowActive(
+    visibilityState: string = document.visibilityState,
+    hasFocus: boolean = document.hasFocus()
+): boolean {
+    return visibilityState === 'visible' && hasFocus;
+}
+
+export function didAppWindowBecomeActive(
+    wasActive: boolean,
+    isActive: boolean
+): boolean {
+    return isActive && !wasActive;
 }
 
 export function hasAvailableUpdate(
@@ -412,15 +427,28 @@ function initScheduledUpdateChecks(): void {
 
     runScheduledUpdateCheck(false);
 
-    const onBecameVisible = () => {
-        if (document.visibilityState === 'hidden') {
+    // macOS and installed PWAs often skip window `focus` / visibilitychange on
+    // Cmd+Tab. document.hasFocus() is the reliable signal (same as glyph-canvas);
+    // poll so a missed event still produces an inactive → active edge.
+    let appWindowWasActive = isAppWindowActive();
+    const syncAppWindowAndCheck = () => {
+        const active = isAppWindowActive();
+        if (didAppWindowBecomeActive(appWindowWasActive, active)) {
+            appWindowWasActive = active;
+            runScheduledUpdateCheck(false);
             return;
         }
-        runScheduledUpdateCheck(false);
+        appWindowWasActive = active;
     };
-    window.addEventListener('focus', onBecameVisible);
-    window.addEventListener('pageshow', onBecameVisible);
-    document.addEventListener('visibilitychange', onBecameVisible);
+
+    window.addEventListener('focus', syncAppWindowAndCheck);
+    window.addEventListener('blur', syncAppWindowAndCheck);
+    window.addEventListener('pageshow', syncAppWindowAndCheck);
+    window.addEventListener('pagehide', syncAppWindowAndCheck);
+    document.addEventListener('visibilitychange', syncAppWindowAndCheck);
+    document.addEventListener('freeze', syncAppWindowAndCheck);
+    document.addEventListener('resume', syncAppWindowAndCheck);
+    window.setInterval(syncAppWindowAndCheck, FOCUS_POLL_MS);
 
     window.setInterval(() => {
         runScheduledUpdateCheck(true);
