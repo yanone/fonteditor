@@ -189,6 +189,15 @@ type HoveredAddPointPreview = HoveredSegmentPreview & {
     point: { x: number; y: number };
 };
 
+type HoveredPathSegment = {
+    shapeIndex: number;
+    segmentId: number;
+    type: 'line' | 'quadratic' | 'cubic';
+    startNodeIndex: number;
+    endNodeIndex: number;
+    controlNodeIndices: number[];
+};
+
 type PathSegmentHit = {
     shapeIndex: number;
     pathIndex: number;
@@ -3182,6 +3191,7 @@ export class OutlineEditor {
     selectedSidebearingHandle: SidebearingHandle | null = null;
     selectedGuideHandle: GuideHandle | null = null;
     hoveredPointIndex: Point | null = null;
+    hoveredPathSegment: HoveredPathSegment | null = null;
     hoveredAnchorIndex: number | null = null;
     hoveredComponentIndex: number | null = null;
     hoveredSidebearingHandle: SidebearingHandle | null = null;
@@ -10954,6 +10964,7 @@ export class OutlineEditor {
         this.selectedPoints = [];
         this.selectedSidebearingHandle = null;
         this.hoveredPointIndex = null;
+        this.hoveredPathSegment = null;
         this.hoveredAddPointPreview = null;
         this.hoveredCommandCurvePreview = null;
         this.altKeyPressed = false;
@@ -11244,6 +11255,7 @@ export class OutlineEditor {
         this.selectedSidebearingHandle = null;
         this.selectedGuideHandle = null;
         this.hoveredPointIndex = null;
+        this.hoveredPathSegment = null;
         this.hoveredAnchorIndex = null;
         this.hoveredComponentIndex = null;
         this.hoveredSidebearingHandle = null;
@@ -15473,6 +15485,7 @@ export class OutlineEditor {
             this.hoveredComponentIndex = null;
             this.hoveredAnchorIndex = null;
             this.hoveredPointIndex = null;
+            this.hoveredPathSegment = null;
             this.hoveredAddPointPreview = null;
             this.hoveredCommandCurvePreview = null;
             this.hoveredGlyphIndex = -1;
@@ -15486,6 +15499,7 @@ export class OutlineEditor {
             this.hoveredComponentIndex = null;
             this.hoveredAnchorIndex = null;
             this.hoveredPointIndex = null;
+            this.hoveredPathSegment = null;
             this.hoveredAddPointPreview = null;
             this.hoveredCommandCurvePreview = null;
             this.hoveredGlyphIndex = -1;
@@ -16074,9 +16088,28 @@ export class OutlineEditor {
             JSON.stringify(this.hoveredPointIndex);
         const anchorChanged = bestAnchorIndex !== this.hoveredAnchorIndex;
 
-        if (pointChanged || anchorChanged) {
+        let bestSegment: HoveredPathSegment | null = null;
+        if (bestPoint === null && bestAnchorIndex === null) {
+            const hit = this.findClosestPathSegmentHit();
+            if (hit) {
+                bestSegment = {
+                    shapeIndex: hit.shapeIndex,
+                    segmentId: hit.descriptor.segmentId,
+                    type: hit.descriptor.type,
+                    startNodeIndex: hit.descriptor.startNodeIndex,
+                    endNodeIndex: hit.descriptor.endNodeIndex,
+                    controlNodeIndices: [...hit.descriptor.controlNodeIndices]
+                };
+            }
+        }
+        const segmentChanged =
+            JSON.stringify(bestSegment) !==
+            JSON.stringify(this.hoveredPathSegment);
+
+        if (pointChanged || anchorChanged || segmentChanged) {
             this.hoveredPointIndex = bestPoint;
             this.hoveredAnchorIndex = bestAnchorIndex;
+            this.hoveredPathSegment = bestSegment;
             this.glyphCanvas.render();
             if (this.cmdKeyPressed || this.isCutArmed()) {
                 this.notifyEditToolsChanged();
@@ -21646,6 +21679,7 @@ export class OutlineEditor {
             }
             this.selectedPointIndex = null;
             this.hoveredPointIndex = null;
+            this.hoveredPathSegment = null;
             this.updateLayerSelection();
             this.glyphCanvas.updatePropertyPanel();
             console.log('No matching layer - deselected');

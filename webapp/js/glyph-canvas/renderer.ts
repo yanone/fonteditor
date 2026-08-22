@@ -1,4 +1,4 @@
-import { desaturateColor, toRgba } from '../design';
+import { desaturateColor, mixColors, toRgba } from '../design';
 import APP_SETTINGS, {
     interpolateOutlineChromeScreenSize,
     outlineChromeStateScale
@@ -3094,6 +3094,84 @@ export class GlyphCanvasRenderer {
             return null;
         };
 
+        const hoveredPointIndex =
+            !isInterpolated &&
+            this.glyphCanvas.outlineEditor.hoveredPointIndex?.contourIndex ===
+                contourIndex
+                ? this.glyphCanvas.outlineEditor.hoveredPointIndex.nodeIndex
+                : null;
+        const hoveredSeg =
+            !isInterpolated &&
+            this.glyphCanvas.outlineEditor.hoveredPathSegment?.shapeIndex ===
+                contourIndex
+                ? this.glyphCanvas.outlineEditor.hoveredPathSegment
+                : null;
+        const hoveredPointOwner =
+            hoveredPointIndex !== null
+                ? getOffCurveOnCurveIndex(hoveredPointIndex)
+                : null;
+        const hoverMix = (rest: string, selected: string): string =>
+            mixColors(
+                rest,
+                selected,
+                APP_SETTINGS.OUTLINE_EDITOR.CHROME_HOVER_MIX
+            );
+
+        const isOnCurveHoverCluster = (nodeIndex: number): boolean => {
+            if (nodes[nodeIndex]?.nodetype === 'OffCurve') {
+                return false;
+            }
+            if (hoveredPointIndex === nodeIndex) {
+                return true;
+            }
+            if (hoveredPointOwner === nodeIndex) {
+                return true;
+            }
+            return !!(
+                hoveredSeg &&
+                (hoveredSeg.startNodeIndex === nodeIndex ||
+                    hoveredSeg.endNodeIndex === nodeIndex)
+            );
+        };
+
+        const isHandleHoverCluster = (nodeIndex: number): boolean => {
+            if (nodes[nodeIndex]?.nodetype !== 'OffCurve') {
+                return false;
+            }
+            if (hoveredPointIndex === nodeIndex) {
+                return true;
+            }
+            const owner = getOffCurveOnCurveIndex(nodeIndex);
+            if (owner === null) {
+                return false;
+            }
+            if (hoveredPointIndex === owner) {
+                return true;
+            }
+            if (!hoveredSeg) {
+                return false;
+            }
+            if (hoveredSeg.controlNodeIndices.includes(nodeIndex)) {
+                return true;
+            }
+            return (
+                hoveredSeg.type === 'line' &&
+                (hoveredSeg.startNodeIndex === owner ||
+                    hoveredSeg.endNodeIndex === owner) &&
+                !!nodes[owner]?.smooth
+            );
+        };
+
+        const isChromeHoverCluster = (nodeIndex: number): boolean =>
+            isOnCurveHoverCluster(nodeIndex) || isHandleHoverCluster(nodeIndex);
+
+        const isHandleLineHoverCluster = (handleIndex: number): boolean =>
+            isHandleHoverCluster(handleIndex);
+
+        const isSegmentHoverCluster = (descriptor: {
+            segmentId: number;
+        }): boolean => hoveredSeg?.segmentId === descriptor.segmentId;
+
         const unselectedOutline = isDarkTheme
             ? `rgba(255, 255, 255, ${APP_SETTINGS.OUTLINE_EDITOR.OUTLINE_OPACITY})`
             : `rgba(0, 0, 0, ${APP_SETTINGS.OUTLINE_EDITOR.OUTLINE_OPACITY})`;
@@ -3132,7 +3210,9 @@ export class GlyphCanvasRenderer {
                 });
                 this.ctx.strokeStyle = segmentSelected
                     ? colors.OUTLINE_SELECTED
-                    : unselectedOutline;
+                    : isSegmentHoverCluster(descriptor)
+                      ? hoverMix(unselectedOutline, colors.OUTLINE_SELECTED)
+                      : unselectedOutline;
                 this.ctx.lineWidth = outlineWidth;
                 this.ctx.stroke();
             });
@@ -3179,7 +3259,7 @@ export class GlyphCanvasRenderer {
         ): number => {
             const stateScale = outlineChromeStateScale(
                 isNodeSelected(nodeIndex),
-                isNodeHovered(nodeIndex)
+                isNodeHovered(nodeIndex) || isChromeHoverCluster(nodeIndex)
             );
             if (node.nodetype === 'OffCurve') {
                 return pointSize * stateScale * controlRatio + strokePad;
@@ -3268,9 +3348,12 @@ export class GlyphCanvasRenderer {
             ): void => {
                 const isActive =
                     isNodeSelected(fromIndex) || isNodeSelected(toIndex);
+                const isHoveredLine = isHandleLineHoverCluster(fromIndex);
                 this.ctx.strokeStyle = isActive
                     ? colors.HANDLE_LINE_SELECTED
-                    : idleHandleLine;
+                    : isHoveredLine
+                      ? hoverMix(idleHandleLine, colors.HANDLE_LINE_SELECTED)
+                      : idleHandleLine;
                 this.ctx.lineWidth = 1 * invScale;
                 this.strokeTrimmedHandleLine(
                     fromX,
@@ -3414,6 +3497,7 @@ export class GlyphCanvasRenderer {
             const { x, y, nodetype: type } = node;
             const isHovered = isNodeHovered(nodeIndex);
             const isSelected = isNodeSelected(nodeIndex);
+            const inHoverCluster = isChromeHoverCluster(nodeIndex);
 
             if (previewControlNodeIndices.has(nodeIndex)) {
                 return;
@@ -3435,7 +3519,12 @@ export class GlyphCanvasRenderer {
             const restStroke = isOffCurve
                 ? handleLooksSelected
                     ? colors.HANDLE_LINE_SELECTED
-                    : colors.CONTROL_POINT_OUTLINE
+                    : inHoverCluster
+                      ? hoverMix(
+                            colors.CONTROL_POINT_OUTLINE,
+                            colors.HANDLE_LINE_SELECTED
+                        )
+                      : colors.CONTROL_POINT_OUTLINE
                 : colors.NODE_NORMAL;
             let strokeColor = restStroke;
             let fillColor = isOffCurve
@@ -3443,10 +3532,17 @@ export class GlyphCanvasRenderer {
                     ? colors.CONTROL_POINT_SELECTED
                     : onCurveOwnerSelected
                       ? colors.CONTROL_POINT_OWNER_SELECTED_FILL
-                      : colors.NODE_UNSELECTED_FILL
+                      : inHoverCluster
+                        ? hoverMix(
+                              colors.NODE_UNSELECTED_FILL,
+                              colors.CONTROL_POINT_OWNER_SELECTED_FILL
+                          )
+                        : colors.NODE_UNSELECTED_FILL
                 : isSelected
                   ? colors.NODE_NORMAL
-                  : colors.NODE_UNSELECTED_FILL;
+                  : inHoverCluster
+                    ? hoverMix(colors.NODE_UNSELECTED_FILL, colors.NODE_NORMAL)
+                    : colors.NODE_UNSELECTED_FILL;
             if (isInterpolated) {
                 strokeColor = desaturateColor(strokeColor);
                 if (fillColor) {
@@ -3454,7 +3550,10 @@ export class GlyphCanvasRenderer {
                 }
             }
 
-            const stateScale = outlineChromeStateScale(isSelected, isHovered);
+            const stateScale = outlineChromeStateScale(
+                isSelected,
+                isHovered || inHoverCluster
+            );
             let shapeKind: 'circle' | 'square' | 'diamond';
             if (isOffCurve) {
                 shapeKind = 'circle';

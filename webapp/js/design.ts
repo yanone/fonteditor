@@ -198,7 +198,37 @@ export function toRgba(colorString: string): string {
     return colorString;
 }
 
+const RGBA_CHANNELS = /rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/;
+
+/**
+ * Linear mix of two colors in sRGB. `t` is 0 at `from`, 1 at `to`.
+ */
+export function mixColors(from: string, to: string, t: number): string {
+    const fromMatch = toRgba(from).match(RGBA_CHANNELS);
+    const toMatch = toRgba(to).match(RGBA_CHANNELS);
+    if (!fromMatch || !toMatch) {
+        return t < 0.5 ? from : to;
+    }
+    const mix = (a: number, b: number): number => a + (b - a) * t;
+    const r = Math.round(
+        mix(parseInt(fromMatch[1], 10), parseInt(toMatch[1], 10))
+    );
+    const g = Math.round(
+        mix(parseInt(fromMatch[2], 10), parseInt(toMatch[2], 10))
+    );
+    const b = Math.round(
+        mix(parseInt(fromMatch[3], 10), parseInt(toMatch[3], 10))
+    );
+    const a = mix(parseFloat(fromMatch[4]), parseFloat(toMatch[4]));
+    return `rgba(${r}, ${g}, ${b}, ${a})`;
+}
+
 // Export for module use (Node.js/Jest)
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { adjustColorHueAndLightness, desaturateColor, toRgba };
+    module.exports = {
+        adjustColorHueAndLightness,
+        desaturateColor,
+        mixColors,
+        toRgba
+    };
 }

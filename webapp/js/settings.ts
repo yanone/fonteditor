@@ -80,6 +80,8 @@ const APP_SETTINGS = {
         // Hover / selection enlarge outline chrome (nodes, off-curve, sidebearings, guides)
         HANDLE_HOVER_SCALE: 1.22,
         HANDLE_SELECTED_SCALE: 1.38,
+        // Hover paints related chrome halfway from rest to selected.
+        CHROME_HOVER_MIX: 0.5,
 
         // Outline stroke for unfilled nodes/handles (screen px)
         NODE_CHROME_STROKE_WIDTH: 1.25,
