@@ -65,7 +65,7 @@ import {
     writeClipboardDocumentToDataTransfer,
     type ParsedClipboard
 } from '../clipboard';
-import APP_SETTINGS from '../settings';
+import APP_SETTINGS, { interpolateOutlineChromeScreenSize } from '../settings';
 import { applyFontPointScreenLock } from './viewport';
 import { userspaceToDesignspace, designspaceToUserspace } from '../locations';
 import type { DesignspaceLocation, UserspaceLocation } from '../locations';
@@ -10539,38 +10539,37 @@ export class OutlineEditor {
 
     private getZoomInterpolatedScreenSize(
         sizeMin: number,
-        sizeMax: number,
-        interpolationMin: number,
-        interpolationMax: number
+        sizeMid: number,
+        sizeMax: number
     ): number {
-        const scale = this.glyphCanvas.viewportManager!.scale;
-        if (scale >= interpolationMax) {
-            return sizeMax;
-        }
-
-        const zoomFactor =
-            (scale - interpolationMin) / (interpolationMax - interpolationMin);
-        const clampedZoomFactor = Math.max(0, Math.min(1, zoomFactor));
-        return sizeMin + (sizeMax - sizeMin) * clampedZoomFactor;
+        return interpolateOutlineChromeScreenSize(
+            this.glyphCanvas.viewportManager!.scale,
+            sizeMin,
+            sizeMid,
+            sizeMax
+        );
     }
 
     private getSidebearingHandleRadiusScreen(): number {
         return this.getZoomInterpolatedScreenSize(
-            APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_AT_MIN_ZOOM,
-            APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_AT_MAX_ZOOM,
-            APP_SETTINGS.OUTLINE_EDITOR.MIN_ZOOM_FOR_HANDLES,
-            APP_SETTINGS.OUTLINE_EDITOR.HANDLE_SIZE_INTERPOLATION_MAX
+            APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MIN_ZOOM,
+            APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MID_ZOOM,
+            APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MAX_ZOOM
         );
     }
 
     /** Screen-pixel pick radius for outline nodes (visual size + padding, floored). */
     private getNodeHitRadiusScreen(): number {
-        const visual = this.getZoomInterpolatedScreenSize(
-            APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MIN_ZOOM,
-            APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MAX_ZOOM,
-            APP_SETTINGS.OUTLINE_EDITOR.MIN_ZOOM_FOR_HANDLES,
-            APP_SETTINGS.OUTLINE_EDITOR.HANDLE_SIZE_INTERPOLATION_MAX
-        );
+        const visual =
+            this.getZoomInterpolatedScreenSize(
+                APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MIN_ZOOM,
+                APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MID_ZOOM,
+                APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MAX_ZOOM
+            ) *
+            Math.max(
+                APP_SETTINGS.OUTLINE_EDITOR.NODE_SMOOTH_SIZE_RATIO,
+                APP_SETTINGS.OUTLINE_EDITOR.NODE_DIAMOND_SIZE_RATIO
+            );
         return Math.max(
             APP_SETTINGS.OUTLINE_EDITOR.POINT_HIT_RADIUS_MIN,
             visual + APP_SETTINGS.OUTLINE_EDITOR.NODE_HIT_PADDING
@@ -10579,12 +10578,14 @@ export class OutlineEditor {
 
     /** Screen-pixel pick radius for glyph anchors (visual size + padding, floored). */
     private getAnchorHitRadiusScreen(): number {
-        const visual = this.getZoomInterpolatedScreenSize(
-            APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_AT_MIN_ZOOM,
-            APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_AT_MAX_ZOOM,
-            APP_SETTINGS.OUTLINE_EDITOR.MIN_ZOOM_FOR_HANDLES,
-            APP_SETTINGS.OUTLINE_EDITOR.HANDLE_SIZE_INTERPOLATION_MAX
-        );
+        const visual =
+            this.getZoomInterpolatedScreenSize(
+                APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MIN_ZOOM,
+                APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MID_ZOOM,
+                APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MAX_ZOOM
+            ) *
+            APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_RATIO *
+            APP_SETTINGS.OUTLINE_EDITOR.NODE_DIAMOND_SIZE_RATIO;
         return Math.max(
             APP_SETTINGS.OUTLINE_EDITOR.POINT_HIT_RADIUS_MIN,
             visual + APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_HIT_PADDING

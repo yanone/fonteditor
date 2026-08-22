@@ -48,9 +48,10 @@ Coverage: 🟢 Should work · 🟡 Partial · 🔴 Missing
 | In-place component editing | 🟢 | 🔥 |
 | Outline drawing and editing | 🟢 | Basic drawing tools, no multi-line text yet |
 | Variable fonts | 🟢 | No `avar2` support yet |
-| Components | 🟢 | No variable components yet, maybe not all composition types implemented yet |
+| Components | 🟢 | No variable components yet |
 | Sidebearings | 🟢 | |
 | Kerning | 🟢 | |
+| Font Info | 🟢 | Needs designing |
 | Python scripting | 🟢 | API and docs need some work |
 | AI assistant | 🟢 | |
 | Undo and history | 🟢 | |

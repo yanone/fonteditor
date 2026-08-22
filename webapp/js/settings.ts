@@ -57,14 +57,43 @@ const APP_SETTINGS = {
         MIN_ZOOM_FOR_GRID_FADE_START: 5.0, // grid starts fading in at this zoom
         MIN_ZOOM_FOR_GRID: 9.0, // grid is fully visible at this zoom
         HANDLE_SIZE_INTERPOLATION_MAX: 3.0, // zoom level where node/anchor max size is reached
+        HANDLE_SIZE_INTERPOLATION_MID: 0.2, // 20% - middle knot for two-tier size interpolation
 
-        // Node (point) sizes (screen px; interpolated between MIN_ZOOM_FOR_HANDLES and HANDLE_SIZE_INTERPOLATION_MAX)
-        NODE_SIZE_AT_MIN_ZOOM: 1.5,
+        // Node (on-curve) sizes (screen px; two-tier: min zoom → mid zoom → max zoom)
+        NODE_SIZE_AT_MIN_ZOOM: 0.5,
+        NODE_SIZE_AT_MID_ZOOM: 3,
         NODE_SIZE_AT_MAX_ZOOM: 7,
 
-        // Anchor sizes (screen px; same zoom interpolation range as nodes)
-        ANCHOR_SIZE_AT_MIN_ZOOM: 2,
-        ANCHOR_SIZE_AT_MAX_ZOOM: 8,
+        // Off-curve handles are this fraction of the corner on-curve node size
+        CONTROL_POINT_SIZE_RATIO: 0.65,
+        // Smooth on-curve circles are this fraction of the corner on-curve node size
+        NODE_SMOOTH_SIZE_RATIO: 1.2,
+        // Axis-aligned square of half-side r has area 4r²; diamond vertices at
+        // distance r have area 2r². √2 equalizes the filled/stroked surface.
+        NODE_DIAMOND_SIZE_RATIO: Math.sqrt(2),
+        // On-curve points within this many font units of LSB/RSB, a visible
+        // guideline, or a master vertical-metric line (baseline, ascender, …;
+        // overshoots ignored) become diamonds. Anchors use diamonds only on
+        // vertical metrics; otherwise they are squares of equal area.
+        NODE_ON_DELIMITER_TOLERANCE: 0.25,
+
+        // Hover / selection enlarge outline chrome (nodes, off-curve, sidebearings, guides)
+        HANDLE_HOVER_SCALE: 1.22,
+        HANDLE_SELECTED_SCALE: 1.38,
+
+        // Outline stroke for unfilled nodes/handles (screen px)
+        NODE_CHROME_STROKE_WIDTH: 1.25,
+        NODE_SMOOTH_DOT_RATIO: 0.4,
+        // Gray ring outside on-curve nodes/anchors on metric lines, guides,
+        // LSB/RSB, or overshoot. Thickness is a fraction of the object radius
+        // (tracks zoom / hover / select). Diamonds use √2 that thickness.
+        NODE_ZONE_HALO_SIZE_RATIO: 0.7,
+
+        CONTOUR_DIRECTION_ARROW_OPACITY: 0.5,
+
+        // Anchors use the same two-tier node interpolation, scaled up so they
+        // stay larger than corner, smooth, and diamond on-curve nodes.
+        ANCHOR_SIZE_RATIO: 1.5,
 
         // Component marker size
         COMPONENT_MARKER_SIZE: 10, // px - size of component origin marker
@@ -91,11 +120,11 @@ const APP_SETTINGS = {
         // Canvas margins
         CANVAS_MARGIN: 50, // px - margin around glyphs when framing or panning
         CMD_ZERO_FRAME_MARGIN: 100, // px - extra Cmd+0 glyph-frame padding
-        MAX_ZOOM_FOR_CMD_ZERO: 2.5, // 250% cap when framing a glyph with Cmd+0
+        MAX_ZOOM_FOR_CMD_ZERO: 1.4, // 140% cap when framing a glyph with Cmd+0
         CMD_ZERO_LINE_SCALE: 0.25, // 25% line-overview Cmd+0 stage
         CMD_ZERO_TEXT_FIT_MIN: 0.025, // 2.5% floor when fitting the whole run
         CMD_ZERO_TEXT_FIT_MAX: 0.15, // 15% cap when fitting the whole run
-        MAX_ZOOM_FOR_TEXT_FIT: 1.5, // initial / default text-run zoom-to-fit cap
+        MAX_ZOOM_FOR_TEXT_FIT: 1.4, // initial / default text-run zoom-to-fit cap
 
         // Zoom settings
         ZOOM_SPEED_MOUSE: 0.015, // zoom speed for mouse wheel (per deltaY unit)
@@ -140,23 +169,37 @@ const APP_SETTINGS = {
             GLYPH_HOVERED_IN_EDITOR: 'rgba(0, 0, 0, 0.4)', // Hovered inactive glyph (darker)
             GLYPH_BACKGROUND_IN_EDITOR: 'rgba(0, 0, 0, 0.05)', // HB-rendered background of active glyph
 
-            // Nodes (on-curve points)
-            NODE_NORMAL: '#00d500',
-            NODE_HOVERED: '#ff8800',
-            NODE_SELECTED: '#ff0000',
+            // Nodes (on-curve points). Rest/selected hue is --view-editor.
+            // Hover is size-only; unselected fill is 20% transparent white
+            // (on-curve nodes and off-curve handles); selection fills NODE_NORMAL.
+            NODE_NORMAL: '#00b5d5',
+            NODE_HOVERED: '#00b5d5',
+            NODE_SELECTED: '#00b5d5',
             NODE_STROKE: '#000000',
+            NODE_SMOOTH_DOT: '#5f5f5f',
+            NODE_UNSELECTED_FILL: 'rgba(255, 255, 255, 0.5)',
+            NODE_ZONE_HALO_STROKE: '#a5a5a5',
+            NODE_ZONE_HALO_OPACITY: 0.5,
 
-            // Off-curve control points
-            CONTROL_POINT_NORMAL: '#00aaff',
-            CONTROL_POINT_HOVERED: '#ff8800',
-            CONTROL_POINT_SELECTED: '#ff0000',
-            CONTROL_POINT_STROKE: '#000000',
+            // Off-curve: gray outline, unselected NODE_UNSELECTED_FILL, black
+            // selection fill. Hover is size-only.
+            CONTROL_POINT_NORMAL: '#000000',
+            CONTROL_POINT_OUTLINE: '#6e6e6e',
+            CONTROL_POINT_HOVERED: '#6e6e6e',
+            CONTROL_POINT_SELECTED: '#000000',
+            CONTROL_POINT_STROKE: '#6e6e6e',
 
-            // Anchors
-            ANCHOR_NORMAL: '#8800ff',
-            ANCHOR_HOVERED: '#ff88ff',
-            ANCHOR_SELECTED: '#ff00ff',
-            ANCHOR_STROKE: '#000000',
+            // Sidebearing handles. Rest/selected hue is --view-console (light).
+            SIDEBEARING_NORMAL: '#e0b41c',
+            SIDEBEARING_HOVERED: '#e0b41c',
+            SIDEBEARING_SELECTED: '#e0b41c',
+            SIDEBEARING_DISABLED: 'rgba(210, 215, 220, 0.95)',
+
+            // Anchors. Coral outline; idle fill is scripts orange at ~30%.
+            ANCHOR_NORMAL: 'rgba(247, 148, 29, 0.3)',
+            ANCHOR_HOVERED: 'rgba(247, 148, 29, 0.3)',
+            ANCHOR_SELECTED: '#ef4136',
+            ANCHOR_STROKE: '#ef4136',
 
             // Components (aliases of COMPONENT_FILLS)
             COMPONENT_FILL_NORMAL: COMPONENT_FILLS.MANUAL_NORMAL,
@@ -211,23 +254,37 @@ const APP_SETTINGS = {
             GLYPH_HOVERED_IN_EDITOR: 'rgba(255, 255, 255, 0.4)', // Hovered inactive glyph (darker)
             GLYPH_BACKGROUND_IN_EDITOR: 'rgba(255, 255, 255, 0.05)', // HB-rendered background of active glyph
 
-            // Nodes (on-curve points)
-            NODE_NORMAL: '#00ff00',
-            NODE_HOVERED: '#ff8800',
-            NODE_SELECTED: '#ff0000',
+            // Nodes (on-curve points). Rest/selected hue is --view-editor.
+            // Hover is size-only; unselected fill is 20% transparent white
+            // (on-curve nodes and off-curve handles); selection fills NODE_NORMAL.
+            NODE_NORMAL: '#00c4e8',
+            NODE_HOVERED: '#00c4e8',
+            NODE_SELECTED: '#00c4e8',
             NODE_STROKE: '#ffffff',
+            NODE_SMOOTH_DOT: '#a4a4a4',
+            NODE_UNSELECTED_FILL: 'rgba(78, 78, 78, 0.5)',
+            NODE_ZONE_HALO_STROKE: '#dcdcdc',
+            NODE_ZONE_HALO_OPACITY: 0.4,
 
-            // Off-curve control points
-            CONTROL_POINT_NORMAL: '#00aaff',
-            CONTROL_POINT_HOVERED: '#ff8800',
-            CONTROL_POINT_SELECTED: '#ff0000',
-            CONTROL_POINT_STROKE: '#ffffff',
+            // Off-curve: gray outline, unselected NODE_UNSELECTED_FILL, black
+            // selection fill. Hover is size-only.
+            CONTROL_POINT_NORMAL: '#000000',
+            CONTROL_POINT_OUTLINE: '#9a9a9a',
+            CONTROL_POINT_HOVERED: '#9a9a9a',
+            CONTROL_POINT_SELECTED: '#000000',
+            CONTROL_POINT_STROKE: '#9a9a9a',
 
-            // Anchors
-            ANCHOR_NORMAL: '#8800ff',
-            ANCHOR_HOVERED: '#ff88ff',
-            ANCHOR_SELECTED: '#ff00ff',
-            ANCHOR_STROKE: '#ffffff',
+            // Sidebearing handles. Rest/selected hue is --view-console (dark).
+            SIDEBEARING_NORMAL: '#fbc540',
+            SIDEBEARING_HOVERED: '#fbc540',
+            SIDEBEARING_SELECTED: '#fbc540',
+            SIDEBEARING_DISABLED: 'rgba(210, 215, 220, 0.95)',
+
+            // Anchors. Coral outline; idle fill is scripts orange at ~30%.
+            ANCHOR_NORMAL: 'rgba(247, 148, 29, 0.3)',
+            ANCHOR_HOVERED: 'rgba(247, 148, 29, 0.3)',
+            ANCHOR_SELECTED: '#f25a50',
+            ANCHOR_STROKE: '#f25a50',
 
             // Components (aliases of COMPONENT_FILLS)
             COMPONENT_FILL_NORMAL: COMPONENT_FILLS.MANUAL_NORMAL,
@@ -323,5 +380,55 @@ if (isProduction()) {
 // Expose globally for runtime access
 settingsGlobalScope.APP_SETTINGS = APP_SETTINGS;
 settingsGlobalScope.isProduction = isProduction;
+
+/**
+ * Two-tier screen-pixel size for outline chrome (nodes, handles, anchors).
+ * Grows from min→mid between MIN_ZOOM_FOR_HANDLES and HANDLE_SIZE_INTERPOLATION_MID,
+ * then mid→max until HANDLE_SIZE_INTERPOLATION_MAX.
+ */
+export function interpolateOutlineChromeScreenSize(
+    scale: number,
+    sizeMin: number,
+    sizeMid: number,
+    sizeMax: number
+): number {
+    const zoomMin = APP_SETTINGS.OUTLINE_EDITOR.MIN_ZOOM_FOR_HANDLES;
+    const zoomMid = APP_SETTINGS.OUTLINE_EDITOR.HANDLE_SIZE_INTERPOLATION_MID;
+    const zoomMax = APP_SETTINGS.OUTLINE_EDITOR.HANDLE_SIZE_INTERPOLATION_MAX;
+
+    if (scale >= zoomMax) {
+        return sizeMax;
+    }
+    if (scale <= zoomMin) {
+        return sizeMin;
+    }
+    if (scale <= zoomMid) {
+        const span = zoomMid - zoomMin;
+        if (span <= 0) {
+            return sizeMid;
+        }
+        const t = (scale - zoomMin) / span;
+        return sizeMin + (sizeMid - sizeMin) * t;
+    }
+    const span = zoomMax - zoomMid;
+    if (span <= 0) {
+        return sizeMax;
+    }
+    const t = (scale - zoomMid) / span;
+    return sizeMid + (sizeMax - sizeMid) * t;
+}
+
+export function outlineChromeStateScale(
+    isSelected: boolean,
+    isHovered: boolean
+): number {
+    if (isSelected) {
+        return APP_SETTINGS.OUTLINE_EDITOR.HANDLE_SELECTED_SCALE;
+    }
+    if (isHovered) {
+        return APP_SETTINGS.OUTLINE_EDITOR.HANDLE_HOVER_SCALE;
+    }
+    return 1;
+}
 
 export default APP_SETTINGS;

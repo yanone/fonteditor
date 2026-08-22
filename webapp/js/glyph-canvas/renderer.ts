@@ -1,5 +1,8 @@
 import { desaturateColor, toRgba } from '../design';
-import APP_SETTINGS from '../settings';
+import APP_SETTINGS, {
+    interpolateOutlineChromeScreenSize,
+    outlineChromeStateScale
+} from '../settings';
 import { Layer, DecomposedAffineTransform } from '../babelfont-model';
 import { Logger } from '../logger';
 import { get_glyph_name } from '../../wasm-dist/babelfont_fontc_web';
@@ -1691,6 +1694,230 @@ export class GlyphCanvasRenderer {
         this.ctx.restore();
     }
 
+    private getNodeChromeFontRadius(invScale: number): number {
+        const settings = APP_SETTINGS.OUTLINE_EDITOR;
+        return (
+            interpolateOutlineChromeScreenSize(
+                this.viewportManager.scale,
+                settings.NODE_SIZE_AT_MIN_ZOOM,
+                settings.NODE_SIZE_AT_MID_ZOOM,
+                settings.NODE_SIZE_AT_MAX_ZOOM
+            ) * invScale
+        );
+    }
+
+    private getAnchorChromeFontRadius(invScale: number): number {
+        return (
+            this.getNodeChromeFontRadius(invScale) *
+            APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_RATIO
+        );
+    }
+
+    private addOutlineChromePath(
+        kind: 'circle' | 'square' | 'diamond',
+        radius: number
+    ): void {
+        if (kind === 'circle') {
+            this.ctx.moveTo(radius, 0);
+            this.ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        } else if (kind === 'diamond') {
+            this.ctx.moveTo(0, radius);
+            this.ctx.lineTo(radius, 0);
+            this.ctx.lineTo(0, -radius);
+            this.ctx.lineTo(-radius, 0);
+            this.ctx.closePath();
+        } else {
+            this.ctx.rect(-radius, -radius, radius * 2, radius * 2);
+        }
+    }
+
+    private pathOutlineChrome(
+        kind: 'circle' | 'square' | 'diamond',
+        radius: number
+    ): void {
+        this.ctx.beginPath();
+        this.addOutlineChromePath(kind, radius);
+    }
+
+    private paintOutlineChrome(
+        kind: 'circle' | 'square' | 'diamond',
+        radius: number,
+        strokeColor: string,
+        fillColor: string | null,
+        strokeWidth: number,
+        fillComposite: GlobalCompositeOperation | null = null
+    ): void {
+        this.pathOutlineChrome(kind, radius);
+        if (fillColor) {
+            this.ctx.save();
+            if (fillComposite) {
+                this.ctx.globalCompositeOperation = fillComposite;
+            }
+            this.ctx.fillStyle = fillColor;
+            this.ctx.fill();
+            this.ctx.restore();
+        }
+        this.ctx.lineJoin = 'miter';
+        this.ctx.lineWidth = strokeWidth;
+        this.ctx.strokeStyle = strokeColor;
+        this.ctx.stroke();
+    }
+
+    private getZoneHaloWidth(
+        objectRadius: number,
+        kind: 'circle' | 'square' | 'diamond'
+    ): number {
+        const settings = APP_SETTINGS.OUTLINE_EDITOR;
+        const width = objectRadius * settings.NODE_ZONE_HALO_SIZE_RATIO;
+        return kind === 'diamond'
+            ? width * settings.NODE_DIAMOND_SIZE_RATIO
+            : width;
+    }
+
+    private paintZoneHalo(
+        kind: 'circle' | 'square' | 'diamond',
+        radius: number,
+        chromeStrokeWidth: number,
+        haloColor: string,
+        haloOpacity: number,
+        haloStrokeWidth: number
+    ): void {
+        const innerRadius = radius + chromeStrokeWidth / 2;
+        const outerRadius = innerRadius + haloStrokeWidth;
+        this.ctx.save();
+        this.ctx.globalAlpha = haloOpacity;
+        this.ctx.fillStyle = haloColor;
+        this.ctx.beginPath();
+        this.addOutlineChromePath(kind, outerRadius);
+        this.addOutlineChromePath(kind, innerRadius);
+        this.ctx.fill('evenodd');
+        this.ctx.restore();
+    }
+
+    private getCurrentLayerAdvanceWidth(): number {
+        const overlayWidth =
+            this.glyphCanvas.outlineEditor.getLiveSidebearingOverlayWidth();
+        if (typeof overlayWidth === 'number' && Number.isFinite(overlayWidth)) {
+            return overlayWidth;
+        }
+        const layerWidth =
+            this.glyphCanvas.outlineEditor.getCurrentLayerDataFromStack()
+                ?.width;
+        return typeof layerWidth === 'number' && Number.isFinite(layerWidth)
+            ? layerWidth
+            : 0;
+    }
+
+    private isOnVerticalMetricLine(x: number, y: number): boolean {
+        const tolerance =
+            APP_SETTINGS.OUTLINE_EDITOR.NODE_ON_DELIMITER_TOLERANCE;
+        const transform =
+            this.glyphCanvas.outlineEditor.getAccumulatedTransform();
+        const world = applyAffineToPoint(transform, x, y);
+        if (Math.abs(world.y) <= tolerance) {
+            return true;
+        }
+
+        const metricYs = getVisibleVerticalMetricValues(
+            this.glyphCanvas.outlineEditor.renderVerticalMetrics
+        );
+        for (const metricY of metricYs) {
+            if (Math.abs(world.y - metricY) <= tolerance) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private isOnCurveDiamondNode(x: number, y: number): boolean {
+        const tolerance =
+            APP_SETTINGS.OUTLINE_EDITOR.NODE_ON_DELIMITER_TOLERANCE;
+        if (Math.abs(x) <= tolerance) {
+            return true;
+        }
+        const width = this.getCurrentLayerAdvanceWidth();
+        if (Math.abs(x - width) <= tolerance) {
+            return true;
+        }
+        if (this.isOnVerticalMetricLine(x, y)) {
+            return true;
+        }
+
+        const transform =
+            this.glyphCanvas.outlineEditor.getAccumulatedTransform();
+        const world = applyAffineToPoint(transform, x, y);
+        for (const guide of this.glyphCanvas.outlineEditor.getVisibleGuides()) {
+            const angleRad = (guide.rootAngle * Math.PI) / 180;
+            const dirX = Math.cos(angleRad);
+            const dirY = Math.sin(angleRad);
+            const distance = Math.abs(
+                (world.x - guide.rootX) * dirY - (world.y - guide.rootY) * dirX
+            );
+            if (distance <= tolerance) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private shouldPaintZoneHalo(x: number, y: number): boolean {
+        return (
+            this.isOnCurveDiamondNode(x, y) || this.isNodeInOvershootArea(x, y)
+        );
+    }
+
+    private isNodeInOvershootArea(x: number, y: number): boolean {
+        const bands = getMetricOvershootBands(
+            this.glyphCanvas.outlineEditor.renderVerticalMetrics,
+            true
+        );
+        if (bands.length === 0) {
+            return false;
+        }
+
+        const tolerance =
+            APP_SETTINGS.OUTLINE_EDITOR.NODE_ON_DELIMITER_TOLERANCE;
+        const transform =
+            this.glyphCanvas.outlineEditor.getAccumulatedTransform();
+        const world = applyAffineToPoint(transform, x, y);
+
+        for (const band of bands) {
+            const metricY = band.y;
+            const overshootY = band.y + band.overshoot;
+            const yMin = Math.min(metricY, overshootY);
+            const yMax = Math.max(metricY, overshootY);
+            if (yMax - yMin < 1e-8) {
+                continue;
+            }
+            if (world.y >= yMin - tolerance && world.y <= yMax + tolerance) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private strokeTrimmedHandleLine(
+        fromX: number,
+        fromY: number,
+        toX: number,
+        toY: number,
+        fromRadius: number,
+        toRadius: number
+    ): void {
+        const dx = toX - fromX;
+        const dy = toY - fromY;
+        const distance = Math.hypot(dx, dy);
+        if (distance <= fromRadius + toRadius || distance === 0) {
+            return;
+        }
+        const ux = dx / distance;
+        const uy = dy / distance;
+        this.ctx.beginPath();
+        this.ctx.moveTo(fromX + ux * fromRadius, fromY + uy * fromRadius);
+        this.ctx.lineTo(toX - ux * toRadius, toY - uy * toRadius);
+        this.ctx.stroke();
+    }
+
     private drawOutlineGuides(
         guides: Array<{
             scope: 'master' | 'layer';
@@ -1719,26 +1946,7 @@ export class GlyphCanvasRenderer {
                 window.devicePixelRatio /
                 this.viewportManager.scale) *
             2;
-        const nodeSizeMax = APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MAX_ZOOM;
-        const nodeSizeMin = APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MIN_ZOOM;
-        const nodeInterpolationMin =
-            APP_SETTINGS.OUTLINE_EDITOR.MIN_ZOOM_FOR_HANDLES;
-        const nodeInterpolationMax =
-            APP_SETTINGS.OUTLINE_EDITOR.HANDLE_SIZE_INTERPOLATION_MAX;
-
-        let baseHandleRadius;
-        if (this.viewportManager.scale >= nodeInterpolationMax) {
-            baseHandleRadius = nodeSizeMax * invScale;
-        } else {
-            const zoomFactor = Math.max(
-                0,
-                (this.viewportManager.scale - nodeInterpolationMin) /
-                    (nodeInterpolationMax - nodeInterpolationMin)
-            );
-            baseHandleRadius =
-                (nodeSizeMin + (nodeSizeMax - nodeSizeMin) * zoomFactor) *
-                invScale;
-        }
+        const baseHandleRadius = this.getNodeChromeFontRadius(invScale);
 
         if (phase !== 'handles') {
             this.withContentFrameClip(() => {
@@ -1788,7 +1996,7 @@ export class GlyphCanvasRenderer {
                 const color = this.getGuideColor(guideEntry.scope);
                 const handleRadius =
                     baseHandleRadius *
-                    (isSelected ? 1.3 : isHovered ? 1.15 : 1);
+                    outlineChromeStateScale(isSelected, isHovered);
 
                 this.ctx.save();
                 this.ctx.translate(guideEntry.rootX, guideEntry.rootY);
@@ -2377,29 +2585,7 @@ export class GlyphCanvasRenderer {
             currentLayerData.anchors &&
             currentLayerData.anchors.length > 0
         ) {
-            // Calculate anchor size based on zoom level
-            const anchorSizeMax =
-                APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_AT_MAX_ZOOM;
-            const anchorSizeMin =
-                APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_AT_MIN_ZOOM;
-            const anchorInterpolationMin =
-                APP_SETTINGS.OUTLINE_EDITOR.MIN_ZOOM_FOR_HANDLES;
-            const anchorInterpolationMax =
-                APP_SETTINGS.OUTLINE_EDITOR.HANDLE_SIZE_INTERPOLATION_MAX;
-
-            let anchorSize;
-            if (this.viewportManager.scale >= anchorInterpolationMax) {
-                anchorSize = anchorSizeMax * invScale;
-            } else {
-                // Interpolate between min and max size
-                const zoomFactor =
-                    (this.viewportManager.scale - anchorInterpolationMin) /
-                    (anchorInterpolationMax - anchorInterpolationMin);
-                anchorSize =
-                    (anchorSizeMin +
-                        (anchorSizeMax - anchorSizeMin) * zoomFactor) *
-                    invScale;
-            }
+            const anchorSize = this.getAnchorChromeFontRadius(invScale);
             const fontSize = 12 * invScale;
 
             currentLayerData.anchors.forEach((anchor: any, index: number) => {
@@ -2415,40 +2601,71 @@ export class GlyphCanvasRenderer {
                         index
                     );
 
-                // Draw anchor as diamond with inverse transform for normal aspect ratio
+                // Inverse transform keeps anchors square in screen space.
                 this.ctx.save();
                 this.ctx.translate(x, y);
                 this.applyInverseComponentTransform(); // Cancel out component transform
-                this.ctx.rotate(Math.PI / 4); // Rotate 45 degrees to make diamond
 
                 const colors = isDarkTheme
                     ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
                     : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
+                const strokeColor = colors.ANCHOR_STROKE;
                 let fillColor = isSelected
                     ? colors.ANCHOR_SELECTED
-                    : isHovered
-                      ? colors.ANCHOR_HOVERED
-                      : colors.ANCHOR_NORMAL;
+                    : colors.ANCHOR_NORMAL;
 
-                // Apply monochrome for interpolated data
                 if (isInterpolated) {
                     fillColor = desaturateColor(fillColor);
                 }
 
-                this.ctx.fillStyle = fillColor;
-                this.ctx.fillRect(
-                    -anchorSize,
-                    -anchorSize,
-                    anchorSize * 2,
-                    anchorSize * 2
+                const isDiamond = this.isOnVerticalMetricLine(x, y);
+                const shapeKind: 'square' | 'diamond' = isDiamond
+                    ? 'diamond'
+                    : 'square';
+                const scaledAnchorSize =
+                    anchorSize *
+                    outlineChromeStateScale(isSelected, isHovered) *
+                    (isDiamond
+                        ? APP_SETTINGS.OUTLINE_EDITOR.NODE_DIAMOND_SIZE_RATIO
+                        : 1);
+                const strokeWidth =
+                    APP_SETTINGS.OUTLINE_EDITOR.NODE_CHROME_STROKE_WIDTH *
+                    invScale;
+                if (this.shouldPaintZoneHalo(x, y)) {
+                    this.paintZoneHalo(
+                        shapeKind,
+                        scaledAnchorSize,
+                        strokeWidth,
+                        isInterpolated
+                            ? desaturateColor(colors.NODE_ZONE_HALO_STROKE)
+                            : colors.NODE_ZONE_HALO_STROKE,
+                        colors.NODE_ZONE_HALO_OPACITY,
+                        this.getZoneHaloWidth(
+                            anchorSize *
+                                outlineChromeStateScale(isSelected, isHovered),
+                            shapeKind
+                        )
+                    );
+                }
+                this.paintOutlineChrome(
+                    shapeKind,
+                    scaledAnchorSize,
+                    isInterpolated ? desaturateColor(strokeColor) : strokeColor,
+                    fillColor,
+                    strokeWidth
                 );
-                // Stroke permanently removed
 
                 this.ctx.restore();
 
                 // Collect anchor label for drawing later (on top of everything)
                 if (name && (isSelected || isHovered)) {
-                    anchorLabels.push({ name, x, y, anchorSize, fontSize });
+                    anchorLabels.push({
+                        name,
+                        x,
+                        y,
+                        anchorSize: scaledAnchorSize,
+                        fontSize
+                    });
                 }
             });
         }
@@ -2456,28 +2673,12 @@ export class GlyphCanvasRenderer {
         const sidebearingHandles =
             this.glyphCanvas.outlineEditor.getVisibleSidebearingHandles();
         if (sidebearingHandles.length > 0) {
-            const anchorSizeMax =
-                APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_AT_MAX_ZOOM;
-            const anchorSizeMin =
-                APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_AT_MIN_ZOOM;
-            const anchorInterpolationMin =
-                APP_SETTINGS.OUTLINE_EDITOR.MIN_ZOOM_FOR_HANDLES;
-            const anchorInterpolationMax =
-                APP_SETTINGS.OUTLINE_EDITOR.HANDLE_SIZE_INTERPOLATION_MAX;
-
-            let handleRadius;
-            if (this.viewportManager.scale >= anchorInterpolationMax) {
-                handleRadius = anchorSizeMax * invScale;
-            } else {
-                const zoomFactor =
-                    (this.viewportManager.scale - anchorInterpolationMin) /
-                    (anchorInterpolationMax - anchorInterpolationMin);
-                const clampedZoomFactor = Math.max(0, Math.min(1, zoomFactor));
-                handleRadius =
-                    (anchorSizeMin +
-                        (anchorSizeMax - anchorSizeMin) * clampedZoomFactor) *
-                    invScale;
-            }
+            const baseHandleRadius = this.getNodeChromeFontRadius(invScale);
+            const strokeWidth =
+                APP_SETTINGS.OUTLINE_EDITOR.NODE_CHROME_STROKE_WIDTH * invScale;
+            const colors = isDarkTheme
+                ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
+                : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
 
             sidebearingHandles.forEach((handle) => {
                 const isHovered =
@@ -2486,21 +2687,25 @@ export class GlyphCanvasRenderer {
                 const isSelected =
                     this.glyphCanvas.outlineEditor.selectedSidebearingHandle
                         ?.side === handle.side;
-                const baseColor = handle.editable
-                    ? 'rgba(118, 234, 226, 0.98)'
-                    : 'rgba(210, 215, 220, 0.95)';
-                const activeColor =
-                    handle.editable && (isHovered || isSelected)
-                        ? 'rgba(156, 247, 240, 1)'
-                        : baseColor;
+                const restColor = handle.editable
+                    ? colors.SIDEBEARING_NORMAL
+                    : colors.SIDEBEARING_DISABLED;
+                const strokeColor = restColor;
+                const fillColor = isSelected ? restColor : null;
+                const handleRadius =
+                    baseHandleRadius *
+                    outlineChromeStateScale(isSelected, isHovered);
 
                 this.ctx.save();
                 this.ctx.translate(handle.x, handle.y);
                 this.applyInverseComponentTransform();
-                this.ctx.beginPath();
-                this.ctx.arc(0, 0, handleRadius, 0, Math.PI * 2);
-                this.ctx.fillStyle = activeColor;
-                this.ctx.fill();
+                this.paintOutlineChrome(
+                    'circle',
+                    handleRadius,
+                    strokeColor,
+                    fillColor,
+                    strokeWidth
+                );
                 this.ctx.restore();
             });
         }
@@ -2881,6 +3086,49 @@ export class GlyphCanvasRenderer {
         }
         const minZoomForHandles =
             APP_SETTINGS.OUTLINE_EDITOR.MIN_ZOOM_FOR_HANDLES;
+        const settings = APP_SETTINGS.OUTLINE_EDITOR;
+        const pointSize = this.getNodeChromeFontRadius(invScale);
+        const strokeWidth = settings.NODE_CHROME_STROKE_WIDTH * invScale;
+        const smoothDotRatio = settings.NODE_SMOOTH_DOT_RATIO;
+        const controlRatio = settings.CONTROL_POINT_SIZE_RATIO;
+        const smoothRatio = settings.NODE_SMOOTH_SIZE_RATIO;
+        const diamondRatio = settings.NODE_DIAMOND_SIZE_RATIO;
+        const strokePad = strokeWidth / 2;
+
+        const isNodeHovered = (nodeIndex: number): boolean =>
+            !isInterpolated &&
+            !!this.glyphCanvas.outlineEditor.hoveredPointIndex &&
+            this.glyphCanvas.outlineEditor.hoveredPointIndex.contourIndex ===
+                contourIndex &&
+            this.glyphCanvas.outlineEditor.hoveredPointIndex.nodeIndex ===
+                nodeIndex;
+
+        const isNodeSelected = (nodeIndex: number): boolean =>
+            !isInterpolated &&
+            this.glyphCanvas.outlineEditor.selectedPoints.some(
+                (p: { contourIndex: number; nodeIndex: number }) =>
+                    p.contourIndex === contourIndex && p.nodeIndex === nodeIndex
+            );
+
+        const chromeOuterRadius = (
+            node: Babelfont.Node,
+            nodeIndex: number
+        ): number => {
+            const stateScale = outlineChromeStateScale(
+                isNodeSelected(nodeIndex),
+                isNodeHovered(nodeIndex)
+            );
+            if (node.nodetype === 'OffCurve') {
+                return pointSize * stateScale * controlRatio + strokePad;
+            }
+            const onCurveRatio = node.smooth ? smoothRatio : 1;
+            const diamondScale = this.isOnCurveDiamondNode(node.x, node.y)
+                ? diamondRatio
+                : 1;
+            return (
+                pointSize * stateScale * onCurveRatio * diamondScale + strokePad
+            );
+        };
 
         // Skip drawing direction arrow and handles if zoom is under minimum threshold
         if (this.viewportManager.scale >= minZoomForHandles) {
@@ -2900,30 +3148,7 @@ export class GlyphCanvasRenderer {
                     const ndx = dx / distance;
                     const ndy = dy / distance;
 
-                    // Calculate arrow size based on node size (same scaling as nodes, but slightly bigger)
-                    const nodeSizeMax =
-                        APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MAX_ZOOM;
-                    const nodeSizeMin =
-                        APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MIN_ZOOM;
-                    const nodeInterpolationMin =
-                        APP_SETTINGS.OUTLINE_EDITOR.MIN_ZOOM_FOR_HANDLES;
-                    const nodeInterpolationMax =
-                        APP_SETTINGS.OUTLINE_EDITOR
-                            .HANDLE_SIZE_INTERPOLATION_MAX;
-
-                    let baseSize;
-                    if (this.viewportManager.scale >= nodeInterpolationMax) {
-                        baseSize = nodeSizeMax * invScale;
-                    } else {
-                        const zoomFactor =
-                            (this.viewportManager.scale -
-                                nodeInterpolationMin) /
-                            (nodeInterpolationMax - nodeInterpolationMin);
-                        baseSize =
-                            (nodeSizeMin +
-                                (nodeSizeMax - nodeSizeMin) * zoomFactor) *
-                            invScale;
-                    }
+                    const baseSize = this.getNodeChromeFontRadius(invScale);
 
                     // Arrow is slightly bigger than nodes
                     const arrowLength = baseSize * 4.5;
@@ -2948,17 +3173,17 @@ export class GlyphCanvasRenderer {
                     this.ctx.lineTo(baseX - perpX, baseY - perpY);
                     this.ctx.closePath();
 
-                    let fillColor = isDarkTheme
-                        ? 'rgba(0, 255, 255, 0.8)'
-                        : 'rgba(0, 150, 150, 0.8)';
-
-                    // Apply monochrome for interpolated data
+                    let fillColor = colors.NODE_NORMAL;
                     if (isInterpolated) {
                         fillColor = desaturateColor(fillColor);
                     }
 
+                    this.ctx.save();
+                    this.ctx.globalAlpha =
+                        APP_SETTINGS.OUTLINE_EDITOR.CONTOUR_DIRECTION_ARROW_OPACITY;
                     this.ctx.fillStyle = fillColor;
                     this.ctx.fill();
+                    this.ctx.restore();
                 }
             }
 
@@ -3006,10 +3231,14 @@ export class GlyphCanvasRenderer {
                         } = nodes[targetIdx];
                         // Connect to on-curve points, including Move for open contours.
                         if (targetType !== 'OffCurve') {
-                            this.ctx.beginPath();
-                            this.ctx.moveTo(x, y);
-                            this.ctx.lineTo(targetX, targetY);
-                            this.ctx.stroke();
+                            this.strokeTrimmedHandleLine(
+                                x,
+                                y,
+                                targetX,
+                                targetY,
+                                chromeOuterRadius(node, nodeIndex),
+                                chromeOuterRadius(nodes[targetIdx], targetIdx)
+                            );
                         }
                     } else {
                         // This is the first control point - connect to PREVIOUS on-curve point
@@ -3026,51 +3255,57 @@ export class GlyphCanvasRenderer {
                             targetType === 'QCurve' ||
                             targetType === 'Line'
                         ) {
-                            this.ctx.beginPath();
-                            this.ctx.moveTo(x, y);
-                            this.ctx.lineTo(targetX, targetY);
-                            this.ctx.stroke();
+                            this.strokeTrimmedHandleLine(
+                                x,
+                                y,
+                                targetX,
+                                targetY,
+                                chromeOuterRadius(node, nodeIndex),
+                                chromeOuterRadius(nodes[targetIdx], targetIdx)
+                            );
                         }
                     }
                 }
             });
 
             if (segmentPreview) {
+                const previewOffRadius = pointSize * controlRatio + strokePad;
+                const previewOnRadius = pointSize + strokePad;
                 segmentPreview.segments.forEach((segment) => {
                     if (segment.type === 'quadratic') {
-                        this.ctx.beginPath();
-                        this.ctx.moveTo(
+                        this.strokeTrimmedHandleLine(
                             segment.points[0].x,
-                            segment.points[0].y
-                        );
-                        this.ctx.lineTo(
+                            segment.points[0].y,
                             segment.points[1].x,
-                            segment.points[1].y
+                            segment.points[1].y,
+                            previewOnRadius,
+                            previewOffRadius
                         );
-                        this.ctx.lineTo(
+                        this.strokeTrimmedHandleLine(
                             segment.points[2].x,
-                            segment.points[2].y
+                            segment.points[2].y,
+                            segment.points[1].x,
+                            segment.points[1].y,
+                            previewOnRadius,
+                            previewOffRadius
                         );
-                        this.ctx.stroke();
                     } else if (segment.type === 'cubic') {
-                        this.ctx.beginPath();
-                        this.ctx.moveTo(
+                        this.strokeTrimmedHandleLine(
                             segment.points[0].x,
-                            segment.points[0].y
-                        );
-                        this.ctx.lineTo(
+                            segment.points[0].y,
                             segment.points[1].x,
-                            segment.points[1].y
+                            segment.points[1].y,
+                            previewOnRadius,
+                            previewOffRadius
                         );
-                        this.ctx.moveTo(
-                            segment.points[2].x,
-                            segment.points[2].y
-                        );
-                        this.ctx.lineTo(
+                        this.strokeTrimmedHandleLine(
                             segment.points[3].x,
-                            segment.points[3].y
+                            segment.points[3].y,
+                            segment.points[2].x,
+                            segment.points[2].y,
+                            previewOnRadius,
+                            previewOffRadius
                         );
-                        this.ctx.stroke();
                     }
                 });
             }
@@ -3082,43 +3317,10 @@ export class GlyphCanvasRenderer {
             return;
         }
 
-        const nodeSizeMax = APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MAX_ZOOM;
-        const nodeSizeMin = APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MIN_ZOOM;
-        const nodeInterpolationMin =
-            APP_SETTINGS.OUTLINE_EDITOR.MIN_ZOOM_FOR_HANDLES;
-        const nodeInterpolationMax =
-            APP_SETTINGS.OUTLINE_EDITOR.HANDLE_SIZE_INTERPOLATION_MAX;
-
-        let pointSize;
-        if (this.viewportManager.scale >= nodeInterpolationMax) {
-            pointSize = nodeSizeMax * invScale;
-        } else {
-            const zoomFactor =
-                (this.viewportManager.scale - nodeInterpolationMin) /
-                (nodeInterpolationMax - nodeInterpolationMin);
-            pointSize =
-                (nodeSizeMin + (nodeSizeMax - nodeSizeMin) * zoomFactor) *
-                invScale;
-        }
-
         nodes.forEach((node: Babelfont.Node, nodeIndex: number) => {
             const { x, y, nodetype: type } = node;
-            const isInterpolated =
-                this.glyphCanvas.outlineEditor.isPaintingInterpolatedPreview();
-            const isHovered =
-                !isInterpolated &&
-                this.glyphCanvas.outlineEditor.hoveredPointIndex &&
-                this.glyphCanvas.outlineEditor.hoveredPointIndex
-                    .contourIndex === contourIndex &&
-                this.glyphCanvas.outlineEditor.hoveredPointIndex.nodeIndex ===
-                    nodeIndex;
-            const isSelected =
-                !isInterpolated &&
-                this.glyphCanvas.outlineEditor.selectedPoints.some(
-                    (p: any) =>
-                        p.contourIndex === contourIndex &&
-                        p.nodeIndex === nodeIndex
-                );
+            const isHovered = isNodeHovered(nodeIndex);
+            const isSelected = isNodeSelected(nodeIndex);
 
             if (previewControlNodeIndices.has(nodeIndex)) {
                 return;
@@ -3129,63 +3331,75 @@ export class GlyphCanvasRenderer {
                 return;
             }
 
-            // Draw nodes with inverse transform to maintain normal aspect ratio
-            this.ctx.save();
-            this.ctx.translate(x, y);
-            this.applyInverseComponentTransform(); // Cancel out component transform
-
-            if (type === 'OffCurve') {
-                // Off-curve point (cubic bezier control point) - draw as circle
-                this.ctx.beginPath();
-                this.ctx.arc(0, 0, pointSize, 0, Math.PI * 2);
-                let fillColor = isSelected
+            const isOffCurve = type === 'OffCurve';
+            const restStroke = isOffCurve
+                ? colors.CONTROL_POINT_OUTLINE
+                : colors.NODE_NORMAL;
+            let strokeColor = restStroke;
+            let fillColor = isSelected
+                ? isOffCurve
                     ? colors.CONTROL_POINT_SELECTED
-                    : isHovered
-                      ? colors.CONTROL_POINT_HOVERED
-                      : colors.CONTROL_POINT_NORMAL;
-
-                // Apply monochrome for interpolated data
-                if (isInterpolated) {
+                    : colors.NODE_NORMAL
+                : colors.NODE_UNSELECTED_FILL;
+            if (isInterpolated) {
+                strokeColor = desaturateColor(strokeColor);
+                if (fillColor) {
                     fillColor = desaturateColor(fillColor);
                 }
-
-                this.ctx.fillStyle = fillColor;
-                this.ctx.fill();
-                // Stroke permanently removed
-            } else {
-                // On-curve point - draw as square
-                let fillColor = isSelected
-                    ? colors.NODE_SELECTED
-                    : isHovered
-                      ? colors.NODE_HOVERED
-                      : colors.NODE_NORMAL;
-
-                // Apply monochrome for interpolated data
-                if (isInterpolated) {
-                    fillColor = desaturateColor(fillColor);
-                }
-
-                this.ctx.fillStyle = fillColor;
-                this.ctx.fillRect(
-                    -pointSize,
-                    -pointSize,
-                    pointSize * 2,
-                    pointSize * 2
-                );
-                // Stroke permanently removed
             }
 
-            // Draw smooth indicator for smooth nodes (using smooth property)
-            if (node.smooth) {
-                let smoothColor = isDarkTheme ? '#ffffff' : '#000000';
+            const stateScale = outlineChromeStateScale(isSelected, isHovered);
+            let shapeKind: 'circle' | 'square' | 'diamond';
+            if (isOffCurve) {
+                shapeKind = 'circle';
+            } else if (this.isOnCurveDiamondNode(x, y)) {
+                shapeKind = 'diamond';
+            } else if (node.smooth) {
+                shapeKind = 'circle';
+            } else {
+                shapeKind = 'square';
+            }
+            const radius =
+                pointSize *
+                stateScale *
+                (isOffCurve ? controlRatio : node.smooth ? smoothRatio : 1) *
+                (shapeKind === 'diamond' ? diamondRatio : 1);
+            const dotRadius =
+                pointSize *
+                stateScale *
+                (node.smooth ? smoothRatio : 1) *
+                smoothDotRatio;
 
-                // Apply monochrome for interpolated data
+            this.ctx.save();
+            this.ctx.translate(x, y);
+            this.applyInverseComponentTransform();
+            if (!isOffCurve && this.shouldPaintZoneHalo(x, y)) {
+                this.paintZoneHalo(
+                    shapeKind,
+                    radius,
+                    strokeWidth,
+                    isInterpolated
+                        ? desaturateColor(colors.NODE_ZONE_HALO_STROKE)
+                        : colors.NODE_ZONE_HALO_STROKE,
+                    colors.NODE_ZONE_HALO_OPACITY,
+                    this.getZoneHaloWidth(pointSize * stateScale, shapeKind)
+                );
+            }
+            this.paintOutlineChrome(
+                shapeKind,
+                radius,
+                strokeColor,
+                fillColor,
+                strokeWidth
+            );
+
+            if (node.smooth) {
+                let smoothColor = colors.NODE_SMOOTH_DOT;
                 if (isInterpolated) {
                     smoothColor = desaturateColor(smoothColor);
                 }
-
                 this.ctx.beginPath();
-                this.ctx.arc(0, 0, pointSize * 0.4, 0, Math.PI * 2);
+                this.ctx.arc(0, 0, dotRadius, 0, Math.PI * 2);
                 this.ctx.fillStyle = smoothColor;
                 this.ctx.fill();
             }
@@ -3195,13 +3409,13 @@ export class GlyphCanvasRenderer {
                 duplicateNodePositionKeys?.has(nodePositionKey) &&
                 !drawnDuplicateNodeWarningKeys?.has(nodePositionKey)
             ) {
-                const warningRadius = pointSize * 2.175;
-                const underlineY = warningRadius + pointSize * 0.5;
+                const warningRadius = radius * 2.175;
+                const underlineY = warningRadius + radius * 0.5;
 
                 this.ctx.beginPath();
                 this.ctx.arc(0, 0, warningRadius, 0, Math.PI * 2);
                 this.ctx.strokeStyle = DUPLICATE_NODE_WARNING_COLOR;
-                this.ctx.lineWidth = Math.max(invScale, pointSize * 0.33);
+                this.ctx.lineWidth = Math.max(invScale, radius * 0.33);
                 this.ctx.stroke();
 
                 this.ctx.beginPath();
@@ -3259,24 +3473,40 @@ export class GlyphCanvasRenderer {
                 this.ctx.save();
                 this.ctx.translate(point.x, point.y);
                 this.applyInverseComponentTransform();
-
-                if (type === 'offcurve') {
-                    this.ctx.beginPath();
-                    this.ctx.arc(0, 0, pointSize, 0, Math.PI * 2);
-                    this.ctx.fillStyle = desaturateColor(
-                        colors.CONTROL_POINT_NORMAL
-                    );
-                    this.ctx.fill();
-                } else {
-                    this.ctx.fillStyle = desaturateColor(colors.NODE_NORMAL);
-                    this.ctx.fillRect(
-                        -pointSize,
-                        -pointSize,
-                        pointSize * 2,
-                        pointSize * 2
+                const isOffCurve = type === 'offcurve';
+                const previewKind = isOffCurve
+                    ? 'circle'
+                    : this.isOnCurveDiamondNode(point.x, point.y)
+                      ? 'diamond'
+                      : 'square';
+                const previewRadius =
+                    pointSize *
+                    (isOffCurve
+                        ? controlRatio
+                        : previewKind === 'diamond'
+                          ? diamondRatio
+                          : 1);
+                if (!isOffCurve && this.shouldPaintZoneHalo(point.x, point.y)) {
+                    this.paintZoneHalo(
+                        previewKind,
+                        previewRadius,
+                        strokeWidth,
+                        desaturateColor(colors.NODE_ZONE_HALO_STROKE),
+                        colors.NODE_ZONE_HALO_OPACITY,
+                        this.getZoneHaloWidth(pointSize, previewKind)
                     );
                 }
-
+                this.paintOutlineChrome(
+                    previewKind,
+                    previewRadius,
+                    desaturateColor(
+                        isOffCurve
+                            ? colors.CONTROL_POINT_OUTLINE
+                            : colors.NODE_NORMAL
+                    ),
+                    null,
+                    strokeWidth
+                );
                 this.ctx.restore();
             });
         }
