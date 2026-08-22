@@ -10,7 +10,8 @@ import {
     fontCompilation,
     fullFontCompilation,
     requestOpenFontConversion,
-    COMPILATION_TARGETS
+    COMPILATION_TARGETS,
+    adoptTransferredUint8Array
 } from './font-compilation';
 import { get_glyph_order } from '../wasm-dist/babelfont_fontc_web';
 import * as babelfontWasm from '../wasm-dist/babelfont_fontc_web';
@@ -2700,9 +2701,14 @@ class FontManager {
             wasJsonStale &&
             canUseIncrementalDirtyLayerPatch &&
             isMouseDragSource;
+        const canSkipCanonicalJsonSyncForStartupCompile =
+            startupOpenSessionActive &&
+            (fontCompilation.hasWorkerCacheDocument() ||
+                fontCompilation.hasPendingWorkerDocumentSync());
         const canSkipCanonicalJsonSyncForRequest =
             hasExplicitWorkerFreshnessAtRequest() ||
-            canKeepStaleJsonDuringActiveMouseDrag;
+            canKeepStaleJsonDuringActiveMouseDrag ||
+            canSkipCanonicalJsonSyncForStartupCompile;
 
         if (
             (!isIncrementalEditingCompile || wasJsonStale) &&
@@ -2947,12 +2953,15 @@ class FontManager {
                 // instead, including feature-code commits once the worker cache
                 // is proven fresh for this request.
                 const jsonToSend = this.currentFont.babelfontJson;
-                const validatedJson = hasExplicitWorkerFreshnessAtRequest()
-                    ? jsonToSend
-                    : this.validateBabelfontJsonForRust(
-                          jsonToSend,
-                          wasJsonStale || this.pendingBabelfontJsonSyncAfterDrag
-                      );
+                const validatedJson =
+                    hasExplicitWorkerFreshnessAtRequest() ||
+                    canSkipCanonicalJsonSyncForStartupCompile
+                        ? jsonToSend
+                        : this.validateBabelfontJsonForRust(
+                              jsonToSend,
+                              wasJsonStale ||
+                                  this.pendingBabelfontJsonSyncAfterDrag
+                          );
 
                 result = await fontCompilation.compileEditingFromJsonCached(
                     validatedJson,
@@ -3018,7 +3027,7 @@ class FontManager {
                 'font.compileEditing.applyCompiledResult',
                 { byteLength: result.result.byteLength }
             );
-            this.editingFont = new Uint8Array(result.result);
+            this.editingFont = adoptTransferredUint8Array(result.result);
             if (
                 dataFreshnessModeAtRequest === 'live-drag-worker-preview' &&
                 Number.isFinite(Number(responseRevisionKey))
@@ -3458,6 +3467,10 @@ class FontManager {
             };
             return output;
         };
+
+        if (!needsValidation) {
+            return cacheAndReturn(babelfontJson);
+        }
 
         // Parse, fix, re-serialize
         try {
@@ -6065,6 +6078,7 @@ window.addEventListener('fontLoaded', async (event: Event) => {
             sourcePluginId: detail.sourcePlugin?.id || null
         });
 
+        fontCompilation.setWorkerCacheDocumentReady(false);
         fontCompilation.lastStoredFontJson = null;
         fontCompilation.pendingStoreFontJsonPayload = null;
         fontCompilation.pendingStoreFontJsonPromise = null;

@@ -187,6 +187,10 @@ async function loadTestFont(
     await page.evaluate(
         ({ json, fontPath, initialTextBuffer }) => {
             localStorage.setItem('glyphCanvasTextBuffer', initialTextBuffer);
+            if ((window as any).stateManager) {
+                (window as any).stateManager.editor_text_buffer =
+                    initialTextBuffer;
+            }
             const plugin = (window as any).pluginRegistry.get('memory');
             window.dispatchEvent(
                 new CustomEvent('fontLoaded', {

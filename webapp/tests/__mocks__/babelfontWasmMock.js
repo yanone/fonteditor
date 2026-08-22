@@ -260,6 +260,13 @@ initBabelfontWasm.get_cache_memory_stats = jest.fn(() =>
 // Real implementation using wasm module to convert .glyphs files
 initBabelfontWasm.open_font_file = jest.fn((filename, contents) => {
     const ext = filename.split('.').pop().toLowerCase();
+    const writeContents = (filePath) => {
+        if (contents instanceof Uint8Array || Buffer.isBuffer(contents)) {
+            fs.writeFileSync(filePath, Buffer.from(contents));
+            return;
+        }
+        fs.writeFileSync(filePath, contents, 'utf-8');
+    };
 
     // For entry-map-based formats, use the entries helper.
     if (ext === 'ufo' || ext === 'designspace' || ext === 'glyphspackage') {
@@ -270,7 +277,7 @@ initBabelfontWasm.open_font_file = jest.fn((filename, contents) => {
         const outputPath = path.join(tempDir, 'converted.babelfont.json');
 
         try {
-            fs.writeFileSync(inputPath, contents, 'utf-8');
+            writeContents(inputPath);
             const converterScript = path.join(
                 __dirname,
                 '../helpers/convert-entries-to-babelfont.mjs'
@@ -305,7 +312,7 @@ initBabelfontWasm.open_font_file = jest.fn((filename, contents) => {
     );
 
     try {
-        fs.writeFileSync(inputPath, contents, 'utf-8');
+        writeContents(inputPath);
         const converterScript = path.join(
             __dirname,
             '../helpers/convert-glyphs-to-babelfont.mjs'

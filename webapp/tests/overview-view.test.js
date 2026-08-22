@@ -164,7 +164,7 @@ describe('OverviewView initial active glyph sync', () => {
         expect(setOutlinePaintAllowed).toHaveBeenCalledWith(true);
     });
 
-    test('refreshes overview tiles on fontModelReady before fontReady', async () => {
+    test('does not rebuild overview tiles on fontModelReady before fontReady', async () => {
         require('../js/overview-view');
         await jest.runOnlyPendingTimersAsync();
         await Promise.resolve();
@@ -191,11 +191,8 @@ describe('OverviewView initial active glyph sync', () => {
         await jest.runOnlyPendingTimersAsync();
         await Promise.resolve();
 
-        expect(setOutlinePaintAllowed).toHaveBeenCalledWith(false);
-        expect(syncGlyphs).toHaveBeenCalledTimes(1);
-        expect(syncGlyphs).toHaveBeenCalledWith([
-            { id: '.notdef', name: '.notdef' }
-        ]);
+        expect(setOutlinePaintAllowed).not.toHaveBeenCalled();
+        expect(syncGlyphs).not.toHaveBeenCalled();
         expect(renderGlyphOutlines).not.toHaveBeenCalled();
     });
 

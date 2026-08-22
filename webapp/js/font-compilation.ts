@@ -27,6 +27,29 @@ import {
 
 const console = new Logger('FontCompilation');
 
+/** Own a Uint8Array without copying when it already covers a standalone ArrayBuffer. */
+export function adoptTransferredUint8Array(bytes: Uint8Array): Uint8Array {
+    if (
+        bytes.buffer instanceof ArrayBuffer &&
+        bytes.byteOffset === 0 &&
+        bytes.byteLength === bytes.buffer.byteLength
+    ) {
+        return bytes;
+    }
+    return bytes.slice();
+}
+
+function takeTransferableArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+    if (
+        bytes.buffer instanceof ArrayBuffer &&
+        bytes.byteOffset === 0 &&
+        bytes.byteLength === bytes.buffer.byteLength
+    ) {
+        return bytes.buffer;
+    }
+    return bytes.slice().buffer;
+}
+
 interface CompilationOptions {
     skip_kerning: boolean;
     skip_features: boolean;
@@ -510,6 +533,7 @@ export class FontCompilation {
     lastEditingSubsetKey: string | null;
     workerCacheDocumentReady: boolean;
     pendingWorkerDocumentSync: Promise<void>;
+    pendingWorkerDocumentSyncCount: number;
 
     constructor(options?: { connectInterpolation?: boolean }) {
         this.worker = null;
@@ -524,6 +548,7 @@ export class FontCompilation {
         this.lastEditingSubsetKey = null;
         this.workerCacheDocumentReady = false;
         this.pendingWorkerDocumentSync = Promise.resolve();
+        this.pendingWorkerDocumentSyncCount = 0;
     }
 
     /** Mark whether editing compiles may rely on the worker's current document cache. */
@@ -536,7 +561,12 @@ export class FontCompilation {
         return this.workerCacheDocumentReady;
     }
 
+    hasPendingWorkerDocumentSync(): boolean {
+        return this.pendingWorkerDocumentSyncCount > 0;
+    }
+
     trackWorkerDocumentSync(syncPromise: Promise<unknown>): Promise<unknown> {
+        this.pendingWorkerDocumentSyncCount += 1;
         const settledCurrent = this.pendingWorkerDocumentSync.catch(
             () => undefined
         );
@@ -545,6 +575,12 @@ export class FontCompilation {
             .catch((error) => {
                 this.workerCacheDocumentReady = false;
                 throw error;
+            })
+            .finally(() => {
+                this.pendingWorkerDocumentSyncCount = Math.max(
+                    0,
+                    this.pendingWorkerDocumentSyncCount - 1
+                );
             });
 
         this.pendingWorkerDocumentSync = settledCurrent.then(() => settledNext);
@@ -838,7 +874,7 @@ export class FontCompilation {
                 return undefined;
             }
             if (value instanceof Uint8Array) {
-                return value;
+                return adoptTransferredUint8Array(value);
             }
             if (value instanceof ArrayBuffer) {
                 return new Uint8Array(value);
@@ -985,7 +1021,7 @@ export class FontCompilation {
     /**
      * Send a generic message to the worker and wait for response
      */
-    async sendMessage(data: any): Promise<any> {
+    async sendMessage(data: any, transfer?: Transferable[]): Promise<any> {
         if (!this.worker) {
             throw new Error('Worker not initialized');
         }
@@ -1112,14 +1148,30 @@ export class FontCompilation {
                 parentSpanId: spanId
             });
             try {
-                this.worker!.postMessage({
+                const message = {
                     ...data,
                     id,
                     traceContext: {
                         ...traceContext,
                         parentSpanId: spanId
                     }
-                });
+                };
+                const transferList = [...(transfer || [])];
+                if (
+                    messageType === 'seedYdoc' &&
+                    message.state instanceof Uint8Array
+                ) {
+                    const seedBuffer = takeTransferableArrayBuffer(
+                        message.state
+                    );
+                    message.state = new Uint8Array(seedBuffer);
+                    transferList.push(seedBuffer);
+                }
+                if (transferList.length > 0) {
+                    this.worker!.postMessage(message, transferList);
+                } else {
+                    this.worker!.postMessage(message);
+                }
             } catch (error) {
                 this.pendingCompilations.delete(id);
                 timelineMark(
@@ -1912,14 +1964,42 @@ async function requestOpenFontConversion({
         worker.addEventListener('message', handleMessage);
 
         try {
-            worker.postMessage({
+            const transferList: Transferable[] = [];
+            const adoptBytes = (
+                value: Uint8Array | string | undefined
+            ): Uint8Array | string | undefined => {
+                if (!(value instanceof Uint8Array)) {
+                    return value;
+                }
+                const buffer = takeTransferableArrayBuffer(value);
+                transferList.push(buffer);
+                return new Uint8Array(buffer);
+            };
+            const adoptEntryMap = (
+                entries?: Record<string, Uint8Array>
+            ): Record<string, Uint8Array> | undefined => {
+                if (!entries) {
+                    return entries;
+                }
+                const next: Record<string, Uint8Array> = {};
+                for (const [key, value] of Object.entries(entries)) {
+                    next[key] = adoptBytes(value) as Uint8Array;
+                }
+                return next;
+            };
+            const message = {
                 type: 'openFont',
                 id,
                 filename,
-                contents,
-                packageEntries,
-                projectEntries
-            });
+                contents: adoptBytes(contents),
+                packageEntries: adoptEntryMap(packageEntries),
+                projectEntries: adoptEntryMap(projectEntries)
+            };
+            if (transferList.length > 0) {
+                worker.postMessage(message, transferList);
+            } else {
+                worker.postMessage(message);
+            }
         } catch (error) {
             rejectOnce(error);
         }
@@ -1964,5 +2044,6 @@ export {
     COMPILATION_TARGETS,
     shapeTextWithFont,
     shapeTextWithFontDetailed,
-    requestOpenFontConversion
+    requestOpenFontConversion,
+    adoptTransferredUint8Array
 };

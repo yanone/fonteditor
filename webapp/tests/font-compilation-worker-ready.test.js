@@ -100,6 +100,37 @@ describe('FontCompilation worker document readiness', () => {
         }
     );
 
+    test('seedYdoc transfers the state ArrayBuffer instead of structured-cloning it', async () => {
+        const { fontCompilation } = createReadyFontCompilation();
+        const state = new Uint8Array([1, 2, 3, 4]);
+
+        const messagePromise = fontCompilation.sendMessage({
+            type: 'seedYdoc',
+            state
+        });
+
+        expect(fontCompilation.worker.postMessage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'seedYdoc',
+                state: expect.any(Uint8Array)
+            }),
+            [state.buffer]
+        );
+
+        const posted = fontCompilation.worker.postMessage.mock.calls[0][0];
+        fontCompilation.handleWorkerMessage({
+            data: {
+                id: posted.id,
+                type: 'seedYdoc',
+                success: true
+            }
+        });
+
+        await expect(messagePromise).resolves.toEqual(
+            expect.objectContaining({ success: true })
+        );
+    });
+
     test('failed applyYjsUpdate keeps the worker document sync rejected and not ready', async () => {
         const { fontCompilation, getPostedMessage } =
             createReadyFontCompilation();

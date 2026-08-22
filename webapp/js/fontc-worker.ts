@@ -300,6 +300,40 @@ function normalizeWorkerError(error: unknown): {
     };
 }
 
+/**
+ * Convert worker `openFont` input into a WASM `open_font_file` payload.
+ * Byte sources stay `Uint8Array` (copied once inside WASM). Entry maps stay
+ * a JSON string of UTF-8 file texts. Conversion does not `store_font`.
+ */
+export function prepareOpenFontWasmInput(
+    contents: string | Uint8Array | undefined,
+    entryMap?: Record<string, Uint8Array | string>
+): string | Uint8Array {
+    if (entryMap && typeof entryMap === 'object') {
+        const utf8Decoder = new TextDecoder('utf-8');
+        const stringEntries: Record<string, string> = {};
+
+        for (const [relativePath, fileContents] of Object.entries(entryMap)) {
+            if (fileContents instanceof Uint8Array) {
+                stringEntries[relativePath] = utf8Decoder.decode(fileContents);
+            } else if (typeof fileContents === 'string') {
+                stringEntries[relativePath] = fileContents;
+            } else {
+                throw new Error(
+                    `Invalid project entry type at ${relativePath}`
+                );
+            }
+        }
+        return JSON.stringify(stringEntries);
+    }
+
+    if (typeof contents === 'string' || contents instanceof Uint8Array) {
+        return contents;
+    }
+
+    throw new Error(`Expected Uint8Array|string, got ${typeof contents}`);
+}
+
 function toTransferableBuffer(bytes: Uint8Array): ArrayBuffer {
     if (
         bytes.buffer instanceof ArrayBuffer &&
@@ -2175,59 +2209,27 @@ self.onmessage = async (event) => {
                 dragCompilesSinceStore = 0;
                 lastStoreFontAtMs = 0;
 
-                let payload: string;
+                let payload: string | Uint8Array;
 
                 if (entryMap && typeof entryMap === 'object') {
-                    const utf8Decoder = new TextDecoder('utf-8');
-                    const stringEntries: Record<string, string> = {};
-
-                    for (const [relativePath, fileContents] of Object.entries(
-                        entryMap
-                    )) {
-                        if (fileContents instanceof Uint8Array) {
-                            stringEntries[relativePath] =
-                                utf8Decoder.decode(fileContents);
-                        } else if (typeof fileContents === 'string') {
-                            stringEntries[relativePath] = fileContents;
-                        } else {
-                            throw new Error(
-                                `Invalid project entry type at ${relativePath}`
-                            );
-                        }
-                    }
-                    payload = JSON.stringify(stringEntries);
+                    payload = prepareOpenFontWasmInput(undefined, entryMap);
                 } else {
-                    // Convert Uint8Array to string for WASM
-                    // Both OPFS and disk now return Uint8Array consistently
-                    // Use Latin-1 encoding (1:1 byte mapping) to preserve exact bytes
-                    // Rust will detect format and decode properly (handles both UTF-8 text and binary plist)
-                    if (typeof contents === 'string') {
-                        payload = contents;
-                    } else if (contents instanceof Uint8Array) {
-                        payload = Array.from(contents, (byte) =>
-                            String.fromCharCode(byte)
-                        ).join('');
-                    } else {
-                        console.error(
-                            `[Fontc Worker] Expected Uint8Array|string, got:`,
-                            typeof contents
-                        );
-                        throw new Error(
-                            `Expected Uint8Array|string, got ${typeof contents}`
-                        );
-                    }
+                    payload = prepareOpenFontWasmInput(contents);
                 }
 
-                payloadForDebug = payload;
+                payloadForDebug =
+                    typeof payload === 'string'
+                        ? payload
+                        : Array.from(payload.subarray(0, 32), (byte) =>
+                              String.fromCharCode(byte)
+                          ).join('');
 
                 // FULLJSON_NECESSARY (A1/N1): Rust converts .glyphs/.ufo/etc. to
                 // babelfont JSON and returns it to JS. There is no incremental CRDT
                 // source to read from at font open — the one unavoidable full JSON crossing.
+                // Do not store_font here: seedYdoc / init_ydoc_from_state rebuilds
+                // worker caches from the JS Y.Doc snapshot so CRDT identities match.
                 const babelfontJson = open_font_file(filename, payload);
-
-                // Store in cache (both in WASM and in worker)
-                store_font(babelfontJson);
-                cachedBabelfontJson = babelfontJson;
 
                 self.postMessage({
                     id,

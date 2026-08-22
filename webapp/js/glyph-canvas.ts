@@ -12138,6 +12138,17 @@ let fontCompiledHandler: ((e: Event) => void) | null = null;
 let editingFontApplyQueue: Promise<void> = Promise.resolve();
 let latestAppliedEditingRevision: number = -1;
 
+function adoptOwnedFontBytes(bytes: Uint8Array): Uint8Array {
+    if (
+        bytes.buffer instanceof ArrayBuffer &&
+        bytes.byteOffset === 0 &&
+        bytes.byteLength === bytes.buffer.byteLength
+    ) {
+        return bytes;
+    }
+    return bytes.slice();
+}
+
 // Set up listener for compiled fonts
 function setupFontLoadingListener() {
     console.log('🔧 Setting up font loading listeners...');
@@ -12218,11 +12229,10 @@ function setupFontLoadingListener() {
                     );
                     const isDragActive = !!detail.dragActive;
                     const compilationMode = detail.compilationMode || 'full';
-                    const arrayBuffer = detail.fontBytes.buffer.slice(
-                        detail.fontBytes.byteOffset,
-                        detail.fontBytes.byteOffset +
-                            detail.fontBytes.byteLength
+                    const fontBytesArray = adoptOwnedFontBytes(
+                        detail.fontBytes
                     );
+                    const arrayBuffer = fontBytesArray.buffer;
 
                     const gc = window.glyphCanvas;
                     const isSidebearingSession =
@@ -12244,7 +12254,6 @@ function setupFontLoadingListener() {
                     // Remote/inferred outline-only packets may still reshape
                     // here; that path must not become the local commit contract.
                     if (compilationMode === 'outline-only') {
-                        const fontBytesArray = new Uint8Array(arrayBuffer);
                         gc.fontBytes = fontBytesArray;
                         gc.axesManager!.fontBytes = fontBytesArray;
                         gc.textRunEditor!.swapFontBlob(fontBytesArray);
@@ -12288,7 +12297,6 @@ function setupFontLoadingListener() {
 
                     // Anchor-only compilation — swap blob + reshape for GPOS mark positions
                     if (compilationMode === 'anchor-only') {
-                        const fontBytesArray = new Uint8Array(arrayBuffer);
                         gc.fontBytes = fontBytesArray;
                         gc.axesManager!.fontBytes = fontBytesArray;
                         gc.textRunEditor!.swapFontBlob(fontBytesArray);
@@ -12309,7 +12317,6 @@ function setupFontLoadingListener() {
                     }
 
                     if (compilationMode === 'kerning-only') {
-                        const fontBytesArray = new Uint8Array(arrayBuffer);
                         if (!deferredIdleViewLock) {
                             gc.captureTextModeKerningPanAnchor();
                         }
@@ -12462,11 +12469,8 @@ function setupFontLoadingListener() {
         console.log('[GlyphCanvas]', 'Font compiled event received (legacy)');
         timelineMark('canvas.fontCompiledLegacy.received');
         if (window.glyphCanvas && detail && detail.ttfBytes) {
-            const arrayBuffer = detail.ttfBytes.buffer.slice(
-                detail.ttfBytes.byteOffset,
-                detail.ttfBytes.byteOffset + detail.ttfBytes.byteLength
-            );
-            await window.glyphCanvas.setFont(arrayBuffer);
+            const fontBytesArray = adoptOwnedFontBytes(detail.ttfBytes);
+            await window.glyphCanvas.setFont(fontBytesArray.buffer);
             window.glyphCanvas.requestRepaintAfterCompile();
             timelineMark('canvas.fontCompiledLegacy.fontApplied');
         } else {

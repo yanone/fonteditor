@@ -3962,6 +3962,20 @@ pub fn clear_font_cache() {
 
     glyph_outlines::clear_outline_cache();
 }
+/// Copy JS `Uint8Array` bytes once, preserving each byte as U+0000..U+00FF
+/// (the same mapping as Latin-1 / `String.fromCharCode`). Binary plists stay intact.
+fn js_open_font_contents_to_str(contents: &JsValue) -> Result<String, JsValue> {
+    if let Some(text) = contents.as_string() {
+        return Ok(text);
+    }
+    let array = contents.dyn_ref::<js_sys::Uint8Array>().ok_or_else(|| {
+        JsValue::from_str("open_font_file contents must be a string or Uint8Array")
+    })?;
+    let mut bytes = vec![0u8; array.length() as usize];
+    array.copy_to(&mut bytes);
+    Ok(bytes.into_iter().map(char::from).collect())
+}
+
 /// Open a font file from various formats
 ///
 /// Supports .glyphs, .glyphspackage, .ufo, .designspace, .vfj, and .babelfont formats.
@@ -3969,12 +3983,14 @@ pub fn clear_font_cache() {
 ///
 /// # Arguments
 /// * `filename` - The name of the font file (used to determine format)
-/// * `contents` - The file contents as a string (for text formats) or JSON (for .babelfont)
+/// * `contents` - File contents as a JS string (text formats) or `Uint8Array` (raw bytes)
 ///
 /// # Returns
 /// * `String` - Babelfont JSON representation
 #[wasm_bindgen]
-pub fn open_font_file(filename: &str, contents: &str) -> Result<String, JsValue> {
+pub fn open_font_file(filename: &str, contents: JsValue) -> Result<String, JsValue> {
+    let contents = js_open_font_contents_to_str(&contents)?;
+    let contents = contents.as_str();
     // FULLJSON_NECESSARY (A1/N1): Parses .glyphs/.ufo/etc. to babelfont::Font,
     // then serializes to JSON string for JS — the one unavoidable full JSON crossing.
     web_sys::console::log_1(&format!("[Rust] Opening font file: {}", filename).into());

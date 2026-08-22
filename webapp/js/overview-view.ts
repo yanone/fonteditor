@@ -416,24 +416,7 @@ async function initOverviewView() {
     }
 }
 
-// Update glyph overview when font is loaded
-const queueOverviewTilesRefresh = (reason: string) => {
-    setTimeout(async () => {
-        if (!glyphOverviewInstance || !window.currentFontModel?.glyphs) {
-            return;
-        }
-
-        // Suppress all outline paints until the matching fontReady render.
-        glyphOverviewInstance.setOutlinePaintAllowed?.(false);
-
-        const glyphData = await updateOverviewTiles();
-        console.log(
-            '[OverviewView]',
-            `Updated glyph overview tiles (${glyphData.length}, reason: ${reason})`
-        );
-    }, 0);
-};
-
+// Update glyph overview when font is ready (one tile rebuild + paint per open)
 const queueOverviewRefresh = (
     spanId: string,
     reason: string,
@@ -466,7 +449,11 @@ const queueOverviewRefresh = (
                 ) {
                     pendingInitialOpenSession = null;
                     pendingInitialOpenStartedAt = null;
-                } else if (pendingInitialOpenSession) {
+                } else if (
+                    !renderSuccess &&
+                    pendingInitialOpenSession &&
+                    !initialRenderInProgress
+                ) {
                     scheduleFallbackRender(pendingInitialOpenSession, 1200);
                 }
 
@@ -480,10 +467,6 @@ const queueOverviewRefresh = (
         }
     }, 100);
 };
-
-window.addEventListener('fontModelReady', () => {
-    queueOverviewTilesRefresh('fontModelReady');
-});
 
 window.addEventListener('fontReady', (event: Event) => {
     const detail =

@@ -379,12 +379,12 @@ export function list_debug_cached_font_children(
  *
  * # Arguments
  * * `filename` - The name of the font file (used to determine format)
- * * `contents` - The file contents as a string (for text formats) or JSON (for .babelfont)
+ * * `contents` - File contents as a JS string (text formats) or `Uint8Array` (raw bytes)
  *
  * # Returns
  * * `String` - Babelfont JSON representation
  */
-export function open_font_file(filename: string, contents: string): string;
+export function open_font_file(filename: string, contents: any): string;
 
 /**
  * Prime the committed-state debug layout-closure cache on a lane isolated
@@ -582,8 +582,7 @@ export interface InitOutput {
     readonly open_font_file: (
         a: number,
         b: number,
-        c: number,
-        d: number
+        c: any
     ) => [number, number, number, number];
     readonly prime_debug_layout_closure_cache: (
         a: number,

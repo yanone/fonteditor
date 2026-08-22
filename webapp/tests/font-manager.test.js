@@ -1583,6 +1583,39 @@ describe('FontManager editing subset inclusion', () => {
         });
     });
 
+    test('validateBabelfontJsonForRust returns the input string when needsValidation is false', () => {
+        const input = fontManager.currentFont.babelfontJson;
+        const parseSpy = jest.spyOn(JSON, 'parse');
+
+        const output = fontManager['validateBabelfontJsonForRust'](
+            input,
+            false
+        );
+
+        expect(output).toBe(input);
+        expect(parseSpy).not.toHaveBeenCalled();
+        parseSpy.mockRestore();
+    });
+
+    test('startup compile does not call toJSONString when the worker document is ready', async () => {
+        setStartupEditingCompileGateForTests({ active: true, compileCount: 0 });
+        const previousReady = fontCompilation.workerCacheDocumentReady;
+        fontCompilation.workerCacheDocumentReady = true;
+        const toJSONString = jest.spyOn(
+            fontManager.currentFont.fontModel,
+            'toJSONString'
+        );
+
+        await fontManager.compileEditingFont('a', [], ['a']);
+
+        expect(
+            fontManager.currentFont.syncJsonFromModel
+        ).not.toHaveBeenCalled();
+        expect(toJSONString).not.toHaveBeenCalled();
+        toJSONString.mockRestore();
+        fontCompilation.workerCacheDocumentReady = previousReady;
+    });
+
     test('compileEditingFont adds the active edited glyph to the subset', async () => {
         setRequestCompileContext('keyboard-outline', 'outline');
 

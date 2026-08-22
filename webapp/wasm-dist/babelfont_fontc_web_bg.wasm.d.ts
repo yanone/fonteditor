@@ -96,8 +96,7 @@ export const list_debug_cached_font_children: (
 export const open_font_file: (
     a: number,
     b: number,
-    c: number,
-    d: number
+    c: any
 ) => [number, number, number, number];
 export const prime_debug_layout_closure_cache: (
     a: number,
