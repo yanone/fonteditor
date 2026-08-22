@@ -12149,6 +12149,13 @@ function adoptOwnedFontBytes(bytes: Uint8Array): Uint8Array {
     return bytes.slice();
 }
 
+function arrayBufferFromOwnedBytes(bytes: Uint8Array): ArrayBuffer {
+    if (bytes.buffer instanceof ArrayBuffer) {
+        return bytes.buffer;
+    }
+    return bytes.slice().buffer;
+}
+
 // Set up listener for compiled fonts
 function setupFontLoadingListener() {
     console.log('🔧 Setting up font loading listeners...');
@@ -12232,7 +12239,8 @@ function setupFontLoadingListener() {
                     const fontBytesArray = adoptOwnedFontBytes(
                         detail.fontBytes
                     );
-                    const arrayBuffer = fontBytesArray.buffer;
+                    const arrayBuffer =
+                        arrayBufferFromOwnedBytes(fontBytesArray);
 
                     const gc = window.glyphCanvas;
                     const isSidebearingSession =
@@ -12470,7 +12478,9 @@ function setupFontLoadingListener() {
         timelineMark('canvas.fontCompiledLegacy.received');
         if (window.glyphCanvas && detail && detail.ttfBytes) {
             const fontBytesArray = adoptOwnedFontBytes(detail.ttfBytes);
-            await window.glyphCanvas.setFont(fontBytesArray.buffer);
+            await window.glyphCanvas.setFont(
+                arrayBufferFromOwnedBytes(fontBytesArray)
+            );
             window.glyphCanvas.requestRepaintAfterCompile();
             timelineMark('canvas.fontCompiledLegacy.fontApplied');
         } else {

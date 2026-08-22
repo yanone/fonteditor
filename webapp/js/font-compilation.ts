@@ -2065,6 +2065,5 @@ export {
     COMPILATION_TARGETS,
     shapeTextWithFont,
     shapeTextWithFontDetailed,
-    requestOpenFontConversion,
-    adoptTransferredUint8Array
+    requestOpenFontConversion
 };
