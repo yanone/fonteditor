@@ -1565,7 +1565,7 @@ fn apply_filter_pipeline_owned(
     remove_background_layers_for_generation(&mut filtered);
 
     if options.drop_incompatible_paths {
-        DropIncompatiblePaths
+        DropIncompatiblePaths::new(vec![])
             .apply(&mut filtered)
             .map_err(|e| JsValue::from_str(&format!("DropIncompatiblePaths failed: {:?}", e)))?;
     }
@@ -1594,7 +1594,7 @@ fn apply_filter_pipeline_owned(
     GlyphsStylisticSetLabel
         .apply(&mut filtered)
         .map_err(|e| JsValue::from_str(&format!("GlyphsStylisticSetLabel failed: {:?}", e)))?;
-    GlyphsBracketLayers
+    GlyphsBracketLayers::new(vec![])
         .apply(&mut filtered)
         .map_err(|e| JsValue::from_str(&format!("GlyphsBracketLayers failed: {:?}", e)))?;
 
@@ -8665,5 +8665,29 @@ mod tests {
         );
 
         clear_font_cache();
+    }
+
+    #[test]
+    fn fustat_ss03_ui_name_is_present_after_compile() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../webapp/examples/Fustat.glyphs"
+        );
+        let font = babelfont::load(path).expect("load Fustat.glyphs");
+        let options = CompilationOptions {
+            produce_varc_table: false,
+            ..CompilationOptions::default()
+        };
+        let bytes = compile_with_feature_debug_context(&font, &options, "fustat_ss03")
+            .expect("compile Fustat");
+        let names: serde_json::Value = serde_json::from_str(
+            &get_stylistic_set_names(&bytes).expect("read stylistic set names"),
+        )
+        .expect("parse stylistic set names JSON");
+        assert_eq!(
+            names.get("ss03").and_then(|v| v.as_str()),
+            Some("Geometric a g"),
+            "compiled Fustat is missing the ss03 UI name: {names}"
+        );
     }
 }

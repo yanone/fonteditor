@@ -7,15 +7,15 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-babelfont = { git = "https://github.com/yanone/babelfont-rs", rev = "dfebecd58614cf0f34f64ea91c4d581b444e1320", features = ["fontir", "glyphs", "ufo", "fontlab", "fontforge"] }
-fontc = { git = "https://github.com/googlefonts/fontc", rev = "3518040e", default-features = false }
-fontbe = { git = "https://github.com/googlefonts/fontc", rev = "3518040e", default-features = false }
-fontir = { git = "https://github.com/googlefonts/fontc", rev = "3518040e" }
+babelfont = { git = "https://github.com/yanone/babelfont-rs", rev = "e0f5ccff4e6343dcc8d4b94ee339e4690704ce61", features = ["fontir", "glyphs", "ufo", "fontlab", "fontforge"] }
+fontc = { git = "https://github.com/googlefonts/fontc", rev = "484e26c", default-features = false }
+fontbe = { git = "https://github.com/googlefonts/fontc", rev = "484e26c", default-features = false }
+fontir = { git = "https://github.com/googlefonts/fontc", rev = "484e26c" }
 fea-rs = "0.22.0"
 fea-rs-ast = "0.1.2"
 typeshare = "1.0"
 kurbo = "0.13"
-fontdrasil = { git = "https://github.com/googlefonts/fontc", rev = "3518040e" }
+fontdrasil = { git = "https://github.com/googlefonts/fontc", rev = "484e26c" }
 wasm-bindgen = "0.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

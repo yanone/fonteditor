@@ -107,6 +107,13 @@ initBabelfontWasm.get_glyph_order = jest.fn((fontBytes) => [
 initBabelfontWasm.get_font_features = jest.fn((fontBytes) =>
     JSON.stringify(['liga', 'kern', 'calt'])
 );
+initBabelfontWasm.get_font_features_with_tables = jest.fn((fontBytes) =>
+    JSON.stringify({
+        liga: ['GSUB'],
+        kern: ['GPOS'],
+        calt: ['GSUB']
+    })
+);
 initBabelfontWasm.get_stylistic_set_names = jest.fn((fontBytes) =>
     JSON.stringify({ ss01: 'Stylistic Set 1' })
 );

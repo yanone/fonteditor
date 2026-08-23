@@ -1,9 +1,45 @@
-import { get_font_features_with_tables } from '../../wasm-dist/babelfont_fontc_web';
+import {
+    get_font_features_with_tables,
+    get_stylistic_set_names
+} from '../../wasm-dist/babelfont_fontc_web';
 import { getOpentypeFeatureInfo } from '../opentype-features';
 import { ensureWasmInitialized } from '../wasm-init';
 import { Logger } from '../logger';
 
 const console = new Logger('OpentypeFeatures');
+
+export function parseStylisticSetNamesJson(
+    json: string
+): Record<string, string> {
+    const parsed: unknown = JSON.parse(json);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return {};
+    }
+    const names: Record<string, string> = {};
+    for (const [tag, value] of Object.entries(
+        parsed as Record<string, unknown>
+    )) {
+        if (typeof value === 'string' && value.length > 0) {
+            names[tag] = value;
+        }
+    }
+    return names;
+}
+
+export function resolveFeatureUiName(
+    tag: string,
+    genericDescription: string,
+    stylisticSetNames: Record<string, string>
+): { description: string; hasCustomName: boolean } {
+    const compiledName = stylisticSetNames[tag];
+    if (compiledName) {
+        return { description: compiledName, hasCustomName: true };
+    }
+    return {
+        description: genericDescription || tag,
+        hasCustomName: false
+    };
+}
 
 export class FeaturesManager {
     featureSettings: Record<string, boolean>;
@@ -133,9 +169,18 @@ export class FeaturesManager {
             // Get table locations / availability from current editing font subset.
             let editingFontFeatures: Set<string> = new Set();
             let editingFeaturesWithTables: Record<string, string[]> = {};
+            let stylisticSetNames: Record<string, string> = {};
             if (this.editingFontBytes) {
                 try {
                     await ensureWasmInitialized();
+                } catch (error) {
+                    console.warn(
+                        '[Features]',
+                        'Could not initialize WASM for feature names:',
+                        error
+                    );
+                }
+                try {
                     const editingFeaturesWithTablesJson =
                         get_font_features_with_tables(this.editingFontBytes);
                     editingFeaturesWithTables = JSON.parse(
@@ -156,11 +201,31 @@ export class FeaturesManager {
                         error
                     );
                 }
+                try {
+                    stylisticSetNames = parseStylisticSetNamesJson(
+                        get_stylistic_set_names(this.editingFontBytes)
+                    );
+                    console.log(
+                        '[Features]',
+                        'Compiled stylistic set names:',
+                        stylisticSetNames
+                    );
+                } catch (error) {
+                    console.warn(
+                        '[Features]',
+                        'Could not get stylistic set names:',
+                        error
+                    );
+                }
             }
 
             // Build feature list with metadata and availability
             const featureList = allFeatures.map((tag: string) => {
-                const description = descriptions[tag] || tag;
+                const { description, hasCustomName } = resolveFeatureUiName(
+                    tag,
+                    descriptions[tag] || tag,
+                    stylisticSetNames
+                );
                 const availableInEditingFont =
                     editingFontFeatures.size > 0
                         ? editingFontFeatures.has(tag)
@@ -183,7 +248,7 @@ export class FeaturesManager {
                     tag: tag,
                     defaultOn: defaultOnFeatures.has(tag),
                     description: description,
-                    hasCustomName: false,
+                    hasCustomName: hasCustomName,
                     availableInEditingFont: availableInEditingFont,
                     tables
                 };

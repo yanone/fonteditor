@@ -64,4 +64,47 @@ describe('FeaturesManager setEnabledFeatures', () => {
         expect(dligButton.classList.contains('enabled')).toBe(true);
         expect(changeSpy).toHaveBeenCalledTimes(2);
     });
+
+    test('shows compiled stylistic set names instead of the generic label', async () => {
+        window.currentFontModel.features.features.push([
+            'ss03',
+            'feature ss03 { sub a by a.ss03; } ss03;'
+        ]);
+        window.currentFontModel.analyzeFeatureTables.mockImplementation(
+            (tag) => ({
+                hasGSUB: tag === 'dlig' || tag === 'liga' || tag === 'ss03',
+                hasGPOS: false
+            })
+        );
+
+        const {
+            get_stylistic_set_names,
+            get_font_features_with_tables
+        } = require('../wasm-dist/babelfont_fontc_web');
+        get_stylistic_set_names.mockReturnValue(
+            JSON.stringify({ ss03: 'Geometric a g' })
+        );
+        get_font_features_with_tables.mockReturnValue(
+            JSON.stringify({
+                liga: ['GSUB'],
+                dlig: ['GSUB'],
+                ss03: ['GSUB']
+            })
+        );
+
+        const manager = new FeaturesManager();
+        manager.editingFontBytes = new Uint8Array([1, 2, 3]);
+        document.body.appendChild(manager.createFeaturesSection());
+
+        await manager.updateFeaturesUI();
+        await flushUi();
+
+        const ss03Row = manager.featuresSection.querySelector(
+            'button[data-feature-tag="ss03"]'
+        )?.parentElement;
+        const ss03Name = ss03Row?.querySelector('.tag-description');
+
+        expect(ss03Name?.textContent).toBe('Geometric a g');
+        expect(ss03Name?.classList.contains('custom-name')).toBe(true);
+    });
 });
