@@ -307,6 +307,23 @@ declare global {
             togglePlugin: (entryPoint: string) => boolean;
         };
 
+        windowUi: {
+            getCanvasPluginParam: (
+                className: string,
+                paramId: string
+            ) => string | null;
+            setCanvasPluginParam: (
+                className: string,
+                paramId: string,
+                value: string
+            ) => void;
+            getEnabledCanvasPluginIds: () => string[];
+            setEnabledCanvasPluginIds: (ids: string[]) => void;
+            getState: () => import('./window-ui-state').WindowUiState;
+            save: () => void;
+            apply: (ui?: import('./window-ui-state').WindowUiState) => void;
+        };
+
         // From editor-plugins-ui.js
         editorPluginsUI: {
             updatePluginList: () => void;

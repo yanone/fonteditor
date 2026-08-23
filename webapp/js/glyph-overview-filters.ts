@@ -42,6 +42,7 @@ import {
     deriveGlyphFilterChangesFromCommittedEntry,
     type GlyphFilterLifecycleChange
 } from './glyph-filter-change-derivation';
+import { getGlyphFilterIds, setGlyphFilterIds } from './window-ui-state';
 
 const console = new Logger('GlyphOverviewFilters');
 
@@ -188,7 +189,7 @@ export class GlyphOverviewFilterManager {
     private groupElements: Map<string, HTMLElement> = new Map(); // Map group keyword to legend element
     private rootNode: TreeNode;
     private userFiltersNode: TreeNode;
-    private readonly STORAGE_KEY = 'glyphFilterActive';
+    private pendingActiveFilters: string[] = [];
     private readonly USER_FILTERS_PATH = SETTINGS_FOLDER_PATHS.filters;
     private readonly FILTER_TIMEOUT_MS = 5000;
     private fileSystemObserver: any = null; // FileSystemObserver instance
@@ -596,34 +597,24 @@ export class GlyphOverviewFilterManager {
     }
 
     /**
-     * Load active filter state from localStorage
+     * Load active filter ids from this window's UI string.
      */
     private loadActiveState(): void {
-        try {
-            const stored = localStorage.getItem(this.STORAGE_KEY);
-            if (stored) {
-                // Will be applied after plugins are loaded
-                (this as any)._pendingActiveFilter = stored;
-            }
-        } catch (error) {
-            console.error('Failed to load filter state:', error);
-        }
+        this.pendingActiveFilters = getGlyphFilterIds();
     }
 
     /**
-     * Save active filter state to localStorage
+     * Save active filter ids on this window slot. Storage is a list so
+     * multi-select can land later; the UI still writes one id today.
      */
     private saveActiveState(): void {
-        try {
-            if (this.activeFilter) {
-                const fullId = `${this.activeFilter.path}/${this.activeFilter.keyword}`;
-                localStorage.setItem(this.STORAGE_KEY, fullId);
-            } else {
-                localStorage.removeItem(this.STORAGE_KEY);
-            }
-        } catch (error) {
-            console.error('Failed to save filter state:', error);
+        if (this.activeFilter) {
+            setGlyphFilterIds([
+                `${this.activeFilter.path}/${this.activeFilter.keyword}`
+            ]);
+            return;
         }
+        setGlyphFilterIds([]);
     }
 
     /**
@@ -1067,15 +1058,18 @@ export class GlyphOverviewFilterManager {
             this.loaded = true;
 
             // Apply pending active filter if any
-            if ((this as any)._pendingActiveFilter) {
-                const fullId = (this as any)._pendingActiveFilter;
-                const plugin = this.plugins.find(
-                    (p) => `${p.path}/${p.keyword}` === fullId
-                );
+            if (this.pendingActiveFilters.length > 0) {
+                const plugin = this.pendingActiveFilters
+                    .map((fullId) =>
+                        this.plugins.find(
+                            (p) => `${p.path}/${p.keyword}` === fullId
+                        )
+                    )
+                    .find((entry) => entry);
                 if (plugin) {
                     this.activeFilter = plugin;
                 }
-                delete (this as any)._pendingActiveFilter;
+                this.pendingActiveFilters = [];
             }
 
             // If no active filter, select "All Glyphs" as default

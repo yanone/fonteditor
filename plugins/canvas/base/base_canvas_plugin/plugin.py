@@ -80,74 +80,55 @@ class BaseCanvasPlugin:
         """
         return False
     
-    def _get_storage_key(self, param_id):
-        """
-        Get the localStorage key for a parameter.
-        
-        Args:
-            param_id: Parameter identifier
-            
-        Returns:
-            Storage key string
-        """
-        # Use plugin class name to create unique keys
-        plugin_name = self.__class__.__name__
-        return f"canvasPlugin.{plugin_name}.{param_id}"
-    
-    def _load_parameter_from_storage(self, param_id, element_def):
-        """
-        Load a parameter value from localStorage.
-        
-        Args:
-            param_id: Parameter identifier
-            element_def: UI element definition dict with min/max/default
-            
-        Returns:
-            Stored value (clamped to min/max for numbers) or None if not found
-        """
+    def _window_ui(self):
         try:
             import js
-            storage_key = self._get_storage_key(param_id)
-            stored_value = js.localStorage.getItem(storage_key)
-            
+            return getattr(js.window, "windowUi", None)
+        except Exception:
+            return None
+
+    def _load_parameter_from_storage(self, param_id, element_def):
+        """
+        Load a parameter value from this window's compact UI state.
+        """
+        try:
+            ui = self._window_ui()
+            if ui is None:
+                return None
+            stored_value = ui.getCanvasPluginParam(self.__class__.__name__, param_id)
+
             if stored_value is not None:
                 element_type = element_def.get('type', 'slider')
-                
-                # Handle different types
+                stored_value = str(stored_value)
+
                 if element_type == 'checkbox':
                     return stored_value.lower() == 'true'
                 elif element_type == 'textfield' or element_type == 'radio' or element_type == 'color':
                     return stored_value
-                else:  # slider or numeric
+                else:
                     value = float(stored_value)
-                    
-                    # Clamp to valid range if min/max are defined
                     min_val = element_def.get('min')
                     max_val = element_def.get('max')
-                    
                     if min_val is not None and value < min_val:
                         value = min_val
                     if max_val is not None and value > max_val:
                         value = max_val
-                    
                     return value
         except Exception:
             pass
-        
+
         return None
-    
+
     def _save_parameter_to_storage(self, param_id, value):
         """
-        Save a parameter value to localStorage.
-        
-        Args:
-            param_id: Parameter identifier
-            value: Value to store
+        Save a parameter value on this window's compact UI state.
+        Disabled plugins keep their params.
         """
         try:
-            import js
-            storage_key = self._get_storage_key(param_id)
-            js.localStorage.setItem(storage_key, str(value))
+            ui = self._window_ui()
+            if ui is None:
+                return
+            ui.setCanvasPluginParam(self.__class__.__name__, param_id, str(value))
         except Exception:
             pass
     

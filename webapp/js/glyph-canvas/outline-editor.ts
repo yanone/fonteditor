@@ -46,6 +46,10 @@ import {
     getSnappableVerticalMetricValues
 } from './vertical-metrics';
 import { isShowAllMetricsEnabled } from '../show-all-metrics-pref';
+import {
+    isGuidelinesVisible,
+    setGuidelinesVisible as persistGuidelinesVisible
+} from '../window-ui-state';
 import { isNodeSnappingEnabled } from '../node-snapping-pref';
 import {
     applyPasteFragment,
@@ -3298,7 +3302,6 @@ export class OutlineEditor {
      * Preference: show master and layer guidelines on the canvas.
      * Default false — opt in via Editing View → View menu → Guidelines.
      */
-    private readonly GUIDELINES_STORAGE_KEY = 'editorGuidelinesVisible';
     private readonly PAIRED_LAYER_VISIBILITY_STORAGE_KEY =
         'editorPairedLayerVisible';
 
@@ -3495,11 +3498,7 @@ export class OutlineEditor {
     }
 
     private loadGuidelinesVisible(): boolean {
-        try {
-            return localStorage.getItem(this.GUIDELINES_STORAGE_KEY) === 'true';
-        } catch (_error) {
-            return false;
-        }
+        return isGuidelinesVisible();
     }
 
     private loadPairedLayerVisible(): boolean {
@@ -3523,14 +3522,7 @@ export class OutlineEditor {
             this.hoveredGuideHandle = null;
         }
 
-        try {
-            localStorage.setItem(
-                this.GUIDELINES_STORAGE_KEY,
-                visible ? 'true' : 'false'
-            );
-        } catch (_error) {
-            // Ignore localStorage access failures.
-        }
+        persistGuidelinesVisible(visible);
 
         window.dispatchEvent(
             new CustomEvent('outlineGuidelinesVisibilityChanged', {

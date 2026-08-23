@@ -8,34 +8,27 @@
  * (guide on the canvas cutout).
  */
 
-export type PreviewArea = 'small' | 'medium' | 'full';
+import {
+    getPreviewArea as readPreviewArea,
+    setPreviewAreaPreference
+} from './window-ui-state';
 
-const STORAGE_KEY = 'editorPreviewArea';
-const DEFAULT_AREA: PreviewArea = 'small';
+export type PreviewArea = 'small' | 'medium' | 'full';
 
 export function parsePreviewArea(value: string | null): PreviewArea {
     if (value === 'small' || value === 'medium' || value === 'full') {
         return value;
     }
-    return DEFAULT_AREA;
+    return 'small';
 }
 
 export function getPreviewArea(): PreviewArea {
-    try {
-        return parsePreviewArea(localStorage.getItem(STORAGE_KEY));
-    } catch {
-        return DEFAULT_AREA;
-    }
+    return readPreviewArea();
 }
 
 export function setPreviewArea(area: PreviewArea): void {
     const next = parsePreviewArea(area);
-    try {
-        localStorage.setItem(STORAGE_KEY, next);
-    } catch {
-        // Ignore localStorage access failures.
-    }
-
+    setPreviewAreaPreference(next);
     window.dispatchEvent(
         new CustomEvent('editorPreviewAreaChanged', {
             detail: { area: next }

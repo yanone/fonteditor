@@ -8,10 +8,12 @@ import { getUndoRedoContext } from './undo-redo-context';
 import { Logger } from './logger';
 import tippy, { type Instance as TippyInstance } from 'tippy.js';
 import { getTheme } from './tippy-utils';
+import {
+    isHistoryUnreachableEnabled,
+    setHistoryUnreachableEnabled
+} from './window-ui-state';
 
 const console = new Logger('HistoryView');
-
-const SHOW_UNREACHABLE_PREF_KEY = 'historyShowUnreachable';
 
 type HistoryScope =
     'layer' | 'glyph' | 'font' | 'feature' | 'overview' | 'automation';
@@ -98,19 +100,11 @@ class HistoryViewController {
     }
 
     private readShowUnreachablePref(): boolean {
-        try {
-            return localStorage.getItem(SHOW_UNREACHABLE_PREF_KEY) === '1';
-        } catch {
-            return false;
-        }
+        return isHistoryUnreachableEnabled();
     }
 
     private writeShowUnreachablePref(value: boolean): void {
-        try {
-            localStorage.setItem(SHOW_UNREACHABLE_PREF_KEY, value ? '1' : '0');
-        } catch {
-            // Ignore quota / private-mode failures.
-        }
+        setHistoryUnreachableEnabled(value);
     }
 
     private bindTitleBarToggle(): void {

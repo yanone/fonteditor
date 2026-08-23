@@ -6,6 +6,7 @@ const {
     markFontEditorReadyFailed
 } = require('./editor-startup-ready.js');
 import { fontDestinationPluginManager } from './font-destination-plugin-manager';
+import { getFocusViewId } from './window-ui-state';
 import { notifyLoadingOverlayHiding } from './welcome-screen';
 import {
     timelineMark,
@@ -207,7 +208,7 @@ async function initFontEditor() {
         }
 
         // Restore the last active view right away, before animation ends
-        const lastActiveView = localStorage.getItem('lastActiveView');
+        const lastActiveView = getFocusViewId();
         if (lastActiveView && window.focusView) {
             window.focusView(lastActiveView);
         }

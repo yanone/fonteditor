@@ -99,21 +99,8 @@ describe('ResizableViews startup layout restore', () => {
         window.setViewVisitOrder = jest.fn();
 
         localStorage.setItem(
-            'viewLayout',
-            JSON.stringify({
-                horizontal: {
-                    top: '1',
-                    bottom: '0 0 24px'
-                },
-                vertical: {
-                    top: ['0.01', '0.01', '0.98'],
-                    bottom: ['1']
-                },
-                visitOrder: {
-                    top: ['view-editor', 'view-overview', 'view-fontinfo'],
-                    bottom: ['view-history']
-                }
-            })
+            'windowUi.main',
+            'v1;docs=-;rows=100,-;top=0,0,100'
         );
     });
 
@@ -152,23 +139,18 @@ describe('ResizableViews startup layout restore', () => {
                 .getElementById('view-editor')
                 .classList.contains('collapsed-width')
         ).toBe(false);
-        expect(window.setViewVisitOrder).toHaveBeenCalledWith({
-            top: ['view-editor', 'view-overview', 'view-fontinfo'],
-            bottom: ['view-history']
-        });
+        expect(window.setViewVisitOrder).not.toHaveBeenCalled();
     });
 
-    test('persists the current visit order with the view layout', () => {
+    test('persists chrome layout on the per-window UI string, not visit order', () => {
         require('../js/resizer');
 
         window.resizableViews.saveLayout();
 
-        expect(JSON.parse(localStorage.getItem('viewLayout'))).toMatchObject({
-            visitOrder: {
-                top: ['view-fontinfo', 'view-overview', 'view-editor'],
-                bottom: ['view-history']
-            },
-            docsOpen: false
-        });
+        const stored = localStorage.getItem('windowUi.main');
+        expect(stored).toMatch(/^v1;/);
+        expect(stored).toContain('docs=-');
+        expect(localStorage.getItem('viewLayout')).toBeNull();
+        expect(stored).not.toContain('visitOrder');
     });
 });

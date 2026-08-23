@@ -89,7 +89,8 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     Tour: false,
     WindowButtons: false,
     WindowRole: false,
-    WindowSync: false
+    WindowSync: false,
+    WindowUi: false
 };
 
 export class Logger {

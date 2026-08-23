@@ -10,7 +10,7 @@ IndexedDB keys such as directory handles and export destinations are not include
 
 | Keys | Literal | Pattern |
 | ---: | ---: | ---: |
-| 43 | 40 | 3 |
+| 29 | 26 | 3 |
 
 | Key | Purpose | Operations | Files |
 | --- | --- | --- | --- |
@@ -23,22 +23,9 @@ IndexedDB keys such as directory handles and export destinations are not include
 | [`canvasPlugin.ExampleCanvasPlugin.labelText`](#key-canvasplugin-examplecanvasplugin-labeltext) | Canvas plugin setting for `ExampleCanvasPlugin` parameter `labelText`. | getItem, setItem | `plugins/canvas/example/example_canvas_plugin/plugin.py` |
 | [`canvasPlugin.ExampleCanvasPlugin.opacity`](#key-canvasplugin-examplecanvasplugin-opacity) | Canvas plugin setting for `ExampleCanvasPlugin` parameter `opacity`. | getItem, setItem | `plugins/canvas/example/example_canvas_plugin/plugin.py` |
 | [`canvasPlugin.ExampleCanvasPlugin.showInfo`](#key-canvasplugin-examplecanvasplugin-showinfo) | Canvas plugin setting for `ExampleCanvasPlugin` parameter `showInfo`. | getItem, setItem | `plugins/canvas/example/example_canvas_plugin/plugin.py` |
-| [`canvasPluginsEnabled`](#key-canvaspluginsenabled) | Persists canvas plugins enabled. | getItem, setItem | `webapp/js/canvas-plugin-manager.ts` |
-| [`docsLastPageId`](#key-docslastpageid) | Persists docs last page id. | getItem, setItem | `webapp/js/docs-viewer.ts` |
-| [`docsViewWidth`](#key-docsviewwidth) | Persists docs view width. | getItem, setItem | `webapp/js/docs-viewer.ts`, `webapp/js/resizer.ts` |
-| [`editorGuidelinesVisible`](#key-editorguidelinesvisible) | Preference: show master and layer guidelines on the canvas. | getItem, setItem | `webapp/js/glyph-canvas/outline-editor.ts` |
 | [`editorNodeSnapping`](#key-editornodesnapping) | Preference: snap outline points while dragging or drawing. | getItem, setItem | `webapp/js/node-snapping-pref.ts` |
-| [`editorPairedLayerVisible`](#key-editorpairedlayervisible) | Persists editor paired layer visible. | getItem, setItem | `webapp/js/glyph-canvas/outline-editor.ts` |
-| [`editorPreviewArea`](#key-editorpreviewarea) | Preference: how much chrome Space preview hides, and which rectangle the dotted viewport guide follows. | getItem, setItem | `webapp/js/editor-preview-area-pref.ts` |
-| [`editorShowAllMetrics`](#key-editorshowallmetrics) | Preference: draw OS/2 / hhea / typo metric lines in edit mode. | getItem, setItem | `webapp/js/show-all-metrics-pref.ts` |
-| [`fontInfoSelectedTab`](#key-fontinfoselectedtab) | Persists font info selected tab. | getItem, setItem | `webapp/js/font-info.ts` |
+| [`editorPairedLayerVisible`](#key-editorpairedlayervisible) | Preference: show master and layer guidelines on the canvas. | getItem, setItem | `webapp/js/glyph-canvas/outline-editor.ts` |
 | [`glyphCanvasTextBuffer`](#key-glyphcanvastextbuffer) | Persists glyph canvas text buffer. | getItem, setItem, removeItem | `webapp/js/font-manager.ts`, `webapp/js/glyph-canvas/textrun.ts` |
-| [`glyphFilterActive`](#key-glyphfilteractive) | Persists glyph filter active. | getItem, setItem, removeItem | `webapp/js/glyph-overview-filters.ts` |
-| [`glyphOverviewFollowStackScroll`](#key-glyphoverviewfollowstackscroll) | Preference: scroll the glyph overview when the editing glyph stack changes. | getItem, setItem | `webapp/js/glyph-overview-follow-stack-pref.ts` |
-| [`glyphOverviewSize`](#key-glyphoverviewsize) | Persists glyph overview size. | getItem, setItem | `webapp/js/glyph-overview.ts` |
-| [`glyphOverviewViewMode`](#key-glyphoverviewviewmode) | Persists glyph overview view mode. | getItem, setItem | `webapp/js/glyph-overview.ts` |
-| [`historyShowUnreachable`](#key-historyshowunreachable) | Persists history show unreachable. | getItem, setItem | `webapp/js/history-view.ts` |
-| [`lastActiveView`](#key-lastactiveview) | Persists last active view. | getItem, setItem | `webapp/js/docs-viewer.ts`, `webapp/js/fonteditor.ts`, `webapp/js/keyboard-navigation.ts` |
 | [`lastFilesystemContext`](#key-lastfilesystemcontext) | Persists last filesystem context. | getItem, setItem | `webapp/js/file-browser.ts` |
 | [`preferredTheme`](#key-preferredtheme) | Theme management | getItem, setItem | `webapp/js/font-info.ts`, `webapp/js/script-editor.ts`, `webapp/js/theme-switcher.ts` |
 | [`pythonScript`](#key-pythonscript) | Persists python script. | getItem, setItem | `webapp/js/script-editor.ts` |
@@ -52,11 +39,10 @@ IndexedDB keys such as directory handles and export destinations are not include
 | [`tourLaunchButtonDismissed`](#key-tourlaunchbuttondismissed) | Set when the user dismisses the title-bar Take a Tour chip. | getItem, setItem | `webapp/js/tour.ts` |
 | [`tourSkipped`](#key-tourskipped) | Set when the user skips the tour intro. | getItem, setItem | `webapp/js/tour.ts` |
 | [`tourStarted`](#key-tourstarted) | Set when the user starts the tour from the intro. | getItem, setItem | `webapp/js/tour.ts` |
-| [`viewLayout`](#key-viewlayout) | Persists view layout. | getItem, setItem | `webapp/js/docs-viewer.ts`, `webapp/js/resizer.ts` |
 | [`welcomeDismissedVersion`](#key-welcomedismissedversion) | Version of the welcome screen last dismissed by the user. | getItem, setItem | `webapp/js/welcome-screen.ts` |
-| [`canvasPlugin.${plugin_name}.${param_id}`](#key-canvasplugin-plugin-name-param-id-) | Canvas plugin parameter value keyed by plugin class name and parameter id. | getItem, setItem | `plugins/canvas/base/base_canvas_plugin/plugin.py` |
 | [`lastPath.${pluginId}`](#key-lastpath-pluginid-) | Persists last path. | getItem, setItem | `webapp/js/file-browser.ts` |
 | [`linkedWindowCounter.${sessionId}.${fontPath}`](#key-linkedwindowcounter-sessionid-fontpath-) | Persists linked window counter. | getItem, setItem | `webapp/js/window-role.ts` |
+| [`windowUi.${slot}`](#key-windowui-slot-) | Persists window ui. | getItem, setItem | `webapp/js/window-ui-state.ts` |
 
 <a id="key-animationframes"></a>
 
@@ -158,53 +144,6 @@ IndexedDB keys such as directory handles and export destinations are not include
   - plugins/canvas/example/example_canvas_plugin/plugin.py:26 `getItem` via class `ExampleCanvasPlugin`
   - plugins/canvas/example/example_canvas_plugin/plugin.py:26 `setItem` via class `ExampleCanvasPlugin`
 
-<a id="key-canvaspluginsenabled"></a>
-
-## `canvasPluginsEnabled`
-
-- Purpose: Persists canvas plugins enabled.
-- Kind: literal
-- Operations: `getItem`, `setItem`
-- Sites:
-  - webapp/js/canvas-plugin-manager.ts:42 `getItem` via method `loadEnabledState`
-  - webapp/js/canvas-plugin-manager.ts:79 `setItem` via method `saveEnabledState`
-
-<a id="key-docslastpageid"></a>
-
-## `docsLastPageId`
-
-- Purpose: Persists docs last page id.
-- Kind: literal
-- Operations: `getItem`, `setItem`
-- Sites:
-  - webapp/js/docs-viewer.ts:382 `getItem` via method `readLastPageId`
-  - webapp/js/docs-viewer.ts:490 `setItem` via method `showPage`
-
-<a id="key-docsviewwidth"></a>
-
-## `docsViewWidth`
-
-- Purpose: Persists docs view width.
-- Kind: literal
-- Operations: `getItem`, `setItem`
-- Sites:
-  - webapp/js/docs-viewer.ts:325 `setItem` via method `persistLayout`
-  - webapp/js/docs-viewer.ts:360 `getItem` via method `storedWidth`
-  - webapp/js/resizer.ts:45 `getItem` via function `parseStoredDocsWidth`
-  - webapp/js/resizer.ts:550 `setItem` via method `saveLayout`
-
-<a id="key-editorguidelinesvisible"></a>
-
-## `editorGuidelinesVisible`
-
-- Purpose: Preference: show master and layer guidelines on the canvas.
-- Kind: literal
-- Operations: `getItem`, `setItem`
-- Default when unset: `false`
-- Sites:
-  - webapp/js/glyph-canvas/outline-editor.ts:3499 `getItem` via method `loadGuidelinesVisible`
-  - webapp/js/glyph-canvas/outline-editor.ts:3527 `setItem` via method `setGuidelinesVisible`
-
 <a id="key-editornodesnapping"></a>
 
 ## `editorNodeSnapping`
@@ -221,47 +160,13 @@ IndexedDB keys such as directory handles and export destinations are not include
 
 ## `editorPairedLayerVisible`
 
-- Purpose: Persists editor paired layer visible.
+- Purpose: Preference: show master and layer guidelines on the canvas.
 - Kind: literal
 - Operations: `getItem`, `setItem`
 - Default when unset: `false`
 - Sites:
-  - webapp/js/glyph-canvas/outline-editor.ts:3508 `getItem` via method `loadPairedLayerVisible`
-  - webapp/js/glyph-canvas/outline-editor.ts:3942 `setItem` via method `setPairedLayerVisible`
-
-<a id="key-editorpreviewarea"></a>
-
-## `editorPreviewArea`
-
-- Purpose: Preference: how much chrome Space preview hides, and which rectangle the dotted viewport guide follows.
-- Kind: literal
-- Operations: `getItem`, `setItem`
-- Sites:
-  - webapp/js/editor-preview-area-pref.ts:25 `getItem` via function `getPreviewArea`
-  - webapp/js/editor-preview-area-pref.ts:34 `setItem` via function `setPreviewArea`
-
-<a id="key-editorshowallmetrics"></a>
-
-## `editorShowAllMetrics`
-
-- Purpose: Preference: draw OS/2 / hhea / typo metric lines in edit mode.
-- Kind: literal
-- Operations: `getItem`, `setItem`
-- Default when unset: `false`
-- Sites:
-  - webapp/js/show-all-metrics-pref.ts:10 `getItem` via function `isShowAllMetricsEnabled`
-  - webapp/js/show-all-metrics-pref.ts:18 `setItem` via function `setShowAllMetricsEnabled`
-
-<a id="key-fontinfoselectedtab"></a>
-
-## `fontInfoSelectedTab`
-
-- Purpose: Persists font info selected tab.
-- Kind: literal
-- Operations: `getItem`, `setItem`
-- Sites:
-  - webapp/js/font-info.ts:1005 `getItem` via method `getSavedTab`
-  - webapp/js/font-info.ts:2609 `setItem` via method `switchTab`
+  - webapp/js/glyph-canvas/outline-editor.ts:3507 `getItem` via method `loadPairedLayerVisible`
+  - webapp/js/glyph-canvas/outline-editor.ts:3934 `setItem` via method `setPairedLayerVisible`
 
 <a id="key-glyphcanvastextbuffer"></a>
 
@@ -279,76 +184,6 @@ IndexedDB keys such as directory handles and export destinations are not include
   - webapp/js/glyph-canvas/textrun.ts:1927 `setItem` via method `loadTextBufferFromFont`
   - webapp/js/glyph-canvas/textrun.ts:1964 `setItem` via method `saveTextBuffer`
 
-<a id="key-glyphfilteractive"></a>
-
-## `glyphFilterActive`
-
-- Purpose: Persists glyph filter active.
-- Kind: literal
-- Operations: `getItem`, `setItem`, `removeItem`
-- Sites:
-  - webapp/js/glyph-overview-filters.ts:603 `getItem` via method `loadActiveState`
-  - webapp/js/glyph-overview-filters.ts:620 `setItem` via method `saveActiveState`
-  - webapp/js/glyph-overview-filters.ts:622 `removeItem` via method `saveActiveState`
-
-<a id="key-glyphoverviewfollowstackscroll"></a>
-
-## `glyphOverviewFollowStackScroll`
-
-- Purpose: Preference: scroll the glyph overview when the editing glyph stack changes.
-- Kind: literal
-- Operations: `getItem`, `setItem`
-- Default when unset: `false`
-- Sites:
-  - webapp/js/glyph-overview-follow-stack-pref.ts:10 `getItem` via function `isOverviewFollowStackScrollEnabled`
-  - webapp/js/glyph-overview-follow-stack-pref.ts:18 `setItem` via function `setOverviewFollowStackScrollEnabled`
-
-<a id="key-glyphoverviewsize"></a>
-
-## `glyphOverviewSize`
-
-- Purpose: Persists glyph overview size.
-- Kind: literal
-- Operations: `getItem`, `setItem`
-- Sites:
-  - webapp/js/glyph-overview.ts:442 `getItem` via method `initSizeControl`
-  - webapp/js/glyph-overview.ts:467 `setItem` via method `initSizeControl`
-
-<a id="key-glyphoverviewviewmode"></a>
-
-## `glyphOverviewViewMode`
-
-- Purpose: Persists glyph overview view mode.
-- Kind: literal
-- Operations: `getItem`, `setItem`
-- Sites:
-  - webapp/js/glyph-overview.ts:618 `getItem` via method `initViewModeControl`
-  - webapp/js/glyph-overview.ts:750 `setItem` via method `setViewMode`
-
-<a id="key-historyshowunreachable"></a>
-
-## `historyShowUnreachable`
-
-- Purpose: Persists history show unreachable.
-- Kind: literal
-- Operations: `getItem`, `setItem`
-- Default when unset: `0`
-- Sites:
-  - webapp/js/history-view.ts:102 `getItem` via method `readShowUnreachablePref`
-  - webapp/js/history-view.ts:110 `setItem` via method `writeShowUnreachablePref`
-
-<a id="key-lastactiveview"></a>
-
-## `lastActiveView`
-
-- Purpose: Persists last active view.
-- Kind: literal
-- Operations: `getItem`, `setItem`
-- Sites:
-  - webapp/js/docs-viewer.ts:213 `getItem` via method `close`
-  - webapp/js/fonteditor.ts:210 `getItem` via function `initFontEditor`
-  - webapp/js/keyboard-navigation.ts:1469 `setItem` via function `focusView`
-
 <a id="key-lastfilesystemcontext"></a>
 
 ## `lastFilesystemContext`
@@ -357,8 +192,8 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Kind: literal
 - Operations: `getItem`, `setItem`
 - Sites:
-  - webapp/js/file-browser.ts:2269 `setItem` via function `switchContext`
-  - webapp/js/file-browser.ts:3971 `getItem` via function `initFileBrowser`
+  - webapp/js/file-browser.ts:2280 `setItem` via function `switchContext`
+  - webapp/js/file-browser.ts:3982 `getItem` via function `initFileBrowser`
 
 <a id="key-preferredtheme"></a>
 
@@ -513,22 +348,6 @@ IndexedDB keys such as directory handles and export destinations are not include
   - webapp/js/tour.ts:89 `getItem` via function `hasStartedTour`
   - webapp/js/tour.ts:270 `setItem` via function `markTourStarted`
 
-<a id="key-viewlayout"></a>
-
-## `viewLayout`
-
-- Purpose: Persists view layout.
-- Kind: literal
-- Operations: `getItem`, `setItem`
-- Sites:
-  - webapp/js/docs-viewer.ts:311 `getItem` via method `persistLayout`
-  - webapp/js/docs-viewer.ts:327 `setItem` via method `persistLayout`
-  - webapp/js/docs-viewer.ts:335 `getItem` via method `readSavedOpen`
-  - webapp/js/docs-viewer.ts:366 `getItem` via method `storedWidth`
-  - webapp/js/resizer.ts:20 `getItem` via function `readSavedViewLayout`
-  - webapp/js/resizer.ts:344 `getItem` via method `loadLayout`
-  - webapp/js/resizer.ts:573 `setItem` via method `saveLayout`
-
 <a id="key-welcomedismissedversion"></a>
 
 ## `welcomeDismissedVersion`
@@ -540,17 +359,6 @@ IndexedDB keys such as directory handles and export destinations are not include
   - webapp/js/welcome-screen.ts:32 `getItem` via function `hasDismissedCurrentWelcome`
   - webapp/js/welcome-screen.ts:40 `setItem` via function `dismissCurrentWelcome`
 
-<a id="key-canvasplugin-plugin-name-param-id-"></a>
-
-## `canvasPlugin.${plugin_name}.${param_id}`
-
-- Purpose: Canvas plugin parameter value keyed by plugin class name and parameter id.
-- Kind: pattern
-- Operations: `getItem`, `setItem`
-- Sites:
-  - plugins/canvas/base/base_canvas_plugin/plugin.py:111 `getItem` via function `_load_parameter_from_storage`
-  - plugins/canvas/base/base_canvas_plugin/plugin.py:150 `setItem` via function `_save_parameter_to_storage`
-
 <a id="key-lastpath-pluginid-"></a>
 
 ## `lastPath.${pluginId}`
@@ -559,10 +367,10 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Kind: pattern
 - Operations: `getItem`, `setItem`
 - Sites:
-  - webapp/js/file-browser.ts:2328 `getItem` via function `switchContext`
-  - webapp/js/file-browser.ts:3424 `setItem` via function `navigateToPath`
-  - webapp/js/file-browser.ts:4043 `getItem` via function `initFileBrowser`
-  - webapp/js/file-browser.ts:4430 `setItem` via module `top-level module code`
+  - webapp/js/file-browser.ts:2339 `getItem` via function `switchContext`
+  - webapp/js/file-browser.ts:3435 `setItem` via function `navigateToPath`
+  - webapp/js/file-browser.ts:4054 `getItem` via function `initFileBrowser`
+  - webapp/js/file-browser.ts:4475 `setItem` via module `top-level module code`
 
 <a id="key-linkedwindowcounter-sessionid-fontpath-"></a>
 
@@ -575,4 +383,16 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Sites:
   - webapp/js/window-role.ts:66 `getItem` via method `allocateLinkedOrdinal`
   - webapp/js/window-role.ts:73 `setItem` via method `allocateLinkedOrdinal`
+
+<a id="key-windowui-slot-"></a>
+
+## `windowUi.${slot}`
+
+- Purpose: Persists window ui.
+- Kind: pattern
+- Operations: `getItem`, `setItem`
+- Sites:
+  - webapp/js/window-ui-state.ts:477 `getItem` via function `ensureWindowUiLoaded`
+  - webapp/js/window-ui-state.ts:490 `setItem` via function `ensureWindowUiLoaded`
+  - webapp/js/window-ui-state.ts:497 `setItem` via function `persistWindowUi`
 

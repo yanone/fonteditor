@@ -3,23 +3,17 @@
  * Default false — opt in via Editing View → View menu.
  */
 
-const STORAGE_KEY = 'glyphOverviewFollowStackScroll';
+import {
+    isOverviewFollowEnabled,
+    setOverviewFollowEnabled
+} from './window-ui-state';
 
 export function isOverviewFollowStackScrollEnabled(): boolean {
-    try {
-        return localStorage.getItem(STORAGE_KEY) === 'true';
-    } catch {
-        return false;
-    }
+    return isOverviewFollowEnabled();
 }
 
 export function setOverviewFollowStackScrollEnabled(enabled: boolean): void {
-    try {
-        localStorage.setItem(STORAGE_KEY, enabled ? 'true' : 'false');
-    } catch {
-        // Ignore localStorage access failures.
-    }
-
+    setOverviewFollowEnabled(enabled);
     window.dispatchEvent(
         new CustomEvent('overviewFollowStackScrollChanged', {
             detail: { enabled }

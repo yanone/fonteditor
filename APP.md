@@ -58,7 +58,7 @@ Full-document transport is reserved for bootstrap from external sources only, su
 
 ### Cloud sync vs. local window sync
 
-Only a font’s main window syncs with the DO room in the cloud. Local linked windows only talk to the main window which relays messages back and forth between the cloud and the local linked windows.
+Only a font’s main window syncs with the DO room in the cloud. Local linked windows only talk to the main window which relays messages back and forth between the cloud and the local linked windows. Each window keeps its own chrome (layout, docs, overview, filters, canvas plugins, and focus) in `windowUi.*`; font data stays shared.
 
 ## The Editing Pipeline
 

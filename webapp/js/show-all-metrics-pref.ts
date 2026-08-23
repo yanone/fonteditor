@@ -3,23 +3,17 @@
  * Default false — opt in via Editing View → View menu → Show All Metrics.
  */
 
-const STORAGE_KEY = 'editorShowAllMetrics';
+import {
+    isShowAllMetricsEnabled as readShowAllMetrics,
+    setShowAllMetricsEnabled as writeShowAllMetrics
+} from './window-ui-state';
 
 export function isShowAllMetricsEnabled(): boolean {
-    try {
-        return localStorage.getItem(STORAGE_KEY) === 'true';
-    } catch {
-        return false;
-    }
+    return readShowAllMetrics();
 }
 
 export function setShowAllMetricsEnabled(enabled: boolean): void {
-    try {
-        localStorage.setItem(STORAGE_KEY, enabled ? 'true' : 'false');
-    } catch {
-        // Ignore localStorage access failures.
-    }
-
+    writeShowAllMetrics(enabled);
     window.dispatchEvent(
         new CustomEvent('showAllMetricsChanged', {
             detail: { enabled }

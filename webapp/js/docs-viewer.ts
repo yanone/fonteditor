@@ -5,14 +5,20 @@ import {
     keyboardShortcutHtml,
     shortcutSpecFromHandbook
 } from './keyboard-shortcut-display';
+import {
+    getDocsPageId,
+    getDocsWidthPx,
+    getFocusViewId,
+    isDocsOpen,
+    saveWindowUiFromDom,
+    setDocsPageId
+} from './window-ui-state';
 
 const console = new Logger('DocsViewer');
 
 const HANDBOOK_ROOT = '/handbook';
 const DEFAULT_WIDTH = 340;
 const MIN_WIDTH = 200;
-const WIDTH_STORAGE_KEY = 'docsViewWidth';
-const LAST_PAGE_STORAGE_KEY = 'docsLastPageId';
 
 export type DocsManifestNode = {
     id: string;
@@ -210,7 +216,7 @@ export class DocsViewer {
         if (!docsWereFocused) {
             return;
         }
-        const lastActiveView = localStorage.getItem('lastActiveView');
+        const lastActiveView = getFocusViewId();
         window.focusView?.(
             lastActiveView && lastActiveView !== 'view-docs'
                 ? lastActiveView
@@ -307,40 +313,11 @@ export class DocsViewer {
             window.resizableViews.saveLayout();
             return;
         }
-        try {
-            const previousRaw = localStorage.getItem('viewLayout');
-            const previous = previousRaw
-                ? (JSON.parse(previousRaw) as Record<string, unknown>)
-                : {};
-            const next = {
-                ...previous,
-                docsOpen: this.isOpen()
-            } as Record<string, unknown>;
-            if (this.isOpen()) {
-                const widthPx = Math.max(
-                    MIN_WIDTH,
-                    Math.round(this.view.offsetWidth) || this.storedWidth()
-                );
-                next.docsWidth = `0 0 ${widthPx}px`;
-                localStorage.setItem(WIDTH_STORAGE_KEY, String(widthPx));
-            }
-            localStorage.setItem('viewLayout', JSON.stringify(next));
-        } catch (error) {
-            console.warn('Failed to persist docs layout', error);
-        }
+        saveWindowUiFromDom();
     }
 
     private readSavedOpen(): boolean {
-        try {
-            const saved = localStorage.getItem('viewLayout');
-            if (!saved) {
-                return false;
-            }
-            const layout = JSON.parse(saved) as { docsOpen?: boolean };
-            return layout?.docsOpen === true;
-        } catch {
-            return false;
-        }
+        return isDocsOpen();
     }
 
     private async loadPersistedPage(): Promise<void> {
@@ -357,29 +334,11 @@ export class DocsViewer {
     }
 
     private storedWidth(): number {
-        const raw = localStorage.getItem(WIDTH_STORAGE_KEY);
-        const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
-        if (Number.isFinite(parsed) && parsed > 0) {
-            return Math.max(MIN_WIDTH, parsed);
-        }
-        try {
-            const saved = localStorage.getItem('viewLayout');
-            const layout = saved
-                ? (JSON.parse(saved) as { docsWidth?: string })
-                : null;
-            const match = layout?.docsWidth?.match(/(\d+(?:\.\d+)?)px\s*$/);
-            const fromFlex = match ? Number.parseFloat(match[1]) : Number.NaN;
-            if (Number.isFinite(fromFlex) && fromFlex > 0) {
-                return Math.max(MIN_WIDTH, Math.round(fromFlex));
-            }
-        } catch {
-            // Fall through to the default width.
-        }
-        return DEFAULT_WIDTH;
+        return Math.max(MIN_WIDTH, getDocsWidthPx() || DEFAULT_WIDTH);
     }
 
     private readLastPageId(): string | null {
-        const stored = localStorage.getItem(LAST_PAGE_STORAGE_KEY);
+        const stored = getDocsPageId();
         if (stored && this.pages.has(stored)) {
             return stored;
         }
@@ -487,7 +446,7 @@ export class DocsViewer {
             return;
         }
         this.currentId = id;
-        localStorage.setItem(LAST_PAGE_STORAGE_KEY, id);
+        setDocsPageId(id);
         this.highlightToc();
 
         const markdown = await this.fetchText(handbookUrl(page.path));

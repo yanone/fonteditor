@@ -16,7 +16,10 @@ describe('editor preview area preference', () => {
     test('persists small, medium, and full', () => {
         pref.setPreviewArea('small');
         expect(pref.getPreviewArea()).toBe('small');
-        expect(localStorage.getItem('editorPreviewArea')).toBe('small');
+        const ui = require('../js/window-ui-state');
+        ui.flushSaveWindowUi();
+        expect(localStorage.getItem('windowUi.main')).not.toContain('preview=');
+        expect(localStorage.getItem('editorPreviewArea')).toBe(null);
 
         pref.setPreviewArea('medium');
         expect(pref.getPreviewArea()).toBe('medium');

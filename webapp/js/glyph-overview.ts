@@ -26,6 +26,13 @@ import {
 } from './tippy-utils';
 import { isOverviewFollowStackScrollEnabled } from './glyph-overview-follow-stack-pref';
 import {
+    getOverviewDisplayMode,
+    getOverviewSize,
+    setOverviewDisplayMode,
+    setOverviewSize,
+    type OverviewDisplayMode
+} from './window-ui-state';
+import {
     appendGlyphOverviewTypeaheadBuffer,
     GLYPH_OVERVIEW_TYPEAHEAD_TIMEOUT_MS,
     matchGlyphOverviewTypeahead
@@ -98,6 +105,14 @@ export interface FilterResult {
 }
 
 type OverviewViewMode = 'lines' | 'grid';
+
+function viewModeFromDisplayMode(mode: OverviewDisplayMode): OverviewViewMode {
+    return mode === 'matrix' ? 'grid' : 'lines';
+}
+
+function displayModeFromViewMode(mode: OverviewViewMode): OverviewDisplayMode {
+    return mode === 'grid' ? 'matrix' : 'normal';
+}
 
 interface GridNameParts {
     baseName: string;
@@ -281,7 +296,7 @@ class GlyphOverview {
     private readonly deferredGlyphRefreshDelayMs = 16;
     private readonly activeDragGlyphRefreshDelayMs = 120;
     // Tile size control
-    private currentSizeStep: number = 2; // Default to middle (step 2 of 11)
+    private currentSizeStep: number = 5;
     private sizeSlider: HTMLInputElement | null = null;
     // Search control
     private searchInput: HTMLInputElement | null = null;
@@ -297,7 +312,6 @@ class GlyphOverview {
     private totalGlyphDatasetCount = 0;
     private gridRowsForNavigation: Array<Array<string | null>> = [];
     private gridColumnCount = 0;
-    private readonly viewModeStorageKey = 'glyphOverviewViewMode';
     // Active filter
     private activeFilterResults: Map<string, FilterResult> | null = null;
     // Error overlay for filter errors
@@ -438,14 +452,7 @@ class GlyphOverview {
     }
 
     private initSizeControl(): void {
-        // Load saved size from localStorage
-        const savedSize = localStorage.getItem('glyphOverviewSize');
-        if (savedSize !== null) {
-            const parsedSize = parseInt(savedSize, 10);
-            if (!isNaN(parsedSize) && parsedSize >= 0 && parsedSize <= 10) {
-                this.currentSizeStep = parsedSize;
-            }
-        }
+        this.currentSizeStep = getOverviewSize();
 
         // Find slider in DOM
         this.sizeSlider = document.getElementById(
@@ -464,7 +471,7 @@ class GlyphOverview {
                 this.currentSizeStep = newSize;
                 this.updateSliderProgress();
                 this.updateTileSize();
-                localStorage.setItem('glyphOverviewSize', String(newSize));
+                setOverviewSize(newSize);
             });
         }
 
@@ -615,10 +622,7 @@ class GlyphOverview {
     }
 
     private initViewModeControl(): void {
-        const savedMode = localStorage.getItem(this.viewModeStorageKey);
-        if (savedMode === 'grid') {
-            this.viewMode = 'grid';
-        }
+        this.viewMode = viewModeFromDisplayMode(getOverviewDisplayMode());
 
         this.linesModeButton = document.getElementById(
             'overview-mode-lines'
@@ -747,7 +751,7 @@ class GlyphOverview {
 
         this.viewMode = mode;
         if (persist) {
-            localStorage.setItem(this.viewModeStorageKey, mode);
+            setOverviewDisplayMode(displayModeFromViewMode(mode));
         }
         this.updateViewModeButtonState();
         this.renderByViewMode();

@@ -1,4 +1,5 @@
 import { getClosestExpandedTopRowViewId } from './view-focus';
+import { setFocusViewId } from './window-ui-state';
 import {
     isTourBlockingViewShortcuts,
     isTourCmdEscapeAllowed,
@@ -1464,9 +1465,9 @@ import {
                 }
             }
 
-            // Save the last active view to localStorage
+            // Save the last active view on this window slot
             if (viewId !== 'view-docs') {
-                localStorage.setItem('lastActiveView', viewId);
+                setFocusViewId(viewId);
             }
 
             // Expand view if below threshold (auto-expand on activation)

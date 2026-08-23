@@ -13,9 +13,12 @@ describe('glyph overview follow-stack scroll preference', () => {
 
     test('persists opt-in and toggle', () => {
         expect(pref.toggleOverviewFollowStackScrollEnabled()).toBe(true);
+        const ui = require('../js/window-ui-state');
+        ui.flushSaveWindowUi();
         expect(pref.isOverviewFollowStackScrollEnabled()).toBe(true);
+        expect(localStorage.getItem('windowUi.main')).toContain('follow=1');
         expect(localStorage.getItem('glyphOverviewFollowStackScroll')).toBe(
-            'true'
+            null
         );
 
         expect(pref.toggleOverviewFollowStackScrollEnabled()).toBe(false);

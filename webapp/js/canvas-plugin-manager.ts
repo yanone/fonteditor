@@ -21,6 +21,10 @@
  */
 
 import { Logger } from './logger';
+import {
+    getEnabledCanvasPluginIds,
+    setEnabledCanvasPluginIds
+} from './window-ui-state';
 
 const console = new Logger('CanvasPluginManager');
 
@@ -28,26 +32,17 @@ export class CanvasPluginManager {
     private plugins: any[] = [];
     private loaded: boolean = false;
     private enabledPlugins: Set<string> = new Set();
-    private readonly STORAGE_KEY = 'canvasPluginsEnabled';
 
     constructor() {
         this.loadEnabledState();
     }
 
     /**
-     * Load enabled plugin state from localStorage
+     * Load enabled plugin state from this window's UI string.
      */
     private loadEnabledState(): void {
-        try {
-            const stored = localStorage.getItem(this.STORAGE_KEY);
-            if (stored) {
-                const enabledArray = JSON.parse(stored);
-                this.enabledPlugins = new Set(enabledArray);
-                this.syncEnabledPluginsToStateManager();
-            }
-        } catch (error) {
-            console.error('Failed to load plugin state:', error);
-        }
+        this.enabledPlugins = new Set(getEnabledCanvasPluginIds());
+        this.syncEnabledPluginsToStateManager();
     }
 
     /**
@@ -71,18 +66,10 @@ export class CanvasPluginManager {
     }
 
     /**
-     * Save enabled plugin state to localStorage
+     * Save enabled plugin state on this window slot.
      */
     private saveEnabledState(): void {
-        try {
-            const enabledArray = Array.from(this.enabledPlugins);
-            localStorage.setItem(
-                this.STORAGE_KEY,
-                JSON.stringify(enabledArray)
-            );
-        } catch (error) {
-            console.error('Failed to save plugin state:', error);
-        }
+        setEnabledCanvasPluginIds(Array.from(this.enabledPlugins));
     }
 
     /**

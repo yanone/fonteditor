@@ -21,6 +21,12 @@ A change in a linked window is a real shared edit, not a preview. Think of linke
 
 Give each window a job: drawing in one, Features in another, Overview or proofing in a third. That cuts view-switching without splitting the file.
 
+## Per-window chrome
+
+Layout and view chrome are stored per window, not shared with Main. That includes pane sizes, whether Docs is open, Overview display mode (Normal or Matrix), tile size, the selected filter, scroll-overview-to-the-active-glyph, the Font Info section, History’s unreachable-items toggle, canvas plugins, and which view is focused. A linked window can show Matrix overview while Main stays in Normal mode.
+
+Theme, the welcome/tour flags, Python script buffers, and snapping stay global.
+
 Linked windows depend on the Main window’s session. Keep Main open while you work in linked windows. Closing the main window will also close all linked windows.
 
 Undo scopes are explained in [Undo and history](../reference/undo-and-history-scopes.md).

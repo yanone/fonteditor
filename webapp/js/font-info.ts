@@ -7,6 +7,7 @@ import tippy, { type Instance as TippyInstance } from 'tippy.js';
 import { Logger } from './logger';
 import { fontCompilation } from './font-compilation';
 import { attachTopRowSidebarInterpolation } from './top-row-sidebar-interpolation';
+import { getFontInfoSection, setFontInfoSection } from './window-ui-state';
 import type {
     PatchSyncEngine,
     TransactionHistoryTarget
@@ -45,7 +46,6 @@ import {
 import './mode-fea';
 const console = new Logger('FontInfo');
 
-const FONTINFO_TAB_STORAGE_KEY = 'fontInfoSelectedTab';
 const FEATURE_CODE_COMPILE_DEBOUNCE_MS = 5000;
 
 type FontInfoTab =
@@ -1002,7 +1002,7 @@ class FontInfoManager {
     }
 
     private getSavedTab(): FontInfoTab {
-        const saved = localStorage.getItem(FONTINFO_TAB_STORAGE_KEY);
+        const saved = getFontInfoSection();
         if (
             saved === 'general' ||
             saved === 'names' ||
@@ -2605,8 +2605,7 @@ class FontInfoManager {
         this.currentTab = tab;
         this.notifyHistoryScopeChange();
 
-        // Save to localStorage
-        localStorage.setItem(FONTINFO_TAB_STORAGE_KEY, tab);
+        setFontInfoSection(tab);
 
         this.refreshSectionPicker();
 
