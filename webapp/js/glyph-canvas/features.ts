@@ -8,6 +8,8 @@ import { Logger } from '../logger';
 
 const console = new Logger('OpentypeFeatures');
 
+const GLYPHS_FEATURE_LABELS_KEY = 'com.schriftgestalt.Glyphs.labels';
+
 export function parseStylisticSetNamesJson(
     json: string
 ): Record<string, string> {
@@ -26,14 +28,219 @@ export function parseStylisticSetNamesJson(
     return names;
 }
 
+function isStylisticSetTag(tag: string): boolean {
+    return /^ss\d{2}$/.test(tag);
+}
+
+function featureCodeString(codeData: unknown): string {
+    if (typeof codeData === 'string') {
+        return codeData;
+    }
+    if (codeData && typeof codeData === 'object' && 'code' in codeData) {
+        const code = (codeData as { code?: unknown }).code;
+        if (typeof code === 'string') {
+            return code;
+        }
+    }
+    return '';
+}
+
+function featureFormatSpecific(
+    codeData: unknown
+): Record<string, unknown> | null {
+    if (!codeData || typeof codeData !== 'object') {
+        return null;
+    }
+    const formatSpecific = (codeData as { format_specific?: unknown })
+        .format_specific;
+    if (
+        !formatSpecific ||
+        typeof formatSpecific !== 'object' ||
+        Array.isArray(formatSpecific)
+    ) {
+        return null;
+    }
+    return formatSpecific as Record<string, unknown>;
+}
+
+function extractFeatureNamesBody(code: string): string | null {
+    const keyword = code.search(/\bfeatureNames\b/);
+    if (keyword < 0) {
+        return null;
+    }
+    const brace = code.indexOf('{', keyword);
+    if (brace < 0) {
+        return null;
+    }
+    let depth = 0;
+    let inString = false;
+    for (let i = brace; i < code.length; i++) {
+        const char = code[i];
+        if (inString) {
+            if (char === '\\') {
+                i += 1;
+                continue;
+            }
+            if (char === '"') {
+                inString = false;
+            }
+            continue;
+        }
+        if (char === '"') {
+            inString = true;
+            continue;
+        }
+        if (char === '{') {
+            depth += 1;
+        } else if (char === '}') {
+            depth -= 1;
+            if (depth === 0) {
+                return code.slice(brace + 1, i);
+            }
+        }
+    }
+    return null;
+}
+
+function parseNameLanguageId(raw: string | undefined): number | null {
+    if (!raw) {
+        return null;
+    }
+    if (raw.toLowerCase().startsWith('0x')) {
+        const parsed = Number.parseInt(raw.slice(2), 16);
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** Pull the UI string out of an AFDKO `featureNames { ... }` block. */
+export function parseFeatureNamesUiName(code: string): string | null {
+    const body = extractFeatureNamesBody(code);
+    if (body === null) {
+        return null;
+    }
+
+    const namePattern =
+        /\bname(?:\s+(\d+)(?:\s+(\d+)(?:\s+(0x[0-9a-fA-F]+|\d+))?)?)?\s*"((?:\\.|[^"\\])*)"/g;
+
+    type Candidate = {
+        platform: number | null;
+        encoding: number | null;
+        language: number | null;
+        text: string;
+    };
+    const candidates: Candidate[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = namePattern.exec(body)) !== null) {
+        const text = match[4].replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+        if (!text) {
+            continue;
+        }
+        candidates.push({
+            platform: match[1] ? Number.parseInt(match[1], 10) : null,
+            encoding: match[2] ? Number.parseInt(match[2], 10) : null,
+            language: parseNameLanguageId(match[3]),
+            text
+        });
+    }
+    if (candidates.length === 0) {
+        return null;
+    }
+
+    const windowsEnglish = candidates.find(
+        (candidate) =>
+            candidate.platform === 3 &&
+            (candidate.encoding === 1 || candidate.encoding === null) &&
+            (candidate.language === 0x0409 || candidate.language === null)
+    );
+    if (windowsEnglish) {
+        return windowsEnglish.text;
+    }
+    const windows = candidates.find((candidate) => candidate.platform === 3);
+    if (windows) {
+        return windows.text;
+    }
+    const mac = candidates.find((candidate) => candidate.platform === 1);
+    if (mac) {
+        return mac.text;
+    }
+    return candidates[0].text;
+}
+
+/** Pull the English (or first) Glyphs.app stylistic-set label. */
+export function parseGlyphsFeatureLabel(
+    formatSpecific: Record<string, unknown> | null
+): string | null {
+    if (!formatSpecific) {
+        return null;
+    }
+    const labels = formatSpecific[GLYPHS_FEATURE_LABELS_KEY];
+    if (!Array.isArray(labels)) {
+        return null;
+    }
+    const parsed: Array<{ language: string; value: string }> = [];
+    for (const label of labels) {
+        if (!label || typeof label !== 'object') {
+            continue;
+        }
+        const record = label as Record<string, unknown>;
+        const value = record.value;
+        if (typeof value !== 'string' || value.length === 0) {
+            continue;
+        }
+        const language =
+            typeof record.language === 'string' ? record.language.trim() : '';
+        parsed.push({ language, value });
+    }
+    const english = parsed.find((label) =>
+        label.language.toUpperCase().startsWith('ENG')
+    );
+    return english?.value ?? parsed[0]?.value ?? null;
+}
+
+/**
+ * Source-side stylistic set names: AFDKO `featureNames` first, then
+ * Glyphs `com.schriftgestalt.Glyphs.labels`.
+ */
+export function collectSourceStylisticSetNames(
+    features: Array<[string, unknown]>
+): Record<string, string> {
+    const names: Record<string, string> = {};
+    for (const [tag, codeData] of features) {
+        if (!isStylisticSetTag(tag) || names[tag]) {
+            continue;
+        }
+        const fromFeatureNames = parseFeatureNamesUiName(
+            featureCodeString(codeData)
+        );
+        if (fromFeatureNames) {
+            names[tag] = fromFeatureNames;
+            continue;
+        }
+        const fromGlyphs = parseGlyphsFeatureLabel(
+            featureFormatSpecific(codeData)
+        );
+        if (fromGlyphs) {
+            names[tag] = fromGlyphs;
+        }
+    }
+    return names;
+}
+
 export function resolveFeatureUiName(
     tag: string,
     genericDescription: string,
-    stylisticSetNames: Record<string, string>
+    compiledStylisticSetNames: Record<string, string>,
+    sourceStylisticSetNames: Record<string, string> = {}
 ): { description: string; hasCustomName: boolean } {
-    const compiledName = stylisticSetNames[tag];
+    const compiledName = compiledStylisticSetNames[tag];
     if (compiledName) {
         return { description: compiledName, hasCustomName: true };
+    }
+    const sourceName = sourceStylisticSetNames[tag];
+    if (sourceName) {
+        return { description: sourceName, hasCustomName: true };
     }
     return {
         description: genericDescription || tag,
@@ -166,6 +373,10 @@ export class FeaturesManager {
                 allDiscretionary.has(tag)
             );
 
+            const sourceStylisticSetNames = collectSourceStylisticSetNames(
+                fontModel.features.features as Array<[string, unknown]>
+            );
+
             // Get table locations / availability from current editing font subset.
             let editingFontFeatures: Set<string> = new Set();
             let editingFeaturesWithTables: Record<string, string[]> = {};
@@ -224,7 +435,8 @@ export class FeaturesManager {
                 const { description, hasCustomName } = resolveFeatureUiName(
                     tag,
                     descriptions[tag] || tag,
-                    stylisticSetNames
+                    stylisticSetNames,
+                    sourceStylisticSetNames
                 );
                 const availableInEditingFont =
                     editingFontFeatures.size > 0
@@ -387,9 +599,8 @@ export class FeaturesManager {
             const isAvailable =
                 this.featureAvailabilityInEditingSubset[feature.tag] !== false;
             if (!isAvailable) {
+                featureRow.classList.add('unavailable');
                 tagButton.disabled = true;
-                tagButton.style.opacity = '0.4';
-                tagButton.style.cursor = 'not-allowed';
                 tagButton.title = 'Not available in current subset';
             }
 
@@ -406,9 +617,6 @@ export class FeaturesManager {
                     '[Features]',
                     `Feature ${feature.tag} is now ${this.featureSettings[feature.tag] ? 'enabled' : 'disabled'}`
                 );
-                if (!isAvailable) {
-                    descSpan.style.opacity = '0.4';
-                }
                 this.updateFeatureResetButton();
                 console.log('[Features]', 'Calling change callback');
                 this.call('change');

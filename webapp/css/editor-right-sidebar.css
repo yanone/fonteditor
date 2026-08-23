@@ -104,3 +104,8 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
+.editor-feature-row.unavailable {
+    opacity: 0.4;
+    cursor: not-allowed;
+}

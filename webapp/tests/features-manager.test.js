@@ -107,4 +107,142 @@ describe('FeaturesManager setEnabledFeatures', () => {
         expect(ss03Name?.textContent).toBe('Geometric a g');
         expect(ss03Name?.classList.contains('custom-name')).toBe(true);
     });
+
+    test('uses source featureNames when the set is missing from the subset', async () => {
+        window.currentFontModel.features.features.push([
+            'ss03',
+            {
+                code: 'featureNames {\n  name 1 "Geometric a g";\n  name 3 "Geometric a g";\n};\nsub a by a.ss03;'
+            }
+        ]);
+        window.currentFontModel.analyzeFeatureTables.mockImplementation(
+            (tag) => ({
+                hasGSUB: tag === 'dlig' || tag === 'liga' || tag === 'ss03',
+                hasGPOS: false
+            })
+        );
+
+        const {
+            get_stylistic_set_names,
+            get_font_features_with_tables
+        } = require('../wasm-dist/babelfont_fontc_web');
+        get_stylistic_set_names.mockReturnValue(JSON.stringify({}));
+        get_font_features_with_tables.mockReturnValue(
+            JSON.stringify({
+                liga: ['GSUB'],
+                dlig: ['GSUB']
+            })
+        );
+
+        const manager = new FeaturesManager();
+        manager.editingFontBytes = new Uint8Array([1, 2, 3]);
+        document.body.appendChild(manager.createFeaturesSection());
+
+        await manager.updateFeaturesUI();
+        await flushUi();
+
+        const ss03Row = manager.featuresSection.querySelector(
+            'button[data-feature-tag="ss03"]'
+        )?.parentElement;
+        const ss03Name = ss03Row?.querySelector('.tag-description');
+        const ss03Button = ss03Row?.querySelector(
+            'button[data-feature-tag="ss03"]'
+        );
+
+        expect(ss03Name?.textContent).toBe('Geometric a g');
+        expect(ss03Name?.classList.contains('custom-name')).toBe(true);
+        expect(ss03Button?.disabled).toBe(true);
+        expect(ss03Row?.classList.contains('unavailable')).toBe(true);
+    });
+
+    test('uses Glyphs labels when featureNames are absent and the set is missing from the subset', async () => {
+        window.currentFontModel.features.features.push([
+            'ss01',
+            {
+                code: 'sub meem-ar by meem-ar.ss01;',
+                format_specific: {
+                    'com.schriftgestalt.Glyphs.labels': [
+                        { language: 'ENG', value: 'Alternate meem' }
+                    ]
+                }
+            }
+        ]);
+        window.currentFontModel.analyzeFeatureTables.mockImplementation(
+            (tag) => ({
+                hasGSUB: true,
+                hasGPOS: false
+            })
+        );
+
+        const {
+            get_stylistic_set_names,
+            get_font_features_with_tables
+        } = require('../wasm-dist/babelfont_fontc_web');
+        get_stylistic_set_names.mockReturnValue(JSON.stringify({}));
+        get_font_features_with_tables.mockReturnValue(
+            JSON.stringify({
+                liga: ['GSUB'],
+                dlig: ['GSUB']
+            })
+        );
+
+        const manager = new FeaturesManager();
+        manager.editingFontBytes = new Uint8Array([1, 2, 3]);
+        document.body.appendChild(manager.createFeaturesSection());
+
+        await manager.updateFeaturesUI();
+        await flushUi();
+
+        const ss01Row = manager.featuresSection.querySelector(
+            'button[data-feature-tag="ss01"]'
+        )?.parentElement;
+        const ss01Name = ss01Row?.querySelector('.tag-description');
+
+        expect(ss01Name?.textContent).toBe('Alternate meem');
+        expect(ss01Name?.classList.contains('custom-name')).toBe(true);
+        expect(ss01Row?.classList.contains('unavailable')).toBe(true);
+    });
+
+    test('prefers compiled names for sets that are in the subset over source names', async () => {
+        window.currentFontModel.features.features.push([
+            'ss03',
+            {
+                code: 'featureNames {\n  name 3 "From source";\n};\nsub a by a.ss03;'
+            }
+        ]);
+        window.currentFontModel.analyzeFeatureTables.mockImplementation(
+            (tag) => ({
+                hasGSUB: true,
+                hasGPOS: false
+            })
+        );
+
+        const {
+            get_stylistic_set_names,
+            get_font_features_with_tables
+        } = require('../wasm-dist/babelfont_fontc_web');
+        get_stylistic_set_names.mockReturnValue(
+            JSON.stringify({ ss03: 'From binary' })
+        );
+        get_font_features_with_tables.mockReturnValue(
+            JSON.stringify({
+                liga: ['GSUB'],
+                dlig: ['GSUB'],
+                ss03: ['GSUB']
+            })
+        );
+
+        const manager = new FeaturesManager();
+        manager.editingFontBytes = new Uint8Array([1, 2, 3]);
+        document.body.appendChild(manager.createFeaturesSection());
+
+        await manager.updateFeaturesUI();
+        await flushUi();
+
+        const ss03Name = manager.featuresSection
+            .querySelector('button[data-feature-tag="ss03"]')
+            ?.parentElement?.querySelector('.tag-description');
+
+        expect(ss03Name?.textContent).toBe('From binary');
+    });
 });
