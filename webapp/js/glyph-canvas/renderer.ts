@@ -204,6 +204,14 @@ function parseRgbaColor(color: string): {
     };
 }
 
+function withColorAlpha(color: string, alpha: number): string {
+    const parsed = parseRgbaColor(color);
+    if (!parsed) {
+        return color;
+    }
+    return `rgba(${parsed.r}, ${parsed.g}, ${parsed.b}, ${alpha})`;
+}
+
 function adjustGlyphRestingColor(color: string, deltaPercent: number): string {
     const rgba = parseRgbaColor(color);
     if (!rgba) {
@@ -2711,11 +2719,19 @@ export class GlyphCanvasRenderer {
                 const isSelected =
                     this.glyphCanvas.outlineEditor.selectedSidebearingHandle
                         ?.side === handle.side;
-                const restColor = handle.editable
-                    ? colors.SIDEBEARING_NORMAL
+                const isActive = isHovered || isSelected;
+                const strokeColor = handle.editable
+                    ? isSelected
+                        ? colors.SIDEBEARING_SELECTED
+                        : isHovered
+                          ? colors.SIDEBEARING_HOVERED
+                          : colors.SIDEBEARING_NORMAL
                     : colors.SIDEBEARING_DISABLED;
-                const strokeColor = restColor;
-                const fillColor = isSelected ? restColor : null;
+                const fillAlpha =
+                    APP_SETTINGS.OUTLINE_EDITOR.SIDEBEARING_HANDLE_FILL_ALPHA;
+                const fillColor = isActive
+                    ? withColorAlpha(strokeColor, fillAlpha)
+                    : `rgba(255, 255, 255, ${fillAlpha})`;
                 const handleRadius =
                     baseHandleRadius *
                     outlineChromeStateScale(isSelected, isHovered);

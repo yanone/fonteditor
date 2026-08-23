@@ -266,6 +266,7 @@ if (typeof APP_SETTINGS === 'undefined') {
             NODE_ON_DELIMITER_TOLERANCE: 0.25,
             HANDLE_HOVER_SCALE: 1.22,
             HANDLE_SELECTED_SCALE: 1.38,
+            SIDEBEARING_HANDLE_FILL_ALPHA: 0.3,
             NODE_HIT_PADDING: 2,
             ANCHOR_HIT_PADDING: 2,
             POINT_HIT_RADIUS_MIN: 5,
