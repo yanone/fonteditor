@@ -34,7 +34,8 @@ import {
 } from './perf-timeline';
 import { beginLoadingCursor, endLoadingCursor } from './loading-cursor';
 import { reloadLinkedEditorWindows } from './window-buttons';
-import { updateUrlState } from './url-state';
+import { readUrlState, updateUrlState } from './url-state';
+import { TOUR_FUSTAT_PATH } from './tour-slides';
 import { shouldHandleOpenPathBeforeEditorReady } from './open-font-readiness';
 import { serializeFontForSourceSave } from './font-manager';
 import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
@@ -62,6 +63,16 @@ const console = new Logger('FileBrowser');
 
 const LAST_CONTEXT_KEY = 'lastFilesystemContext';
 const FILE_BROWSER_READY_EVENT = 'fileBrowserReady';
+const DEFAULT_STARTUP_TEXT = 'hello مَرْحَباً';
+
+function armDefaultStartupRegularLocation(): void {
+    if (readUrlState().location) {
+        return;
+    }
+    if (window.stateManager) {
+        window.stateManager.editor_variation_location = { wght: 400 };
+    }
+}
 
 type ChangedPathRecord = {
     path?: unknown;
@@ -4116,13 +4127,47 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     (async () => {
-        const openDefaultEmptyFont = async (reason: string) => {
+        const applyDefaultStartupText = () => {
+            if (readUrlState().text) {
+                return;
+            }
+            if (window.stateManager) {
+                window.stateManager.editor_text_buffer = DEFAULT_STARTUP_TEXT;
+            }
+            window.glyphCanvas?.textRunEditor?.setTextBuffer?.(
+                DEFAULT_STARTUP_TEXT
+            );
+        };
+
+        const openDefaultStartupFont = async (reason: string) => {
             if (window.fontManager?.currentFont) {
                 return;
             }
             await waitForFontEditorReady();
             console.log('[FileBrowser]', reason);
-            await window.fontManager?.handleNewFont?.();
+
+            // Playwright (`?test=true`) keeps File → New so suites that open a
+            // font themselves are not racing a Fustat compile.
+            if (window.isTestMode?.()) {
+                await window.fontManager?.handleNewFont?.();
+                return;
+            }
+
+            try {
+                applyDefaultStartupText();
+                armDefaultStartupRegularLocation();
+                await openMemoryUrlFont(TOUR_FUSTAT_PATH);
+                applyDefaultStartupText();
+            } catch (error) {
+                console.error(
+                    '[FileBrowser]',
+                    'Failed to open default Fustat.glyphs; falling back to empty font:',
+                    error
+                );
+                if (!window.fontManager?.currentFont) {
+                    await window.fontManager?.handleNewFont?.();
+                }
+            }
         };
 
         try {
@@ -4144,8 +4189,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         'Failed to open memory font from URL params:',
                         error
                     );
-                    await openDefaultEmptyFont(
-                        'URL font inaccessible; opening empty untitled font'
+                    await openDefaultStartupFont(
+                        'URL font inaccessible; opening default Fustat.glyphs'
                     );
                     return;
                 }
@@ -4267,16 +4312,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 // URL pointed at an inaccessible file — keep the alert above,
-                // then open the same empty untitled font as a cold start.
-                await openDefaultEmptyFont(
-                    'URL font inaccessible; opening empty untitled font'
+                // then open the same default sample font as a cold start.
+                await openDefaultStartupFont(
+                    'URL font inaccessible; opening default Fustat.glyphs'
                 );
                 return;
             }
 
-            // No URL/PWA font — open the same empty untitled font as File → New.
-            await openDefaultEmptyFont(
-                'No URL font attached; opening empty untitled font'
+            // No URL/PWA font — open the memory sample font, not File → New.
+            await openDefaultStartupFont(
+                'No URL font attached; opening default Fustat.glyphs'
             );
         } catch (error: any) {
             console.error(
@@ -4285,13 +4330,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 error
             );
             try {
-                await openDefaultEmptyFont(
-                    'Startup font open failed; opening empty untitled font'
+                await openDefaultStartupFont(
+                    'Startup font open failed; opening default Fustat.glyphs'
                 );
             } catch (fallbackError) {
                 console.error(
                     '[FileBrowser]',
-                    'Failed to open default empty font on startup:',
+                    'Failed to open default startup font:',
                     fallbackError
                 );
             }

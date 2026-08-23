@@ -4019,9 +4019,13 @@ class GlyphCanvas {
                 // Seed first master instantly on initial load (no animation).
                 // Startup URL/state restore may overwrite this before the single
                 // fontReady overview render; avoid variationLocationChanged races.
-                const mastersForInitialSeed = !this.initialFontLoaded
-                    ? fontManager.currentFont?.fontModel?.masters
-                    : undefined;
+                const armedLocation =
+                    window.stateManager?.editor_variation_location;
+                const mastersForInitialSeed =
+                    !this.initialFontLoaded &&
+                    !(armedLocation && Object.keys(armedLocation).length > 0)
+                        ? fontManager.currentFont?.fontModel?.masters
+                        : undefined;
                 if (mastersForInitialSeed && mastersForInitialSeed.length > 0) {
                     const fontModel = fontManager.currentFont!.fontModel!;
                     const firstMaster = mastersForInitialSeed[0];

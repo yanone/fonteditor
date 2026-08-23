@@ -129,6 +129,16 @@ export async function restoreStateFromUrl(
                 for (const [tag, value] of Object.entries(location)) {
                     roundedLocation[tag] = Math.round(Number(value));
                 }
+                const file = urlState.file || window.stateManager.editor_file;
+                // First-master seed used to persist ExtraLight as wght:200.
+                if (
+                    typeof file === 'string' &&
+                    file.includes('Fustat.glyphs') &&
+                    Object.keys(roundedLocation).length === 1 &&
+                    roundedLocation.wght === 200
+                ) {
+                    roundedLocation.wght = 400;
+                }
                 window.stateManager.editor_variation_location = roundedLocation;
             }
         }
