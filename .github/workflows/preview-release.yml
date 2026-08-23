@@ -60,6 +60,7 @@ jobs:
               run: |
                   gh release create "${{ steps.version.outputs.TAG }}" \
                       --target "${{ steps.version.outputs.COMMIT_SHA }}" \
+                      --title "${{ steps.version.outputs.TAG }}" \
                       --notes-file release-notes.md \
                       --prerelease
 
