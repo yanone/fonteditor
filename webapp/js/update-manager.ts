@@ -26,7 +26,8 @@ let preferencesUiInitialized = false;
 let forceUpdateOffered = false;
 let forceReinstallInFlight = false;
 
-const FORCE_UPDATE_QUERY = 'cp-force-update';
+export const UPDATE_QUERY = 'update';
+const UPDATE_RELOAD_MARKER = /^\d{13}$/;
 
 export type PendingUpdate = {
     version: string;
@@ -91,6 +92,24 @@ export function shouldShowForceUpdate(
     offeredAfterManualCheck: boolean
 ): boolean {
     return !pending && offeredAfterManualCheck;
+}
+
+/**
+ * `?update` (any value except a 13-digit reload marker) starts a force
+ * reinstall. After caches are cleared the page reloads with
+ * `?update=<Date.now()>`; that marker is stripped and must not reinstall.
+ */
+export function shouldForceReinstallFromUrl(
+    search: string = typeof window !== 'undefined' ? window.location.search : ''
+): boolean {
+    const params = new URLSearchParams(
+        search.startsWith('?') ? search.slice(1) : search
+    );
+    if (!params.has(UPDATE_QUERY)) {
+        return false;
+    }
+    const value = params.get(UPDATE_QUERY) || '';
+    return !UPDATE_RELOAD_MARKER.test(value);
 }
 
 export function isAppWindowActive(
@@ -483,12 +502,12 @@ function applyPendingUpdate(): void {
     });
 }
 
-function stripForceUpdateQuery(): void {
+function stripUpdateQuery(): void {
     const url = new URL(window.location.href);
-    if (!url.searchParams.has(FORCE_UPDATE_QUERY)) {
+    if (!url.searchParams.has(UPDATE_QUERY)) {
         return;
     }
-    url.searchParams.delete(FORCE_UPDATE_QUERY);
+    url.searchParams.delete(UPDATE_QUERY);
     window.history.replaceState(window.history.state, '', url.toString());
 }
 
@@ -539,12 +558,17 @@ async function forceReinstallFromNetwork(): Promise<void> {
     }
 
     const url = new URL(window.location.href);
-    url.searchParams.set(FORCE_UPDATE_QUERY, String(Date.now()));
+    url.searchParams.set(UPDATE_QUERY, String(Date.now()));
     window.location.replace(url.toString());
 }
 
 export function initPreferencesVersionUi(): void {
-    stripForceUpdateQuery();
+    const skipUrlReinstall = !!window.isTestMode?.();
+    if (!skipUrlReinstall && shouldForceReinstallFromUrl()) {
+        void forceReinstallFromNetwork();
+    } else {
+        stripUpdateQuery();
+    }
     refreshPreferencesVersionUi();
     initScheduledUpdateChecks();
 

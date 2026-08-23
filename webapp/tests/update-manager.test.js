@@ -7,7 +7,8 @@ const {
     shouldShowForceUpdate,
     isAppWindowActive,
     didAppWindowBecomeActive,
-    isPreviewReleaseId
+    isPreviewReleaseId,
+    shouldForceReinstallFromUrl
 } = require('../js/update-manager.ts');
 
 describe('update-manager version helpers', () => {
@@ -163,5 +164,16 @@ describe('update-manager version helpers', () => {
             displayVersion: 'v0.0.11-pre.20260822',
             isPreview: true
         });
+    });
+
+    test('treats ?update as a force-reinstall trigger except the reload marker', () => {
+        expect(shouldForceReinstallFromUrl('')).toBe(false);
+        expect(shouldForceReinstallFromUrl('update')).toBe(true);
+        expect(shouldForceReinstallFromUrl('?update')).toBe(true);
+        expect(shouldForceReinstallFromUrl('?update=true')).toBe(true);
+        expect(shouldForceReinstallFromUrl('?test=true&update')).toBe(true);
+        expect(shouldForceReinstallFromUrl('?update=1734567890123')).toBe(
+            false
+        );
     });
 });
