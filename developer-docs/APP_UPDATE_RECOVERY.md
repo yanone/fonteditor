@@ -1,5 +1,7 @@
 # Recovering a stuck app version
 
+If Preferences already shows the version you expect, but switching glyphs does not load outlines and the glyph stack says `(none)`, that is a stuck **editing session**, not a stuck version. Use `developer-docs/STUCK_EDITING_RECOVERY.md`.
+
 The editor keeps a copy of itself on your computer so it can start quickly and work offline. That copy is separate from your fonts. Reloading the page, or quitting and reopening the window, often **does not** load a newly published version. The browser keeps serving the old copy until it is removed.
 
 Work through the methods in order. Stop when Preferences shows the version you expect.
