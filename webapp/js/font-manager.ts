@@ -49,7 +49,7 @@ import {
     isStartupStateReady,
     resetStartupStateReady
 } from './state-restore';
-import { readUrlState } from './url-state';
+import { formatUrl, readUrlState } from './url-state';
 import {
     normalizeWorkerReplayTargets,
     type WorkerReplayTarget
@@ -2124,7 +2124,7 @@ class FontManager {
                 url.searchParams.delete('glyph_stack');
                 url.searchParams.delete('isInterpolating');
                 url.searchParams.delete('isAnimating');
-                window.history.replaceState(null, '', url.toString());
+                window.history.replaceState(null, '', formatUrl(url));
             }
 
             // Reset the state manager's cached location so the startup

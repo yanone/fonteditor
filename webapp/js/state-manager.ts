@@ -353,7 +353,7 @@ export class StateManager {
         // Text buffer (limit length)
         const textBuffer = this._state.editor_text_buffer;
         if (textBuffer && textBuffer.length < 200) {
-            urlState.text = encodeURIComponent(textBuffer);
+            urlState.text = textBuffer;
         }
 
         // Cursor position

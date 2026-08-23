@@ -15,6 +15,58 @@ export interface AppState {
     features?: string | null; // Comma-separated list of active features
 }
 
+function mustPercentEncodeQueryChar(ch: string, isKey: boolean): boolean {
+    const code = ch.codePointAt(0);
+    if (code === undefined) {
+        return false;
+    }
+    // C0 controls, space, and DEL cannot appear raw in a URL.
+    if (code <= 0x20 || code === 0x7f) {
+        return true;
+    }
+    // Query delimiters, percent-escape introducer, and '+' (form-urlencoded
+    // space) must be escaped. '=' splits key from value.
+    if (ch === '#' || ch === '&' || ch === '%' || ch === '+') {
+        return true;
+    }
+    return isKey && ch === '=';
+}
+
+/**
+ * Percent-encode only characters that would break the query string.
+ * ASCII space becomes `+` in values so `text=hello+world` stays readable;
+ * a literal `+` becomes `%2B`.
+ */
+export function encodeQueryComponent(value: string, isKey = false): string {
+    let encoded = '';
+    for (const ch of value) {
+        if (!isKey && ch === ' ') {
+            encoded += '+';
+            continue;
+        }
+        encoded += mustPercentEncodeQueryChar(ch, isKey)
+            ? encodeURIComponent(ch)
+            : ch;
+    }
+    return encoded;
+}
+
+export function serializeSearchParams(params: URLSearchParams): string {
+    const parts: string[] = [];
+    for (const [key, value] of params) {
+        parts.push(
+            `${encodeQueryComponent(key, true)}=${encodeQueryComponent(value)}`
+        );
+    }
+    return parts.join('&');
+}
+
+/** Absolute href using minimal query encoding (keeps `:`, `/`, `,`, Unicode). */
+export function formatUrl(url: URL): string {
+    const query = serializeSearchParams(url.searchParams);
+    return `${url.origin}${url.pathname}${query ? `?${query}` : ''}${url.hash}`;
+}
+
 /**
  * Update URL with application state
  * Only updates parameters that are provided (partial update)
@@ -33,7 +85,8 @@ export function updateUrlState(state: AppState): void {
     }
 
     // Update URL without reload
-    const newUrl = `${url.pathname}${searchParams.toString() ? '?' + searchParams.toString() : ''}`;
+    const query = serializeSearchParams(searchParams);
+    const newUrl = `${url.pathname}${query ? '?' + query : ''}`;
     window.history.replaceState(null, '', newUrl);
     console.log('URL updated:', newUrl);
 }
@@ -54,9 +107,9 @@ export function readUrlState(): AppState {
     const mode = urlParams.get('mode');
     if (mode === 'text' || mode === 'edit') state.mode = mode;
 
-    // Text
+    // Text (`+` is a space; `%2B` is a literal plus)
     const text = urlParams.get('text');
-    if (text) state.text = decodeURIComponent(text);
+    if (text) state.text = text;
 
     // Cursor
     const cursor = urlParams.get('cursor');

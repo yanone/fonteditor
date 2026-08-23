@@ -9,7 +9,7 @@
 import { Logger } from './logger';
 import { runBridgeUndoRedo } from './change-bridge-init';
 import { getUndoRedoContext } from './undo-redo-context';
-import { encodeFeatures, encodeLocation } from './url-state';
+import { encodeFeatures, encodeLocation, formatUrl } from './url-state';
 import { windowRole } from './window-role';
 
 const console = new Logger('WindowButtons');
@@ -151,7 +151,7 @@ function buildLinkedWindowReloadUrl(childWindow: Window): string {
 
     url.searchParams.set('sync', 'true');
     url.searchParams.set('theme', getCurrentThemePreference());
-    return url.toString();
+    return formatUrl(url);
 }
 
 function applyCurrentEditorStateToUrl(url: URL): void {
@@ -233,7 +233,7 @@ export function prepareLinkedWindowOpen(): LinkedWindowLaunchInfo {
     }
 
     return {
-        url: url.toString(),
+        url: formatUrl(url),
         linkedOrdinal,
         sessionId: windowRole.sessionId,
         fontPath
