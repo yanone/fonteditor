@@ -1,0 +1,75 @@
+# Recovering a stuck app version
+
+The editor keeps a copy of itself on your computer so it can start quickly and work offline. That copy is separate from your fonts. Reloading the page, or quitting and reopening the window, often **does not** load a newly published version. The browser keeps serving the old copy until it is removed.
+
+Work through the methods in order. Stop when Preferences shows the version you expect.
+
+**Use the same window you actually work in.** The official app (`https://editor.counterpunch.space`), the preview app (`https://preview.editor.counterpunch.space`), and a local development server are three different copies. Clearing one does not fix another. If you installed the editor as an app (its own window, no address bar), do these steps **in that window**, not in a normal Chrome tab of the same site.
+
+After a successful recovery, Preferences should show:
+
+- preview: a tag like `v0.0.12-pre.20260823`
+- official release: a tag like `v0.2.1`
+
+## 1. Preferences
+
+1. Open Preferences: the gear in the title bar, or `Cmd/Ctrl+,`.
+2. Look at the version line. If it already matches the build you want, you are done.
+3. Click **Check for updates**.
+4. If the app offers **Update**, click it and wait for the reload.
+5. If it says you are already on the latest published build, it may show **Force update**. Click that. The window reloads from the network. Your fonts on disk and your usual editor settings stay.
+
+If Preferences has no Check for updates / Force update, or clicking them does nothing, use method 2. The running copy may predate those controls.
+
+## 2. Delete the stored copy in Chrome
+
+These steps are for **Chrome** (or Chromium / Edge). Do them while you are online.
+
+1. Close every other Counterpunch window or tab for **this same address**, so only the stuck one is open.
+2. Open Developer Tools in that window:
+    - macOS: `Cmd+Option+I`
+    - Windows/Linux: `Ctrl+Shift+I` or `F12`
+    - Or Chrome menu → **More tools** → **Developer tools**
+3. In the DevTools toolbar, open the **Application** panel. If you do not see that word, click the `»` overflow menu and pick **Application**.
+4. In the left sidebar, click **Service workers**.
+5. If a worker is listed, click **Unregister**. (If the list is empty, that is fine; continue.)
+6. In the left sidebar, click **Cache storage**. Open the disclosure triangle if there are named caches underneath. For **each** named cache, right-click it and choose **Delete**. Typical names look like `counterpunch-pwa-…`.
+7. Close Developer Tools.
+8. Close the Counterpunch window completely.
+9. Open the same address (or the installed app) again.
+
+A hard reload (`Cmd+Shift+R` / `Ctrl+Shift+R`) **without** unregistering the worker is usually not enough. The stored copy can still win.
+
+### What not to click
+
+On the Application panel there is a **Storage** section with **Clear site data**. That wipes much more than the app copy: browser settings for the site, and other stored data, not just the cached editor. Do not use it unless you intend a full site reset. Method 2 above is the narrower cleanup.
+
+## 3. Last resort: paste into the Console
+
+Only if method 2 is awkward (for example you cannot find Application). This is the same cleanup as Force update.
+
+1. Open Developer Tools as in method 2.
+2. Open the **Console** panel.
+3. Paste the following and press Return. The page should reload.
+
+```js
+const names = await caches.keys();
+await Promise.all(names.map((n) => caches.delete(n)));
+for (const reg of await navigator.serviceWorker.getRegistrations()) {
+    await reg.unregister();
+}
+location.href =
+    location.origin +
+    location.pathname +
+    '?cp-force-update=' +
+    Date.now();
+```
+
+If the Console refuses the paste, type `allow pasting` when Chrome asks, then paste again.
+
+## Still on the old version?
+
+- Confirm the address in the window matches the site you meant (official vs preview vs localhost).
+- Confirm every other window of that address is closed; an extra window can keep the old copy alive.
+- Quit Chrome fully (not only the tab) and open the site again after method 2.
+- Check [GitHub Releases](https://github.com/counterpunchspace/editor/releases) for the tag you expect, then compare it to Preferences after reload.

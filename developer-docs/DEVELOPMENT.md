@@ -192,8 +192,11 @@ That script starts the Preview Release workflow. The workflow waits for a green 
 
 Users will see an orange notification on the Preferences gear within about 10 minutes. Preferences shows the current version, Check for updates, and an Update control with a changelog link when a new build is ready.
 
+If a window stays on an old cut after a deploy, see `developer-docs/APP_UPDATE_RECOVERY.md`. Reloading is not enough.
+
 ## Related Developer Docs
 
 - `APP.md` is the principal authority for application behavior
 - `developer-docs/COMPILATION_EDIT_POLICY.md` is the authority for compilation scheduling and fast-path behavior
 - `developer-docs/JS_EVENTS.md` documents emitted JavaScript events
+- `developer-docs/APP_UPDATE_RECOVERY.md` is the stuck-client update recovery procedure
