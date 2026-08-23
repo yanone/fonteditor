@@ -43,7 +43,8 @@ import { sidebarErrorDisplay } from '../sidebar-error-display';
 import {
     getHighestVisibleVerticalMetricValue,
     getLowestVisibleVerticalMetricValue,
-    getSnappableVerticalMetricValues
+    getSnappableVerticalMetricValues,
+    getVisibleVerticalMetricValues
 } from './vertical-metrics';
 import { isShowAllMetricsEnabled } from '../show-all-metrics-pref';
 import {
@@ -74,7 +75,10 @@ import { applyFontPointScreenLock } from './viewport';
 import { userspaceToDesignspace, designspaceToUserspace } from '../locations';
 import type { DesignspaceLocation, UserspaceLocation } from '../locations';
 import { SavedVariationState } from '../saved-variation-state';
-import { normalizeAffineTransform } from '../glyph-path-geometry';
+import {
+    normalizeAffineTransform,
+    transformPointWithAffine
+} from '../glyph-path-geometry';
 import {
     applyLiveSidebearingVisualSync,
     formatSidebearingHistoryValue,
@@ -10650,6 +10654,25 @@ export class OutlineEditor {
         );
     }
 
+    private outlineChromeIsHovered(): boolean {
+        return (
+            !!this.hoveredPointIndex ||
+            this.hoveredAnchorIndex !== null ||
+            !!this.hoveredPathSegment
+        );
+    }
+
+    private yieldComponentHoverToOutlineChrome(): void {
+        if (
+            !this.outlineChromeIsHovered() ||
+            this.hoveredComponentIndex === null
+        ) {
+            return;
+        }
+        this.hoveredComponentIndex = null;
+        this.glyphCanvas.render();
+    }
+
     /**
      * True when an anchor sits on a path node (same layer), within delimiter
      * tolerance. Those anchors keep the larger chrome so they stay pickable.
@@ -10675,21 +10698,53 @@ export class OutlineEditor {
         return false;
     }
 
+    private isAnchorOnVerticalMetric(x: number, y: number): boolean {
+        const tolerance =
+            APP_SETTINGS.OUTLINE_EDITOR.NODE_ON_DELIMITER_TOLERANCE;
+        const world = transformPointWithAffine(
+            this.getAccumulatedTransform(),
+            x,
+            y
+        );
+        if (Math.abs(world.y) <= tolerance) {
+            return true;
+        }
+        for (const metricY of getVisibleVerticalMetricValues(
+            this.renderVerticalMetrics
+        )) {
+            if (Math.abs(world.y - metricY) <= tolerance) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Screen-pixel pick radius for glyph anchors (visual size + padding, floored). */
-    private getAnchorHitRadiusScreen(coincidentWithNode: boolean): number {
+    private getAnchorHitRadiusScreen(
+        coincidentWithNode: boolean,
+        isDiamond: boolean
+    ): number {
         const nodeSize = this.getZoomInterpolatedScreenSize(
             APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MIN_ZOOM,
             APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MID_ZOOM,
             APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MAX_ZOOM
         );
+        const settings = APP_SETTINGS.OUTLINE_EDITOR;
         const visual = coincidentWithNode
             ? nodeSize *
-              APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_RATIO *
-              APP_SETTINGS.OUTLINE_EDITOR.NODE_DIAMOND_SIZE_RATIO
-            : nodeSize * APP_SETTINGS.OUTLINE_EDITOR.NODE_DIAMOND_SIZE_RATIO;
+              settings.ANCHOR_SIZE_RATIO *
+              (isDiamond ? settings.NODE_DIAMOND_SIZE_RATIO : 1)
+            : nodeSize * (isDiamond ? settings.NODE_DIAMOND_SIZE_RATIO : 1);
+        const padded = Math.max(
+            settings.POINT_HIT_RADIUS_MIN,
+            visual + settings.ANCHOR_HIT_PADDING
+        );
+        if (!coincidentWithNode) {
+            return padded;
+        }
         return Math.max(
-            APP_SETTINGS.OUTLINE_EDITOR.POINT_HIT_RADIUS_MIN,
-            visual + APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_HIT_PADDING
+            padded,
+            this.getNodeHitRadiusScreen() + settings.ANCHOR_COINCIDENT_HIT_EXTRA
         );
     }
 
@@ -11652,20 +11707,6 @@ export class OutlineEditor {
 
         // If in edit mode with a component/point/anchor hovered, prioritize that over glyph switching
         if (this.active && this.layerData && !this.isPreviewMode) {
-            // Double-click on component - enter component editing (without selecting it)
-            if (this.hoveredComponentIndex !== null) {
-                console.log(
-                    '[OutlineEditor] Entering component editing for index:',
-                    this.hoveredComponentIndex
-                );
-                // Ensure we have an actual layer selection for component editing.
-                // This avoids requiring a manual click in the layer list first.
-                void this.enterComponentEditingFromHover(
-                    this.hoveredComponentIndex,
-                    e
-                );
-                return true; // Event handled - skip single-click
-            }
             // Double-click on point - toggle smooth for all selected points
             if (this.hoveredPointIndex) {
                 this.togglePointSmoothSelection(
@@ -11688,6 +11729,19 @@ export class OutlineEditor {
                         segmentClick.shapeIndex
                     );
                 }
+            }
+
+            // Double-click on component - enter nested editing (after nodes)
+            if (this.hoveredComponentIndex !== null) {
+                console.log(
+                    '[OutlineEditor] Entering component editing for index:',
+                    this.hoveredComponentIndex
+                );
+                void this.enterComponentEditingFromHover(
+                    this.hoveredComponentIndex,
+                    e
+                );
+                return true;
             }
         }
 
@@ -11839,60 +11893,6 @@ export class OutlineEditor {
             this._sidebearingPointerBaselineReady = false;
             this.glyphCanvas.updatePropertyPanel();
             this.glyphCanvas.render();
-            return;
-        }
-
-        // Check if clicking on a component first (components take priority)
-        if (this.hoveredComponentIndex !== null) {
-            this.selectedGuideHandle = null;
-            this.selectedSidebearingHandle = null;
-            if (e.shiftKey) {
-                // Shift-click: add to or remove from selection (keep points and anchors for mixed selection)
-                const existingIndex = this.selectedComponents.indexOf(
-                    this.hoveredComponentIndex
-                );
-                if (existingIndex >= 0) {
-                    this.selectedComponents.splice(existingIndex, 1);
-                } else {
-                    this.selectedComponents.push(this.hoveredComponentIndex);
-                }
-                this.glyphCanvas.updatePropertyPanel();
-                this.glyphCanvas.render();
-            } else {
-                const isInSelection = this.selectedComponents.includes(
-                    this.hoveredComponentIndex
-                );
-                const nextSelection = isInSelection
-                    ? [...this.selectedComponents]
-                    : [this.hoveredComponentIndex];
-
-                if (!isInSelection) {
-                    this.selectedComponents = [this.hoveredComponentIndex];
-                    this.selectedPoints = [];
-                    this.selectedAnchors = [];
-                }
-                // If already in selection, keep all selected components, points, and anchors
-
-                if (this.isAutomaticComposedLayer()) {
-                    this.glyphCanvas.updatePropertyPanel();
-                    this.glyphCanvas.render();
-                    return;
-                }
-
-                this.isDraggingComponent = true;
-                this._hasMoved = false;
-                this._metricsKeyInteractionSide = null;
-                this._dragType = 'component';
-                this._preDragDesc = this._buildComponentDesc();
-                this._componentDragDeltaX = 0;
-                window.patchSyncEngine?.beginTransaction('Drag component');
-                this.glyphCanvas.lastMouseX = e.clientX;
-                this.glyphCanvas.lastMouseY = e.clientY;
-                this.lastGlyphX = null;
-                this.lastGlyphY = null;
-                this.glyphCanvas.updatePropertyPanel();
-                this.glyphCanvas.render();
-            }
             return;
         }
 
@@ -12069,6 +12069,57 @@ export class OutlineEditor {
         }
 
         if (this.handlePathSegmentSelectionClick(e)) {
+            return;
+        }
+
+        // Components hit last: nodes, anchors, and segments sit on top of fills.
+        if (this.hoveredComponentIndex !== null) {
+            this.selectedGuideHandle = null;
+            this.selectedSidebearingHandle = null;
+            if (e.shiftKey) {
+                // Shift-click: add to or remove from selection (keep points and anchors for mixed selection)
+                const existingIndex = this.selectedComponents.indexOf(
+                    this.hoveredComponentIndex
+                );
+                if (existingIndex >= 0) {
+                    this.selectedComponents.splice(existingIndex, 1);
+                } else {
+                    this.selectedComponents.push(this.hoveredComponentIndex);
+                }
+                this.glyphCanvas.updatePropertyPanel();
+                this.glyphCanvas.render();
+            } else {
+                const isInSelection = this.selectedComponents.includes(
+                    this.hoveredComponentIndex
+                );
+
+                if (!isInSelection) {
+                    this.selectedComponents = [this.hoveredComponentIndex];
+                    this.selectedPoints = [];
+                    this.selectedAnchors = [];
+                }
+                // If already in selection, keep all selected components, points, and anchors
+
+                if (this.isAutomaticComposedLayer()) {
+                    this.glyphCanvas.updatePropertyPanel();
+                    this.glyphCanvas.render();
+                    return;
+                }
+
+                this.isDraggingComponent = true;
+                this._hasMoved = false;
+                this._metricsKeyInteractionSide = null;
+                this._dragType = 'component';
+                this._preDragDesc = this._buildComponentDesc();
+                this._componentDragDeltaX = 0;
+                window.patchSyncEngine?.beginTransaction('Drag component');
+                this.glyphCanvas.lastMouseX = e.clientX;
+                this.glyphCanvas.lastMouseY = e.clientY;
+                this.lastGlyphX = null;
+                this.lastGlyphY = null;
+                this.glyphCanvas.updatePropertyPanel();
+                this.glyphCanvas.render();
+            }
             return;
         }
 
@@ -15602,6 +15653,7 @@ export class OutlineEditor {
         this.updateHoveredSidebearingHandle();
         this.updateHoveredComponent();
         this.updateHoveredPointAndAnchor();
+        this.yieldComponentHoverToOutlineChrome();
         this.updateHoveredAddPointPreview();
         this.updateHoveredCommandCurvePreview();
     }
@@ -16164,7 +16216,8 @@ export class OutlineEditor {
                             this.anchorSharesLocationWithNode(
                                 anchor.x,
                                 anchor.y
-                            )
+                            ),
+                            this.isAnchorOnVerticalMetric(anchor.x, anchor.y)
                         ) / scale;
                     if (dist <= anchorHitRadius && dist < bestAnchorDist) {
                         bestAnchorDist = dist;
@@ -19368,6 +19421,7 @@ export class OutlineEditor {
             this.updateHoveredGuideHandle();
             this.updateHoveredComponent();
             this.updateHoveredPointAndAnchor();
+            this.yieldComponentHoverToOutlineChrome();
             this.updateHoveredAddPointPreview();
         }
         this.syncEditToolAvailability();

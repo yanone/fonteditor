@@ -64,12 +64,10 @@ describe('outline chrome size interpolation', () => {
         );
     });
 
-    test('standalone anchors match diamond node size; coincident anchors stay larger', () => {
-        const largestNodeRatio = Math.max(
-            settings.NODE_SMOOTH_SIZE_RATIO,
+    test('standalone anchors match same-shape node size; coincident anchors stay larger', () => {
+        expect(settings.ANCHOR_SIZE_RATIO).toBeGreaterThan(
             settings.NODE_DIAMOND_SIZE_RATIO
         );
-        expect(settings.ANCHOR_SIZE_RATIO).toBeGreaterThan(largestNodeRatio);
         expect(settings.NODE_DIAMOND_SIZE_RATIO).toBeCloseTo(Math.sqrt(2));
 
         for (const scale of [
@@ -85,6 +83,7 @@ describe('outline chrome size interpolation', () => {
             );
             const diamondSize = nodeSize * settings.NODE_DIAMOND_SIZE_RATIO;
             const coincidentSize = nodeSize * settings.ANCHOR_SIZE_RATIO;
+            expect(coincidentSize).toBeGreaterThan(nodeSize);
             expect(coincidentSize).toBeGreaterThan(diamondSize);
         }
     });

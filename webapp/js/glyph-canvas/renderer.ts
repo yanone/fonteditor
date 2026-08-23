@@ -1711,16 +1711,17 @@ export class GlyphCanvasRenderer {
 
     private getAnchorChromeFontRadius(
         invScale: number,
-        coincidentWithNode: boolean
+        coincidentWithNode: boolean,
+        isDiamond: boolean
     ): number {
         const nodeRadius = this.getNodeChromeFontRadius(invScale);
         const settings = APP_SETTINGS.OUTLINE_EDITOR;
-        return (
-            nodeRadius *
-            (coincidentWithNode
-                ? settings.ANCHOR_SIZE_RATIO
-                : settings.NODE_DIAMOND_SIZE_RATIO)
-        );
+        if (coincidentWithNode) {
+            return nodeRadius * settings.ANCHOR_SIZE_RATIO;
+        }
+        return isDiamond
+            ? nodeRadius * settings.NODE_DIAMOND_SIZE_RATIO
+            : nodeRadius;
     }
 
     private addOutlineChromePath(
@@ -2614,9 +2615,11 @@ export class GlyphCanvasRenderer {
                         x,
                         y
                     );
+                const isDiamond = this.isOnVerticalMetricLine(x, y);
                 const anchorSize = this.getAnchorChromeFontRadius(
                     invScale,
-                    coincidentWithNode
+                    coincidentWithNode,
+                    isDiamond
                 );
 
                 // Inverse transform keeps anchors square in screen space.
@@ -2636,7 +2639,6 @@ export class GlyphCanvasRenderer {
                     fillColor = desaturateColor(fillColor);
                 }
 
-                const isDiamond = this.isOnVerticalMetricLine(x, y);
                 const shapeKind: 'square' | 'diamond' = isDiamond
                     ? 'diamond'
                     : 'square';

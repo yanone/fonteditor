@@ -98,8 +98,9 @@ const APP_SETTINGS = {
 
         CONTOUR_DIRECTION_ARROW_OPACITY: 0.5,
 
-        // Anchors match diamond on-curve size, except when they sit on a node
-        // (`ANCHOR_SIZE_RATIO`) so the outer ring stays independently pickable.
+        // Anchors match the on-curve chrome of the same shape (square or
+        // diamond), except when they sit on a node (`ANCHOR_SIZE_RATIO`) so
+        // the outer ring stays independently pickable.
         ANCHOR_SIZE_RATIO: 1.7,
 
         // Component marker size
@@ -120,6 +121,9 @@ const APP_SETTINGS = {
         // Node/anchor pick radii track visual size + padding, with a floor for low zoom.
         NODE_HIT_PADDING: 2, // px added to visual node radius for hover/click picking
         ANCHOR_HIT_PADDING: 2, // px added to visual anchor radius for hover/click picking
+        // Extra screen px outside the node pick radius so an anchor under a
+        // node has a slightly larger outer ring than the padded node hit.
+        ANCHOR_COINCIDENT_HIT_EXTRA: 6,
         POINT_HIT_RADIUS_MIN: 5, // px - minimum node/anchor pick radius (screen pixels)
         // Prefer on-curve nodes when an off-curve handle is within this many screen px.
         ON_CURVE_HIT_PREFERENCE: 1.5,

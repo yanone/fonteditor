@@ -6261,6 +6261,68 @@ describe('GlyphCanvas hit testing', () => {
 
         expect(canvas.outlineEditor.hoveredGlyphIndex).toBe(-1);
     });
+
+    test('performHitDetection clears component hover when an anchor is hovered', () => {
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.isPreviewMode = false;
+        canvas.mouseX = 300;
+        canvas.mouseY = -300;
+        canvas.outlineEditor.hoveredComponentIndex = 0;
+
+        canvas.outlineEditor.performHitDetection(null);
+
+        expect(canvas.outlineEditor.hoveredAnchorIndex).toBe(0);
+        expect(canvas.outlineEditor.hoveredComponentIndex).toBe(null);
+    });
+
+    test('onSingleClick selects a hovered anchor even if a component is also hovered', async () => {
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.isPreviewMode = false;
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.hoveredComponentIndex = 0;
+        canvas.outlineEditor.hoveredAnchorIndex = 0;
+        canvas.outlineEditor.hoveredPointIndex = null;
+        canvas.outlineEditor.hoveredPathSegment = null;
+        jest.spyOn(canvas, 'updatePropertyPanel').mockImplementation(() => {});
+        jest.spyOn(canvas, 'render').mockImplementation(() => {});
+
+        await canvas.outlineEditor.onSingleClick({
+            shiftKey: false,
+            metaKey: false,
+            ctrlKey: false,
+            altKey: false,
+            clientX: 0,
+            clientY: 0
+        });
+
+        expect(canvas.outlineEditor.selectedAnchors).toEqual([0]);
+        expect(canvas.outlineEditor.selectedComponents).toEqual([]);
+        expect(canvas.outlineEditor.isDraggingAnchor).toBe(true);
+        expect(canvas.outlineEditor.isDraggingComponent).toBe(false);
+    });
+
+    test('updateHoveredPointAndAnchor prefers a stacked anchor just outside the node pick radius', () => {
+        canvas.outlineEditor.layerData = {
+            shapes: [
+                {
+                    Path: {
+                        nodes: [{ x: 50, y: 50, type: 'l' }],
+                        closed: true
+                    }
+                }
+            ],
+            anchors: [{ x: 50, y: 50 }]
+        };
+        // Node pick is ~9px at this zoom; coincident extra is 12px, so 11px
+        // out is only the stacked-anchor ring.
+        canvas.mouseX = 61;
+        canvas.mouseY = -50;
+
+        canvas.outlineEditor.updateHoveredPointAndAnchor();
+
+        expect(canvas.outlineEditor.hoveredAnchorIndex).toBe(0);
+        expect(canvas.outlineEditor.hoveredPointIndex).toBe(null);
+    });
 });
 
 describe('GlyphCanvas sidebearing handle movement', () => {
