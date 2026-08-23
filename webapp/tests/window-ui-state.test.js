@@ -7,6 +7,7 @@ describe('window UI compact state', () => {
     beforeEach(() => {
         localStorage.clear();
         delete window.windowRole;
+        delete window.__windowUiRuntime;
         jest.resetModules();
     });
 
@@ -118,6 +119,43 @@ describe('window UI compact state', () => {
         ui.flushSaveWindowUi();
         expect(localStorage.getItem('windowUi.main')).not.toContain(
             'fontinfo='
+        );
+    });
+
+    test('keeps overview mode and tile size when a second module copy saves layout', () => {
+        const layoutCopy = loadUi();
+        jest.resetModules();
+        const overviewCopy = require('../js/window-ui-state');
+        overviewCopy.setOverviewDisplayMode('matrix');
+        overviewCopy.setOverviewSize(7);
+        overviewCopy.setOverviewFollowEnabled(true);
+        overviewCopy.setGlyphFilterIds(['basic/all']);
+        overviewCopy.flushSaveWindowUi();
+
+        layoutCopy.saveWindowUiFromDom();
+        const stored = localStorage.getItem('windowUi.main');
+        expect(stored).toContain('overview=matrix,7');
+        expect(stored).toContain('follow=1');
+        expect(stored).toContain('filter=basic%2Fall');
+        expect(layoutCopy.getOverviewDisplayMode()).toBe('matrix');
+        expect(layoutCopy.getOverviewSize()).toBe(7);
+    });
+
+    test('reloads the linked slot after window role is assigned', () => {
+        const ui = loadUi();
+        expect(localStorage.getItem('windowUi.main')).toBe(
+            ui.DEFAULT_WINDOW_UI_STRING
+        );
+
+        window.windowRole = { linkedOrdinal: 1 };
+        localStorage.setItem(
+            'windowUi.1',
+            'v1;docs=-;rows=100,-;top=0,33,67;overview=matrix,8'
+        );
+        expect(ui.getOverviewDisplayMode()).toBe('matrix');
+        expect(ui.getOverviewSize()).toBe(8);
+        expect(localStorage.getItem('windowUi.main')).toBe(
+            ui.DEFAULT_WINDOW_UI_STRING
         );
     });
 });

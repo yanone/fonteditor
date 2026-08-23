@@ -41,7 +41,7 @@ IndexedDB keys such as directory handles and export destinations are not include
 | [`tourStarted`](#key-tourstarted) | Set when the user starts the tour from the intro. | getItem, setItem | `webapp/js/tour.ts` |
 | [`welcomeDismissedVersion`](#key-welcomedismissedversion) | Version of the welcome screen last dismissed by the user. | getItem, setItem | `webapp/js/welcome-screen.ts` |
 | [`lastPath.${pluginId}`](#key-lastpath-pluginid-) | Persists last path. | getItem, setItem | `webapp/js/file-browser.ts` |
-| [`linkedWindowCounter.${sessionId}.${fontPath}`](#key-linkedwindowcounter-sessionid-fontpath-) | Persists linked window counter. | getItem, setItem | `webapp/js/window-role.ts` |
+| [`linkedWindowOccupancy.${sessionId}`](#key-linkedwindowoccupancy-sessionid-) | Persists linked window occupancy. | getItem, setItem, removeItem | `webapp/js/window-role.ts` |
 | [`windowUi.${slot}`](#key-windowui-slot-) | Persists window ui. | getItem, setItem | `webapp/js/window-ui-state.ts` |
 
 <a id="key-animationframes"></a>
@@ -372,17 +372,17 @@ IndexedDB keys such as directory handles and export destinations are not include
   - webapp/js/file-browser.ts:4054 `getItem` via function `initFileBrowser`
   - webapp/js/file-browser.ts:4475 `setItem` via module `top-level module code`
 
-<a id="key-linkedwindowcounter-sessionid-fontpath-"></a>
+<a id="key-linkedwindowoccupancy-sessionid-"></a>
 
-## `linkedWindowCounter.${sessionId}.${fontPath}`
+## `linkedWindowOccupancy.${sessionId}`
 
-- Purpose: Persists linked window counter.
+- Purpose: Persists linked window occupancy.
 - Kind: pattern
-- Operations: `getItem`, `setItem`
-- Default when unset: `0`
+- Operations: `getItem`, `setItem`, `removeItem`
 - Sites:
-  - webapp/js/window-role.ts:66 `getItem` via method `allocateLinkedOrdinal`
-  - webapp/js/window-role.ts:73 `setItem` via method `allocateLinkedOrdinal`
+  - webapp/js/window-role.ts:206 `getItem` via method `_readOccupancy`
+  - webapp/js/window-role.ts:238 `removeItem` via method `_persistOccupancy`
+  - webapp/js/window-role.ts:242 `setItem` via method `_persistOccupancy`
 
 <a id="key-windowui-slot-"></a>
 

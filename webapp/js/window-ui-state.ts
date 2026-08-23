@@ -62,13 +62,44 @@ const DEFAULT_STATE: WindowUiState = {
     focus: null
 };
 
-let loaded = false;
-let applying = false;
-let state: WindowUiState = cloneState(DEFAULT_STATE);
-let lastDocsPercent: number | null = null;
-let lastBottom: [number, number, number, number] | null = null;
-let saveTimer: number | null = null;
-let pagehideBound = false;
+type WindowUiRuntime = {
+    loaded: boolean;
+    applying: boolean;
+    slot: string | null;
+    state: WindowUiState;
+    lastDocsPercent: number | null;
+    lastBottom: [number, number, number, number] | null;
+    saveTimer: number | null;
+    pagehideBound: boolean;
+};
+
+function createRuntime(): WindowUiRuntime {
+    return {
+        loaded: false,
+        applying: false,
+        slot: null,
+        state: cloneState(DEFAULT_STATE),
+        lastDocsPercent: null,
+        lastBottom: null,
+        saveTimer: null,
+        pagehideBound: false
+    };
+}
+
+/**
+ * Bootstrap and glyph-overview are separate webpack entries, so this
+ * module is evaluated twice. Keep one runtime on window so layout
+ * persist cannot wipe overview mode, tile size, or other extras.
+ */
+function getRuntime(): WindowUiRuntime {
+    const existing = window.__windowUiRuntime;
+    if (existing) {
+        return existing;
+    }
+    const created = createRuntime();
+    window.__windowUiRuntime = created;
+    return created;
+}
 
 function clonePluginRecords(
     records: CanvasPluginRecord[]
@@ -120,7 +151,7 @@ export function getWindowUiStorageKey(
 }
 
 export function isApplyingWindowUi(): boolean {
-    return applying;
+    return getRuntime().applying;
 }
 
 export function renormalizePercents(values: number[]): number[] {
@@ -292,7 +323,7 @@ export function encodeWindowUi(ui: WindowUiState): string {
     parts.push(
         `top=${(renormalizePercents([...ui.top]) as [number, number, number]).join(',')}`
     );
-    const bottom = ui.bottom ?? lastBottom;
+    const bottom = ui.bottom ?? getRuntime().lastBottom;
     if (bottom) {
         parts.push(`bottom=${renormalizePercents([...bottom]).join(',')}`);
     }
@@ -353,7 +384,7 @@ export function decodeWindowUi(raw: string | null | undefined): WindowUiState {
     next.docs = parseClosedOrInt(fields.get('docs') || '-');
     if (next.docs != null) {
         next.docs = clampOpenPercent(next.docs);
-        lastDocsPercent = next.docs;
+        getRuntime().lastDocsPercent = next.docs;
     }
 
     const rowParts = (fields.get('rows') || '').split(',');
@@ -398,7 +429,7 @@ export function decodeWindowUi(raw: string | null | undefined): WindowUiState {
             number,
             number
         ];
-        lastBottom = [...next.bottom];
+        getRuntime().lastBottom = [...next.bottom];
     }
 
     next.filters = decodeFilterList(fields.get('filter') || '');
@@ -454,66 +485,76 @@ function pxToDocsPercent(px: number): number {
 }
 
 function bindPagehideFlush(): void {
-    if (pagehideBound) {
+    const rt = getRuntime();
+    if (rt.pagehideBound) {
         return;
     }
-    pagehideBound = true;
+    rt.pagehideBound = true;
     window.addEventListener('pagehide', () => {
         flushSaveWindowUi();
     });
 }
 
-export function ensureWindowUiLoaded(): WindowUiState {
-    if (loaded) {
-        return state;
-    }
-    loaded = true;
-    bindPagehideFlush();
-    const slot = getWindowUiSlot();
+function loadSlotIntoRuntime(rt: WindowUiRuntime, slot: string): WindowUiState {
     /**
      * Compact v1 chrome layout and window-local UI prefs for this window slot
      * (`main` or a linked ordinal).
      */
     const existing = localStorage.getItem(`windowUi.${slot}`);
     if (existing) {
-        state = decodeWindowUi(existing);
-        if (state.docs != null) {
-            lastDocsPercent = state.docs;
+        rt.state = decodeWindowUi(existing);
+        if (rt.state.docs != null) {
+            rt.lastDocsPercent = rt.state.docs;
         }
-        if (state.bottom) {
-            lastBottom = [...state.bottom];
+        if (rt.state.bottom) {
+            rt.lastBottom = [...rt.state.bottom];
         }
-        return state;
+        return rt.state;
     }
 
-    state = cloneState(DEFAULT_STATE);
+    rt.state = cloneState(DEFAULT_STATE);
     localStorage.setItem(`windowUi.${slot}`, DEFAULT_WINDOW_UI_STRING);
-    return state;
+    return rt.state;
+}
+
+export function ensureWindowUiLoaded(): WindowUiState {
+    const rt = getRuntime();
+    const slot = getWindowUiSlot();
+    bindPagehideFlush();
+    if (rt.loaded && rt.slot === slot) {
+        return rt.state;
+    }
+    rt.loaded = true;
+    rt.slot = slot;
+    return loadSlotIntoRuntime(rt, slot);
 }
 
 function persistWindowUi(): void {
+    const rt = getRuntime();
     ensureWindowUiLoaded();
-    const slot = getWindowUiSlot();
-    localStorage.setItem(`windowUi.${slot}`, encodeWindowUi(state));
+    const slot = rt.slot ?? getWindowUiSlot();
+    localStorage.setItem(`windowUi.${slot}`, encodeWindowUi(rt.state));
 }
 
 function scheduleSave(): void {
-    if (applying) {
+    const rt = getRuntime();
+    if (rt.applying) {
         return;
     }
-    if (saveTimer != null) {
-        window.clearTimeout(saveTimer);
+    if (rt.saveTimer != null) {
+        window.clearTimeout(rt.saveTimer);
     }
-    saveTimer = window.setTimeout(() => {
-        saveTimer = null;
+    rt.saveTimer = window.setTimeout(() => {
+        rt.saveTimer = null;
         persistWindowUi();
     }, SAVE_DEBOUNCE_MS);
 }
 
 export function flushSaveWindowUi(): void {
-    if (saveTimer != null) {
-        window.clearTimeout(saveTimer);
-        saveTimer = null;
+    const rt = getRuntime();
+    if (rt.saveTimer != null) {
+        window.clearTimeout(rt.saveTimer);
+        rt.saveTimer = null;
     }
     persistWindowUi();
 }
@@ -524,6 +565,8 @@ export function getWindowUiState(): WindowUiState {
 
 export function captureWindowUiFromDom(): WindowUiState {
     ensureWindowUiLoaded();
+    const rt = getRuntime();
+    const state = rt.state;
     const shell = document.getElementById('app-shell');
     const docs = document.getElementById('view-docs');
     const topRow = document.querySelector('.top-row') as HTMLElement | null;
@@ -537,7 +580,7 @@ export function captureWindowUiFromDom(): WindowUiState {
                 Math.max(DOCS_MIN_PX, docs.offsetWidth || DEFAULT_DOCS_PX)
             );
             state.docs = percent;
-            lastDocsPercent = percent;
+            rt.lastDocsPercent = percent;
         } else {
             state.docs = null;
         }
@@ -589,7 +632,7 @@ export function captureWindowUiFromDom(): WindowUiState {
                 number,
                 number
             ];
-            lastBottom = [...state.bottom];
+            rt.lastBottom = [...state.bottom];
         }
     }
 
@@ -624,8 +667,9 @@ function applyFlexPercents(
 export function applyWindowUi(
     ui: WindowUiState = ensureWindowUiLoaded()
 ): void {
-    applying = true;
-    state = cloneState(ui);
+    const rt = getRuntime();
+    rt.applying = true;
+    rt.state = cloneState(ui);
     try {
         const shell = document.getElementById('app-shell');
         const docs = document.getElementById('view-docs');
@@ -644,7 +688,7 @@ export function applyWindowUi(
                 docs.style.flex = `0 0 ${widthPx}px`;
                 shell.classList.add('docs-open');
                 docs.setAttribute('aria-hidden', 'false');
-                lastDocsPercent = ui.docs;
+                rt.lastDocsPercent = ui.docs;
             }
         }
 
@@ -675,7 +719,7 @@ export function applyWindowUi(
                 Array.from(
                     bottomRow.querySelectorAll('.view')
                 ) as HTMLElement[],
-                ui.bottom ?? lastBottom ?? DEFAULT_BOTTOM,
+                ui.bottom ?? rt.lastBottom ?? DEFAULT_BOTTOM,
                 'collapsed'
             );
         }
@@ -683,7 +727,7 @@ export function applyWindowUi(
         window.resizableViews?.normalizeTopRowWidths();
         window.resizableViews?.syncCollapsedStatesAfterLayoutRestore();
     } finally {
-        applying = false;
+        rt.applying = false;
     }
 }
 
@@ -699,7 +743,7 @@ export function scheduleSaveWindowUi(): void {
 
 function mutate(patch: Partial<WindowUiState>): void {
     ensureWindowUiLoaded();
-    Object.assign(state, patch);
+    Object.assign(getRuntime().state, patch);
     scheduleSave();
 }
 
@@ -800,7 +844,8 @@ export function isDocsOpen(): boolean {
 
 export function getDocsWidthPx(): number {
     ensureWindowUiLoaded();
-    const percent = state.docs ?? lastDocsPercent;
+    const rt = getRuntime();
+    const percent = rt.state.docs ?? rt.lastDocsPercent;
     if (percent == null) {
         return DEFAULT_DOCS_PX;
     }
@@ -815,6 +860,7 @@ export function getEnabledCanvasPluginIds(): string[] {
 
 export function setEnabledCanvasPluginIds(ids: string[]): void {
     ensureWindowUiLoaded();
+    const state = getRuntime().state;
     const enabled = new Set(ids);
     const currentById = pluginRecordsToMap(state.plugins);
     const disabledById = pluginRecordsToMap(state.disabledPlugins);
@@ -848,6 +894,7 @@ export function getCanvasPluginParam(
     paramId: string
 ): string | null {
     ensureWindowUiLoaded();
+    const state = getRuntime().state;
     for (const plugin of state.plugins) {
         if (plugin.id === className && paramId in plugin.params) {
             return plugin.params[paramId];
@@ -867,6 +914,7 @@ export function setCanvasPluginParam(
     value: string
 ): void {
     ensureWindowUiLoaded();
+    const state = getRuntime().state;
     const plugin = state.plugins.find((entry) => entry.id === className);
     if (plugin) {
         plugin.params[paramId] = value;
@@ -900,6 +948,7 @@ const windowUiApi = {
 declare global {
     interface Window {
         windowUi: typeof windowUiApi;
+        __windowUiRuntime?: WindowUiRuntime;
     }
 }
 

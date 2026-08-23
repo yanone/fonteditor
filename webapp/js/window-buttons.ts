@@ -14,6 +14,7 @@ import { windowRole } from './window-role';
 
 const console = new Logger('WindowButtons');
 const editorChildWindows = new Set<Window>();
+const editorChildOrdinals = new WeakMap<Window, number>();
 const editorThemeWindowId =
     typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
         ? crypto.randomUUID()
@@ -66,9 +67,9 @@ function getCurrentThemePreference(): ThemePreference {
 }
 
 function postEditorThemeToChildWindows(payload: EditorThemeMessage): void {
+    pruneClosedEditorChildWindows();
     for (const win of Array.from(editorChildWindows)) {
         if (win.closed) {
-            editorChildWindows.delete(win);
             continue;
         }
         try {
@@ -107,12 +108,28 @@ function broadcastEditorTheme(preference: ThemePreference): void {
     postEditorThemeToOpener(payload);
 }
 
-function registerEditorChildWindow(win: Window): void {
+function pruneClosedEditorChildWindows(): void {
+    for (const win of Array.from(editorChildWindows)) {
+        if (!win.closed) {
+            continue;
+        }
+        editorChildWindows.delete(win);
+        const ordinal = editorChildOrdinals.get(win);
+        if (ordinal) {
+            windowRole.releaseLinkedOrdinal(ordinal, true);
+        }
+    }
+}
+
+function registerEditorChildWindow(win: Window, linkedOrdinal?: number): void {
     editorChildWindows.add(win);
+    if (linkedOrdinal && linkedOrdinal > 0) {
+        editorChildOrdinals.set(win, linkedOrdinal);
+    }
 
     const pushTheme = () => {
         if (win.closed) {
-            editorChildWindows.delete(win);
+            pruneClosedEditorChildWindows();
             return;
         }
 
@@ -216,6 +233,7 @@ function applyCurrentEditorStateToUrl(url: URL): void {
 }
 
 export function prepareLinkedWindowOpen(): LinkedWindowLaunchInfo {
+    pruneClosedEditorChildWindows();
     const url = new URL(window.location.href);
     const fontPath = window.fontManager?.currentFont?.path ?? 'unsaved';
     applyCurrentEditorStateToUrl(url);
@@ -246,15 +264,17 @@ export function openLinkedEditorWindow(
     const preparedLaunch = launchInfo || prepareLinkedWindowOpen();
     const childWindow = window.open(preparedLaunch.url, '_blank');
     if (childWindow) {
-        registerEditorChildWindow(childWindow);
+        registerEditorChildWindow(childWindow, preparedLaunch.linkedOrdinal);
+    } else {
+        windowRole.releaseLinkedOrdinal(preparedLaunch.linkedOrdinal, true);
     }
     return childWindow;
 }
 
 export function reloadLinkedEditorWindows(): void {
+    pruneClosedEditorChildWindows();
     for (const childWindow of Array.from(editorChildWindows)) {
         if (childWindow.closed) {
-            editorChildWindows.delete(childWindow);
             continue;
         }
 

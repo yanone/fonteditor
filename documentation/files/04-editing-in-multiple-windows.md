@@ -4,7 +4,7 @@ Counterpunch can open the same font in more than one browser window. That is use
 
 ## Main and linked windows
 
-The first window that opens the font is **Main**. **Window → Open In New Window** opens the same font in another browser window and marks it **Linked 1**, **Linked 2**, and so on. You may see those labels in the window title and on history items.
+The first window that opens the font is **Main**. **Window → Open In New Window** opens the same font in another browser window and marks it **Linked 1**, **Linked 2**, and so on. You may see those labels in the window title and on history items. Closing a linked window frees that number, so the next extra window reuses the lowest free slot.
 
 Main and linked windows share the live session:
 
