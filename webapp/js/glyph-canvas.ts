@@ -37,6 +37,7 @@ import {
     type KerningGroupChip
 } from './glyph-canvas/kerning-group-widget';
 import { Logger } from './logger';
+import { editorHealth } from './editor-health-monitor';
 import APP_SETTINGS from './settings';
 import { attachTopRowSidebarInterpolation } from './top-row-sidebar-interpolation';
 import { isStartupStateReady } from './state-restore';
@@ -4182,6 +4183,7 @@ class GlyphCanvas {
         this.hasDeferredRenderRequest = false;
         this.editModeGlyphResyncInProgress = false;
         this.isUpdatingPropertiesUI = false;
+        editorHealth.notePropertiesUpdateFinished();
 
         this.outlineEditor.active = false;
         this.outlineEditor.selectedLayerId = null;
@@ -10942,10 +10944,12 @@ class GlyphCanvas {
             console.log(
                 '[GlyphCanvas] updatePropertiesUI already in progress, skipping'
             );
+            editorHealth.notePropertiesUpdateSkipped();
             return;
         }
 
         this.isUpdatingPropertiesUI = true;
+        editorHealth.notePropertiesUpdateStarted();
 
         try {
             // Check if propertiesSection is still in the DOM
@@ -11025,6 +11029,7 @@ class GlyphCanvas {
             }
         } finally {
             this.isUpdatingPropertiesUI = false;
+            editorHealth.notePropertiesUpdateFinished();
         }
     }
 

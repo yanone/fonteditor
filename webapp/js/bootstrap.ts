@@ -520,6 +520,7 @@ import './view-settings';
 import './keyboard-navigation';
 import './matplotlib-handler';
 import './memory-monitor';
+import './editor-health-monitor';
 import './python-utils';
 import './system-notifications';
 import './pyodide-official-console';

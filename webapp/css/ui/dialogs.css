@@ -120,6 +120,20 @@
     margin: 0 0 12px 0;
 }
 
+.editor-health-popup {
+    max-width: 560px;
+}
+
+.editor-health-issue + .editor-health-issue {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-primary);
+}
+
+.editor-health-recovery {
+    color: var(--text-secondary);
+}
+
 .info-popup-content p:last-child {
     margin-bottom: 0;
 }

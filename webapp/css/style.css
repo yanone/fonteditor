@@ -2325,6 +2325,45 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
     color: var(--text-primary);
 }
 
+.editor-health-chip {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 2px;
+    padding: 0 2px;
+    border: none;
+    background: transparent;
+    color: var(--accent-orange);
+    cursor: pointer;
+    height: 100%;
+}
+
+.editor-health-chip[hidden] {
+    display: none !important;
+}
+
+.editor-health-chip .material-symbols-outlined {
+    font-size: 14px;
+    font-variation-settings:
+        'FILL' 1,
+        'wght' 500,
+        'GRAD' 0,
+        'opsz' 20;
+}
+
+.editor-health-chip:hover {
+    color: var(--text-primary);
+    background-color: var(--background-hover);
+}
+
+.editor-health-chip-process {
+    color: var(--accent-yellow);
+}
+
+.view-editor.collapsed-width .view-title-bar .editor-health-chip:not([hidden]) {
+    display: flex !important;
+}
+
 /* Auto-run button - default (inactive) state */
 .view-title-button.auto-run {
     background-color: transparent;

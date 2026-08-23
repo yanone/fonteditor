@@ -510,6 +510,7 @@ declare global {
 
         // From glyph-canvas.js
         glyphCanvas: GlyphCanvas;
+        editorHealth: typeof import('./editor-health-monitor').editorHealth;
         findGlyphDialog: FindGlyphDialog;
 
         // From keyboard-navigation.js

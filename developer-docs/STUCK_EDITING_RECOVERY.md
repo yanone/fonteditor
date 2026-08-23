@@ -5,6 +5,7 @@ The editor can look broken while the **app version is fine** and the **font file
 - Switching glyphs does not load the new outlines
 - The glyph stack label shows `(none)` while you are clearly editing a glyph
 - Local webpack and a hosted build (preview or official) start failing the **same way** even though only one of them changed, or neither did
+- A warning icon appears in the Editor title bar. Click it for the specific failure the app detected.
 
 This is a **stuck browser session**, not a corrupt `.glyphs` file and not automatically a bad deploy. Work through the methods in order. Stop when glyph switching works again.
 

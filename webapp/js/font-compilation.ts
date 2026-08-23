@@ -18,6 +18,7 @@
 // Based on: DIRECT_PYTHON_RUST_INTEGRATION.md
 
 import { fontInterpolation } from './font-interpolation';
+import { editorHealth } from './editor-health-monitor';
 import { Logger } from './logger';
 import {
     timelineMark,
@@ -845,6 +846,7 @@ export class FontCompilation {
     }
 
     handleWorkerMessage(e: MessageEvent) {
+        editorHealth.noteWorkerMessage();
         // Forward interpolation messages to the interpolation manager
         if (e.data.type === 'interpolate' && window.fontInterpolation) {
             window.fontInterpolation.handleWorkerMessage(e);

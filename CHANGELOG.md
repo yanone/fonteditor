@@ -1,5 +1,6 @@
 # Unreleased
 
+- **Editor health chip**: After a short delay (~1s for UI stalls, ~4s for a silent interpolate with no compile), the Editor title bar shows a warning icon if editing looks wedged. Click it for what is stuck and what to try. Long compiles are treated as busy, not stuck.
 - **Linked window numbers**: Closed linked windows free their slot. Opening another extra window after closing Linked 1 is Linked 1 again, not Linked 2. Live claims live in `linkedWindowOccupancy.${sessionId}` (heartbeat + stale timeout); this is not part of `windowUi.*`.
 - **Per-window chrome**: Each window stores layout and view prefs in one compact `windowUi.main` / `windowUi.N` string (docs, row splits, overview mode/size/filters/follow, font-info section, history, guidelines, metrics, preview, canvas plugins including disabled params, and focus). Linked copies are independent. Theme, tour, scripts, and snapping stay global. Old per-key prefs are not migrated. Overview mode and tile size (and the other extras) share one runtime across the bootstrap and glyph-overview bundles so a layout save cannot wipe them.
 - **Shareable URLs**: Query values keep readable characters (`:`, `/`, `,`, Unicode). Space becomes `+` (`text=hello+world`); a literal plus is `%2B`. Only controls, `#`, `&`, `%`, and `+` are percent-encoded. `text` is no longer double-encoded.

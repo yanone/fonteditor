@@ -14,6 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { Logger } from './logger';
+import { editorHealth } from './editor-health-monitor';
 
 const console = new Logger('FontInterpolation');
 
@@ -41,6 +42,7 @@ class FontInterpolationManager {
             reject: Function;
             glyphName: string;
             requestKey: string;
+            queuedAt: number;
         }
     >;
     requestId: number;
@@ -130,7 +132,8 @@ class FontInterpolationManager {
                 resolve,
                 reject,
                 glyphName,
-                requestKey
+                requestKey,
+                queuedAt: Date.now()
             });
 
             // Send interpolation request to worker
@@ -161,12 +164,18 @@ class FontInterpolationManager {
         );
 
         if (data.type === 'interpolate') {
+            editorHealth.noteWorkerMessage();
             const pending = this.pendingRequests.get(data.id);
             console.log(
                 '[FontInterpolation]',
                 'Found pending request:',
                 !!pending
             );
+
+            if (!pending) {
+                editorHealth.noteUnmatchedInterpolateReply();
+                return;
+            }
 
             if (pending) {
                 // Check if this is still the current request for this glyph family.
@@ -187,6 +196,11 @@ class FontInterpolationManager {
                         ')'
                     );
                     this.pendingRequests.delete(data.id);
+                    pending.reject(
+                        new Error(
+                            'Interpolation cancelled - newer request pending'
+                        )
+                    );
                     return;
                 }
 
