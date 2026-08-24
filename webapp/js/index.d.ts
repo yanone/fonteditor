@@ -731,6 +731,14 @@ interface FontInterpolationManager {
     ): Promise<Map<string, any>>;
     clearCache(): Promise<void>;
     handleWorkerMessage(e: MessageEvent): void;
+    pendingRequests: Map<
+        number,
+        {
+            glyphName: string;
+            requestKey: string;
+            queuedAt: number;
+        }
+    >;
 }
 
 declare module 'bidi-js' {

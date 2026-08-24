@@ -370,9 +370,9 @@ async function getNodeScreenCoords(page: any): Promise<PagePoint> {
 }
 
 /**
- * Pan the left LSB diamond into the content hole (above the overlay panel)
- * so hit-testing is not clamped onto a global guide at the frame bottom,
- * then drag it with a real pointer.
+ * Pan the unclamped LSB diamond (the descender metric, not the glyph origin)
+ * into the content hole so the handle is not glued to the overlay bottom
+ * and hit-testing is not stolen by a global guide.
  */
 async function dragLeftSidebearingHandleOnCanvas(page: any): Promise<void> {
     await page.evaluate(() => {
@@ -390,10 +390,16 @@ async function dragLeftSidebearingHandleOnCanvas(page: any): Promise<void> {
             width: gc.canvas.clientWidth,
             height: gc.canvas.clientHeight
         };
+        const handle = oe
+            .getVisibleSidebearingHandles()
+            .find((entry: any) => entry?.side === 'left' && entry?.editable);
+        if (!handle) {
+            throw new Error('No left sidebearing handle');
+        }
         const gp = tre._getGlyphPosition(tre.selectedGlyphIndex);
         const sc = vm.fontToScreenCoordinates(
-            gp.xPosition + gp.xOffset,
-            gp.yOffset
+            gp.xPosition + gp.xOffset + handle.x,
+            gp.yOffset + (handle.metricY ?? handle.y)
         );
         const targetY = frame.top + frame.height * 0.55;
         vm.panY += targetY - sc.y;

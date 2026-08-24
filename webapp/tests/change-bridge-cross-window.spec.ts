@@ -1159,10 +1159,87 @@ async function selectFirstLayerRow(page: Page): Promise<void> {
     await expect(layerRow).toHaveClass(/selected/);
 }
 
+async function openHistoryView(page: Page): Promise<void> {
+    await focusView(page, 'Meta+Shift+H', 'view-history', { expand: true });
+    await page.waitForFunction(
+        () => {
+            const view = document.getElementById('view-history');
+            return !!view && view.getBoundingClientRect().height > 120;
+        },
+        undefined,
+        { timeout: 10000 }
+    );
+}
+
+/**
+ * Frame the current outline glyph to fill the editor canvas.
+ * Cmd+0 text-fit is capped at 15% / glyph-frame at 140%, which leaves `a`
+ * tiny on the screenshot canvas.
+ */
+async function zoomCurrentGlyphToFillCanvas(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        const glyphCanvas = (window as any).glyphCanvas;
+        const viewportManager = glyphCanvas?.viewportManager;
+        const outlineEditor = glyphCanvas?.outlineEditor;
+        const textRunEditor = glyphCanvas?.textRunEditor;
+        if (
+            !glyphCanvas ||
+            !viewportManager ||
+            !outlineEditor?.active ||
+            !textRunEditor
+        ) {
+            throw new Error('Outline editor is not ready to zoom');
+        }
+
+        const bounds = outlineEditor.calculateGlyphBoundingBox?.();
+        if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
+            throw new Error('No glyph bounds to zoom');
+        }
+
+        const glyphPosition = textRunEditor._getGlyphPosition(
+            textRunEditor.selectedGlyphIndex
+        );
+        const fontMinX =
+            glyphPosition.xPosition + glyphPosition.xOffset + bounds.minX;
+        const fontMaxX =
+            glyphPosition.xPosition + glyphPosition.xOffset + bounds.maxX;
+        const fontMinY = glyphPosition.yOffset + bounds.minY;
+        const fontMaxY = glyphPosition.yOffset + bounds.maxY;
+        const fontCenterX = (fontMinX + fontMaxX) / 2;
+        const fontCenterY = (fontMinY + fontMaxY) / 2;
+
+        const rect = glyphCanvas.getCanvasContentFrame();
+        const margin = Math.max(24, Math.min(rect.width, rect.height) * 0.08);
+        const scale = Math.min(
+            (rect.width - margin * 2) / bounds.width,
+            (rect.height - margin * 2) / bounds.height
+        );
+        const clampedScale = Math.max(0.05, Math.min(20, scale));
+
+        viewportManager.scale = clampedScale;
+        viewportManager.panX =
+            rect.left + rect.width / 2 - fontCenterX * clampedScale;
+        viewportManager.panY =
+            rect.top + rect.height / 2 - -fontCenterY * clampedScale;
+        glyphCanvas.render();
+    });
+}
+
+async function prepareWindowForScreenshot(page: Page): Promise<void> {
+    await openHistoryView(page);
+    // Keep History expanded, but return focus to the editor so the
+    // history list filters to this glyph's undo surface instead of
+    // "hidden · other undo surface".
+    await focusView(page, 'Meta+Shift+E', 'view-editor');
+    await zoomCurrentGlyphToFillCanvas(page);
+    await page.waitForTimeout(250);
+}
+
 async function expectMainWindowScreenshot(
     page: Page,
     fileName: string
 ): Promise<void> {
+    await prepareWindowForScreenshot(page);
     await expect(page).toHaveScreenshot(fileName, {
         maxDiffPixelRatio: 0.07,
         mask: [page.locator('#console-container')],
@@ -1175,6 +1252,7 @@ async function expectLinkedWindowScreenshot(
     fileName: string,
     options?: { maxDiffPixelRatio?: number }
 ): Promise<void> {
+    await prepareWindowForScreenshot(page);
     await expect(page).toHaveScreenshot(fileName, {
         maxDiffPixelRatio: options?.maxDiffPixelRatio ?? 0.07,
         mask: [page.locator('#console-container')],
@@ -1264,9 +1342,10 @@ async function refreshEditorLayerPanel(page: Page): Promise<void> {
 }
 
 /**
- * Align glyph/location/edit-mode for screenshots without keyboard focusView.
- * Keyboard view activation collapses sibling panels and would invalidate
- * full-window baselines that expect the default multi-panel layout.
+ * Align glyph/location/edit-mode for screenshots without keyboard focusView
+ * on the editor (that would collapse sibling panels). History is opened and
+ * the glyph is zoomed in `prepareWindowForScreenshot` immediately before
+ * each snapshot.
  */
 async function alignEditorCanvasForScreenshot(
     page: Page,

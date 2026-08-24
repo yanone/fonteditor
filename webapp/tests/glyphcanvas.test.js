@@ -6486,6 +6486,8 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         canvas.viewportManager.scale = originalScale;
         canvas.viewportManager.panY = originalPanY;
 
+        expect(handleAtScale1.metricY).toBeCloseTo(metricY, 5);
+        expect(handleAtScale2.metricY).toBeCloseTo(metricY, 5);
         expect(screenYAtScale1).toBeCloseTo(-metricY * 1, 5);
         expect(screenYAtScale2).toBeCloseTo(-metricY * 2, 5);
     });
@@ -6506,6 +6508,7 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         canvas.viewportManager.panY = originalPanY;
 
         expect(handle.y).toBeCloseTo(-200, 5);
+        expect(handle.metricY).toBeCloseTo(-200, 5);
     });
 
     test('keeps handles between the highest and lowest visible metric lines when bottom snapping kicks in', () => {
@@ -6528,6 +6531,7 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         canvas.viewportManager.panY = originalPanY;
 
         expect(handle.y).toBeCloseTo(700, 5);
+        expect(handle.metricY).toBeCloseTo(-200, 5);
     });
 
     test('snaps the handle to 10 screen pixels from the viewport edge', () => {
@@ -6551,6 +6555,7 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         canvas.viewportManager.panY = originalPanY;
 
         expect(handleScreenY).toBeCloseTo(590, 5);
+        expect(handle.metricY).toBeCloseTo(-200, 5);
     });
 
     test('snaps the handle above the overlay property panel', () => {
@@ -8344,6 +8349,7 @@ describe('GlyphCanvas snap debug candidates', () => {
         currentFontSpy.mockRestore();
         window.currentFontModel = null;
         window.fontCompilation = originalFontCompilation;
+        localStorage.removeItem('editorNodeSnapping');
     });
 
     function setupTextRun(options = {}) {
@@ -10590,10 +10596,10 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             expect(
                 currentLayer.paths[0].nodes.map((node) => [node.x, node.y])
             ).toEqual([
-                [0, 20],
+                [10, 20],
                 [80, 20],
                 [80, 90],
-                [0, 90]
+                [10, 90]
             ]);
             expect(canvas.outlineEditor.activePathDrawingSession).toEqual(
                 expect.objectContaining({
@@ -10635,18 +10641,18 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             expect(
                 currentLayer.paths[0].nodes.map((node) => [node.x, node.y])
             ).toEqual([
-                [0, 20],
+                [10, 20],
                 [80, 20],
                 [80, 90],
-                [0, 90]
+                [10, 90]
             ]);
             expect(
                 linkedLayer.paths[0].nodes.map((node) => [node.x, node.y])
             ).toEqual([
-                [0, 20],
+                [10, 20],
                 [80, 20],
                 [80, 90],
-                [0, 90]
+                [10, 90]
             ]);
             expect(
                 currentLayer.paths[0].nodes.map((node) => node.nodetype)
@@ -10801,7 +10807,7 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
 
         const transformSpy = jest
             .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
-            .mockReturnValue({ glyphX: 10.6, glyphY: 39.4 });
+            .mockReturnValue({ glyphX: 10, glyphY: 40 });
 
         try {
             window.autoCompileManager.checkAndSchedule.mockClear();
@@ -10830,7 +10836,7 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
                     nodetype: node.nodetype
                 }))
             ).toEqual([
-                { x: 0, y: 40, nodetype: 'Move' },
+                { x: 10, y: 40, nodetype: 'Move' },
                 { x: 40, y: 40, nodetype: 'Line' },
                 { x: 100, y: 40, nodetype: 'Line' }
             ]);
@@ -10841,7 +10847,7 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
                     nodetype: node.nodetype
                 }))
             ).toEqual([
-                { x: 0, y: 40, nodetype: 'Move' },
+                { x: 10, y: 40, nodetype: 'Move' },
                 { x: 50, y: 50, nodetype: 'Line' },
                 { x: 110, y: 50, nodetype: 'Line' }
             ]);

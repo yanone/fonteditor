@@ -164,6 +164,8 @@ type VisibleGuide = GuideHandle & {
 type VisibleSidebearingHandle = SidebearingHandle & {
     x: number;
     y: number;
+    /** Unclamped font-space Y of the metric line the handle belongs to. */
+    metricY: number;
     editable: boolean;
 };
 type ExplicitLayerCacheInput = {
@@ -10629,10 +10631,14 @@ export class OutlineEditor {
     }
 
     private getSidebearingHandleRadiusScreen(): number {
-        return this.getZoomInterpolatedScreenSize(
+        const visual = this.getZoomInterpolatedScreenSize(
             APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MIN_ZOOM,
             APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MID_ZOOM,
             APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MAX_ZOOM
+        );
+        return Math.max(
+            APP_SETTINGS.OUTLINE_EDITOR.POINT_HIT_RADIUS_MIN,
+            visual + APP_SETTINGS.OUTLINE_EDITOR.NODE_HIT_PADDING
         );
     }
 
@@ -10814,6 +10820,7 @@ export class OutlineEditor {
                 side: 'left',
                 x: 0,
                 y: handleY,
+                metricY: lowestMetricY,
                 editable: !automaticLayer && !leftResolution.input
             });
         }
@@ -10828,6 +10835,7 @@ export class OutlineEditor {
                 side: 'right',
                 x: width,
                 y: handleY,
+                metricY: lowestMetricY,
                 editable: !automaticLayer && !rightResolution.input
             });
         }
@@ -17076,9 +17084,11 @@ export class OutlineEditor {
     }
 
     private isNeutralCommandCanvasTarget(): boolean {
+        // Metric chrome (guides, LSB/RSB) is a plain-click drag target.
+        // Cmd/pen drawing must still place points next to those handles;
+        // otherwise a 5px pick ring at 20% zoom swallows clicks near the
+        // sidebearing or baseline.
         return (
-            this.hoveredGuideHandle === null &&
-            this.hoveredSidebearingHandle === null &&
             this.hoveredComponentIndex === null &&
             this.hoveredAnchorIndex === null &&
             this.hoveredPointIndex === null

@@ -1,5 +1,24 @@
 const hasWindow = typeof window !== 'undefined';
 
+// GlyphCanvas (required below) loads window-ui-state, which caches layout on
+// `window.__windowUiRuntime`. Tests that seed `windowUi.main` before a module
+// import must not see a runtime loaded from empty storage during setup.
+beforeEach(() => {
+    if (hasWindow) {
+        delete window.__windowUiRuntime;
+    }
+    // Product default is off. Tests that opt in must set this themselves;
+    // do not leak `true` from an earlier describe in the same file.
+    if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem('editorNodeSnapping');
+    }
+});
+afterEach(() => {
+    if (hasWindow) {
+        delete window.__windowUiRuntime;
+    }
+});
+
 if (typeof CanvasRenderingContext2D !== 'undefined') {
     const proto = CanvasRenderingContext2D.prototype;
     if (typeof proto.roundRect !== 'function') {

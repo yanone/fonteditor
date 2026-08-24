@@ -279,7 +279,7 @@ class EditorHealthMonitor {
         const pending = interpolation?.pendingRequests;
         if (pending && pending.size > 0) {
             for (const request of pending.values()) {
-                const queuedAt = (request as { queuedAt?: number }).queuedAt;
+                const queuedAt = request.queuedAt;
                 if (
                     typeof queuedAt === 'number' &&
                     (oldestPendingInterpolateAt == null ||

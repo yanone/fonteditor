@@ -10,7 +10,7 @@
         "editor_harfbuzz_cl": "0 1 2 3 4 5 6 7 8 9 10 11",
         "editor_harfbuzz_dx": "0 0 0 0 0 0 0 0 0 0 0 0",
         "editor_harfbuzz_dy": "0 0 0 0 0 0 0 0 0 0 0 0",
-        "editor_harfbuzz_gids": "11 4 10 9 14 13 7 6 16 12 2 5",
+        "editor_harfbuzz_gids": "3 14 1 11 17 10 7 13 8 6 2 4",
         "editor_harfbuzz_glyph_names": "H a m b u r g e v o n s",
         "editor_isAnimating": false,
         "editor_isInterpolating": false,
