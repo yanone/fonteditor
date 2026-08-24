@@ -47,8 +47,9 @@ describe('window UI compact state', () => {
         expect(ui.decodeWindowUi('not-v1')).toMatchObject({
             docs: null,
             overviewMode: 'normal',
-            overviewSize: 5,
-            follow: true
+            overviewSize: 2,
+            follow: true,
+            focus: 'view-editor'
         });
         expect(ui.decodeWindowUi('v1;docs=40')).toMatchObject({
             top: [0, 33, 67]
@@ -97,7 +98,9 @@ describe('window UI compact state', () => {
             docs: null,
             rows: { top: 100, bottom: null },
             top: [0, 33, 67],
-            bottom: null
+            bottom: null,
+            follow: true,
+            focus: 'view-editor'
         });
 
         window.windowRole = { linkedOrdinal: 2 };

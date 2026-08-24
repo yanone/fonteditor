@@ -42,6 +42,9 @@ export type WindowUiState = {
 };
 
 const DEFAULT_BOTTOM: [number, number, number, number] = [25, 25, 25, 25];
+const DEFAULT_OVERVIEW_MODE: OverviewDisplayMode = 'normal';
+const DEFAULT_OVERVIEW_SIZE = 2;
+const DEFAULT_FOCUS_VIEW_ID = 'view-editor';
 
 const LINKED_WINDOW_QUERY_PARAM = 'linked';
 
@@ -51,8 +54,8 @@ type WindowUiExtras = Omit<WindowUiState, 'docs' | 'rows' | 'top' | 'bottom'>;
 function extrasDefaults(): WindowUiExtras {
     return {
         filters: [],
-        overviewMode: 'normal',
-        overviewSize: 2,
+        overviewMode: DEFAULT_OVERVIEW_MODE,
+        overviewSize: DEFAULT_OVERVIEW_SIZE,
         follow: true,
         fontinfo: null,
         docsPage: null,
@@ -62,7 +65,7 @@ function extrasDefaults(): WindowUiExtras {
         preview: 'small',
         plugins: [],
         disabledPlugins: [],
-        focus: null
+        focus: DEFAULT_FOCUS_VIEW_ID
     };
 }
 
@@ -462,7 +465,10 @@ export function encodeWindowUi(ui: WindowUiState): string {
     if (ui.filters.length > 0) {
         parts.push(`filter=${encodeFilterList(ui.filters)}`);
     }
-    if (ui.overviewMode !== 'normal' || ui.overviewSize !== 5) {
+    if (
+        ui.overviewMode !== DEFAULT_OVERVIEW_MODE ||
+        ui.overviewSize !== DEFAULT_OVERVIEW_SIZE
+    ) {
         parts.push(`overview=${ui.overviewMode},${ui.overviewSize}`);
     }
     if (!ui.follow) {
@@ -490,7 +496,7 @@ export function encodeWindowUi(ui: WindowUiState): string {
     if (pluginRecords.length > 0) {
         parts.push(`plugins=${encodePlugins(pluginRecords)}`);
     }
-    if (ui.focus) {
+    if (ui.focus && ui.focus !== DEFAULT_FOCUS_VIEW_ID) {
         parts.push(`focus=${ui.focus}`);
     }
     return parts.join(';');
@@ -569,10 +575,13 @@ function parseWindowUi(raw: string): WindowUiState | null {
     if (overview) {
         const [modeRaw, sizeRaw] = overview.split(',');
         next.overviewMode = parseOverviewDisplayMode(modeRaw);
-        const size = Number.parseInt(sizeRaw || '5', 10);
+        const size = Number.parseInt(
+            sizeRaw || String(DEFAULT_OVERVIEW_SIZE),
+            10
+        );
         next.overviewSize = Number.isFinite(size)
             ? Math.min(10, Math.max(0, size))
-            : 5;
+            : DEFAULT_OVERVIEW_SIZE;
     }
 
     if (fields.has('follow')) {
@@ -599,7 +608,9 @@ function parseWindowUi(raw: string): WindowUiState | null {
         next.plugins = split.enabled;
         next.disabledPlugins = split.disabled;
     }
-    next.focus = fields.get('focus') || null;
+    if (fields.has('focus')) {
+        next.focus = fields.get('focus') || null;
+    }
     return next;
 }
 
@@ -899,7 +910,7 @@ export function getOverviewSize(): number {
 export function setOverviewSize(size: number): void {
     const next = Number.isFinite(size)
         ? Math.min(10, Math.max(0, Math.round(size)))
-        : 5;
+        : DEFAULT_OVERVIEW_SIZE;
     mutate({ overviewSize: next });
 }
 

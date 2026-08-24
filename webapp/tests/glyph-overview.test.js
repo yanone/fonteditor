@@ -489,6 +489,43 @@ describe('GlyphOverview initial active tile highlighting', () => {
         ).not.toHaveBeenCalled();
     });
 
+    test('forceScroll re-scrolls the same highlighted glyph when follow is on', () => {
+        const {
+            setOverviewFollowStackScrollEnabled
+        } = require('../js/glyph-overview-follow-stack-pref');
+        setOverviewFollowStackScrollEnabled(true);
+
+        overview.highlightedGlyphName = 'A';
+        const tile = overview.createGlyphTile('glyph-1', 'A');
+        overview.tiles = new Map([['glyph-1', tile]]);
+
+        overview.setEditingHighlight('A', { forceScroll: true });
+
+        expect(tile.element.style.boxShadow).toBe(
+            'inset 0 0 0 2px var(--accent-blue)'
+        );
+        expect(
+            overview.scheduleHighlightedGlyphVisibilitySync
+        ).toHaveBeenCalledTimes(1);
+    });
+
+    test('forceScroll does not scroll when follow-stack preference is off', () => {
+        const {
+            setOverviewFollowStackScrollEnabled
+        } = require('../js/glyph-overview-follow-stack-pref');
+        setOverviewFollowStackScrollEnabled(false);
+
+        overview.highlightedGlyphName = 'A';
+        const tile = overview.createGlyphTile('glyph-1', 'A');
+        overview.tiles = new Map([['glyph-1', tile]]);
+
+        overview.setEditingHighlight('A', { forceScroll: true });
+
+        expect(
+            overview.scheduleHighlightedGlyphVisibilitySync
+        ).not.toHaveBeenCalled();
+    });
+
     test('scrolls only when follow-stack preference is enabled and highlight changes', () => {
         const {
             setOverviewFollowStackScrollEnabled

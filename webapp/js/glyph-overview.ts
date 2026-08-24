@@ -2305,7 +2305,7 @@ class GlyphOverview {
         this.syncActiveGlyphFocus();
     }
 
-    public syncActiveGlyphFocus(): void {
+    public syncActiveGlyphFocus(options?: { forceScroll?: boolean }): void {
         const glyphCanvas = (window as any).glyphCanvas;
         const isEditMode = glyphCanvas?.outlineEditor?.active;
 
@@ -2324,8 +2324,9 @@ class GlyphOverview {
                     glyphCanvas.outlineEditor.getAuthoringGlyphName?.(
                         stackedGlyphName
                     ) ?? stackedGlyphName;
-                // Scrolls only when the editing glyph name changes.
-                this.setEditingHighlight(editingGlyph);
+                // Scrolls when the editing glyph name changes, or when
+                // forceScroll is set (overview open/render after URL edit restore).
+                this.setEditingHighlight(editingGlyph, options);
             } else {
                 this.setEditingHighlight(null);
             }
@@ -2483,8 +2484,15 @@ class GlyphOverview {
      * Set the editing highlight on a specific glyph tile.
      * Optionally scrolls into view when the highlighted glyph changes, if
      * Editing View → View → Scroll Overview to Active Glyph is enabled.
+     * Pass forceScroll after overview open/render so a glyph already marked
+     * during URL edit-mode restore still scrolls once tiles exist.
      */
-    private setEditingHighlight(glyphName: string | null): void {
+    private setEditingHighlight(
+        glyphName: string | null,
+        options?: { forceScroll?: boolean }
+    ): void {
+        const forceScroll = options?.forceScroll === true;
+
         if (glyphName === this.highlightedGlyphName) {
             if (!glyphName) {
                 return;
@@ -2497,6 +2505,9 @@ class GlyphOverview {
 
                 tile.element.style.boxShadow =
                     'inset 0 0 0 2px var(--accent-blue)';
+                if (forceScroll && isOverviewFollowStackScrollEnabled()) {
+                    this.scheduleHighlightedGlyphVisibilitySync();
+                }
                 return;
             }
 

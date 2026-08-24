@@ -217,7 +217,10 @@ async function renderOverviewAndEmit(
             `Overview rendered (${glyphCount} glyphs, reason: ${reason}, render: ${renderDurationMs.toFixed(2)}ms)`
         );
 
-        void refreshFilterPlugins();
+        // Apply the active filter before scrolling so visibility matches the
+        // current glyph filter (URL edit-mode restore often marks the glyph
+        // before overview tiles exist).
+        await refreshFilterPlugins();
 
         // Capture deferred style/layout/paint work that lands after JS handlers
         // (common with very large tile counts).
@@ -232,7 +235,7 @@ async function renderOverviewAndEmit(
         await waitForNextAnimationFrame();
         timelineSpanEndSafe(settleSpanId);
 
-        glyphOverviewInstance.syncActiveGlyphFocus?.();
+        glyphOverviewInstance.syncActiveGlyphFocus?.({ forceScroll: true });
         glyphOverviewInstance.setOutlinePaintAllowed?.(true);
 
         if (openSessionId) {
