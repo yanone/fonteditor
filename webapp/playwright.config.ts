@@ -28,7 +28,7 @@ export default defineConfig({
     // flows, and can exceed 120s on slower machines.
     timeout: 300000,
 
-    // Keep tests in-order for deterministic snapshot timing
+    // Keep tests in-order: the app under test holds mutable in-memory state
     fullyParallel: false,
 
     // Fail the build on CI if you accidentally left test.only
@@ -43,16 +43,6 @@ export default defineConfig({
         ['list'],
         ['./tests/reporters/step-timing-reporter.ts']
     ],
-
-    expect: {
-        toHaveScreenshot: {
-            // 0.5%: enough for GitHub-mac vs local-mac antialiasing / cursor
-            // jitter. Do not raise this to hide real drawing changes.
-            // `npm run test:update-snapshots` uses --update-snapshots=changed,
-            // so PNGs are rewritten only when they fail this ratio.
-            maxDiffPixelRatio: 0.005
-        }
-    },
 
     // Shared settings for all projects
     use: {

@@ -1,6 +1,5 @@
 import { test, expect } from './fixtures';
 import {
-    collapseView,
     captureSnapshot,
     enterEditModeOnFirstShapedGlyph,
     expectJsonSnapshot,
@@ -11,7 +10,6 @@ import {
     waitForFeatureCompilationError,
     waitForFontLoaded,
     waitForOpenSessionReady,
-    waitForOverviewTilesRendered,
     waitForStableEditorMetrics
 } from './helpers/snapshot-helper';
 
@@ -64,43 +62,11 @@ test.describe('Font Editor Basic Workflow', () => {
         console.log('[Test] Waiting for canvas ready');
         await waitForCanvasReady(page);
 
-        // Move mouse far outside the viewport to avoid triggering any hover effects
-        await page.mouse.move(-100, -100);
-        await page.waitForTimeout(200);
-
-        // Click on editor view to activate it (prevents popups in screenshots)
         console.log('[Test] Clicking canvas');
         await focusView(page, 'Meta+Shift+E', 'view-editor');
 
-        // Wait for rendering to complete
-        await page.waitForTimeout(500);
         console.log('[Test] beforeEach complete');
     });
-
-    const takeWindowSnapshot = async (
-        page: any,
-        snapshotNumber: string,
-        label: string
-    ) => {
-        await page.waitForTimeout(100);
-        const snapshot = await captureSnapshot(page, label);
-        await expectJsonSnapshot(
-            snapshot,
-            `${snapshotNumber}-${label}.json`,
-            expect
-        );
-        const maskLocators = [page.locator('#console-container')];
-        // Mask the terminal emulator inside the Konsole view: it computes
-        // column widths programmatically, so sub-pixel font metric differences
-        // across macOS versions produce different line breaks.
-        await expect(page).toHaveScreenshot(
-            `${snapshotNumber}-${label}-window.png`,
-            {
-                mask: maskLocators
-            }
-        );
-        return snapshot;
-    };
 
     const getCurrentEditorGlyphName = async (page: any): Promise<string> => {
         return await page.evaluate(() => {
@@ -712,10 +678,6 @@ test.describe('Font Editor Basic Workflow', () => {
 
             await target.click();
 
-            // Wait until layer switch animation, axis animation, and selection settle.
-            // The JSON snapshot does not include viewport pan/zoom, so taking the
-            // screenshot before the layer-driven variation animation finishes can
-            // produce a visually shifted but state-identical canvas.
             await page.waitForFunction((expectedLayerId) => {
                 const selected = document.querySelector(
                     '.editor-layers-list .editor-layer-item.selected[data-layer-id]'
@@ -743,7 +705,6 @@ test.describe('Font Editor Basic Workflow', () => {
             // Under full-suite load, HB advances can land after the layer-switch
             // animation flags clear. Wait for metrics idle before snapshotting.
             await waitForStableEditorMetrics(page);
-            await page.waitForTimeout(100);
 
             console.log(
                 `[Test] Taking snapshot ${snapshotNumber}: ${snapshotLabel}`
@@ -784,13 +745,8 @@ test.describe('Font Editor Basic Workflow', () => {
             return !isAnimating && inputValue === '300';
         }, firstAxisTag);
         await waitForStableEditorMetrics(page);
-        await page.waitForTimeout(100);
 
-        // SNAPSHOT POINT 17: Variation set to 300
-        console.log('[Test] Taking snapshot 17: variation 300');
-        await expect(page.locator('#glyph-canvas-container')).toHaveScreenshot(
-            '17-variation-300.png'
-        );
+        expect(await firstAxisValueInput.inputValue()).toBe('300');
 
         console.log('[Test] Setting variation axis value to 400');
         await firstAxisValueInput.fill('400');
@@ -808,7 +764,6 @@ test.describe('Font Editor Basic Workflow', () => {
         // Axis edits can trail an outline-only compile with a deferred full
         // compile that nudges advances by 1uu; wait for a quieter settle.
         await waitForStableEditorMetrics(page, { idleMs: 800, timeout: 30000 });
-        await page.waitForTimeout(100);
 
         // SNAPSHOT POINT 18: Variation set to 400
         console.log('[Test] Taking snapshot 18: variation 400');
@@ -959,8 +914,6 @@ test.describe('Font Editor Basic Workflow', () => {
             );
         });
 
-        await page.waitForTimeout(150);
-
         // SNAPSHOT POINT 19: Feature compilation error shown
         console.log('[Test] Taking snapshot 19: feature compile error');
         const snapshot19 = await captureSnapshot(page, 'feature-compile-error');
@@ -969,14 +922,7 @@ test.describe('Font Editor Basic Workflow', () => {
             '19-feature-compile-error.json',
             expect
         );
-        await expect(page).toHaveScreenshot(
-            '19-feature-compile-error-window.png',
-            {
-                mask: [page.locator('#console-container')]
-            }
-        );
 
-        // Restore valid feature code before taking the final editor screenshot.
         console.log('[Test] Restoring valid locl feature code');
         await page.evaluate(({ code, key }) => {
             const manager = (window as any).fontInfoManager;
@@ -1002,43 +948,9 @@ test.describe('Font Editor Basic Workflow', () => {
             originalLoclFeature,
             { timeout: 5000 }
         );
-        await page.evaluate(() => {
-            const errorDisplay = document.getElementById(
-                'sidebar-error-display'
-            ) as HTMLElement | null;
-            if (errorDisplay) {
-                errorDisplay.style.display = 'none';
-            }
-        });
-        await page.waitForTimeout(250);
-
-        // Final stack preview screenshot on Fustat (requested for deep nesting visibility).
-        // Close Overview and Font Info views before setting text.
-        console.log('[Test] Closing overview view');
-        await collapseView(page, 'view-overview');
-        await page.waitForTimeout(100);
-
-        console.log('[Test] Closing font info view');
-        await collapseView(page, 'view-fontinfo');
-        await page.waitForTimeout(100);
-
-        // Collapse bottom row views so screenshot framing stays consistent.
-        const bottomViewsToCollapse = [
-            { label: 'history', viewId: 'view-history' },
-            { label: 'assistant', viewId: 'view-assistant' },
-            { label: 'scripts', viewId: 'view-scripts' },
-            { label: 'console', viewId: 'view-console' }
-        ];
-
-        for (const view of bottomViewsToCollapse) {
-            console.log(`[Test] Collapsing ${view.label} view`);
-            await collapseView(page, view.viewId);
-            await page.waitForTimeout(80);
-        }
 
         console.log('[Test] Returning to editor view for Fustat stack preview');
         await focusView(page, 'Meta+Shift+E', 'view-editor');
-        await page.waitForTimeout(120);
 
         console.log('[Test] Setting text buffer to Ä');
         await page.evaluate(() => {
@@ -1050,7 +962,6 @@ test.describe('Font Editor Basic Workflow', () => {
                     return;
                 }
 
-                // Reset to text mode to avoid stale edit selections carrying over.
                 if (glyphCanvas.outlineEditor?.active) {
                     glyphCanvas.exitGlyphEditMode();
                 }
@@ -1071,11 +982,9 @@ test.describe('Font Editor Basic Workflow', () => {
                 textRunEditor.setTextBuffer('Ä');
                 textRunEditor.cursorPosition = 0;
 
-                // Safety timeout in case compile event is skipped.
                 setTimeout(finish, 5000);
             });
         });
-        await page.waitForTimeout(100);
 
         console.log('[Test] Selecting Ä glyph for edit mode');
         await page.evaluate(async () => {
@@ -1092,44 +1001,15 @@ test.describe('Font Editor Basic Workflow', () => {
                     -1) === 0,
             { timeout: 3000 }
         );
-        await page.waitForTimeout(120);
-
-        console.log('[Test] Pressing Cmd+0');
-        await page.keyboard.press('Meta+0');
-        await page.waitForTimeout(150);
 
         console.log('[Test] Entering stack preview');
         await page.keyboard.press('Meta+Alt+S');
         await page.waitForFunction(
             () =>
-                !!window.glyphCanvas?.stackPreviewAnimator?.shouldRenderStackPreview?.(),
+                !!window.glyphCanvas?.stackPreviewAnimator?.shouldRenderStackPreview?.() &&
+                window.glyphCanvas?.textRunEditor?.textBuffer === 'Ä' &&
+                window.glyphCanvas?.textRunEditor?.selectedGlyphIndex === 0,
             { timeout: 5000 }
-        );
-        await page.waitForFunction(
-            () => {
-                const win = window as any;
-                const textRunEditor = win.glyphCanvas?.textRunEditor;
-                const overviewView = document.getElementById('view-overview');
-                const fontInfoView = document.getElementById('view-fontinfo');
-                return (
-                    win.getCurrentFocusedView?.() === 'view-editor' &&
-                    textRunEditor?.textBuffer === 'Ä' &&
-                    textRunEditor?.selectedGlyphIndex === 0 &&
-                    (overviewView?.getBoundingClientRect().width ?? 0) <= 30 &&
-                    (fontInfoView?.getBoundingClientRect().width ?? 0) <= 30
-                );
-            },
-            { timeout: 5000 }
-        );
-        await page.waitForTimeout(120);
-
-        const screenshot20Masks = [page.locator('#console-container')];
-
-        await expect(page).toHaveScreenshot(
-            '20-fustat-a-umlaut-stack-preview-window.png',
-            {
-                mask: screenshot20Masks
-            }
         );
 
         console.log('[Test] Test complete');

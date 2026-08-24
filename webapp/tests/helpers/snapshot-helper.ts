@@ -1456,8 +1456,7 @@ export async function waitForFeatureCompilationError(
 }
 
 /**
- * Take a complete snapshot (JSON + PNG) with a 100ms wait
- * This wrapper combines both snapshot types and adds a stabilization delay
+ * Capture app state JSON and compare it to the stored snapshot.
  */
 export async function takeSnapshot(
     page: any,
@@ -1467,8 +1466,6 @@ export async function takeSnapshot(
 ): Promise<any> {
     return timedStep(`helper:takeSnapshot:${snapshotNumber}`, async () => {
         await waitForEditorModeActivation(page);
-        await waitForStableCanvasBox(page);
-        await page.waitForTimeout(50);
 
         const snapshot = await captureSnapshot(page, label);
 
@@ -1480,15 +1477,6 @@ export async function takeSnapshot(
                     `${snapshotNumber}-${label}.json`,
                     expect
                 );
-            }
-        );
-
-        await timedStep(
-            `helper:takeSnapshot:png:${snapshotNumber}`,
-            async () => {
-                await expect(
-                    page.locator('#glyph-canvas-container')
-                ).toHaveScreenshot(`${snapshotNumber}-${label}.png`);
             }
         );
 

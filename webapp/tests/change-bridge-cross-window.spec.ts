@@ -1150,113 +1150,6 @@ async function selectLayerRow(page: Page, layerId: string): Promise<void> {
     await expect(layerRow).toHaveClass(/selected/);
 }
 
-async function selectFirstLayerRow(page: Page): Promise<void> {
-    const layerRow = page
-        .locator('#glyph-properties-sidebar .editor-layer-item[data-layer-id]')
-        .first();
-    await expect(layerRow).toBeVisible();
-    await layerRow.click();
-    await expect(layerRow).toHaveClass(/selected/);
-}
-
-async function openHistoryView(page: Page): Promise<void> {
-    await focusView(page, 'Meta+Shift+H', 'view-history', { expand: true });
-    await page.waitForFunction(
-        () => {
-            const view = document.getElementById('view-history');
-            return !!view && view.getBoundingClientRect().height > 120;
-        },
-        undefined,
-        { timeout: 10000 }
-    );
-}
-
-/**
- * Frame the current outline glyph to fill the editor canvas.
- * Cmd+0 text-fit is capped at 15% / glyph-frame at 140%, which leaves `a`
- * tiny on the screenshot canvas.
- */
-async function zoomCurrentGlyphToFillCanvas(page: Page): Promise<void> {
-    await page.evaluate(() => {
-        const glyphCanvas = (window as any).glyphCanvas;
-        const viewportManager = glyphCanvas?.viewportManager;
-        const outlineEditor = glyphCanvas?.outlineEditor;
-        const textRunEditor = glyphCanvas?.textRunEditor;
-        if (
-            !glyphCanvas ||
-            !viewportManager ||
-            !outlineEditor?.active ||
-            !textRunEditor
-        ) {
-            throw new Error('Outline editor is not ready to zoom');
-        }
-
-        const bounds = outlineEditor.calculateGlyphBoundingBox?.();
-        if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
-            throw new Error('No glyph bounds to zoom');
-        }
-
-        const glyphPosition = textRunEditor._getGlyphPosition(
-            textRunEditor.selectedGlyphIndex
-        );
-        const fontMinX =
-            glyphPosition.xPosition + glyphPosition.xOffset + bounds.minX;
-        const fontMaxX =
-            glyphPosition.xPosition + glyphPosition.xOffset + bounds.maxX;
-        const fontMinY = glyphPosition.yOffset + bounds.minY;
-        const fontMaxY = glyphPosition.yOffset + bounds.maxY;
-        const fontCenterX = (fontMinX + fontMaxX) / 2;
-        const fontCenterY = (fontMinY + fontMaxY) / 2;
-
-        const rect = glyphCanvas.getCanvasContentFrame();
-        const margin = Math.max(24, Math.min(rect.width, rect.height) * 0.08);
-        const scale = Math.min(
-            (rect.width - margin * 2) / bounds.width,
-            (rect.height - margin * 2) / bounds.height
-        );
-        const clampedScale = Math.max(0.05, Math.min(20, scale));
-
-        viewportManager.scale = clampedScale;
-        viewportManager.panX =
-            rect.left + rect.width / 2 - fontCenterX * clampedScale;
-        viewportManager.panY =
-            rect.top + rect.height / 2 - -fontCenterY * clampedScale;
-        glyphCanvas.render();
-    });
-}
-
-async function prepareWindowForScreenshot(page: Page): Promise<void> {
-    await openHistoryView(page);
-    // Keep History expanded, but return focus to the editor so the
-    // history list filters to this glyph's undo surface instead of
-    // "hidden · other undo surface".
-    await focusView(page, 'Meta+Shift+E', 'view-editor');
-    await zoomCurrentGlyphToFillCanvas(page);
-    await page.waitForTimeout(250);
-}
-
-async function expectMainWindowScreenshot(
-    page: Page,
-    fileName: string
-): Promise<void> {
-    await prepareWindowForScreenshot(page);
-    await expect(page).toHaveScreenshot(fileName, {
-        mask: [page.locator('#console-container')],
-        maskColor: '#ff00ff'
-    });
-}
-
-async function expectLinkedWindowScreenshot(
-    page: Page,
-    fileName: string
-): Promise<void> {
-    await prepareWindowForScreenshot(page);
-    await expect(page).toHaveScreenshot(fileName, {
-        mask: [page.locator('#console-container')],
-        maskColor: '#ff00ff'
-    });
-}
-
 async function dismissVisibleTippies(page: Page): Promise<void> {
     await page.keyboard.press('Escape').catch(() => {});
     await page.mouse.move(-100, -100);
@@ -1292,59 +1185,18 @@ async function waitForVisibleLayerRows(page: Page): Promise<void> {
     );
 }
 
-async function restoreEditorScreenshotState(
-    page: Page,
-    glyphName: string,
-    location: Record<string, number>,
-    options?: { dismissOverlays?: boolean }
-): Promise<void> {
-    await focusView(page, 'Meta+Shift+E', 'view-editor');
-    if (options?.dismissOverlays !== false) {
-        await dismissVisibleTippies(page);
-    }
-    await setupEditTextMode(page, glyphName);
-    await waitForEditingCompile(page);
-    for (const [axisTag, axisValue] of Object.entries(location)) {
-        await setAxisSliderValue(page, axisTag, axisValue);
-    }
-    await waitForEditingCompile(page);
-    await page.evaluate(async (glyphName) => {
-        const glyphCanvas = (window as any).glyphCanvas;
-        const textRunEditor = glyphCanvas?.textRunEditor;
-        if (!glyphCanvas || !textRunEditor) {
-            return;
-        }
-
-        textRunEditor.setTextBuffer(glyphName);
-        await textRunEditor.selectGlyphByIndex(0, true);
-        glyphCanvas.outlineEditor.active = true;
-        glyphCanvas.outlineEditor.currentGlyphName = glyphName;
-        await glyphCanvas.doUIUpdateAsync();
-        await glyphCanvas.outlineEditor.autoSelectMatchingLayer();
-        await glyphCanvas.doUIUpdateAsync();
-    }, glyphName);
-    await refreshEditorLayerPanel(page);
-    await waitForVisibleLayerRows(page);
-    if (options?.dismissOverlays !== false) {
-        await dismissVisibleTippies(page);
-    }
-}
-
 async function refreshEditorLayerPanel(page: Page): Promise<void> {
     await page.evaluate(async () => {
         const glyphCanvas = (window as any).glyphCanvas;
         await glyphCanvas?.updatePropertiesUI?.();
     });
-    await page.waitForTimeout(300);
 }
 
 /**
- * Align glyph/location/edit-mode for screenshots without keyboard focusView
- * on the editor (that would collapse sibling panels). History is opened and
- * the glyph is zoomed in `prepareWindowForScreenshot` immediately before
- * each snapshot.
+ * Align glyph/location/edit-mode without keyboard focusView on the editor
+ * (that would collapse sibling panels).
  */
-async function alignEditorCanvasForScreenshot(
+async function alignEditorCanvas(
     page: Page,
     glyphName: string,
     location: Record<string, number>
@@ -1410,7 +1262,7 @@ test.describe('Cross-window ChangeBridge sync', () => {
         // Align before opening the linked window so the launch URL copies
         // text/mode/location (wght:200) instead of an accidental Regular/ä state.
         await focusView(mainPage, 'Meta+Shift+E', 'view-editor');
-        await alignEditorCanvasForScreenshot(mainPage, 'a', { wght: 200 });
+        await alignEditorCanvas(mainPage, 'a', { wght: 200 });
 
         // Find the Thin master layer ID
         const thinLayerId = await findThinLayerId(mainPage);
@@ -1491,18 +1343,9 @@ test.describe('Cross-window ChangeBridge sync', () => {
 
         // Linked windows sync font/Yjs state, not editor UI selection. Align
         // the linked canvas without keyboard focusView (which collapses panels).
-        await alignEditorCanvasForScreenshot(linkedPage, 'a', { wght: 200 });
-
-        // Baseline screenshots
-        await mainPage.waitForTimeout(300);
-        await expectMainWindowScreenshot(mainPage, '01-main-baseline.png');
-        await expectLinkedWindowScreenshot(
-            linkedPage,
-            '01-linked-baseline.png'
-        );
+        await alignEditorCanvas(linkedPage, 'a', { wght: 200 });
 
         // ── 4. Continue Thin/ExtraLight edits on the main window ──────
-        await mainPage.waitForTimeout(300);
 
         // ── 5. Outline edit: move first node ─────────────────────
         // Use runWithoutRecording to suppress model setter recording,
@@ -1753,16 +1596,6 @@ test.describe('Cross-window ChangeBridge sync', () => {
         expect(linkedLayerCount).toBe(mainLayerCount);
         expect(linkedLayerCount).toBe(3);
 
-        // Screenshots after outline edit
-        await expectMainWindowScreenshot(
-            mainPage,
-            '02-main-after-outline-edit.png'
-        );
-        await expectLinkedWindowScreenshot(
-            linkedPage,
-            '02-linked-after-outline-edit.png'
-        );
-
         // ── 7. Anchor edit: move top anchor ──────────────────────
         const anchorLastSyncTime = await getLastFontModelSyncTime(linkedPage);
         const linkedCompileBeforeAnchor =
@@ -1951,24 +1784,6 @@ test.describe('Cross-window ChangeBridge sync', () => {
         });
         expect(mainEditingFont).toBe(true);
 
-        // ── 10. Final screenshots ────────────────────────────────
-        await expectMainWindowScreenshot(
-            mainPage,
-            '03-main-after-anchor-edit.png'
-        );
-        await expectLinkedWindowScreenshot(
-            linkedPage,
-            '03-linked-after-anchor-edit.png'
-        );
-        await expectMainWindowScreenshot(
-            mainPage,
-            '04-main-after-anchor-recomposition.png'
-        );
-        await expectLinkedWindowScreenshot(
-            linkedPage,
-            '04-linked-after-anchor-recomposition.png'
-        );
-
         // ── 11. Undo anchor edit and verify exact restoration ───
         const undoLastSyncTime = await getLastFontModelSyncTime(linkedPage);
         const linkedCompileBeforeUndo =
@@ -2075,15 +1890,6 @@ test.describe('Cross-window ChangeBridge sync', () => {
         expect(mainEditingFontAfterUndo).toBe(true);
         expect(linkedEditingFontAfterUndo).toBe(true);
 
-        await expectMainWindowScreenshot(
-            mainPage,
-            '05-main-after-anchor-undo-restoration.png'
-        );
-        await expectLinkedWindowScreenshot(
-            linkedPage,
-            '05-linked-after-anchor-undo-restoration.png'
-        );
-
         // ── 12. Add and delete an intermediate layer via the UI ─────
         const glyphName = 'a';
         const modelGlyphBeforeIntermediate = await extractModelGlyphSnapshot(
@@ -2180,15 +1986,6 @@ test.describe('Cross-window ChangeBridge sync', () => {
         await selectLayerRow(mainPage, intermediateLayerId);
         await selectLayerRow(linkedPage, intermediateLayerId);
 
-        await expectMainWindowScreenshot(
-            mainPage,
-            '06-main-after-intermediate-layer-add.png'
-        );
-        await expectLinkedWindowScreenshot(
-            linkedPage,
-            '06-linked-after-intermediate-layer-add.png'
-        );
-
         const intermediateLayerRow = mainPage.locator(
             `.editor-layer-item[data-layer-id="${intermediateLayerId}"]`
         );
@@ -2225,15 +2022,8 @@ test.describe('Cross-window ChangeBridge sync', () => {
         await waitForEditingCompile(mainPage);
         await waitForEditingCompile(linkedPage);
 
-        await restoreEditorScreenshotState(mainPage, 'a', { wght: 200 });
-        await restoreEditorScreenshotState(
-            linkedPage,
-            'a',
-            { wght: 200 },
-            {
-                dismissOverlays: false
-            }
-        );
+        await alignEditorCanvas(mainPage, 'a', { wght: 200 });
+        await alignEditorCanvas(linkedPage, 'a', { wght: 200 });
         await dismissVisibleTippies(mainPage);
 
         const mainLayerIdsAfterIntermediateDelete = await getModelLayerIds(

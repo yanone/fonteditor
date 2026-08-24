@@ -118,8 +118,8 @@ npm run test:ui
 # Run Jest unit tests
 npm run test:jest
 
-# Update Playwright snapshots
-npm run test:update-snapshots
+# Update Playwright JSON snapshots
+npm run test:snapshots
 ```
 
 ### Playwright Automation Mode

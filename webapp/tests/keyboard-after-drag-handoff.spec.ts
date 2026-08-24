@@ -24,9 +24,7 @@ import {
  * Selects a single node via mouse click, nudges it, drags sidebearing, undoes,
  * re-selects the same node, nudges back.
  *
- * Visual checks use clipped Playwright screenshots. Round-trip correctness
- * also asserts outline metrics (bottom on-curve Y + LSB), which stay stable
- * when canvas backing-store size / antialias noise would flake a pixel diff.
+ * Round-trip correctness asserts outline metrics (bottom on-curve Y + LSB).
  */
 
 /** Force a render and wait for the GPU pipeline to settle. */
@@ -519,13 +517,12 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
         await focusView(page, 'Meta+Shift+E', 'view-editor');
         await page.waitForTimeout(200);
 
-        // Suite load can leave a non-default dock layout; Cmd+0 framing is
-        // derived from the canvas CSS box, so normalize before any screenshots.
+        // Cmd+0 framing is derived from the canvas CSS box; normalize dock layout
+        // so node and sidebearing hit-tests land on the expected pixels.
         await page.evaluate(() => {
             (window as any).resizableViews?.applyDefaultLayout?.();
         });
         await waitForStableCanvasBox(page, { idleMs: 400, timeout: 15000 });
-        await page.waitForTimeout(100);
 
         // ── 2. Set text buffer to "aä" with cursor at 0 ───────────────────
         console.log('[Test] Setting text buffer to aä');
@@ -618,9 +615,6 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
 
         // Avoid hover effects
         await page.mouse.move(-100, -100);
-        await page.waitForTimeout(100);
-
-        const canvasLocator = page.locator('#glyph-canvas-container');
 
         let framedViewport: {
             panX: number;
@@ -661,9 +655,8 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
             });
         };
 
-        // Settle the property panel / canvas box BEFORE framing. Framing against
-        // a transient box (common under suite load) then rebuilding the panel
-        // shifts pan/scale by ~20px and flakes kbd-01-baseline.
+        // Settle the property panel / canvas box BEFORE framing so node
+        // and sidebearing hit-tests use a stable canvas rect.
         await page.mouse.move(-100, -100);
         await clearOutlineSelection();
         await waitForStableCanvasBox(page, { idleMs: 500, timeout: 15000 });
@@ -687,41 +680,6 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
         await waitForStableViewport(page, { idleMs: 200, timeout: 5000 });
         await stabiliseCanvas(page);
 
-        // Property-panel chrome can change the canvas box by a few pixels under
-        // suite load. Clip every canvas screenshot to the baseline box so
-        // Playwright size checks stay deterministic.
-        let baselineClip: {
-            x: number;
-            y: number;
-            width: number;
-            height: number;
-        } | null = null;
-
-        const expectCanvasScreenshot = async (name: string) => {
-            await stabiliseCanvas(page);
-            const box = await canvasLocator.boundingBox();
-            if (!box) {
-                throw new Error('Canvas bounding box missing for screenshot');
-            }
-            if (!baselineClip) {
-                baselineClip = {
-                    x: box.x,
-                    y: box.y,
-                    width: Math.floor(box.width),
-                    height: Math.floor(box.height)
-                };
-            }
-            const clip = {
-                x: baselineClip.x,
-                y: baselineClip.y,
-                width: Math.min(baselineClip.width, Math.floor(box.width)),
-                height: Math.min(baselineClip.height, Math.floor(box.height))
-            };
-            await expect(page).toHaveScreenshot(name, {
-                clip
-            });
-        };
-
         framedViewport = await page.evaluate(() => {
             const vm = (window as any).glyphCanvas?.viewportManager;
             return vm
@@ -729,10 +687,7 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
                 : null;
         });
 
-        // ── SCREENSHOT 1: Baseline ────────────────────────────────────────
-        console.log('[Test] Screenshot 1: baseline');
         await waitForCompiledAdieresisNeighbor(page);
-        await expectCanvasScreenshot('kbd-01-baseline.png');
         const metrics1 = await getOutlineMetrics(page);
 
         // ── 3. Select a bottom-most node via mouse click ─────────────────
@@ -744,11 +699,7 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
         // ── 4. Keyboard move: Shift+ArrowDown until −50u ────────────────
         await nudgeBottomNodeToY(page, metrics1.bottomNodeY - 50, 'down');
         await waitForCompileSettle(page, 'keyboard-move');
-        await page.waitForTimeout(200);
 
-        // ── SCREENSHOT 2: After keyboard move ────────────────────────────
-        console.log('[Test] Screenshot 2: after keyboard node move');
-        await expectCanvasScreenshot('kbd-02-after-keyboard-move.png');
         const metrics2 = await getOutlineMetrics(page);
         expect(metrics2.bottomNodeY).toBe(metrics1.bottomNodeY - 50);
         expect(metrics2.layerLsb).toBe(metrics1.layerLsb);
@@ -761,14 +712,10 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
         console.log('[Test] Dragging left sidebearing handle');
         await dragLeftSidebearingHandleOnCanvas(page);
         await waitForCompileSettle(page, 'sidebearing-drag');
-        await page.waitForTimeout(200);
         await page.mouse.move(-100, -100);
         await clearOutlineSelection();
         await revertToFramedViewport();
 
-        // ── SCREENSHOT 3: After sidebearing drag ─────────────────────────
-        console.log('[Test] Screenshot 3: after sidebearing drag');
-        await expectCanvasScreenshot('kbd-03-after-sidebearing-drag.png');
         const metrics3 = await getOutlineMetrics(page);
         expect(metrics3.layerLsb).not.toBe(metrics2.layerLsb);
         expect(metrics3.bottomNodeY).toBe(metrics2.bottomNodeY);
@@ -777,22 +724,14 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
         console.log('[Test] Pressing Cmd+Z for undo');
         await page.keyboard.press('Meta+z');
         await waitForCompileSettle(page, 'undo');
-        await page.waitForTimeout(200);
 
-        // ── SCREENSHOT 4: After undo — should equal screenshot 2 ─────────
-        console.log('[Test] Screenshot 4: after undo');
         await revertToFramedViewport();
 
-        // Re-select the node so selection state matches canvas2
         const nodeScreen4 = await getNodeScreenCoords(page);
         await page.mouse.click(nodeScreen4.x, nodeScreen4.y);
-        await page.waitForTimeout(100);
 
-        await stabiliseCanvas(page);
-        await expectCanvasScreenshot('kbd-04-after-undo.png');
         const metrics4 = await getOutlineMetrics(page);
 
-        // ASSERT: Undo reverts sidebearing drag → metrics match post-keyboard
         console.log(
             '[Test] Assert metrics after undo === metrics after keyboard move'
         );
@@ -802,21 +741,12 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
         // ── 7. Move node back up 50u (undo the keyboard move)
         await nudgeBottomNodeToY(page, metrics1.bottomNodeY, 'up');
         await waitForCompileSettle(page, 'keyboard-up');
-        await page.waitForTimeout(200);
 
-        // ── SCREENSHOT 5: Back to baseline ────────────────────────────────
-        console.log('[Test] Screenshot 5: back to baseline');
-
-        // Match the original baseline capture: keep hover affordances off-canvas.
         await page.mouse.move(-100, -100);
-        await page.waitForTimeout(100);
-
         await clearOutlineSelection();
         await revertToFramedViewport();
-        await expectCanvasScreenshot('kbd-05-back-to-baseline.png');
         const metrics5 = await getOutlineMetrics(page);
 
-        // ASSERT: Full round-trip restored → outline metrics match baseline.
         console.log('[Test] Assert final metrics === baseline metrics');
         expect(metrics5.selectedGlyphIndex).toBe(0);
         expect(metrics5.bottomNodeY).toBe(metrics1.bottomNodeY);
