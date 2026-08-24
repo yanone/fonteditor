@@ -75,7 +75,6 @@ type WindowUiRuntime = {
     lastDocsPercent: number | null;
     lastBottom: [number, number, number, number] | null;
     saveTimer: number | null;
-    pagehideBound: boolean;
 };
 
 function createRuntime(): WindowUiRuntime {
@@ -87,8 +86,7 @@ function createRuntime(): WindowUiRuntime {
         state: null as unknown as WindowUiState,
         lastDocsPercent: null,
         lastBottom: null,
-        saveTimer: null,
-        pagehideBound: false
+        saveTimer: null
     };
 }
 
@@ -631,17 +629,6 @@ function pxToDocsPercent(px: number): number {
     return clampOpenPercent(Math.round((px / viewportWidth()) * 100));
 }
 
-function bindPagehideFlush(): void {
-    const rt = getRuntime();
-    if (rt.pagehideBound) {
-        return;
-    }
-    rt.pagehideBound = true;
-    window.addEventListener('pagehide', () => {
-        flushSaveWindowUi();
-    });
-}
-
 function loadSlotIntoRuntime(rt: WindowUiRuntime, slot: string): WindowUiState {
     /**
      * Compact v1 chrome layout and window-local UI prefs for this window slot
@@ -667,7 +654,6 @@ function loadSlotIntoRuntime(rt: WindowUiRuntime, slot: string): WindowUiState {
 export function ensureWindowUiLoaded(): WindowUiState {
     const rt = getRuntime();
     const slot = getWindowUiSlot();
-    bindPagehideFlush();
     if (rt.loaded && rt.slot === slot) {
         return rt.state;
     }
