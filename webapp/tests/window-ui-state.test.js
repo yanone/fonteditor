@@ -48,7 +48,7 @@ describe('window UI compact state', () => {
             docs: null,
             overviewMode: 'normal',
             overviewSize: 5,
-            follow: false
+            follow: true
         });
         expect(ui.decodeWindowUi('v1;docs=40')).toMatchObject({
             top: [0, 33, 67]
@@ -68,7 +68,7 @@ describe('window UI compact state', () => {
             top: [0, 33, 67],
             filters: [],
             fontinfo: null,
-            follow: false
+            follow: true
         });
     });
 
@@ -142,13 +142,13 @@ describe('window UI compact state', () => {
         expect(ui.getOverviewSize()).toBe(7);
     });
 
-    test('stores follow and a non-default font info section', () => {
+    test('stores follow off and a non-default font info section', () => {
         const ui = loadUi();
-        ui.setOverviewFollowEnabled(true);
+        ui.setOverviewFollowEnabled(false);
         ui.setFontInfoSection('axes');
         ui.flushSaveWindowUi();
         const stored = localStorage.getItem('windowUi.main');
-        expect(stored).toContain('follow=1');
+        expect(stored).toContain('follow=0');
         expect(stored).toContain('fontinfo=axes');
         ui.setFontInfoSection('names');
         ui.flushSaveWindowUi();
@@ -163,14 +163,14 @@ describe('window UI compact state', () => {
         const overviewCopy = require('../js/window-ui-state');
         overviewCopy.setOverviewDisplayMode('matrix');
         overviewCopy.setOverviewSize(7);
-        overviewCopy.setOverviewFollowEnabled(true);
+        overviewCopy.setOverviewFollowEnabled(false);
         overviewCopy.setGlyphFilterIds(['basic/all']);
         overviewCopy.flushSaveWindowUi();
 
         layoutCopy.saveWindowUiFromDom();
         const stored = localStorage.getItem('windowUi.main');
         expect(stored).toContain('overview=matrix,7');
-        expect(stored).toContain('follow=1');
+        expect(stored).toContain('follow=0');
         expect(stored).toContain('filter=basic%2Fall');
         expect(layoutCopy.getOverviewDisplayMode()).toBe('matrix');
         expect(layoutCopy.getOverviewSize()).toBe(7);

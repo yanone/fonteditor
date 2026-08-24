@@ -1,6 +1,6 @@
 /**
  * Preference: scroll the glyph overview when the editing glyph stack changes.
- * Default false — opt in via Editing View → View menu.
+ * Default on — toggle via Editing View → View menu.
  */
 
 import {

@@ -52,8 +52,8 @@ function extrasDefaults(): WindowUiExtras {
     return {
         filters: [],
         overviewMode: 'normal',
-        overviewSize: 5,
-        follow: false,
+        overviewSize: 2,
+        follow: true,
         fontinfo: null,
         docsPage: null,
         historyUnreachable: false,
@@ -465,8 +465,8 @@ export function encodeWindowUi(ui: WindowUiState): string {
     if (ui.overviewMode !== 'normal' || ui.overviewSize !== 5) {
         parts.push(`overview=${ui.overviewMode},${ui.overviewSize}`);
     }
-    if (ui.follow) {
-        parts.push('follow=1');
+    if (!ui.follow) {
+        parts.push('follow=0');
     }
     if (ui.fontinfo && ui.fontinfo !== 'names') {
         parts.push(`fontinfo=${ui.fontinfo}`);
