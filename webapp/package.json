@@ -16,7 +16,7 @@
         "test:debug": "playwright test --debug",
         "test:headed": "playwright test --headed",
         "test:report": "playwright show-report",
-        "test:update-snapshots": "playwright test --update-snapshots",
+        "test:snapshots": "playwright test --update-snapshots=changed",
         "format:snapshot-json": "node scripts/format-snapshot-json.mjs",
         "test:jest": "jest --runInBand --verbose tests/",
         "test:rename-glyphs-wasm": "node tests/rename-glyphs-wasm-integration.mjs",

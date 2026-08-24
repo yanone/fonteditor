@@ -48,6 +48,8 @@ export default defineConfig({
         toHaveScreenshot: {
             // 0.5%: enough for GitHub-mac vs local-mac antialiasing / cursor
             // jitter. Do not raise this to hide real drawing changes.
+            // `npm run test:update-snapshots` uses --update-snapshots=changed,
+            // so PNGs are rewritten only when they fail this ratio.
             maxDiffPixelRatio: 0.005
         }
     },

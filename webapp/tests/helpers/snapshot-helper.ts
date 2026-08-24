@@ -194,6 +194,25 @@ export async function expectJsonSnapshot(
         testInfo.config.updateSnapshots === 'all' ||
         testInfo.config.updateSnapshots === 'changed'
     ) {
+        try {
+            const existingSnapshotText = await readSnapshotFile(snapshotPath);
+            const existingSnapshot = normalizeSnapshot(
+                JSON.parse(existingSnapshotText) as AppSnapshot
+            );
+            if (
+                snapshotsEqualAllowingHarfbuzzAdvanceDrift(
+                    normalizedSnapshot,
+                    existingSnapshot
+                )
+            ) {
+                return;
+            }
+        } catch (error) {
+            if ((error as { code?: string }).code !== 'ENOENT') {
+                throw error;
+            }
+        }
+
         // Write Prettier-formatted JSON ourselves. Playwright's snapshot
         // writer omits the trailing newline and expands short arrays, which
         // pre-commit Prettier then rewrites as noisy formatting-only diffs.
