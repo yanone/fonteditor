@@ -419,7 +419,16 @@ async function selectProjectFolder(): Promise<boolean> {
     if (!success) {
         return false;
     }
-    const { applyFontsFolderSelection } = await import('./file-browser');
+    // Use the bootstrap-registered bridge — do not dynamic-import file-browser
+    // from this module. glyph-overview also bundles this dialog, and a dynamic
+    // import would load a second Yjs copy (yjs#438).
+    const applyFontsFolderSelection = window.applyFontsFolderSelection;
+    if (!applyFontsFolderSelection) {
+        console.error(
+            'applyFontsFolderSelection is not available; file-browser has not loaded'
+        );
+        return false;
+    }
     await applyFontsFolderSelection({ source: 'attach' });
     return true;
 }
@@ -511,7 +520,6 @@ export async function openFolderPermissionsDialog(): Promise<void> {
 
     document.body.appendChild(overlay);
     host.dialogOverlay = overlay;
-    void import('./file-browser');
     bindFolderDialogEscape(overlay);
 
     overlay.addEventListener('click', (event) => {

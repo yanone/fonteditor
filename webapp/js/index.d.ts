@@ -640,6 +640,9 @@ declare global {
             getCurrentPlugin: () => any;
             getCurrentPath: () => string;
         };
+        applyFontsFolderSelection: (options?: {
+            source?: 'attach' | 'settings';
+        }) => Promise<void>;
 
         // From index.html (inline script)
         isDevelopment: () => boolean;

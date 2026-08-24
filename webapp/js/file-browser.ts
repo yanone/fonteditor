@@ -4607,3 +4607,7 @@ window.downloadFile = downloadFile;
     getCurrentPlugin: () => fileSystemCache.currentPlugin,
     getCurrentPath: () => fileSystemCache.currentPath
 };
+// Bridge for folder-permissions-dialog (also bundled into glyph-overview).
+// Keep as a window callback so that entry does not dynamic-import this module
+// and pull a second Yjs copy into the page (yjs#438).
+window.applyFontsFolderSelection = applyFontsFolderSelection;
