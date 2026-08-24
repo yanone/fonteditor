@@ -1456,7 +1456,8 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
     min-height: 200px;
 }
 
-.top-row > .view {
+.top-row > .view,
+.bottom-row > .view {
     min-width: 24px;
 }
 
@@ -1505,6 +1506,7 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
 /* Collapsed width views - rotated title bar when collapsed to minimum width */
 .view.collapsed-width {
     overflow: hidden;
+    min-width: 24px;
 }
 
 .view.collapsed-width .view-content {

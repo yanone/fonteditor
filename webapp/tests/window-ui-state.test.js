@@ -33,6 +33,12 @@ describe('window UI compact state', () => {
         const ui = loadUi();
         const decoded = ui.decodeWindowUi('v1;docs=-;rows=100,-;top=0,20,20');
         expect(decoded.top).toEqual([0, 20, 80]);
+        expect(
+            ui.decodeWindowUi('v1;docs=-;rows=400,200;top=0,400,800').top
+        ).toEqual([0, 33, 67]);
+        expect(
+            ui.decodeWindowUi('v1;docs=-;rows=400,200;top=0,400,800').rows
+        ).toEqual({ top: 67, bottom: 33 });
     });
 
     test('falls back to defaults for corrupt strings', () => {
@@ -157,5 +163,192 @@ describe('window UI compact state', () => {
         expect(localStorage.getItem('windowUi.main')).toBe(
             ui.DEFAULT_WINDOW_UI_STRING
         );
+    });
+
+    test('captures open editor share instead of treating it as collapsed', () => {
+        document.body.innerHTML = `
+            <div id="app-shell" class="app-shell">
+                <div id="view-docs" class="view view-docs"></div>
+                <div class="container">
+                    <div class="top-row">
+                        <div id="view-fontinfo" class="view collapsed-width"></div>
+                        <div id="view-overview" class="view"></div>
+                        <div id="view-editor" class="view"></div>
+                    </div>
+                    <div class="bottom-row">
+                        <div id="view-assistant" class="view"></div>
+                        <div id="view-scripts" class="view"></div>
+                        <div id="view-console" class="view"></div>
+                        <div id="view-history" class="view"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+        const widths = {
+            'view-docs': 0,
+            'view-fontinfo': 24,
+            'view-overview': 400,
+            'view-editor': 800,
+            'view-assistant': 300,
+            'view-scripts': 300,
+            'view-console': 300,
+            'view-history': 300
+        };
+        const heights = { 'top-row': 400, 'bottom-row': 200 };
+        Object.entries(widths).forEach(([id, width]) => {
+            Object.defineProperty(document.getElementById(id), 'offsetWidth', {
+                configurable: true,
+                get: () => width
+            });
+        });
+        Object.entries(heights).forEach(([className, height]) => {
+            Object.defineProperty(
+                document.querySelector(`.${className}`),
+                'offsetHeight',
+                { configurable: true, get: () => height }
+            );
+        });
+
+        const ui = loadUi();
+        const state = ui.captureWindowUiFromDom();
+        expect(state.top).toEqual([0, 33, 67]);
+        expect(state.rows).toEqual({ top: 67, bottom: 33 });
+        expect(state.bottom).toEqual([25, 25, 25, 25]);
+        expect(
+            document
+                .getElementById('view-editor')
+                .classList.contains('collapsed-width')
+        ).toBe(false);
+    });
+
+    test('restore does not collapse an open editor when layout has not painted', () => {
+        document.body.innerHTML = `
+            <div id="app-shell" class="app-shell">
+                <div id="view-docs" class="view view-docs"></div>
+                <div class="container">
+                    <div class="top-row">
+                        <div id="view-fontinfo" class="view"></div>
+                        <div id="view-overview" class="view"></div>
+                        <div id="view-editor" class="view"></div>
+                    </div>
+                    <div class="bottom-row">
+                        <div id="view-assistant" class="view"></div>
+                        <div id="view-scripts" class="view"></div>
+                        <div id="view-console" class="view"></div>
+                        <div id="view-history" class="view"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.querySelectorAll('.view').forEach((view) => {
+            Object.defineProperty(view, 'offsetWidth', {
+                configurable: true,
+                get: () => 0
+            });
+        });
+
+        localStorage.setItem(
+            'windowUi.main',
+            'v1;docs=-;rows=60,40;top=0,40,60;bottom=25,25,25,25'
+        );
+        const ui = loadUi();
+        ui.applyWindowUi();
+
+        const editor = document.getElementById('view-editor');
+        expect(editor.classList.contains('collapsed-width')).toBe(false);
+        expect(editor.style.flex).toBe('60 1 0%');
+        expect(
+            document
+                .getElementById('view-fontinfo')
+                .classList.contains('collapsed-width')
+        ).toBe(true);
+        expect(document.getElementById('view-scripts').style.flex).toBe(
+            '25 1 0%'
+        );
+    });
+
+    test('repairs all-zero top shares and zeroed bottom panes', () => {
+        const ui = loadUi();
+        const decoded = ui.decodeWindowUi(
+            'v1;docs=-;rows=60,40;top=0,0,0;bottom=62,38,0,0;overview=normal,1;preview=medium;focus=view-history'
+        );
+        expect(decoded.top).toEqual([0, 33, 67]);
+        expect(decoded.bottom).toEqual([25, 25, 25, 25]);
+        expect(decoded.rows).toEqual({ top: 60, bottom: 40 });
+        expect(decoded.preview).toBe('medium');
+        expect(decoded.focus).toBe('view-history');
+    });
+
+    test('does not treat an open bottom pane as a width-collapsed tab', () => {
+        document.body.innerHTML = `
+            <div class="bottom-row">
+                <div id="view-history" class="view view-history collapsed-width" style="flex: 40 1 0%"></div>
+            </div>
+        `;
+        const history = document.getElementById('view-history');
+        Object.defineProperty(history, 'offsetWidth', {
+            configurable: true,
+            get: () => 492
+        });
+        const ui = loadUi();
+        expect(ui.isViewWidthCollapsed(history)).toBe(false);
+    });
+
+    test('keeps previous top shares when every top pane is a 24px tab', () => {
+        document.body.innerHTML = `
+            <div id="app-shell" class="app-shell">
+                <div id="view-docs" class="view view-docs"></div>
+                <div class="container">
+                    <div class="top-row">
+                        <div id="view-fontinfo" class="view collapsed-width" style="flex: 0 0 24px"></div>
+                        <div id="view-overview" class="view collapsed-width" style="flex: 0 0 24px"></div>
+                        <div id="view-editor" class="view collapsed-width" style="flex: 0 0 24px"></div>
+                    </div>
+                    <div class="bottom-row">
+                        <div id="view-assistant" class="view"></div>
+                        <div id="view-scripts" class="view"></div>
+                        <div id="view-console" class="view"></div>
+                        <div id="view-history" class="view"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+        const widths = {
+            'view-docs': 0,
+            'view-fontinfo': 24,
+            'view-overview': 24,
+            'view-editor': 24,
+            'view-assistant': 300,
+            'view-scripts': 300,
+            'view-console': 300,
+            'view-history': 300
+        };
+        Object.entries(widths).forEach(([id, width]) => {
+            Object.defineProperty(document.getElementById(id), 'offsetWidth', {
+                configurable: true,
+                get: () => width
+            });
+        });
+        Object.defineProperty(
+            document.querySelector('.top-row'),
+            'offsetHeight',
+            {
+                configurable: true,
+                get: () => 400
+            }
+        );
+        Object.defineProperty(
+            document.querySelector('.bottom-row'),
+            'offsetHeight',
+            { configurable: true, get: () => 200 }
+        );
+
+        localStorage.setItem(
+            'windowUi.main',
+            'v1;docs=-;rows=67,33;top=0,40,60;bottom=25,25,25,25'
+        );
+        const ui = loadUi();
+        const state = ui.captureWindowUiFromDom();
+        expect(state.top).toEqual([0, 40, 60]);
     });
 });

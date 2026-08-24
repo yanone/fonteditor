@@ -154,6 +154,92 @@ export function isApplyingWindowUi(): boolean {
     return getRuntime().applying;
 }
 
+const COLLAPSED_FLEX = `0 0 ${TITLE_BAR_PX}px`;
+
+/** Direct pane children only — nested `.view` nodes are not layout slots. */
+export function getDirectRowViews(row: HTMLElement): HTMLElement[] {
+    return Array.from(row.querySelectorAll(':scope > .view')) as HTMLElement[];
+}
+
+function isCollapsedFlex(flex: string): boolean {
+    return /^\s*0\s+0\s+/.test(flex);
+}
+
+function parseFlexGrow(flex: string): number | null {
+    const match = flex.trim().match(/^(-?\d+(?:\.\d+)?)/);
+    if (!match) {
+        return null;
+    }
+    const value = Number.parseFloat(match[1]);
+    return Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Width-collapsed chrome tab (top row only). Bottom panes never
+ * width-collapse. Open flex wins over a leftover `collapsed-width` class.
+ * Unlaid-out `offsetWidth === 0` is not collapsed.
+ */
+export function isViewWidthCollapsed(view: HTMLElement): boolean {
+    if (view.closest('.bottom-row')) {
+        return false;
+    }
+    if (isCollapsedFlex(view.style.flex)) {
+        return true;
+    }
+    const grow = parseFlexGrow(view.style.flex);
+    if (grow != null && grow > 0) {
+        return false;
+    }
+    if (view.classList.contains('collapsed-width')) {
+        return true;
+    }
+    const width = view.offsetWidth;
+    if (width <= 0) {
+        return false;
+    }
+    return width <= TITLE_BAR_PX + COLLAPSE_SLOP_PX;
+}
+
+function rowHasUnlaidOpenView(views: HTMLElement[]): boolean {
+    return views.some(
+        (view) => view.offsetWidth <= 0 && !isViewWidthCollapsed(view)
+    );
+}
+
+function percentsFromWeights(weights: number[]): number[] {
+    const total = weights.reduce(
+        (sum, weight) => sum + (weight > 0 ? weight : 0),
+        0
+    );
+    if (total <= 0) {
+        return weights.map(() => 0);
+    }
+    return renormalizePercents(
+        weights.map((weight) => (weight <= 0 ? 0 : (weight / total) * 100))
+    );
+}
+
+function widthSharesFromViews(
+    views: HTMLElement[],
+    previous: number[]
+): number[] {
+    if (views.length === 0) {
+        return previous;
+    }
+    if (rowHasUnlaidOpenView(views)) {
+        return previous;
+    }
+    const next = percentsFromWeights(
+        views.map((view) =>
+            isViewWidthCollapsed(view) ? 0 : Math.max(view.offsetWidth, 1)
+        )
+    );
+    if (next.every((value) => value <= 0)) {
+        return previous;
+    }
+    return next;
+}
+
 export function renormalizePercents(values: number[]): number[] {
     const rounded = values.map((value) =>
         value <= 0 ? 0 : Math.max(0, Math.round(value))
@@ -182,6 +268,31 @@ function parseClosedOrInt(raw: string): number | null {
 
 function clampOpenPercent(value: number): number {
     return Math.min(100, Math.max(1, value));
+}
+
+function coerceShareList(values: number[]): number[] {
+    if (values.some((value) => value > 100)) {
+        return percentsFromWeights(values);
+    }
+    return renormalizePercents(values);
+}
+
+function coerceTopShares(values: number[]): [number, number, number] {
+    const next = coerceShareList(values);
+    if (next.every((value) => value <= 0)) {
+        return [...DEFAULT_STATE.top];
+    }
+    return next as [number, number, number];
+}
+
+function coerceBottomShares(
+    values: number[]
+): [number, number, number, number] {
+    const next = coerceShareList(values);
+    if (next.some((value) => value <= 0)) {
+        return [...DEFAULT_BOTTOM];
+    }
+    return next as [number, number, number, number];
 }
 
 export function parseOverviewDisplayMode(
@@ -393,7 +504,7 @@ export function decodeWindowUi(raw: string | null | undefined): WindowUiState {
     if (rowBottom == null) {
         next.rows = { top: 100, bottom: null };
     } else {
-        const rows = renormalizePercents([
+        const rows = coerceShareList([
             Number.isFinite(rowTop) ? rowTop : 100,
             rowBottom
         ]);
@@ -407,11 +518,7 @@ export function decodeWindowUi(raw: string | null | undefined): WindowUiState {
     while (topParts.length < 3) {
         topParts.push(0);
     }
-    next.top = renormalizePercents(topParts.slice(0, 3)) as [
-        number,
-        number,
-        number
-    ];
+    next.top = coerceTopShares(topParts.slice(0, 3));
 
     if (fields.has('bottom')) {
         const bottomParts = (fields.get('bottom') || '')
@@ -423,12 +530,7 @@ export function decodeWindowUi(raw: string | null | undefined): WindowUiState {
         while (bottomParts.length < 4) {
             bottomParts.push(0);
         }
-        next.bottom = renormalizePercents(bottomParts.slice(0, 4)) as [
-            number,
-            number,
-            number,
-            number
-        ];
+        next.bottom = coerceBottomShares(bottomParts.slice(0, 4));
         getRuntime().lastBottom = [...next.bottom];
     }
 
@@ -587,51 +689,33 @@ export function captureWindowUiFromDom(): WindowUiState {
     }
 
     if (topRow && bottomRow) {
-        const container = topRow.parentElement;
-        const height = container?.clientHeight || viewportHeight();
+        const topHeight = topRow.offsetHeight;
+        const bottomHeight = bottomRow.offsetHeight;
         const bottomClosed =
-            bottomRow.offsetHeight <= TITLE_BAR_PX + COLLAPSE_SLOP_PX;
-        if (bottomClosed || height <= 0) {
+            bottomHeight > 0 && bottomHeight <= TITLE_BAR_PX + COLLAPSE_SLOP_PX;
+        if (bottomClosed) {
             state.rows = { top: 100, bottom: null };
-        } else {
-            const topPct = Math.round((topRow.offsetHeight / height) * 100);
-            const rows = renormalizePercents([topPct, 100 - topPct]);
+        } else if (topHeight > 0 && bottomHeight > 0) {
+            const rows = percentsFromWeights([topHeight, bottomHeight]);
             state.rows = { top: rows[0], bottom: rows[1] };
         }
     }
 
     if (topRow) {
-        const views = Array.from(
-            topRow.querySelectorAll('.view')
-        ) as HTMLElement[];
+        const views = getDirectRowViews(topRow);
         if (views.length >= 3) {
-            const shares = views.slice(0, 3).map((view) => {
-                if (
-                    view.offsetWidth <= TITLE_BAR_PX + COLLAPSE_SLOP_PX ||
-                    view.classList.contains('collapsed-width')
-                ) {
-                    return 0;
-                }
-                return Math.max(view.offsetWidth, 1);
-            });
-            state.top = renormalizePercents(shares) as [number, number, number];
+            state.top = widthSharesFromViews(views.slice(0, 3), [
+                ...state.top
+            ]) as [number, number, number];
         }
     }
 
     if (bottomRow && state.rows.bottom != null) {
-        const views = Array.from(
-            bottomRow.querySelectorAll('.view')
-        ) as HTMLElement[];
+        const views = getDirectRowViews(bottomRow);
         if (views.length >= 4) {
-            const shares = views
-                .slice(0, 4)
-                .map((view) => Math.max(view.offsetWidth, 1));
-            state.bottom = renormalizePercents(shares) as [
-                number,
-                number,
-                number,
-                number
-            ];
+            state.bottom = widthSharesFromViews(views.slice(0, 4), [
+                ...(state.bottom || rt.lastBottom || DEFAULT_BOTTOM)
+            ]) as [number, number, number, number];
             rt.lastBottom = [...state.bottom];
         }
     }
@@ -639,27 +723,31 @@ export function captureWindowUiFromDom(): WindowUiState {
     return state;
 }
 
-function applyFlexPercents(
-    views: HTMLElement[],
-    percents: number[],
-    collapsedClass: 'collapsed-width' | 'collapsed'
-): void {
+function applyTopRowFlex(views: HTMLElement[], percents: number[]): void {
     percents.forEach((percent, index) => {
         const view = views[index];
         if (!view) {
             return;
         }
         if (percent <= 0) {
-            view.style.flex = `0 0 ${TITLE_BAR_PX}px`;
-            view.classList.add(collapsedClass);
-            view.classList.remove(
-                collapsedClass === 'collapsed-width'
-                    ? 'collapsed'
-                    : 'collapsed-width'
-            );
+            view.style.flex = COLLAPSED_FLEX;
+            view.classList.add('collapsed-width');
+            view.classList.remove('collapsed');
             return;
         }
-        view.style.flex = String(percent);
+        view.style.flex = `${percent} 1 0%`;
+        view.classList.remove('collapsed-width', 'collapsed');
+    });
+}
+
+function applyBottomRowFlex(views: HTMLElement[], percents: number[]): void {
+    const shares = coerceBottomShares(percents);
+    shares.forEach((percent, index) => {
+        const view = views[index];
+        if (!view) {
+            return;
+        }
+        view.style.flex = `${percent} 1 0%`;
         view.classList.remove('collapsed-width', 'collapsed');
     });
 }
@@ -699,32 +787,24 @@ export function applyWindowUi(
         if (topRow && bottomRow) {
             if (ui.rows.bottom == null) {
                 topRow.style.flex = '1';
-                bottomRow.style.flex = `0 0 ${TITLE_BAR_PX}px`;
+                bottomRow.style.flex = COLLAPSED_FLEX;
             } else {
-                topRow.style.flex = String(ui.rows.top);
-                bottomRow.style.flex = String(ui.rows.bottom);
+                topRow.style.flex = `${ui.rows.top / 100}`;
+                bottomRow.style.flex = `${ui.rows.bottom / 100}`;
             }
         }
 
         if (topRow) {
-            applyFlexPercents(
-                Array.from(topRow.querySelectorAll('.view')) as HTMLElement[],
-                ui.top,
-                'collapsed-width'
-            );
+            applyTopRowFlex(getDirectRowViews(topRow), ui.top);
         }
 
         if (bottomRow) {
-            applyFlexPercents(
-                Array.from(
-                    bottomRow.querySelectorAll('.view')
-                ) as HTMLElement[],
-                ui.bottom ?? rt.lastBottom ?? DEFAULT_BOTTOM,
-                'collapsed'
+            applyBottomRowFlex(
+                getDirectRowViews(bottomRow),
+                ui.bottom ?? rt.lastBottom ?? DEFAULT_BOTTOM
             );
         }
 
-        window.resizableViews?.normalizeTopRowWidths();
         window.resizableViews?.syncCollapsedStatesAfterLayoutRestore();
     } finally {
         rt.applying = false;
