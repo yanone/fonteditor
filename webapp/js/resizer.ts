@@ -1,6 +1,7 @@
 import { getClosestExpandedTopRowViewId } from './view-focus';
 import {
     applyWindowUi,
+    applyDefaultWindowUi,
     getDirectRowViews,
     isViewWidthCollapsed,
     saveWindowUiFromDom
@@ -274,7 +275,7 @@ class ResizableViews {
     }
 
     applyDefaultLayout() {
-        applyWindowUi();
+        applyDefaultWindowUi();
     }
 
     saveLayout() {

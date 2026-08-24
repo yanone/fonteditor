@@ -18,6 +18,13 @@ const APP_SETTINGS = {
     // App internal ID
     APP_ID: 'org.context.fonteditor',
 
+    /**
+     * Factory chrome for a window with no `windowUi.${slot}` yet
+     * (`main` or a linked ordinal). Docs closed, Font Info collapsed,
+     * Overview 33%, Editor 67%, bottom row collapsed.
+     */
+    DEFAULT_WINDOW_UI_STRING: 'v1;docs=-;rows=100,-;top=0,33,67',
+
     // Compilation settings
     COMPILE_DEBOUNCE_DELAY: 150, // ms - delay before auto-compile triggers after changes
 

@@ -1,4 +1,5 @@
 import { Logger } from './logger';
+import APP_SETTINGS from './settings';
 
 const console = new Logger('WindowUi');
 
@@ -9,7 +10,7 @@ const COLLAPSE_SLOP_PX = 5;
 const SAVE_DEBOUNCE_MS = 200;
 const DISABLED_PLUGIN_PREFIX = '-';
 
-export const DEFAULT_WINDOW_UI_STRING = 'v1;docs=-;rows=100,-;top=0,33,67';
+export const DEFAULT_WINDOW_UI_STRING = APP_SETTINGS.DEFAULT_WINDOW_UI_STRING;
 
 export type OverviewDisplayMode = 'normal' | 'matrix';
 export type PreviewArea = 'small' | 'medium' | 'full';
@@ -42,29 +43,33 @@ export type WindowUiState = {
 
 const DEFAULT_BOTTOM: [number, number, number, number] = [25, 25, 25, 25];
 
-const DEFAULT_STATE: WindowUiState = {
-    docs: null,
-    rows: { top: 100, bottom: null },
-    top: [0, 33, 67],
-    bottom: null,
-    filters: [],
-    overviewMode: 'normal',
-    overviewSize: 5,
-    follow: false,
-    fontinfo: null,
-    docsPage: null,
-    historyUnreachable: false,
-    guides: false,
-    metrics: false,
-    preview: 'small',
-    plugins: [],
-    disabledPlugins: [],
-    focus: null
-};
+const LINKED_WINDOW_QUERY_PARAM = 'linked';
+
+type WindowUiExtras = Omit<WindowUiState, 'docs' | 'rows' | 'top' | 'bottom'>;
+
+/** Non-chrome prefs. Pane splits come only from `DEFAULT_WINDOW_UI_STRING`. */
+function extrasDefaults(): WindowUiExtras {
+    return {
+        filters: [],
+        overviewMode: 'normal',
+        overviewSize: 5,
+        follow: false,
+        fontinfo: null,
+        docsPage: null,
+        historyUnreachable: false,
+        guides: false,
+        metrics: false,
+        preview: 'small',
+        plugins: [],
+        disabledPlugins: [],
+        focus: null
+    };
+}
 
 type WindowUiRuntime = {
     loaded: boolean;
     applying: boolean;
+    layoutApplied: boolean;
     slot: string | null;
     state: WindowUiState;
     lastDocsPercent: number | null;
@@ -77,8 +82,9 @@ function createRuntime(): WindowUiRuntime {
     return {
         loaded: false,
         applying: false,
+        layoutApplied: false,
         slot: null,
-        state: cloneState(DEFAULT_STATE),
+        state: null as unknown as WindowUiState,
         lastDocsPercent: null,
         lastBottom: null,
         saveTimer: null,
@@ -94,9 +100,13 @@ function createRuntime(): WindowUiRuntime {
 function getRuntime(): WindowUiRuntime {
     const existing = window.__windowUiRuntime;
     if (existing) {
+        if (existing.layoutApplied == null) {
+            existing.layoutApplied = false;
+        }
         return existing;
     }
     const created = createRuntime();
+    created.state = cloneState(DEFAULT_STATE);
     window.__windowUiRuntime = created;
     return created;
 }
@@ -134,10 +144,19 @@ function pluginRecordsToMap(
 
 export function getWindowUiSlot(): string {
     const role = window.windowRole;
-    if (!role || role.linkedOrdinal === null) {
-        return 'main';
+    if (role && role.linkedOrdinal !== null) {
+        return String(role.linkedOrdinal);
     }
-    return String(role.linkedOrdinal);
+    const linked = Number.parseInt(
+        new URLSearchParams(window.location.search).get(
+            LINKED_WINDOW_QUERY_PARAM
+        ) || '',
+        10
+    );
+    if (Number.isFinite(linked) && linked > 0) {
+        return String(linked);
+    }
+    return 'main';
 }
 
 /**
@@ -277,10 +296,14 @@ function coerceShareList(values: number[]): number[] {
     return renormalizePercents(values);
 }
 
+let defaultWindowUiState: WindowUiState | null = null;
+
 function coerceTopShares(values: number[]): [number, number, number] {
     const next = coerceShareList(values);
     if (next.every((value) => value <= 0)) {
-        return [...DEFAULT_STATE.top];
+        return defaultWindowUiState
+            ? [...defaultWindowUiState.top]
+            : ([0, 0, 0] as [number, number, number]);
     }
     return next as [number, number, number];
 }
@@ -475,40 +498,40 @@ export function encodeWindowUi(ui: WindowUiState): string {
     return parts.join(';');
 }
 
-export function decodeWindowUi(raw: string | null | undefined): WindowUiState {
-    if (!raw || typeof raw !== 'string' || !raw.startsWith('v1;')) {
-        return cloneState(DEFAULT_STATE);
+function parseWindowUi(raw: string): WindowUiState | null {
+    if (!raw.startsWith('v1;')) {
+        return null;
     }
     const fields = new Map<string, string>();
     for (const part of raw.split(';').slice(1)) {
         const eq = part.indexOf('=');
         if (eq <= 0) {
-            return cloneState(DEFAULT_STATE);
+            return null;
         }
         fields.set(part.slice(0, eq), part.slice(eq + 1));
     }
     if (!fields.has('docs') || !fields.has('rows') || !fields.has('top')) {
-        return cloneState(DEFAULT_STATE);
+        return null;
     }
 
-    const next = cloneState(DEFAULT_STATE);
-    next.docs = parseClosedOrInt(fields.get('docs') || '-');
-    if (next.docs != null) {
-        next.docs = clampOpenPercent(next.docs);
-        getRuntime().lastDocsPercent = next.docs;
+    const extras = extrasDefaults();
+    let docs = parseClosedOrInt(fields.get('docs') || '-');
+    if (docs != null) {
+        docs = clampOpenPercent(docs);
     }
 
     const rowParts = (fields.get('rows') || '').split(',');
     const rowTop = Number.parseInt(rowParts[0] || '100', 10);
     const rowBottom = parseClosedOrInt(rowParts[1] || '-');
+    let rows: WindowUiState['rows'];
     if (rowBottom == null) {
-        next.rows = { top: 100, bottom: null };
+        rows = { top: 100, bottom: null };
     } else {
-        const rows = coerceShareList([
+        const shares = coerceShareList([
             Number.isFinite(rowTop) ? rowTop : 100,
             rowBottom
         ]);
-        next.rows = { top: rows[0], bottom: rows[1] };
+        rows = { top: shares[0], bottom: shares[1] };
     }
 
     const topParts = (fields.get('top') || '').split(',').map((part) => {
@@ -518,8 +541,9 @@ export function decodeWindowUi(raw: string | null | undefined): WindowUiState {
     while (topParts.length < 3) {
         topParts.push(0);
     }
-    next.top = coerceTopShares(topParts.slice(0, 3));
+    const top = coerceTopShares(topParts.slice(0, 3));
 
+    let bottom: WindowUiState['bottom'] = null;
     if (fields.has('bottom')) {
         const bottomParts = (fields.get('bottom') || '')
             .split(',')
@@ -530,9 +554,16 @@ export function decodeWindowUi(raw: string | null | undefined): WindowUiState {
         while (bottomParts.length < 4) {
             bottomParts.push(0);
         }
-        next.bottom = coerceBottomShares(bottomParts.slice(0, 4));
-        getRuntime().lastBottom = [...next.bottom];
+        bottom = coerceBottomShares(bottomParts.slice(0, 4));
     }
+
+    const next: WindowUiState = {
+        ...extras,
+        docs,
+        rows,
+        top,
+        bottom
+    };
 
     next.filters = decodeFilterList(fields.get('filter') || '');
 
@@ -572,6 +603,20 @@ export function decodeWindowUi(raw: string | null | undefined): WindowUiState {
     }
     next.focus = fields.get('focus') || null;
     return next;
+}
+
+const parsedDefaultState = parseWindowUi(DEFAULT_WINDOW_UI_STRING);
+if (!parsedDefaultState) {
+    throw new Error('DEFAULT_WINDOW_UI_STRING is not a valid v1 chrome string');
+}
+const DEFAULT_STATE: WindowUiState = parsedDefaultState;
+defaultWindowUiState = DEFAULT_STATE;
+
+export function decodeWindowUi(raw: string | null | undefined): WindowUiState {
+    if (!raw || typeof raw !== 'string') {
+        return cloneState(DEFAULT_STATE);
+    }
+    return parseWindowUi(raw) ?? cloneState(DEFAULT_STATE);
 }
 
 function viewportWidth(): number {
@@ -626,9 +671,16 @@ export function ensureWindowUiLoaded(): WindowUiState {
     if (rt.loaded && rt.slot === slot) {
         return rt.state;
     }
+    const previousSlot = rt.slot;
     rt.loaded = true;
     rt.slot = slot;
-    return loadSlotIntoRuntime(rt, slot);
+    const state = loadSlotIntoRuntime(rt, slot);
+    if (document.getElementById('app-shell')) {
+        applyWindowUi(state);
+    } else if (previousSlot != null && previousSlot !== slot) {
+        rt.layoutApplied = false;
+    }
+    return state;
 }
 
 function persistWindowUi(): void {
@@ -668,6 +720,9 @@ export function getWindowUiState(): WindowUiState {
 export function captureWindowUiFromDom(): WindowUiState {
     ensureWindowUiLoaded();
     const rt = getRuntime();
+    if (!rt.layoutApplied) {
+        return rt.state;
+    }
     const state = rt.state;
     const shell = document.getElementById('app-shell');
     const docs = document.getElementById('view-docs');
@@ -806,9 +861,17 @@ export function applyWindowUi(
         }
 
         window.resizableViews?.syncCollapsedStatesAfterLayoutRestore();
+        if (shell || topRow) {
+            rt.layoutApplied = true;
+        }
     } finally {
         rt.applying = false;
     }
+}
+
+export function applyDefaultWindowUi(): void {
+    applyWindowUi(cloneState(DEFAULT_STATE));
+    persistWindowUi();
 }
 
 export function saveWindowUiFromDom(): void {

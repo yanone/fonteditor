@@ -6,6 +6,7 @@ describe('window UI compact state', () => {
 
     beforeEach(() => {
         localStorage.clear();
+        document.body.innerHTML = '';
         delete window.windowRole;
         delete window.__windowUiRuntime;
         jest.resetModules();
@@ -78,6 +79,34 @@ describe('window UI compact state', () => {
             ui.DEFAULT_WINDOW_UI_STRING
         );
         expect(localStorage.getItem('windowUi.main')).toBeNull();
+    });
+
+    test('derives factory chrome from settings and seeds missing linked slots', () => {
+        const settings = require('../js/settings').default;
+        const ui = loadUi();
+        expect(ui.DEFAULT_WINDOW_UI_STRING).toBe(
+            settings.DEFAULT_WINDOW_UI_STRING
+        );
+        expect(ui.DEFAULT_WINDOW_UI_STRING).toBe(
+            'v1;docs=-;rows=100,-;top=0,33,67'
+        );
+        expect(ui.encodeWindowUi(ui.decodeWindowUi(null))).toBe(
+            ui.DEFAULT_WINDOW_UI_STRING
+        );
+        expect(ui.decodeWindowUi(null)).toMatchObject({
+            docs: null,
+            rows: { top: 100, bottom: null },
+            top: [0, 33, 67],
+            bottom: null
+        });
+
+        window.windowRole = { linkedOrdinal: 2 };
+        delete window.__windowUiRuntime;
+        jest.resetModules();
+        const linked = require('../js/window-ui-state');
+        expect(localStorage.getItem('windowUi.2')).toBe(
+            linked.DEFAULT_WINDOW_UI_STRING
+        );
     });
 
     test('keeps disabled plugin params in plugins=', () => {
@@ -267,6 +296,124 @@ describe('window UI compact state', () => {
         );
     });
 
+    test('applies factory chrome when localStorage is empty', () => {
+        document.body.innerHTML = `
+            <div id="app-shell" class="app-shell">
+                <div id="view-docs" class="view view-docs"></div>
+                <div class="container">
+                    <div class="top-row">
+                        <div id="view-fontinfo" class="view"></div>
+                        <div id="view-overview" class="view"></div>
+                        <div id="view-editor" class="view"></div>
+                    </div>
+                    <div class="bottom-row">
+                        <div id="view-assistant" class="view"></div>
+                        <div id="view-scripts" class="view"></div>
+                        <div id="view-console" class="view"></div>
+                        <div id="view-history" class="view"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+        const ui = loadUi();
+        ui.applyWindowUi();
+
+        expect(document.getElementById('view-docs').style.flex).toBe('0 0 0px');
+        expect(
+            document
+                .getElementById('view-fontinfo')
+                .classList.contains('collapsed-width')
+        ).toBe(true);
+        expect(document.getElementById('view-overview').style.flex).toBe(
+            '33 1 0%'
+        );
+        expect(document.getElementById('view-editor').style.flex).toBe(
+            '67 1 0%'
+        );
+        expect(document.querySelector('.bottom-row').style.flex).toBe(
+            '0 0 24px'
+        );
+        expect(document.querySelector('.top-row').style.flex).toMatch(
+            /^1(\s|$)/
+        );
+    });
+
+    test('does not capture CSS chrome before the factory layout is applied', () => {
+        const ui = loadUi();
+        document.body.innerHTML = `
+            <div id="app-shell" class="app-shell docs-open">
+                <div id="view-docs" class="view view-docs" style="flex: 0 0 340px"></div>
+                <div class="container">
+                    <div class="top-row" style="flex: 1.61">
+                        <div id="view-fontinfo" class="view"></div>
+                        <div id="view-overview" class="view"></div>
+                        <div id="view-editor" class="view"></div>
+                    </div>
+                    <div class="bottom-row" style="flex: 1">
+                        <div id="view-assistant" class="view"></div>
+                        <div id="view-scripts" class="view"></div>
+                        <div id="view-console" class="view"></div>
+                        <div id="view-history" class="view"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+        ui.saveWindowUiFromDom();
+        expect(localStorage.getItem('windowUi.main')).toBe(
+            ui.DEFAULT_WINDOW_UI_STRING
+        );
+        ui.applyWindowUi();
+        expect(
+            document
+                .getElementById('view-fontinfo')
+                .classList.contains('collapsed-width')
+        ).toBe(true);
+        expect(document.querySelector('.bottom-row').style.flex).toBe(
+            '0 0 24px'
+        );
+    });
+
+    test('applies factory chrome to a linked window with no stored slot', () => {
+        document.body.innerHTML = `
+            <div id="app-shell" class="app-shell">
+                <div id="view-docs" class="view view-docs"></div>
+                <div class="container">
+                    <div class="top-row">
+                        <div id="view-fontinfo" class="view"></div>
+                        <div id="view-overview" class="view"></div>
+                        <div id="view-editor" class="view"></div>
+                    </div>
+                    <div class="bottom-row">
+                        <div id="view-assistant" class="view"></div>
+                        <div id="view-scripts" class="view"></div>
+                        <div id="view-console" class="view"></div>
+                        <div id="view-history" class="view"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+        window.windowRole = { linkedOrdinal: 3 };
+        const ui = loadUi();
+        expect(localStorage.getItem('windowUi.3')).toBe(
+            ui.DEFAULT_WINDOW_UI_STRING
+        );
+        expect(localStorage.getItem('windowUi.main')).toBeNull();
+        expect(
+            document
+                .getElementById('view-fontinfo')
+                .classList.contains('collapsed-width')
+        ).toBe(true);
+        expect(document.getElementById('view-overview').style.flex).toBe(
+            '33 1 0%'
+        );
+        expect(document.getElementById('view-editor').style.flex).toBe(
+            '67 1 0%'
+        );
+        expect(document.querySelector('.bottom-row').style.flex).toBe(
+            '0 0 24px'
+        );
+    });
+
     test('repairs all-zero top shares and zeroed bottom panes', () => {
         const ui = loadUi();
         const decoded = ui.decodeWindowUi(
@@ -316,8 +463,8 @@ describe('window UI compact state', () => {
         const widths = {
             'view-docs': 0,
             'view-fontinfo': 24,
-            'view-overview': 24,
-            'view-editor': 24,
+            'view-overview': 0,
+            'view-editor': 0,
             'view-assistant': 300,
             'view-scripts': 300,
             'view-console': 300,
