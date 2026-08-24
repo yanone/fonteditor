@@ -2,6 +2,20 @@ import { test } from '@playwright/test';
 import { timedStep } from './timed-step';
 
 /**
+ * Playwright's API is `waitForFunction(fn, arg, options)`. Passing
+ * `{ timeout }` as the second argument is treated as `arg`, so the timeout
+ * never applies and the wait burns the full test budget.
+ */
+async function waitForPredicate(
+    page: any,
+    predicate: (...args: any[]) => unknown,
+    timeout: number,
+    arg?: unknown
+): Promise<void> {
+    await page.waitForFunction(predicate, arg, { timeout });
+}
+
+/**
  * Test Snapshot Helper
  *
  * Captures comprehensive application state for snapshot testing.
@@ -300,7 +314,7 @@ export async function waitForCanvasReady(page: any) {
         ) => {
             return timedStep(`helper:waitForCanvasReady:${label}`, async () => {
                 try {
-                    await page.waitForFunction(predicate, { timeout });
+                    await waitForPredicate(page, predicate, timeout);
                 } catch (error) {
                     let debugState: unknown = null;
 
@@ -362,6 +376,9 @@ export async function waitForCanvasReady(page: any) {
             });
         };
 
+        // Pyodide, wheels, and plugin discovery commonly take well over 20s
+        // on a cold page. The previous waitForFunction arity bug hid this by
+        // burning the full test timeout; keep a real cap below that budget.
         await waitForStartupState(
             'loading overlay hidden',
             () => {
@@ -372,7 +389,7 @@ export async function waitForCanvasReady(page: any) {
                     loadingOverlay.classList.contains('hidden')
                 );
             },
-            20000
+            180000
         );
 
         await waitForStartupState(
@@ -436,11 +453,12 @@ export async function waitForFileBrowserReady(page: any) {
  */
 export async function enterEditModeOnFirstShapedGlyph(page: any) {
     return timedStep('helper:enterEditModeOnFirstShapedGlyph', async () => {
-        await page.waitForFunction(
+        await waitForPredicate(
+            page,
             () =>
                 Number((window as any).fontManager?.editingFont?.length || 0) >
                 0,
-            { timeout: 60000 }
+            60000
         );
 
         await page.evaluate(() => {
@@ -454,7 +472,8 @@ export async function enterEditModeOnFirstShapedGlyph(page: any) {
             textRunEditor.shapeText?.(true);
         });
 
-        await page.waitForFunction(
+        await waitForPredicate(
+            page,
             () => {
                 const textRunEditor = (window as any).glyphCanvas
                     ?.textRunEditor;
@@ -463,7 +482,7 @@ export async function enterEditModeOnFirstShapedGlyph(page: any) {
                     textRunEditor.shapedGlyphs.length > 0
                 );
             },
-            { timeout: 30000 }
+            30000
         );
 
         await page.evaluate(async () => {
@@ -473,7 +492,8 @@ export async function enterEditModeOnFirstShapedGlyph(page: any) {
             );
         });
 
-        await page.waitForFunction(
+        await waitForPredicate(
+            page,
             () => {
                 const glyphCanvas = (window as any).glyphCanvas;
                 return (
@@ -481,7 +501,7 @@ export async function enterEditModeOnFirstShapedGlyph(page: any) {
                     (glyphCanvas?.textRunEditor?.selectedGlyphIndex ?? -1) >= 0
                 );
             },
-            { timeout: 15000 }
+            15000
         );
     });
 }
