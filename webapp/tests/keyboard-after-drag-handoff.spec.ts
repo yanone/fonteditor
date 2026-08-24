@@ -718,8 +718,7 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
                 height: Math.min(baselineClip.height, Math.floor(box.height))
             };
             await expect(page).toHaveScreenshot(name, {
-                clip,
-                maxDiffPixelRatio: 0.03
+                clip
             });
         };
 

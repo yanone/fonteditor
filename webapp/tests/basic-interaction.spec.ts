@@ -96,7 +96,6 @@ test.describe('Font Editor Basic Workflow', () => {
         await expect(page).toHaveScreenshot(
             `${snapshotNumber}-${label}-window.png`,
             {
-                maxDiffPixelRatio: 0.02,
                 mask: maskLocators
             }
         );
@@ -398,8 +397,7 @@ test.describe('Font Editor Basic Workflow', () => {
             page,
             '01',
             'initial-state',
-            expect,
-            0.02
+            expect
         );
 
         console.log('[Test] Double-clicking on first .glyphs file');
@@ -444,13 +442,7 @@ test.describe('Font Editor Basic Workflow', () => {
 
         // SNAPSHOT POINT 2: Font loaded
         console.log('[Test] Taking snapshot 2: font loaded');
-        const snapshot2 = await takeSnapshot(
-            page,
-            '02',
-            'font-loaded',
-            expect,
-            0.04
-        );
+        const snapshot2 = await takeSnapshot(page, '02', 'font-loaded', expect);
 
         // Type some text - click canvas to focus, then type
         // This triggers the subsetted font compilation via onTextChange debounce
@@ -756,13 +748,7 @@ test.describe('Font Editor Basic Workflow', () => {
             console.log(
                 `[Test] Taking snapshot ${snapshotNumber}: ${snapshotLabel}`
             );
-            await takeSnapshot(
-                page,
-                snapshotNumber,
-                snapshotLabel,
-                expect,
-                0.04
-            );
+            await takeSnapshot(page, snapshotNumber, snapshotLabel, expect);
         };
 
         // second layer
@@ -803,10 +789,7 @@ test.describe('Font Editor Basic Workflow', () => {
         // SNAPSHOT POINT 17: Variation set to 300
         console.log('[Test] Taking snapshot 17: variation 300');
         await expect(page.locator('#glyph-canvas-container')).toHaveScreenshot(
-            '17-variation-300.png',
-            {
-                maxDiffPixelRatio: 0.04
-            }
+            '17-variation-300.png'
         );
 
         console.log('[Test] Setting variation axis value to 400');
@@ -989,8 +972,7 @@ test.describe('Font Editor Basic Workflow', () => {
         await expect(page).toHaveScreenshot(
             '19-feature-compile-error-window.png',
             {
-                mask: [page.locator('#console-container')],
-                maxDiffPixelRatio: 0.02
+                mask: [page.locator('#console-container')]
             }
         );
 
@@ -1146,7 +1128,6 @@ test.describe('Font Editor Basic Workflow', () => {
         await expect(page).toHaveScreenshot(
             '20-fustat-a-umlaut-stack-preview-window.png',
             {
-                maxDiffPixelRatio: 0.02,
                 mask: screenshot20Masks
             }
         );

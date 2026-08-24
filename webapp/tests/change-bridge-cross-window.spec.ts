@@ -1241,7 +1241,6 @@ async function expectMainWindowScreenshot(
 ): Promise<void> {
     await prepareWindowForScreenshot(page);
     await expect(page).toHaveScreenshot(fileName, {
-        maxDiffPixelRatio: 0.07,
         mask: [page.locator('#console-container')],
         maskColor: '#ff00ff'
     });
@@ -1249,12 +1248,10 @@ async function expectMainWindowScreenshot(
 
 async function expectLinkedWindowScreenshot(
     page: Page,
-    fileName: string,
-    options?: { maxDiffPixelRatio?: number }
+    fileName: string
 ): Promise<void> {
     await prepareWindowForScreenshot(page);
     await expect(page).toHaveScreenshot(fileName, {
-        maxDiffPixelRatio: options?.maxDiffPixelRatio ?? 0.07,
         mask: [page.locator('#console-container')],
         maskColor: '#ff00ff'
     });

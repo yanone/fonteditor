@@ -46,7 +46,9 @@ export default defineConfig({
 
     expect: {
         toHaveScreenshot: {
-            maxDiffPixelRatio: 0.05
+            // 0.5%: enough for GitHub-mac vs local-mac antialiasing / cursor
+            // jitter. Do not raise this to hide real drawing changes.
+            maxDiffPixelRatio: 0.005
         }
     },
 

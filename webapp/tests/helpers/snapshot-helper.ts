@@ -1424,8 +1424,7 @@ export async function takeSnapshot(
     page: any,
     snapshotNumber: string,
     label: string,
-    expect: any,
-    maxDiffPixelRatio: number = 0.02
+    expect: any
 ): Promise<any> {
     return timedStep(`helper:takeSnapshot:${snapshotNumber}`, async () => {
         await waitForEditorModeActivation(page);
@@ -1448,13 +1447,9 @@ export async function takeSnapshot(
         await timedStep(
             `helper:takeSnapshot:png:${snapshotNumber}`,
             async () => {
-                const screenshotOptions = { maxDiffPixelRatio };
                 await expect(
                     page.locator('#glyph-canvas-container')
-                ).toHaveScreenshot(
-                    `${snapshotNumber}-${label}.png`,
-                    screenshotOptions
-                );
+                ).toHaveScreenshot(`${snapshotNumber}-${label}.png`);
             }
         );
 
