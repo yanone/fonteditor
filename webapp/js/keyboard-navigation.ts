@@ -1707,7 +1707,8 @@ import {
         const key =
             typeof event.key === 'string' ? event.key.toLowerCase() : '';
 
-        // Cmd/Ctrl+Shift+D toggles the documentation column.
+        // Cmd/Ctrl+Shift+D opens Docs, or activates it when already open
+        // (same as other view shortcuts). Closing is Cmd/Ctrl+Escape only.
         if (cmdKey && shiftKey && !event.altKey && key === 'd') {
             if (
                 isTourBlockingViewShortcuts() &&
@@ -1722,7 +1723,11 @@ import {
             event.stopPropagation();
             event.stopImmediatePropagation();
             if (window.docsViewer?.isOpen()) {
-                window.closeDocs();
+                if (currentFocusedView === 'view-docs') {
+                    resizeView('view-docs');
+                } else {
+                    focusView('view-docs', true);
+                }
             } else {
                 window.openDocs();
             }

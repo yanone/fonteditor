@@ -11,7 +11,7 @@ Shortcuts cut friction when you move between drawing, overview, scripting, and t
 - `Cmd/Ctrl+Shift+Y` — Scripts
 - `Cmd/Ctrl+Shift+K` — Konsole
 - `Cmd/Ctrl+Shift+H` — History
-- `Cmd/Ctrl+Shift+D` — Docs (toggle)
+- `Cmd/Ctrl+Shift+D` — Docs
 - `Cmd/Ctrl+Escape` — close the focused panel
 
 Each view title bar shows the same shortcut.
