@@ -1436,10 +1436,10 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
 }
 
 /* Active view indicator — 3px chrome, color only (no width change).
-   Stay above sibling views so the colored edge is not covered; dividers
-   stack above this so resize handles stay visible. */
+   Stack above the workspace and idle dividers so every edge of the
+   colored border stays visible (especially Docs vs #docs-divider). */
 .view.focused {
-    z-index: 1;
+    z-index: 3;
     border-color: var(--view-title-color);
 }
 
@@ -2142,8 +2142,9 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
     color: var(--text-faint);
 }
 
-/* Divider styles — above focused views so the 4px handle stays visible
-   over the 3px view chrome and the full-window canvas. */
+/* Divider styles — 4px visual marker; ::before widens the hit target.
+   Idle dividers sit under focused view chrome; hover/active rise above
+   so the resize line stays visible while dragging. */
 .divider {
     background-color: var(--border-primary);
     position: relative;
@@ -2151,11 +2152,9 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
     transition: background-color 0.2s ease;
 }
 
-.divider:hover {
-    background-color: var(--border-active);
-}
-
+.divider:hover,
 .divider.active {
+    z-index: 4;
     background-color: var(--border-active);
 }
 
@@ -2167,6 +2166,15 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
     /* Fixed size, no growing or shrinking */
 }
 
+.vertical-divider::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -6px;
+    width: 16px;
+}
+
 .horizontal-divider {
     height: 4px;
     cursor: row-resize;
@@ -2174,6 +2182,15 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
     min-width: 100%;
     flex: 0 0 4px;
     /* Fixed size, no growing or shrinking */
+}
+
+.horizontal-divider::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -6px;
+    height: 16px;
 }
 
 /* View specific title colors - remove left border, color title instead */

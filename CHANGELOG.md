@@ -33,7 +33,7 @@
 - **Undo resettle**: Undo/redo of edits that recompose other layers (like an anchor move) does not wholesale return all cascading layers to their state at the time of the edit. Instead, the base layer’s edit is undone, and the cascading recomposition resettled on the current font state. Consequently, component’s automatic composition status that may have changed after the anchor move is respected; only automatic layers return to their previous state.
 - **Kerning group editor**: Allow editing of kerning groups in the overview panel. Multiple matches are displayed as multiple chips, which is already a more versatile editing experience even before multiple groups per glyph are possible.
 - **Preferences Version and Updates**: App now checks for updates on boot and after window focus, throttled to 1 minute, and automatically the latest every 10 minutes.
-- **Panel focus**: 3px wide focussed panel border
+- **Panel focus**: 3px focused panel border; focused views stack above idle dividers so Docs’ colored edge stays visible; resize dividers keep a 4px marker with a wider hit target (rise above chrome on hover/drag). Docs closes via its title-bar button / Cmd/Ctrl+Escape only (not bare Escape)
 - **Property panels**: Preserve text field focus in active views
 - **Canvas**: Hide HUD in production
 - **Canvas**: Anchor the debug HUD (and measurement edge labels) to the drawing-slot inset instead of the full-window canvas origin, so they stay visible under chrome.

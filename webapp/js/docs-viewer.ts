@@ -1,6 +1,5 @@
 import { Logger } from './logger';
 import { buildDocsHref } from './link-navigation';
-import { hasVisibleTippyMenus } from './tippy-utils';
 import {
     keyboardShortcutHtml,
     shortcutSpecFromHandbook
@@ -146,11 +145,6 @@ export class DocsViewer {
         this.closeBtn.addEventListener('click', () => this.close());
         this.articleEl.addEventListener('click', (event) =>
             this.onArticleClick(event)
-        );
-        document.addEventListener(
-            'keydown',
-            (event) => this.onKeyDown(event),
-            false
         );
         void this.restorePersistedOpen();
     }
@@ -730,24 +724,6 @@ export class DocsViewer {
             throw new Error(`Failed to load ${url}`);
         }
         return await response.text();
-    }
-
-    private onKeyDown(event: KeyboardEvent): void {
-        if (event.key !== 'Escape' || !this.isOpen()) {
-            return;
-        }
-        if (hasVisibleTippyMenus()) {
-            return;
-        }
-        const active = document.activeElement;
-        const docsFocused =
-            this.view === active ||
-            (active instanceof Node && this.view.contains(active));
-        if (!docsFocused) {
-            return;
-        }
-        event.preventDefault();
-        this.close();
     }
 }
 

@@ -70,6 +70,7 @@
 .app-shell.docs-open > #docs-divider {
     flex: 0 0 4px;
     width: 4px;
+    overflow: visible;
     opacity: 1;
     pointer-events: auto;
     cursor: col-resize;
