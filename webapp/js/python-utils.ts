@@ -109,7 +109,7 @@ window.cleanPythonTraceback = function cleanPythonTraceback(
         if (line.trim().startsWith('File "')) {
             // Skip Pyodide internal frames
             if (
-                line.includes('/lib/python313.zip/_pyodide/') ||
+                line.includes('/lib/python314.zip/_pyodide/') ||
                 (line.includes('/lib/python3') && line.includes('/_pyodide/'))
             ) {
                 skipFrame = true;
