@@ -56,7 +56,7 @@ Coverage: 🟢 Should work · 🟡 Partial · 🔴 Missing
 | AI assistant | 🟢 | |
 | Undo and history | 🟢 | |
 | Multiple windows | 🟢 | |
-| Binary font export | 🟢 | |
+| Binary font export | 🟢 | Only VF, no static instances yet |
 | Language database | 🟢 | Ships with Hyperglot temporarily as a demo, later as user-installable plugins |
 | Glyph composition | 🟢 | |
 | Documentation | 🟡 | Incomplete, bad screenshots |
