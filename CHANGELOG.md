@@ -1,5 +1,11 @@
 # Unreleased
 
+- **Keyboard preview bursts**: Modifier-only keydowns no longer flush pending keyboard preview commits. Overlay prepare/render steps coalesce while an earlier run is still in flight.
+- **Vertical metrics after model sync**: Repeated layer sync from the model no longer clears `_verticalMetrics` when the model JSON omits them.
+- **Recomposition cache**: Layout-cache invalidation on recomposition now targets source ∪ component dependents instead of all visible glyphs. Anchor-drag mouseup no longer rebuilds automatic composites a second time.
+- **Preview worker queue**: Live overlay traffic uses a dedicated preview send queue so it no longer contends with Yjs sends. Preview work drains before committed updates post.
+- **Filtered cache on visual commits**: Layer/glyph visual Yjs commits patch the Rust subset/filtered caches in place when the active subset and targets are unchanged, instead of invalidating. Overlay reuses working subset fonts when safe.
+- **Release CI**: Release workflow now runs graph chokepoint gates and a Prettier check before the webapp build and GitHub release.
 - **Scroll Overview on open**: With Scroll Overview to Active Glyph on, opening in URL edit mode (`mode=edit`) scrolls the restored glyph into view in the overview after tiles load when it is visible under the active filter.
 - **Pyodide 314.0.5**: Python runtime updated from 0.29.0 (Python 3.13) to 314.0.5 (Python 3.14.2).
 - **Editor health chip**: After a short delay (~1s for UI stalls, ~4s for a silent interpolate with no compile), the Editor title bar shows a warning icon if editing looks wedged. Click it for what is stuck and what to try. Long compiles are treated as busy, not stuck.
