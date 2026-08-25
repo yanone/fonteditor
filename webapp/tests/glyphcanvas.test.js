@@ -3346,6 +3346,43 @@ describe('GlyphCanvas onMouseUp', () => {
         }
     });
 
+    test('syncCurrentExactLayerDataFromModel keeps vertical metrics across repeated model merges', () => {
+        const verticalMetrics = { Ascender: 800, Descender: -200 };
+        const currentLayerData = {
+            id: 'layer-1',
+            width: 520,
+            shapes: [],
+            anchors: [],
+            guides: [],
+            _verticalMetrics: { ...verticalMetrics }
+        };
+        canvas.outlineEditor.renderVerticalMetrics = { ...verticalMetrics };
+        const getCurrentLayerDataSpy = jest
+            .spyOn(canvas.outlineEditor, 'getCurrentLayerDataFromStack')
+            .mockReturnValue(currentLayerData);
+        const getCurrentLayerModelSpy = jest
+            .spyOn(canvas.outlineEditor, 'getCurrentLayerModel')
+            .mockReturnValue({
+                toJSON: jest.fn(() => ({
+                    id: 'layer-1',
+                    width: 530
+                }))
+            });
+
+        try {
+            canvas.outlineEditor.syncCurrentExactLayerDataFromModel();
+            canvas.outlineEditor.syncCurrentExactLayerDataFromModel();
+
+            expect(currentLayerData._verticalMetrics).toEqual(verticalMetrics);
+            expect(canvas.outlineEditor.renderVerticalMetrics).toEqual(
+                verticalMetrics
+            );
+        } finally {
+            getCurrentLayerDataSpy.mockRestore();
+            getCurrentLayerModelSpy.mockRestore();
+        }
+    });
+
     test('applyExactSelectedLayerData preserves existing exact-layer geometry when the incoming exact snapshot omits it', () => {
         canvas.outlineEditor.layerData = {
             id: 'layer-1',

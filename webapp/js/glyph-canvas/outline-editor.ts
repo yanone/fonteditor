@@ -19479,16 +19479,34 @@ export class OutlineEditor {
     private syncCurrentExactLayerDataFromModel(): void {
         const currentLayerData = this.getCurrentLayerDataFromStack();
         const currentLayerModel = this.getCurrentLayerModel();
-        const retainedVerticalMetrics = (
+        const workingCopyVerticalMetrics = (
             currentLayerData as unknown as {
-                _verticalMetrics?: Record<string, number>;
+                _verticalMetrics?: Record<string, number> | null;
             } | null
         )?._verticalMetrics;
+        const retainedVerticalMetrics =
+            workingCopyVerticalMetrics ||
+            this.renderVerticalMetrics ||
+            this.getVerticalMetricsForLayer(
+                currentLayerModel,
+                fontManager.currentFont?.fontModel
+            );
         const restoreRetainedVerticalMetrics = (): void => {
+            const stackLayer =
+                this.getCurrentLayerDataFromStack() as unknown as {
+                    _verticalMetrics?: Record<string, number> | null;
+                } | null;
+            // Model toJSON has no `_verticalMetrics`. LayerDataNormalizer then
+            // writes `null`, which Object.assign would otherwise leave on the
+            // working copy so the next keyboard/sidebearing sync has nothing
+            // to retain and the metrics underlay vanishes until fetchLayerData.
+            if (stackLayer && retainedVerticalMetrics) {
+                stackLayer._verticalMetrics = retainedVerticalMetrics;
+            }
             this.setRenderVerticalMetrics(
                 retainedVerticalMetrics
                     ? { _verticalMetrics: retainedVerticalMetrics }
-                    : this.getCurrentLayerDataFromStack()
+                    : stackLayer
             );
         };
 
