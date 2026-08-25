@@ -145,6 +145,10 @@
     padding: 1px;
 }
 
+.glyph-tile-label-encoded {
+    font-weight: bold;
+}
+
 /* Legacy canvas inside tile (kept for compatibility) */
 .glyph-tile canvas {
     position: absolute;

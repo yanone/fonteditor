@@ -1147,6 +1147,39 @@ export class TextRunEditor {
         }
     }
 
+    /**
+     * Insert text at the cursor without letting an incomplete editing subset
+     * temporarily replace the active edit target with a `.notdef` glyph.
+     */
+    insertTextPreservingSelectedGlyph(text: string): void {
+        if (
+            this.selectedGlyphIndex < 0 ||
+            this.selectedGlyphIndex >= this.shapedGlyphs.length
+        ) {
+            this.insertText(text);
+            return;
+        }
+
+        const selectedCluster = this.getClusterRangeForGlyphIndex(
+            this.selectedGlyphIndex
+        );
+        const insertionStart = this.cursorPosition;
+        if (!selectedCluster || insertionStart > selectedCluster.start) {
+            this.insertText(text);
+            return;
+        }
+
+        // The synchronous reshape uses the current subset, which may not yet
+        // contain the inserted Unicode glyph. Hide the selection for that one
+        // provisional shape so edit-mode syncing cannot select its GID 0.
+        this.selectedGlyphIndex = -1;
+        this.insertText(text);
+
+        const shiftedClusterStart = selectedCluster.start + text.length;
+        this.selectedGlyphIndex =
+            this.findFirstGlyphAtClusterPosition(shiftedClusterStart);
+    }
+
     deleteBackward() {
         console.log('=== Delete Backward (Backspace) ===');
         this.logCursorState();

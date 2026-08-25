@@ -1071,6 +1071,7 @@ describe('GlyphOverview double-click insertion', () => {
 
     afterEach(() => {
         jest.restoreAllMocks();
+        delete window.currentFontModel;
         delete window.glyphCanvas;
         delete window.GlyphOverview;
     });
@@ -1098,7 +1099,7 @@ describe('GlyphOverview double-click insertion', () => {
         expect(tileB.selected).toBe(false);
     });
 
-    test('uses edit-mode insertion after the active glyph when the outline editor is active', () => {
+    test('uses the edit-mode cursor position when the outline editor is active', () => {
         const tileB = overview.createGlyphTile('glyph-b', 'B');
         window.glyphCanvas.outlineEditor.active = true;
 
@@ -1106,8 +1107,34 @@ describe('GlyphOverview double-click insertion', () => {
             new MouseEvent('dblclick', { bubbles: true, detail: 2 })
         );
 
-        expect(insertTextAfterSelectedGlyph).toHaveBeenCalledWith('/B ');
-        expect(insertText).not.toHaveBeenCalled();
+        expect(insertText).toHaveBeenCalledWith('/B ');
+        expect(insertTextAfterSelectedGlyph).not.toHaveBeenCalled();
+    });
+
+    test('Alt-double-click inserts an encoded glyph as Unicode', () => {
+        const tileB = overview.createGlyphTile('glyph-b', 'B');
+        window.currentFontModel = {
+            findGlyph: (name) =>
+                name === 'B' ? { codepoints: [0x42] } : undefined
+        };
+
+        tileB.element.dispatchEvent(
+            new MouseEvent('click', {
+                altKey: true,
+                bubbles: true,
+                detail: 1
+            })
+        );
+        tileB.element.dispatchEvent(
+            new MouseEvent('dblclick', {
+                altKey: true,
+                bubbles: true,
+                detail: 2
+            })
+        );
+
+        expect(insertText).toHaveBeenCalledWith('B');
+        expect(insertText).not.toHaveBeenCalledWith('/B ');
     });
 });
 
@@ -1394,5 +1421,137 @@ describe('GlyphOverview property panel kerning groups', () => {
             'C'
         ]);
         expect(window.currentFontModel.second_kern_groups.BLeft).toEqual(['B']);
+    });
+});
+
+describe('GlyphOverview encoded labels', () => {
+    let overview;
+    let parent;
+
+    beforeEach(() => {
+        jest.resetModules();
+        require('../js/glyph-overview');
+
+        document.body.innerHTML = '';
+        parent = document.createElement('div');
+        document.body.appendChild(parent);
+        window.currentFontModel = {
+            findGlyph: (name) =>
+                name === 'A' ? { codepoints: [0x41] } : { codepoints: [] }
+        };
+        overview = new window.GlyphOverview(parent);
+    });
+
+    afterEach(() => {
+        jest.restoreAllMocks();
+        delete window.currentFontModel;
+        delete window.GlyphOverview;
+    });
+
+    test('marks labels of encoded glyphs for bold styling', () => {
+        const encoded = overview.createGlyphTile('glyph-A', 'A');
+        const unencoded = overview.createGlyphTile('glyph-dot', 'dot');
+
+        expect(encoded.element.querySelector('.glyph-tile-label')).toHaveClass(
+            'glyph-tile-label-encoded'
+        );
+        expect(
+            unencoded.element.querySelector('.glyph-tile-label')
+        ).not.toHaveClass('glyph-tile-label-encoded');
+    });
+});
+
+describe('GlyphOverview Unicode insertion', () => {
+    let overview;
+    let parent;
+    let insertText;
+    let insertTextPreservingSelectedGlyph;
+
+    beforeEach(() => {
+        jest.resetModules();
+        require('../js/glyph-overview');
+
+        document.body.innerHTML = '';
+        parent = document.createElement('div');
+        document.body.appendChild(parent);
+        insertText = jest.fn();
+        insertTextPreservingSelectedGlyph = jest.fn();
+        window.glyphCanvas = {
+            outlineEditor: { active: false },
+            textRunEditor: { insertText, insertTextPreservingSelectedGlyph }
+        };
+        window.currentFontModel = {
+            findGlyph: (name) =>
+                ({
+                    A: { codepoints: [0x41] },
+                    grin: { codepoints: [0x1f600] },
+                    unencoded: { codepoints: [] }
+                })[name]
+        };
+        overview = new window.GlyphOverview(parent);
+        overview.tiles = new Map([
+            [
+                'glyph-A',
+                {
+                    glyphId: 'glyph-A',
+                    glyphName: 'A',
+                    selected: true,
+                    element: document.createElement('div')
+                }
+            ],
+            [
+                'glyph-unencoded',
+                {
+                    glyphId: 'glyph-unencoded',
+                    glyphName: 'unencoded',
+                    selected: true,
+                    element: document.createElement('div')
+                }
+            ],
+            [
+                'glyph-grin',
+                {
+                    glyphId: 'glyph-grin',
+                    glyphName: 'grin',
+                    selected: true,
+                    element: document.createElement('div')
+                }
+            ]
+        ]);
+    });
+
+    afterEach(() => {
+        jest.restoreAllMocks();
+        delete window.currentFontModel;
+        delete window.glyphCanvas;
+        delete window.GlyphOverview;
+    });
+
+    test('offers Unicode insertion and omits unencoded selected glyphs', () => {
+        const menuHtml = overview.createTileContextMenuHtml();
+        expect(menuHtml).toContain('data-action="insert-as-unicode"');
+        expect(menuHtml).toContain('Alt + Double-click');
+
+        overview.insertSelectedGlyphsAsUnicode();
+
+        expect(insertText).toHaveBeenCalledWith('A😀');
+    });
+
+    test('inserts Unicode without replacing the active edit target', () => {
+        window.glyphCanvas.outlineEditor.active = true;
+
+        overview.insertSelectedGlyphsAsUnicode();
+
+        expect(insertTextPreservingSelectedGlyph).toHaveBeenCalledWith('A😀');
+        expect(insertText).not.toHaveBeenCalled();
+    });
+
+    test('hides Unicode insertion when no selected glyph has a codepoint', () => {
+        overview.tiles.get('glyph-A').selected = false;
+        overview.tiles.get('glyph-grin').selected = false;
+
+        expect(overview.createTileContextMenuHtml()).not.toContain(
+            'data-action="insert-as-unicode"'
+        );
     });
 });

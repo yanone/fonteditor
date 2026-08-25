@@ -3006,6 +3006,13 @@ class GlyphOverview {
         // Create label for glyph name (display name, not ID)
         const label = document.createElement('div');
         label.className = 'glyph-tile-label';
+        const modelGlyph = (
+            window.fontManager?.currentFont?.fontModel ??
+            window.currentFontModel
+        )?.findGlyph?.(glyphName);
+        if (modelGlyph?.codepoints?.length) {
+            label.classList.add('glyph-tile-label-encoded');
+        }
         label.textContent = glyphName;
         label.title = glyphName; // Tooltip for truncated names
 
@@ -3037,6 +3044,11 @@ class GlyphOverview {
 
             e.preventDefault();
             e.stopPropagation();
+
+            if (e.altKey) {
+                this.insertSelectedGlyphsAsUnicode();
+                return;
+            }
 
             if (this.shouldRestoreSelectionForDoubleClick(glyphId)) {
                 this.applySelectionByGlyphIds(
@@ -3100,7 +3112,9 @@ class GlyphOverview {
                             const action = menuItem.getAttribute('data-action');
                             instance.hide();
                             backdrop.classList.remove('visible');
-                            if (action === 'rename-glyphs') {
+                            if (action === 'insert-as-unicode') {
+                                this.insertSelectedGlyphsAsUnicode();
+                            } else if (action === 'rename-glyphs') {
                                 window.renameGlyphsDialog?.open();
                             } else if (action === 'delete-glyphs') {
                                 window.deleteGlyphsDialog?.open();
@@ -3176,8 +3190,22 @@ class GlyphOverview {
             ? ''
             : ' disabled plugin-menu-item-disabled';
         const disabledAttr = canAct ? '' : ' aria-disabled="true"';
+        const hasSelectedCodepoints =
+            this.getSelectedGlyphUnicodeText().length > 0;
+        const insertAsUnicodeItem = hasSelectedCodepoints
+            ? `
+                <div class="plugin-menu-item" data-action="insert-as-unicode">
+                    <span class="material-symbols-outlined">text_fields</span>
+                    <span>Insert as Unicode</span>
+                    ${keyboardShortcutHtml(
+                        'Alt + Double-click',
+                        'plugin-menu-shortcut'
+                    )}
+                </div>`
+            : '';
         return `
             <div class="plugin-menu">
+                ${insertAsUnicodeItem}
                 <div class="plugin-menu-item${disabledClass}" data-action="duplicate-glyphs"${disabledAttr}>
                     <span class="material-symbols-outlined">content_copy</span>
                     <span>Duplicate Glyph(s)</span>
@@ -3467,6 +3495,56 @@ class GlyphOverview {
         this.insertExplicitGlyphTokenText(`/${glyphName} `);
     }
 
+    /** Return Unicode characters for selected glyphs that have valid codepoints. */
+    private getSelectedGlyphUnicodeText(): string {
+        const fontModel =
+            window.fontManager?.currentFont?.fontModel ??
+            window.currentFontModel;
+        return this.getSelectedGlyphNames()
+            .flatMap((glyphName) => {
+                const codepoints =
+                    fontModel?.findGlyph?.(glyphName)?.codepoints;
+                return Array.isArray(codepoints) ? codepoints : [];
+            })
+            .filter(
+                (codepoint): codepoint is number =>
+                    Number.isInteger(codepoint) &&
+                    codepoint >= 0 &&
+                    codepoint <= 0x10ffff &&
+                    (codepoint < 0xd800 || codepoint > 0xdfff)
+            )
+            .map((codepoint) => String.fromCodePoint(codepoint))
+            .join('');
+    }
+
+    /** Insert selected encoded glyphs as Unicode characters at the text cursor. */
+    private insertSelectedGlyphsAsUnicode(): void {
+        const unicodeText = this.getSelectedGlyphUnicodeText();
+        if (!unicodeText) {
+            return;
+        }
+
+        const glyphCanvas = window.glyphCanvas;
+        const textRunEditor = glyphCanvas?.textRunEditor;
+        if (!textRunEditor) {
+            console.warn(
+                'Cannot insert Unicode text: textRunEditor unavailable'
+            );
+            return;
+        }
+
+        if (
+            glyphCanvas?.outlineEditor?.active &&
+            typeof textRunEditor.insertTextPreservingSelectedGlyph ===
+                'function'
+        ) {
+            textRunEditor.insertTextPreservingSelectedGlyph(unicodeText);
+        } else {
+            textRunEditor.insertText(unicodeText);
+        }
+        console.log('Inserted Unicode text:', unicodeText);
+    }
+
     private insertExplicitGlyphTokenText(tokenText: string): void {
         const glyphCanvas = window.glyphCanvas;
         const textRunEditor = glyphCanvas?.textRunEditor;
@@ -3478,14 +3556,7 @@ class GlyphOverview {
             return;
         }
 
-        if (
-            glyphCanvas?.outlineEditor?.active &&
-            typeof textRunEditor.insertTextAfterSelectedGlyph === 'function'
-        ) {
-            void textRunEditor.insertTextAfterSelectedGlyph(tokenText);
-        } else {
-            textRunEditor.insertText(tokenText);
-        }
+        textRunEditor.insertText(tokenText);
         console.log(
             '[GlyphOverview]',
             'Inserted explicit glyph token text:',

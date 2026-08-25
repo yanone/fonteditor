@@ -1,5 +1,6 @@
 # Unreleased
 
+- **Glyph overview Unicode insertion**: Add “Insert as Unicode” for encoded glyph selections, including Alt + double-click, while keeping regular double-click insertion as glyph-name tokens. Encoded glyph names are shown in bold.
 - **Keyboard preview bursts**: Modifier-only keydowns no longer flush pending keyboard preview commits. Overlay prepare/render steps coalesce while an earlier run is still in flight.
 - **Vertical metrics after model sync**: Repeated layer sync from the model no longer clears `_verticalMetrics` when the model JSON omits them.
 - **Recomposition cache**: Layout-cache invalidation on recomposition now targets source ∪ component dependents instead of all visible glyphs. Anchor-drag mouseup no longer rebuilds automatic composites a second time.
