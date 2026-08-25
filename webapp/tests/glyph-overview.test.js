@@ -1113,6 +1113,7 @@ describe('GlyphOverview double-click insertion', () => {
 
     test('Alt-double-click inserts an encoded glyph as Unicode', () => {
         const tileB = overview.createGlyphTile('glyph-b', 'B');
+        overview.tiles.set('glyph-b', tileB);
         window.currentFontModel = {
             findGlyph: (name) =>
                 name === 'B' ? { codepoints: [0x42] } : undefined
@@ -1452,12 +1453,16 @@ describe('GlyphOverview encoded labels', () => {
         const encoded = overview.createGlyphTile('glyph-A', 'A');
         const unencoded = overview.createGlyphTile('glyph-dot', 'dot');
 
-        expect(encoded.element.querySelector('.glyph-tile-label')).toHaveClass(
-            'glyph-tile-label-encoded'
-        );
         expect(
-            unencoded.element.querySelector('.glyph-tile-label')
-        ).not.toHaveClass('glyph-tile-label-encoded');
+            encoded.element
+                .querySelector('.glyph-tile-label')
+                .classList.contains('glyph-tile-label-encoded')
+        ).toBe(true);
+        expect(
+            unencoded.element
+                .querySelector('.glyph-tile-label')
+                .classList.contains('glyph-tile-label-encoded')
+        ).toBe(false);
     });
 });
 
