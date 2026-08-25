@@ -21168,9 +21168,15 @@ export class OutlineEditor {
         if (isKeyboardPreviewArrowKey && this._keyboardPreviewCommitInFlight) {
             await this._keyboardPreviewCommitInFlight;
         }
+        const isModifierOnlyKey =
+            e.key === 'Shift' ||
+            e.key === 'Alt' ||
+            e.key === 'Meta' ||
+            e.key === 'Control';
         if (
             this.hasPendingKeyboardPreviewCommit() &&
-            !isKeyboardPreviewArrowKey
+            !isKeyboardPreviewArrowKey &&
+            !isModifierOnlyKey
         ) {
             await this.flushPendingKeyboardPreviewCommit();
         }

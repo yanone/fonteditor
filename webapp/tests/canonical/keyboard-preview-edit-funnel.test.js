@@ -85,15 +85,14 @@ describe('KeyboardPreviewEditFunnel', () => {
         delete window.autoCompileManager;
     });
 
-    test('processes queued keyboard previews in FIFO order', async () => {
+    test('applies later prepares while an earlier overlay run is still in flight', async () => {
         const funnel = new KeyboardPreviewEditFunnel();
-        const firstPrepare = deferred();
+        const firstRun = deferred();
         const calls = [];
 
         funnel.queue({
-            prepare: async () => {
+            prepare: () => {
                 calls.push('prepare-1');
-                await firstPrepare.promise;
                 return true;
             },
             render: () => {
@@ -103,8 +102,9 @@ describe('KeyboardPreviewEditFunnel', () => {
                 changeSource: 'keyboard-outline',
                 editType: 'outline'
             },
-            run: () => {
+            run: async () => {
                 calls.push('run-1');
+                await firstRun.promise;
             }
         });
         funnel.queue({
@@ -124,15 +124,28 @@ describe('KeyboardPreviewEditFunnel', () => {
             }
         });
 
-        expect(calls).toEqual(['prepare-1']);
-
-        firstPrepare.resolve();
-        await Promise.resolve();
-        await Promise.resolve();
+        expect(calls).toEqual([
+            'prepare-1',
+            'render-1',
+            'prepare-2',
+            'render-2'
+        ]);
 
         flushAnimationFrame();
         await Promise.resolve();
-        expect(calls).toEqual(['prepare-1', 'render-1']);
+        flushAnimationFrame();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(calls).toEqual([
+            'prepare-1',
+            'render-1',
+            'prepare-2',
+            'render-2',
+            'run-1'
+        ]);
+
+        firstRun.resolve();
 
         for (let attempts = 0; attempts < 10; attempts += 1) {
             await Promise.resolve();
@@ -147,15 +160,90 @@ describe('KeyboardPreviewEditFunnel', () => {
         expect(calls).toEqual([
             'prepare-1',
             'render-1',
-            'run-1',
             'prepare-2',
             'render-2',
+            'run-1',
             'run-2'
         ]);
         expect(funnel.hasPendingWork()).toBe(false);
         expect(
             window.fontManager.currentFont.requestRecompileWithoutDataChange
         ).toHaveBeenCalledTimes(2);
+    });
+
+    test('coalesces overlay runs that have not started yet', async () => {
+        const funnel = new KeyboardPreviewEditFunnel();
+        const firstRun = deferred();
+        const calls = [];
+
+        funnel.queue({
+            prepare: () => {
+                calls.push('prepare-1');
+                return true;
+            },
+            render: () => {
+                calls.push('render-1');
+            },
+            run: async () => {
+                calls.push('run-1');
+                await firstRun.promise;
+            }
+        });
+        funnel.queue({
+            prepare: () => {
+                calls.push('prepare-2');
+                return true;
+            },
+            render: () => {
+                calls.push('render-2');
+            },
+            run: () => {
+                calls.push('run-2');
+            }
+        });
+        funnel.queue({
+            prepare: () => {
+                calls.push('prepare-3');
+                return true;
+            },
+            render: () => {
+                calls.push('render-3');
+            },
+            run: () => {
+                calls.push('run-3');
+            }
+        });
+
+        expect(calls).toEqual([
+            'prepare-1',
+            'render-1',
+            'prepare-2',
+            'render-2',
+            'prepare-3',
+            'render-3'
+        ]);
+
+        const drainPromise = funnel.drainAndClearQueued();
+        firstRun.resolve();
+
+        for (let attempts = 0; attempts < 10; attempts += 1) {
+            await Promise.resolve();
+            await Promise.resolve();
+            await flushQueuedAnimationFrames();
+        }
+
+        await drainPromise;
+
+        expect(calls).toEqual([
+            'prepare-1',
+            'render-1',
+            'prepare-2',
+            'render-2',
+            'prepare-3',
+            'render-3',
+            'run-1',
+            'run-3'
+        ]);
     });
 
     test('waits for two animation frames after render before preview work continues', async () => {
@@ -201,22 +289,22 @@ describe('KeyboardPreviewEditFunnel', () => {
         ]);
     });
 
-    test('flushPendingCommit waits for queued keyboard increments before committing', async () => {
+    test('flushPendingCommit waits for queued overlay work before committing', async () => {
         const funnel = new KeyboardPreviewEditFunnel();
-        const firstPrepare = deferred();
+        const firstRun = deferred();
         const calls = [];
 
         funnel.queue({
-            prepare: async () => {
+            prepare: () => {
                 calls.push('prepare-1');
-                await firstPrepare.promise;
                 return true;
             },
             render: () => {
                 calls.push('render-1');
             },
-            run: () => {
+            run: async () => {
                 calls.push('run-1');
+                await firstRun.promise;
             }
         });
         funnel.queue({
@@ -237,7 +325,7 @@ describe('KeyboardPreviewEditFunnel', () => {
         });
 
         const flushPromise = funnel.flushPendingCommit();
-        firstPrepare.resolve();
+        firstRun.resolve();
 
         for (let attempts = 0; attempts < 10; attempts += 1) {
             await Promise.resolve();
@@ -254,30 +342,30 @@ describe('KeyboardPreviewEditFunnel', () => {
         expect(calls).toEqual([
             'prepare-1',
             'render-1',
-            'run-1',
             'prepare-2',
             'render-2',
+            'run-1',
             'run-2',
             'commit'
         ]);
     });
 
-    test('clearQueued drops future queued increments but lets the running one finish', async () => {
+    test('clearQueued drops the next overlay but lets the running one finish', async () => {
         const funnel = new KeyboardPreviewEditFunnel();
-        const firstPrepare = deferred();
+        const firstRun = deferred();
         const calls = [];
 
         funnel.queue({
-            prepare: async () => {
+            prepare: () => {
                 calls.push('prepare-1');
-                await firstPrepare.promise;
                 return true;
             },
             render: () => {
                 calls.push('render-1');
             },
-            run: () => {
+            run: async () => {
                 calls.push('run-1');
+                await firstRun.promise;
             }
         });
         funnel.queue({
@@ -293,10 +381,15 @@ describe('KeyboardPreviewEditFunnel', () => {
             }
         });
 
-        expect(calls).toEqual(['prepare-1']);
+        expect(calls).toEqual([
+            'prepare-1',
+            'render-1',
+            'prepare-2',
+            'render-2'
+        ]);
 
         funnel.clearQueued();
-        firstPrepare.resolve();
+        firstRun.resolve();
 
         for (let attempts = 0; attempts < 10; attempts += 1) {
             await Promise.resolve();
@@ -308,7 +401,13 @@ describe('KeyboardPreviewEditFunnel', () => {
             }
         }
 
-        expect(calls).toEqual(['prepare-1', 'render-1', 'run-1']);
+        expect(calls).toEqual([
+            'prepare-1',
+            'render-1',
+            'prepare-2',
+            'render-2',
+            'run-1'
+        ]);
         expect(funnel.hasPendingWork()).toBe(false);
     });
 });

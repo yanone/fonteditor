@@ -5410,6 +5410,94 @@ describe('GlyphCanvas property panel metrics edits', () => {
         }
     });
 
+    test('shift keydown during a keyboard nudge burst does not flush the pending commit', async () => {
+        const flushSpy = jest.spyOn(
+            canvas.outlineEditor,
+            'flushPendingKeyboardPreviewCommit'
+        );
+
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.selectedLayerId = 'master-layer';
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 0 }
+        ];
+        canvas.outlineEditor._pendingKeyboardPreviewCommit = {
+            preMoveDesc: 'Point'
+        };
+
+        try {
+            await canvas.outlineEditor.onKeyDown({
+                key: 'Shift',
+                shiftKey: true,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false,
+                preventDefault: jest.fn()
+            });
+
+            expect(flushSpy).not.toHaveBeenCalled();
+            expect(canvas.outlineEditor._pendingKeyboardPreviewCommit).toEqual({
+                preMoveDesc: 'Point'
+            });
+        } finally {
+            canvas.outlineEditor._pendingKeyboardPreviewCommit = null;
+            canvas.outlineEditor.selectedPoints = [];
+            flushSpy.mockRestore();
+        }
+    });
+
+    test('mixed shift-multiplier nudges apply locally before overlay preview finishes', async () => {
+        let resolvePreview;
+        const previewGate = new Promise((resolve) => {
+            resolvePreview = resolve;
+        });
+        const stageSpy = jest
+            .spyOn(fontManager, 'stageLiveDragPreviewFromModel')
+            .mockImplementation(() => previewGate);
+        const moveSpy = jest
+            .spyOn(canvas.outlineEditor, 'moveSelectedPoints')
+            .mockImplementation(() => new Set(['a']));
+
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.selectedLayerId = 'master-layer';
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 0 }
+        ];
+
+        try {
+            await canvas.outlineEditor.onKeyDown({
+                key: 'ArrowRight',
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false,
+                preventDefault: jest.fn()
+            });
+            await canvas.outlineEditor.onKeyDown({
+                key: 'ArrowRight',
+                shiftKey: true,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false,
+                preventDefault: jest.fn()
+            });
+
+            expect(
+                moveSpy.mock.calls.map((call) => [call[0], call[1]])
+            ).toEqual([
+                [1, 0],
+                [10, 0]
+            ]);
+        } finally {
+            resolvePreview();
+            canvas.outlineEditor.selectedPoints = [];
+            canvas.outlineEditor._pendingKeyboardPreviewCommit = null;
+            canvas.outlineEditor.keyboardPreviewEditFunnel.reset();
+            moveSpy.mockRestore();
+            stageSpy.mockRestore();
+        }
+    });
+
     test('releasing an arrow key clears queued keyboard preview moves', () => {
         const clearQueuedSpy = jest.spyOn(
             canvas.outlineEditor.keyboardPreviewEditFunnel,

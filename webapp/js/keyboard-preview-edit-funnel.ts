@@ -22,15 +22,40 @@ export type KeyboardPreviewEditRequest = {
     onError?: (error: Error) => void;
 };
 
+function isThenable(
+    value: boolean | void | Promise<boolean | void>
+): value is Promise<boolean | void> {
+    return (
+        !!value &&
+        typeof value === 'object' &&
+        typeof (value as Promise<boolean | void>).then === 'function'
+    );
+}
+
 export class KeyboardPreviewEditFunnel {
     private runningRequest: Promise<void> | null = null;
-    private queuedRequests: KeyboardPreviewEditRequest[] = [];
+    private queuedRequest: KeyboardPreviewEditRequest | null = null;
     private commitTimer: number | null = null;
     private pendingCommit: (() => Promise<void>) | null = null;
+    private prepareChain: Promise<void> = Promise.resolve();
+    private asyncPrepareCount = 0;
 
     queue(request: KeyboardPreviewEditRequest): void {
-        this.queuedRequests.push(request);
-        this.startNextRequest();
+        if (this.asyncPrepareCount === 0) {
+            const prepareResult = request.prepare?.();
+            if (isThenable(prepareResult)) {
+                this.enqueuePrepare(request, prepareResult);
+                return;
+            }
+            if (prepareResult === false) {
+                this.clearMatchingCompileContext(request);
+                return;
+            }
+            this.finishLocalPrepare(request);
+            return;
+        }
+
+        this.enqueuePrepare(request);
     }
 
     scheduleCommit(commit: () => Promise<void>): void {
@@ -47,14 +72,15 @@ export class KeyboardPreviewEditFunnel {
     hasPendingWork(): boolean {
         return !!(
             this.runningRequest ||
-            this.queuedRequests.length > 0 ||
+            this.queuedRequest ||
+            this.asyncPrepareCount > 0 ||
             this.pendingCommit ||
             this.commitTimer !== null
         );
     }
 
     clearQueued(): void {
-        this.queuedRequests = [];
+        this.queuedRequest = null;
     }
 
     cancelPendingCommit(): void {
@@ -66,8 +92,10 @@ export class KeyboardPreviewEditFunnel {
     }
 
     async drainAndClearQueued(): Promise<void> {
-        while (this.runningRequest || this.queuedRequests.length > 0) {
-            if (!this.runningRequest && this.queuedRequests.length > 0) {
+        await this.prepareChain.catch(() => undefined);
+
+        while (this.runningRequest || this.queuedRequest) {
+            if (!this.runningRequest && this.queuedRequest) {
                 this.startNextRequest();
             }
 
@@ -103,15 +131,68 @@ export class KeyboardPreviewEditFunnel {
         this.cancelPendingCommit();
     }
 
-    private startNextRequest(): void {
-        if (this.runningRequest || this.queuedRequests.length === 0) {
+    private enqueuePrepare(
+        request: KeyboardPreviewEditRequest,
+        startedPrepare?: Promise<boolean | void>
+    ): void {
+        this.asyncPrepareCount += 1;
+        this.prepareChain = this.prepareChain
+            .catch(() => undefined)
+            .then(() => this.runPrepareStep(request, startedPrepare))
+            .finally(() => {
+                this.asyncPrepareCount = Math.max(
+                    0,
+                    this.asyncPrepareCount - 1
+                );
+            });
+    }
+
+    private async runPrepareStep(
+        request: KeyboardPreviewEditRequest,
+        startedPrepare?: Promise<boolean | void>
+    ): Promise<void> {
+        try {
+            const shouldContinue = startedPrepare
+                ? await startedPrepare
+                : request.prepare
+                  ? await request.prepare()
+                  : true;
+            if (shouldContinue === false) {
+                this.clearMatchingCompileContext(request);
+                return;
+            }
+        } catch (error) {
+            const normalizedError =
+                error instanceof Error ? error : new Error(String(error));
+            request.onError?.(normalizedError);
+            this.clearMatchingCompileContext(request);
             return;
         }
 
-        const request = this.queuedRequests.shift();
-        if (!request) {
+        this.finishLocalPrepare(request);
+    }
+
+    private finishLocalPrepare(request: KeyboardPreviewEditRequest): void {
+        if (!this.isRequestActive(request)) {
+            this.clearMatchingCompileContext(request);
             return;
         }
+
+        request.render?.();
+        this.queuedRequest = {
+            ...request,
+            prepare: undefined
+        };
+        this.startNextRequest();
+    }
+
+    private startNextRequest(): void {
+        if (this.runningRequest || !this.queuedRequest) {
+            return;
+        }
+
+        const request = this.queuedRequest;
+        this.queuedRequest = null;
 
         const runningRequest = this.processRequest(request);
         this.runningRequest = runningRequest;
@@ -127,42 +208,16 @@ export class KeyboardPreviewEditFunnel {
     private async processRequest(
         request: KeyboardPreviewEditRequest
     ): Promise<void> {
-        if (!request.prepare && !this.isRequestActive(request)) {
+        if (!this.isRequestActive(request)) {
             this.clearMatchingCompileContext(request);
             return;
         }
 
-        let shouldContinue: boolean | void = true;
-        if (request.prepare) {
-            try {
-                shouldContinue = await request.prepare();
-            } catch (error) {
-                const normalizedError =
-                    error instanceof Error ? error : new Error(String(error));
-                request.onError?.(normalizedError);
-                this.clearMatchingCompileContext(request);
-                return;
-            }
+        await this.waitForNextPaint();
 
-            if (shouldContinue === false) {
-                this.clearMatchingCompileContext(request);
-                return;
-            }
-
-            if (!this.isRequestActive(request)) {
-                this.clearMatchingCompileContext(request);
-                return;
-            }
-
-            if (request.render) {
-                request.render();
-                await this.waitForNextPaint();
-
-                if (!this.isRequestActive(request)) {
-                    this.clearMatchingCompileContext(request);
-                    return;
-                }
-            }
+        if (!this.isRequestActive(request)) {
+            this.clearMatchingCompileContext(request);
+            return;
         }
 
         let shouldCompile: boolean | void;
