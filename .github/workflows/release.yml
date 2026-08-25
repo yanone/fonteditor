@@ -66,6 +66,12 @@ jobs:
             - name: Install Playwright Chromium
               run: npx --prefix webapp playwright install chromium
 
+            - name: Enforce graph chokepoints
+              run: |
+                  npx --no-install gitnexus analyze
+                  npm run test:graph-chokepoints
+                  npm run check:graph-chokepoints
+
             - name: Build webapp with webpack
               run: npm run build --prefix webapp
               env:
@@ -89,6 +95,9 @@ jobs:
 
             - name: Run Rust WASM cache tests
               run: cd babelfont-fontc-build && rustup run nightly wasm-pack test --node
+
+            - name: Check code formatting with Prettier
+              run: cd webapp && npx prettier -c .
 
             - name: Create GitHub Release
               uses: softprops/action-gh-release@v1
