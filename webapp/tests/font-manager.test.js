@@ -3007,6 +3007,7 @@ describe('FontManager boundary-crossing budget', () => {
         fontManager.scheduleFullCompileDebounce = jest.fn();
         fontManager.workerLayerFingerprintCache = new Map();
         fontManager.workerYjsSendQueue = Promise.resolve();
+        fontManager.workerPreviewSendQueue = Promise.resolve();
         fontManager.workerCacheUpdatePromise = null;
         fontManager.resetBoundaryCrossingStats();
         fontManager.workerMirrorQuarantined = false;
@@ -3047,6 +3048,7 @@ describe('FontManager boundary-crossing budget', () => {
 
     afterEach(async () => {
         await fontManager.workerYjsSendQueue?.catch?.(() => undefined);
+        await fontManager.workerPreviewSendQueue?.catch?.(() => undefined);
         await fontManager.awaitWorkerCacheUpdate?.();
         updateDirtyIndicatorSpy?.mockRestore();
         sendMessageSpy?.mockRestore();
@@ -3616,7 +3618,7 @@ describe('FontManager boundary-crossing budget', () => {
 
         sendMessageSpy.mockClear();
         fontManager.clearLiveDragPreview();
-        await fontManager.workerYjsSendQueue;
+        await fontManager.workerPreviewSendQueue;
 
         expect(fontManager.workerPreviewYDoc).toBeUndefined();
         expect(fontManager.workerCacheYDoc).toBeUndefined();

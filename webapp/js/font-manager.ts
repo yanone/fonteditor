@@ -598,6 +598,7 @@ class FontManager {
         EditingCompileContext
     >;
     private workerYjsSendQueue: Promise<unknown>;
+    private workerPreviewSendQueue: Promise<unknown>;
     private pendingCloudBadgeVisibleAtByAssetId: Map<string, number>;
     private pendingCloudBadgeDelayTimer: ReturnType<typeof setTimeout> | null;
     private pendingCloudBadgeDelayAssetId: string | null;
@@ -665,6 +666,7 @@ class FontManager {
         this.workerMirrorQuarantined = false;
         this.editingCompileContextsByRevision = new Map();
         this.workerYjsSendQueue = Promise.resolve();
+        this.workerPreviewSendQueue = Promise.resolve();
         this.pendingCloudBadgeVisibleAtByAssetId = new Map();
         this.pendingCloudBadgeDelayTimer = null;
         this.pendingCloudBadgeDelayAssetId = null;
@@ -4472,8 +4474,19 @@ class FontManager {
 
         const queuedSend = this.workerYjsSendQueue
             .catch(() => undefined)
-            .then(runSend);
+            .then(async () => {
+                await this.workerPreviewSendQueue.catch(() => undefined);
+                return runSend();
+            });
         this.workerYjsSendQueue = queuedSend.catch(() => undefined);
+        return queuedSend;
+    }
+
+    private enqueueWorkerPreviewSend<T>(runSend: () => Promise<T>): Promise<T> {
+        const queuedSend = this.workerPreviewSendQueue
+            .catch(() => undefined)
+            .then(runSend);
+        this.workerPreviewSendQueue = queuedSend.catch(() => undefined);
         return queuedSend;
     }
 
@@ -4529,11 +4542,7 @@ class FontManager {
             }
         };
 
-        const queuedSend = this.workerYjsSendQueue
-            .catch(() => undefined)
-            .then(runSend);
-        this.workerYjsSendQueue = queuedSend.catch(() => undefined);
-        return queuedSend;
+        return this.enqueueWorkerPreviewSend(runSend);
     }
 
     private async recoverWorkerCacheFromAuthoritativeState(
@@ -4915,6 +4924,34 @@ class FontManager {
         return true;
     }
 
+    private prepareCompileFacingLayerUpdate(
+        glyphName: string,
+        layerId: string,
+        rawLayerData: Babelfont.Layer
+    ): LayerCacheUpdate {
+        const storedWidth = this.getGlyph(glyphName)?.layers?.find(
+            (entry: { id?: string }) => entry?.id === layerId
+        )?.width;
+        const resolvedWidth =
+            typeof rawLayerData?.width === 'number' &&
+            Number.isFinite(rawLayerData.width)
+                ? rawLayerData.width
+                : storedWidth;
+        assertFiniteLayerWidth(resolvedWidth, {
+            glyphName,
+            layerId,
+            operation: 'prepareCompileFacingLayerUpdate'
+        });
+        return {
+            glyphName,
+            layerId,
+            layerData:
+                rawLayerData?.width === resolvedWidth
+                    ? rawLayerData
+                    : { ...rawLayerData, width: resolvedWidth }
+        };
+    }
+
     private collectChangedLayerUpdatesFromTargets(
         targets: Iterable<WorkerReplayTarget>,
         options?: {
@@ -4976,6 +5013,17 @@ class FontManager {
                     : typeof modelLayer.toJSON === 'function'
                       ? (modelLayer.toJSON() as Babelfont.Layer)
                       : (modelLayer as Babelfont.Layer));
+
+            if (options?.compileFacing) {
+                updates.push(
+                    this.prepareCompileFacingLayerUpdate(
+                        target.glyphName,
+                        target.layerId,
+                        rawLayerData
+                    )
+                );
+                continue;
+            }
 
             const serializedLayer = this.serializeLayerForStorage(
                 target.glyphName,
@@ -5087,6 +5135,18 @@ class FontManager {
                         : typeof modelLayer.toJSON === 'function'
                           ? modelLayer.toJSON()
                           : modelLayer);
+
+                if (options?.compileFacing) {
+                    updates.push(
+                        this.prepareCompileFacingLayerUpdate(
+                            glyphName,
+                            layerId,
+                            rawLayerData
+                        )
+                    );
+                    continue;
+                }
+
                 const serializedLayer = this.serializeLayerForStorage(
                     glyphName,
                     layerId,
@@ -5809,21 +5869,18 @@ class FontManager {
             return;
         }
 
-        const clearPromise = this.workerYjsSendQueue
-            .catch(() => undefined)
-            .then(async () => {
-                try {
-                    await fontCompilation.sendMessage({
-                        type: 'clearPreviewLayerOverlay'
-                    });
-                } catch (error) {
-                    console.warn(
-                        '[FontManager] Failed to clear worker preview layer overlay:',
-                        error
-                    );
-                }
-            });
-        this.workerYjsSendQueue = clearPromise.catch(() => undefined);
+        this.enqueueWorkerPreviewSend(async () => {
+            try {
+                await fontCompilation.sendMessage({
+                    type: 'clearPreviewLayerOverlay'
+                });
+            } catch (error) {
+                console.warn(
+                    '[FontManager] Failed to clear worker preview layer overlay:',
+                    error
+                );
+            }
+        });
     }
 
     async submitLayerToWorkerCache(
