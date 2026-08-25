@@ -1691,6 +1691,7 @@ self.onmessage = async (event) => {
                 if (!initialized) {
                     await initializeWasm();
                 }
+                const startTime = performance.now();
                 const updateMetadataJson = buildApplyYjsUpdateMetadataJson({
                     changedGlyphs,
                     nonGlyphChangeHints,
@@ -1747,6 +1748,7 @@ self.onmessage = async (event) => {
                     type: 'applyYjsUpdate',
                     success: true,
                     result: resultJson,
+                    time_taken: performance.now() - startTime,
                     workerCacheStatus:
                         parsedResult &&
                         typeof parsedResult === 'object' &&
@@ -1781,6 +1783,7 @@ self.onmessage = async (event) => {
                 if (!initialized) {
                     await initializeWasm();
                 }
+                const startTime = performance.now();
                 const updateMetadataJson = JSON.stringify({
                     changedGlyphs: Array.isArray(changedGlyphs)
                         ? changedGlyphs
@@ -1817,6 +1820,7 @@ self.onmessage = async (event) => {
                     type: 'applyPreviewLayerOverlay',
                     success: true,
                     result: resultJson,
+                    time_taken: performance.now() - startTime,
                     skipped: wasSkipped ? parsedResult!.skipped : undefined
                 });
             } catch (e: any) {

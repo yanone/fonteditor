@@ -379,6 +379,43 @@ fn prepare_compile_facing_font(
     Ok(font)
 }
 
+/// Patch already-filtered subset font with the same visual layer/glyph
+/// snapshots that just landed in `SUBSET_FONT_CACHE`. Skips GlyphsData /
+/// bracket / stylistic-set re-filter when only outlines moved.
+fn patch_filtered_font_cache_for_visual_commit(
+    subset_key: &str,
+    changed_layer_snapshots: &[(LayerTarget, Option<serde_json::Value>)],
+    changed_glyph_snapshots: &[(String, Option<serde_json::Value>)],
+    layer_target_glyphs: &HashSet<String>,
+) -> Result<bool, JsValue> {
+    let mut cache = FILTERED_FONT_CACHE.lock().unwrap();
+    let Some(entry) = cache.as_mut() else {
+        return Ok(false);
+    };
+    if entry.subset_key != subset_key {
+        return Ok(false);
+    }
+
+    let mut font = (*entry.font).clone();
+    for (target, layer_json) in changed_layer_snapshots {
+        replace_layer_in_font_cache(
+            &mut font,
+            &target.glyph_name,
+            &target.layer_id,
+            layer_json.as_ref(),
+        )?;
+    }
+    for (glyph_name, glyph_json) in changed_glyph_snapshots {
+        if layer_target_glyphs.contains(glyph_name) {
+            continue;
+        }
+        replace_glyph_in_font_cache(&mut font, glyph_name, glyph_json.as_ref())?;
+    }
+    bake_automatic_sidebearing_offsets_in_font(&mut font, &HashSet::new());
+    entry.font = Arc::new(font);
+    Ok(true)
+}
+
 fn reset_debug_font_caches_with_fingerprint(committed_font_fingerprint: Option<String>) {
     *COMMITTED_FONT_FINGERPRINT.lock().unwrap() = committed_font_fingerprint;
     *LAST_DEBUG_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = None;
@@ -3275,6 +3312,7 @@ fn apply_preview_layer_overlay_internal(
     // closure. Do not retain layer JSON from a prior pointer generation:
     // retaining an old automatic dependent makes Rust deliberately skip its
     // logical bake and reproduces second-drag RSB drift.
+    let previous_targets: HashSet<LayerTarget> = overlay.layer_overrides.keys().cloned().collect();
     overlay.layer_overrides.clear();
     let mut changed_glyphs: HashSet<String> = metadata_changed_glyphs.into_iter().collect();
     let mut changed_layer_ids: Vec<String> = Vec::new();
@@ -3303,8 +3341,31 @@ fn apply_preview_layer_overlay_internal(
     }
 
     overlay.generation = overlay.generation.saturating_add(1);
-    overlay.subset_font_cache = None;
     overlay.filtered_font_cache = None;
+
+    let current_targets: HashSet<LayerTarget> = overlay.layer_overrides.keys().cloned().collect();
+    let can_reuse_working_font = overlay
+        .subset_font_cache
+        .as_ref()
+        .is_some_and(|entry| entry.base_font_cache_epoch == current_epoch)
+        && previous_targets == current_targets
+        && !current_targets.is_empty();
+
+    if can_reuse_working_font {
+        if let Some(entry) = overlay.subset_font_cache.as_mut() {
+            for (target, layer_json) in &overlay.layer_overrides {
+                replace_layer_in_font_cache(
+                    &mut entry.font,
+                    &target.glyph_name,
+                    &target.layer_id,
+                    Some(layer_json),
+                )?;
+            }
+            entry.overlay_generation = overlay.generation;
+        }
+    } else {
+        overlay.subset_font_cache = None;
+    }
 
     changed_layer_ids.sort();
     changed_layer_ids.dedup();
@@ -3779,7 +3840,7 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                             || !glyph_renames.is_empty();
 
                         if let Some((subset_key, subset_epoch, subset_glyphs)) =
-                            subset_cache_refresh
+                            subset_cache_refresh.as_ref()
                         {
                             if let Some((
                                 ref cached_key,
@@ -3787,7 +3848,7 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                                 ref mut subset_font,
                             )) = *SUBSET_FONT_CACHE.lock().unwrap()
                             {
-                                if *cached_key == subset_key {
+                                if cached_key == subset_key {
                                     if refresh_masters {
                                         replace_masters_in_font_cache(
                                             subset_font,
@@ -3808,7 +3869,7 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                                             layer_json.as_ref(),
                                         )?;
                                     }
-                                    for glyph_name in &subset_glyphs {
+                                    for glyph_name in subset_glyphs {
                                         if layer_target_glyphs.contains(glyph_name) {
                                             continue;
                                         }
@@ -3824,14 +3885,37 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                                             glyph_json.as_ref(),
                                         )?;
                                     }
-                                    *cached_epoch = subset_epoch;
+                                    *cached_epoch = *subset_epoch;
                                     SUBSET_FONT_CACHE_BUILT_AT_EPOCH
-                                        .store(subset_epoch, Ordering::Relaxed);
+                                        .store(*subset_epoch, Ordering::Relaxed);
                                 }
                             }
                         }
 
                         if filtered_cache_source_changed
+                            && !invalidate_layout_closure
+                            && glyph_renames.is_empty()
+                            && !refresh_feature_caches
+                            && !refresh_masters
+                            && !refresh_axes
+                        {
+                            let patched =
+                                if let Some((subset_key, _, _)) = subset_cache_refresh.as_ref() {
+                                    patch_filtered_font_cache_for_visual_commit(
+                                        subset_key,
+                                        &changed_layer_snapshots,
+                                        &changed_glyph_snapshots,
+                                        &layer_target_glyphs,
+                                    )
+                                    .unwrap_or(false)
+                                } else {
+                                    false
+                                };
+                            if !patched {
+                                *FILTERED_FONT_CACHE.lock().unwrap() = None;
+                                FILTER_EPOCH.fetch_add(1, Ordering::Relaxed);
+                            }
+                        } else if filtered_cache_source_changed
                             && !invalidate_layout_closure
                             && glyph_renames.is_empty()
                         {
@@ -6986,8 +7070,14 @@ mod tests {
         .unwrap();
 
         assert_eq!(FONT_CACHE_EPOCH.load(Ordering::Relaxed), font_epoch_before);
-        assert!(FILTER_EPOCH.load(Ordering::Relaxed) > filter_epoch_before);
-        assert!(FILTERED_FONT_CACHE.lock().unwrap().is_none());
+        assert_eq!(FILTER_EPOCH.load(Ordering::Relaxed), filter_epoch_before);
+        let filtered_cache = FILTERED_FONT_CACHE.lock().unwrap();
+        assert!(filtered_cache.is_some());
+        assert_eq!(
+            test_cached_layer_width(filtered_cache.as_ref().unwrap().font.as_ref(), "A"),
+            610.0
+        );
+        drop(filtered_cache);
         assert_eq!(
             LAST_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap().as_ref(),
             Some(&closure_key)

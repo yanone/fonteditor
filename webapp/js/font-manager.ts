@@ -4814,23 +4814,40 @@ class FontManager {
                 options?.glyphRenames || []
             );
         }
-        const targetLayerUpdates = normalizedLayerTargets.length
-            ? this.collectLayerUpdatesForTargetsFromBridge(
-                  normalizedLayerTargets
-              ) ||
-              this.collectLayerUpdatesForTargetsFromModel(
-                  normalizedLayerTargets
-              )
-            : null;
-        const fingerprintUpdates = normalizedLayerTargets.length
-            ? targetLayerUpdates?.updates || []
-            : this.collectChangedLayerUpdatesFromModel(
-                  normalizedChangedGlyphs,
-                  null,
-                  { skipFingerprintBaseline: true }
-              ) || [];
-        const removedFingerprintKeys =
-            targetLayerUpdates?.removedFingerprintKeys || [];
+        // Authoritative mutation is the Yjs binary already being sent.
+        // Do not walk the bridge with `fromYType` just to fingerprint.
+        let fingerprintUpdates: LayerCacheUpdate[] = [];
+        const removedFingerprintKeys: string[] = [];
+        if (normalizedLayerTargets.length) {
+            fingerprintUpdates =
+                this.collectChangedLayerUpdatesFromTargets(
+                    normalizedLayerTargets
+                ) || [];
+            const fingerprintedKeys = new Set(
+                fingerprintUpdates.map((update) =>
+                    this.getWorkerLayerFingerprintKey(
+                        update.glyphName,
+                        update.layerId
+                    )
+                )
+            );
+            for (const target of normalizedLayerTargets) {
+                const fingerprintKey = this.getWorkerLayerFingerprintKey(
+                    target.glyphName,
+                    target.layerId
+                );
+                if (!fingerprintedKeys.has(fingerprintKey)) {
+                    removedFingerprintKeys.push(fingerprintKey);
+                }
+            }
+        } else {
+            fingerprintUpdates =
+                this.collectChangedLayerUpdatesFromModel(
+                    normalizedChangedGlyphs,
+                    null,
+                    { skipFingerprintBaseline: true }
+                ) || [];
+        }
 
         const sent = await this.sendWorkerYjsUpdate(
             update,
