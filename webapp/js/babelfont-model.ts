@@ -34,6 +34,7 @@ import {
     getKerningOperandKeys,
     resolveKerningValueForGlyphPair
 } from './kerning-utils';
+import { recordCompileBenchRecomposition } from './compile-bench-probe';
 
 export type { GlyphDeletePreflight };
 
@@ -12314,6 +12315,7 @@ export class Font extends ModelBase {
             preferredSourceGlyphName?: string | null;
         }
     ): Set<string> {
+        const startedAt = performance.now();
         const rebuiltGlyphNames = new Set<string>();
         const queue =
             changedGlyphNames && changedGlyphNames.size > 0
@@ -12421,6 +12423,11 @@ export class Font extends ModelBase {
             }
         }
 
+        recordCompileBenchRecomposition(
+            'rebuild',
+            performance.now() - startedAt,
+            { glyphCount: rebuiltGlyphNames.size }
+        );
         return rebuiltGlyphNames;
     }
 

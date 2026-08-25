@@ -39,6 +39,7 @@
  */
 
 import type { WorkerReplayTarget } from './change-log';
+import { recordCompileBenchRecomposition } from './compile-bench-probe';
 import {
     deriveGlyphNameFromPath,
     getPathSegments,
@@ -499,6 +500,16 @@ export function computeLayerRecompositionClosure(options: {
     suppressor?: RecordingSuppressor | null;
     visibleGlyphNames?: Iterable<string>;
 }): RecompositionClosure {
+    const startedAt = performance.now();
+    const finish = (closure: RecompositionClosure): RecompositionClosure => {
+        recordCompileBenchRecomposition(
+            'closure',
+            performance.now() - startedAt,
+            { glyphCount: closure.affectedGlyphNames.size }
+        );
+        return closure;
+    };
+
     const {
         sourceTargets,
         editKinds,
@@ -511,7 +522,7 @@ export function computeLayerRecompositionClosure(options: {
     } = options;
 
     if (!fontModel) {
-        return emptyClosure(sourceTargets);
+        return finish(emptyClosure(sourceTargets));
     }
 
     const sourceGlyphNames = new Set(
@@ -591,6 +602,15 @@ export function computeLayerRecompositionClosure(options: {
               ])
             : null;
 
+    // Invalidate only source ∪ component dependents (plus hidden metric
+    // prerequisites that feed visible keyed glyphs). Do not walk every
+    // currently visible glyph's layout cache on each live tick.
+    const layoutInvalidationGlyphNames = new Set<string>([
+        ...sourceGlyphNames,
+        ...invalidateGlyphNames,
+        ...visibleMetricsPrerequisites
+    ]);
+
     // ── Model recomposition: automatic composites ───────────────────────
     // rebuildAutomaticCompositesForGlyphs already gates on
     // isAutomaticAlignedLayer() and returns only glyphs whose stored
@@ -602,10 +622,12 @@ export function computeLayerRecompositionClosure(options: {
         const preferredTarget = sourceTargets[0] ?? null;
         const affectedComposites: Set<string> = wrap(() => {
             if (
-                allowedGlyphNames &&
+                layoutInvalidationGlyphNames.size > 0 &&
                 typeof fontModel.invalidateLayoutCachesForGlyphs === 'function'
             ) {
-                fontModel.invalidateLayoutCachesForGlyphs(allowedGlyphNames);
+                fontModel.invalidateLayoutCachesForGlyphs(
+                    layoutInvalidationGlyphNames
+                );
             }
 
             return fontModel.rebuildAutomaticCompositesForGlyphs!(
@@ -737,7 +759,7 @@ export function computeLayerRecompositionClosure(options: {
         ...invalidateGlyphNames
     ]);
 
-    return {
+    return finish({
         allTargets,
         recomposeTargets,
         invalidateTargets,
@@ -745,7 +767,7 @@ export function computeLayerRecompositionClosure(options: {
         affectedGlyphNames,
         recomposeGlyphNames,
         invalidateGlyphNames
-    };
+    });
 }
 
 /**

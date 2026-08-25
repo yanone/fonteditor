@@ -6031,15 +6031,22 @@ export class OutlineEditor {
                         typeof fontModel.invalidateLayoutCachesForGlyphs ===
                         'function'
                     ) {
-                        const invalidationGlyphNames = allowedGlyphNames
-                            ? allowedGlyphNames
-                            : typeof fontModel.collectComponentDependentGlyphs ===
-                                'function'
-                              ? fontModel.collectComponentDependentGlyphs(
-                                    changedGlyphNames,
-                                    { includeSourceGlyphNames: true }
-                                )
-                              : changedGlyphNames;
+                        const invalidationGlyphNames =
+                            typeof fontModel.collectComponentDependentGlyphs ===
+                            'function'
+                                ? fontModel.collectComponentDependentGlyphs(
+                                      changedGlyphNames,
+                                      {
+                                          includeSourceGlyphNames: true,
+                                          ...(allowedGlyphNames
+                                              ? {
+                                                    retainGlyphNames:
+                                                        allowedGlyphNames
+                                                }
+                                              : {})
+                                      }
+                                  )
+                                : new Set(changedGlyphNames);
                         fontModel.invalidateLayoutCachesForGlyphs(
                             invalidationGlyphNames
                         );
@@ -15418,18 +15425,13 @@ export class OutlineEditor {
                                 : postDragDesc;
                         if (dragType === 'anchor') {
                             // Live prepare already mutated visible automatic
-                            // dependents under runWithoutRecording. Commit
-                            // rebuild is often a no-op — union with the live
-                            // affected set instead of replacing it with [].
-                            const liveAnchorAffectedGlyphNames = new Set(
+                            // dependents under runWithoutRecording. Do not
+                            // rebuild the whole cascade again here — the
+                            // scope:'all' closure below is the single
+                            // commit-time rebuild (same as sidebearing).
+                            this._anchorAffectedGlyphNames = new Set(
                                 this._anchorAffectedGlyphNames
                             );
-                            const rebuiltAnchorGlyphNames =
-                                this.rebuildAutomaticCompositesForCurrentEditedGlyph();
-                            this._anchorAffectedGlyphNames = new Set([
-                                ...liveAnchorAffectedGlyphNames,
-                                ...rebuiltAnchorGlyphNames
-                            ]);
                             const anchorCascadeLayerId =
                                 this.getCurrentLayerId() ??
                                 this.selectedLayerId;

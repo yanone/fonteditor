@@ -16,8 +16,10 @@ import {
  * compile lane in COMPILATION_EDIT_POLICY (except topology edits and
  * linked-window remotes).
  *
- * Opens Fustat, sets `aä`, and turns every `adieresis` component to
- * automatic alignment before measuring (Glyphs loads them as manual).
+ * Opens Fustat, expands the text run with `a`-inheritors, and turns every
+ * glyph that inherits from `a` (component or metrics-key) to automatic
+ * alignment before measuring. Cascade lanes then edit `adieresis` (anchor
+ * and LSB); both must recompose dependents.
  *
  * Run:
  *   COMPILE_BENCH=1 npx playwright test tests/compilation-lane-benchmark.spec.ts
@@ -47,6 +49,10 @@ type BenchLane =
     | 'commit:feature-code-edit'
     | 'commit:undo'
     | 'commit:redo'
+    | 'live:cascade-adieresis-anchor'
+    | 'commit:cascade-adieresis-anchor'
+    | 'live:cascade-adieresis-sidebearing'
+    | 'commit:cascade-adieresis-sidebearing'
     | 'idle';
 
 type WorkerSample = {
@@ -55,6 +61,13 @@ type WorkerSample = {
     jsMs: number;
     rustMs: number;
     skipped: string | null;
+};
+
+type RecompositionSample = {
+    lane: string;
+    kind: 'closure' | 'rebuild';
+    ms: number;
+    glyphCount?: number;
 };
 
 type PipelineSample = {
@@ -81,7 +94,11 @@ const REQUIRED_LANES: BenchLane[] = [
     'commit:keyboard-kerning-groups',
     'commit:feature-code-edit',
     'commit:undo',
-    'commit:redo'
+    'commit:redo',
+    'live:cascade-adieresis-anchor',
+    'commit:cascade-adieresis-anchor',
+    'live:cascade-adieresis-sidebearing',
+    'commit:cascade-adieresis-sidebearing'
 ];
 
 test.describe('Compilation lane benchmark (Fustat)', () => {
@@ -104,7 +121,11 @@ test.describe('Compilation lane benchmark (Fustat)', () => {
 
         await installProbe(page);
         await setTextRun(page, 'aä');
-        await enableAdieresisAutomaticComponents(page);
+        const cascadeSetup = await enableAInheritorAutomaticComponents(page);
+        console.log(
+            `[compile-bench] Automatic a-inheritors: ${cascadeSetup.names.join(', ')}`
+        );
+        await waitForIdle(page, 90000);
         await enterGlyphEdit(page, 0);
         await frameCurrentGlyph(page);
         await waitForIdle(page);
@@ -136,6 +157,36 @@ test.describe('Compilation lane benchmark (Fustat)', () => {
         await enterGlyphEdit(page, 0);
         await benchUndoRedo(page);
 
+        const adieresisIndex = await page.evaluate(() => {
+            const names =
+                (window as any).glyphCanvas?.textRunEditor?.glyphNameBuffer ||
+                [];
+            const index = names.indexOf('adieresis');
+            if (index < 0) {
+                throw new Error(
+                    `adieresis missing from text run: ${names.join(',')}`
+                );
+            }
+            return index;
+        });
+        await enterGlyphEdit(page, adieresisIndex);
+        await frameCurrentGlyph(page);
+        await waitForIdle(page);
+        await enterNestedBaseForAnchorDrag(page);
+        await benchMouseDrag(page, 'anchor', {
+            liveLane: 'live:cascade-adieresis-anchor',
+            commitLane: 'commit:cascade-adieresis-anchor'
+        });
+        await exitNestedComponentEditing(page);
+        await enterGlyphEdit(page, adieresisIndex);
+        await frameCurrentGlyph(page);
+        await waitForIdle(page);
+        await benchMouseDrag(page, 'sidebearing', {
+            liveLane: 'live:cascade-adieresis-sidebearing',
+            commitLane: 'commit:cascade-adieresis-sidebearing',
+            allowAutomaticSidebearing: true
+        });
+
         const report = await page.evaluate(
             ({
                 requiredLanes,
@@ -147,6 +198,7 @@ test.describe('Compilation lane benchmark (Fustat)', () => {
                 const bench = (window as any).__compileBench as {
                     samples: WorkerSample[];
                     compileEvents: PipelineSample[];
+                    recompositionSamples: RecompositionSample[];
                 };
                 const avg = (values: number[]): number | null => {
                     if (values.length === 0) {
@@ -190,6 +242,15 @@ test.describe('Compilation lane benchmark (Fustat)', () => {
                                 sample.workerType
                             ) && !sample.skipped
                     );
+                    const recomposition = (
+                        bench.recompositionSamples || []
+                    ).filter((sample) => sample.lane === lane);
+                    const closures = recomposition.filter(
+                        (sample) => sample.kind === 'closure'
+                    );
+                    const rebuilds = recomposition.filter(
+                        (sample) => sample.kind === 'rebuild'
+                    );
                     return {
                         lane,
                         pipelineN: pipeline.length,
@@ -213,7 +274,11 @@ test.describe('Compilation lane benchmark (Fustat)', () => {
                         yjsN: yjs.length,
                         yjsJsAvg: avg(yjs.map((sample) => sample.jsMs)),
                         yjsRustAvg: avg(yjs.map((sample) => sample.rustMs)),
-                        bootstrapN: bootstrap.length
+                        bootstrapN: bootstrap.length,
+                        closureN: closures.length,
+                        closureAvg: avg(closures.map((sample) => sample.ms)),
+                        rebuildN: rebuilds.length,
+                        rebuildAvg: avg(rebuilds.map((sample) => sample.ms))
                     };
                 });
 
@@ -227,18 +292,20 @@ test.describe('Compilation lane benchmark (Fustat)', () => {
                 });
 
                 const header = [
-                    'lane'.padEnd(36),
+                    'lane'.padEnd(42),
                     'pipeN'.padStart(6),
                     'pipeMs'.padStart(8),
                     'cmpN'.padStart(6),
                     'jsCmp'.padStart(8),
                     'rustCmp'.padStart(8),
+                    'clsN'.padStart(5),
+                    'clsMs'.padStart(8),
+                    'rbdN'.padStart(5),
+                    'rbdMs'.padStart(8),
                     'ovlN'.padStart(5),
                     'jsOvl'.padStart(8),
-                    'rustOvl'.padStart(8),
                     'yjsN'.padStart(5),
-                    'jsYjs'.padStart(8),
-                    'rustYjs'.padStart(8)
+                    'jsYjs'.padStart(8)
                 ].join(' ');
 
                 const lines = [
@@ -246,18 +313,20 @@ test.describe('Compilation lane benchmark (Fustat)', () => {
                     header,
                     ...rows.map((row) =>
                         [
-                            row.lane.padEnd(36),
+                            row.lane.padEnd(42),
                             String(row.pipelineN).padStart(6),
                             fmt(row.pipelineAvg).padStart(8),
                             String(row.compileN).padStart(6),
                             fmt(row.compileJsAvg).padStart(8),
                             fmt(row.compileRustAvg).padStart(8),
+                            String(row.closureN).padStart(5),
+                            fmt(row.closureAvg).padStart(8),
+                            String(row.rebuildN).padStart(5),
+                            fmt(row.rebuildAvg).padStart(8),
                             String(row.overlayN).padStart(5),
                             fmt(row.overlayJsAvg).padStart(8),
-                            fmt(row.overlayRustAvg).padStart(8),
                             String(row.yjsN).padStart(5),
-                            fmt(row.yjsJsAvg).padStart(8),
-                            fmt(row.yjsRustAvg).padStart(8)
+                            fmt(row.yjsJsAvg).padStart(8)
                         ].join(' ')
                     )
                 ];
@@ -306,7 +375,8 @@ async function installProbe(page: Page): Promise<void> {
         win.__compileBench = {
             lane: 'idle',
             samples: [],
-            compileEvents: []
+            compileEvents: [],
+            recompositionSamples: []
         };
         const originalSend = fontCompilation.sendMessage.bind(fontCompilation);
         fontCompilation.sendMessage = async (
@@ -403,7 +473,10 @@ async function waitForPipeline(
     );
 }
 
-async function waitForIdle(page: Page): Promise<void> {
+async function waitForIdle(
+    page: Page,
+    timeoutMs: number = 30000
+): Promise<void> {
     await page.waitForFunction(
         () => {
             const win = window as any;
@@ -428,75 +501,121 @@ async function waitForIdle(page: Page): Promise<void> {
             return Date.now() - previous.since >= 400;
         },
         undefined,
-        { timeout: 30000, polling: 50 }
+        { timeout: timeoutMs, polling: 50 }
     );
 }
 
-async function enableAdieresisAutomaticComponents(page: Page): Promise<void> {
-    await page.evaluate(() => {
-        const font = (window as any).currentFontModel;
-        const glyph = font?.findGlyph?.('adieresis');
-        if (!glyph) {
-            throw new Error('Fustat is missing glyph adieresis');
-        }
-
-        const layers = (glyph.layers || []).filter(
-            (layer: { is_background?: boolean; shapes?: unknown[] }) =>
-                !layer.is_background && (layer.shapes?.length ?? 0) > 0
-        );
-        if (layers.length === 0) {
-            throw new Error('adieresis has no foreground layers');
-        }
-
-        (window as any).patchSyncEngine?.beginTransaction(
-            'Enable adieresis automatic alignment'
-        );
-        try {
-            for (const layer of layers) {
-                const components = layer.components || [];
-                if (components.length === 0) {
-                    throw new Error(
-                        'adieresis layer has no components to make automatic'
-                    );
-                }
-                for (const component of components) {
-                    component.automaticAlignment = true;
-                }
-                layer.rebuildAutomaticComposition?.();
+async function enableAInheritorAutomaticComponents(page: Page): Promise<{
+    names: string[];
+    text: string;
+}> {
+    return page
+        .evaluate(() => {
+            const font = (window as any).currentFontModel;
+            if (!font?.findGlyph?.('a')) {
+                throw new Error('Fustat is missing glyph a');
             }
-            font.recomputeMetricsKeys?.(new Set(['adieresis']));
-        } finally {
-            (window as any).patchSyncEngine?.endTransaction();
-        }
-    });
 
-    await page.waitForFunction(
-        () => {
-            const glyph = (window as any).currentFontModel?.findGlyph?.(
-                'adieresis'
+            const componentDeps = font.collectComponentDependentGlyphs?.(
+                ['a'],
+                {
+                    includeSourceGlyphNames: false
+                }
             );
-            const layers = (glyph?.layers || []).filter(
-                (layer: { is_background?: boolean; shapes?: unknown[] }) =>
-                    !layer.is_background && (layer.shapes?.length ?? 0) > 0
-            );
-            if (layers.length === 0) {
-                return false;
+            const metricsDeps = font.collectMetricsKeyDependentGlyphs?.(['a']);
+            const inheritorNames = new Set<string>([
+                ...(componentDeps ? Array.from(componentDeps) : []),
+                ...(metricsDeps ? Array.from(metricsDeps) : [])
+            ]);
+            inheritorNames.delete('a');
+            if (!inheritorNames.has('adieresis')) {
+                inheritorNames.add('adieresis');
             }
-            return layers.every(
-                (layer: {
-                    isAutomaticAlignedLayer?: () => boolean;
-                    components?: Array<{ automaticAlignment?: boolean }>;
-                }) =>
-                    layer.isAutomaticAlignedLayer?.() === true &&
-                    (layer.components || []).length > 0 &&
-                    (layer.components || []).every(
-                        (component) => component.automaticAlignment === true
-                    )
+            if (inheritorNames.size === 0) {
+                throw new Error('Fustat has no glyphs that inherit from a');
+            }
+
+            const enableForegroundLayers = (glyphName: string): boolean => {
+                const glyph = font.findGlyph(glyphName);
+                if (!glyph) {
+                    return false;
+                }
+                const layers = (glyph.layers || []).filter(
+                    (layer: { is_background?: boolean; shapes?: unknown[] }) =>
+                        !layer.is_background && (layer.shapes?.length ?? 0) > 0
+                );
+                let enabled = false;
+                for (const layer of layers) {
+                    const components = layer.components || [];
+                    if (components.length === 0) {
+                        continue;
+                    }
+                    for (const component of components) {
+                        component.automaticAlignment = true;
+                    }
+                    layer.rebuildAutomaticComposition?.();
+                    enabled = true;
+                }
+                return enabled;
+            };
+
+            (window as any).patchSyncEngine?.beginTransaction(
+                'Enable automatic alignment for a inheritors'
             );
-        },
-        undefined,
-        { timeout: 20000 }
-    );
+            try {
+                for (const glyphName of inheritorNames) {
+                    enableForegroundLayers(glyphName);
+                }
+                font.recomputeMetricsKeys?.(inheritorNames);
+            } finally {
+                (window as any).patchSyncEngine?.endTransaction();
+            }
+
+            const names = Array.from(inheritorNames).sort();
+            return { names, text: 'aä' };
+        })
+        .then(async (setup) => {
+            await page.waitForFunction(
+                (expectedNames: string[]) => {
+                    const font = (window as any).currentFontModel;
+                    return expectedNames.every((glyphName) => {
+                        const glyph = font?.findGlyph?.(glyphName);
+                        const layers = (glyph?.layers || []).filter(
+                            (layer: {
+                                is_background?: boolean;
+                                shapes?: unknown[];
+                                components?: unknown[];
+                            }) =>
+                                !layer.is_background &&
+                                (layer.shapes?.length ?? 0) > 0
+                        );
+                        const componentLayers = layers.filter(
+                            (layer: { components?: unknown[] }) =>
+                                (layer.components || []).length > 0
+                        );
+                        if (componentLayers.length === 0) {
+                            return true;
+                        }
+                        return componentLayers.every(
+                            (layer: {
+                                isAutomaticAlignedLayer?: () => boolean;
+                                components?: Array<{
+                                    automaticAlignment?: boolean;
+                                }>;
+                            }) =>
+                                layer.isAutomaticAlignedLayer?.() === true &&
+                                (layer.components || []).every(
+                                    (component) =>
+                                        component.automaticAlignment === true
+                                )
+                        );
+                    });
+                },
+                setup.names,
+                { timeout: 20000 }
+            );
+            return setup;
+        });
 }
 
 async function setTextRun(page: Page, text: string): Promise<void> {
@@ -592,8 +711,11 @@ async function selectFirstOnCurve(page: Page): Promise<void> {
     });
 }
 
-async function panLeftSidebearingHandleIntoView(page: Page): Promise<void> {
-    await page.evaluate(() => {
+async function panLeftSidebearingHandleIntoView(
+    page: Page,
+    options?: { allowAutomatic?: boolean }
+): Promise<void> {
+    await page.evaluate((allowAutomatic) => {
         const gc = (window as any).glyphCanvas;
         const vm = gc?.viewportManager;
         const tre = gc?.textRunEditor;
@@ -611,7 +733,8 @@ async function panLeftSidebearingHandleIntoView(page: Page): Promise<void> {
             .getVisibleSidebearingHandles()
             .find(
                 (entry: { side?: string; editable?: boolean }) =>
-                    entry?.side === 'left' && entry?.editable
+                    entry?.side === 'left' &&
+                    (allowAutomatic || entry?.editable)
             );
         if (!handle) {
             throw new Error('No left sidebearing handle');
@@ -625,26 +748,32 @@ async function panLeftSidebearingHandleIntoView(page: Page): Promise<void> {
         vm.panY += targetY - sc.y;
         oe.selectedGuideHandle = null;
         gc.render();
-    });
+    }, !!options?.allowAutomatic);
 }
 
-async function selectLeftSidebearing(page: Page): Promise<void> {
-    await page.evaluate(() => {
+async function selectLeftSidebearing(
+    page: Page,
+    options?: { allowAutomatic?: boolean }
+): Promise<void> {
+    await page.evaluate((allowAutomatic) => {
         const oe = (window as any).glyphCanvas?.outlineEditor;
         const handle = oe
             ?.getVisibleSidebearingHandles?.()
             ?.find(
                 (entry: { side?: string; editable?: boolean }) =>
-                    entry?.side === 'left' && entry?.editable
+                    entry?.side === 'left' &&
+                    (allowAutomatic || entry?.editable)
             );
         if (!handle) {
-            throw new Error('No editable left sidebearing handle');
+            throw new Error('No left sidebearing handle');
         }
+        const forced = { ...handle, editable: true };
         oe.selectedPoints = [];
         oe.selectedAnchors = [];
         oe.selectedComponents = [];
-        oe.selectedSidebearingHandle = { ...handle };
-    });
+        oe.selectedSidebearingHandle = forced;
+        oe.hoveredSidebearingHandle = forced;
+    }, !!options?.allowAutomatic);
 }
 
 async function clientPointForNode(
@@ -717,29 +846,74 @@ async function clientPointForAnchor(
     });
 }
 
+async function enterNestedBaseForAnchorDrag(page: Page): Promise<void> {
+    await page.evaluate(async () => {
+        const oe = (window as any).glyphCanvas?.outlineEditor;
+        const layer = oe?.getCurrentLayerDataFromStack?.();
+        if (layer?.anchors?.length) {
+            return;
+        }
+        const shapes = layer?.shapes || [];
+        const baseIndex = shapes.findIndex(
+            (shape: { reference?: string; ref?: string }) =>
+                shape?.reference === 'a' || shape?.ref === 'a'
+        );
+        if (baseIndex < 0 || typeof oe.enterComponentEditing !== 'function') {
+            throw new Error(
+                'adieresis has no stored anchors and no nested a component to edit'
+            );
+        }
+        await oe.enterComponentEditing(baseIndex, false, null);
+    });
+    await page.waitForFunction(() => {
+        const oe = (window as any).glyphCanvas?.outlineEditor;
+        const layer = oe?.getCurrentLayerDataFromStack?.();
+        return (layer?.anchors?.length || 0) > 0;
+    });
+}
+
+async function exitNestedComponentEditing(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        const oe = (window as any).glyphCanvas?.outlineEditor;
+        oe?.exitAllComponentEditing?.();
+        oe?.clearAllSelections?.();
+    });
+}
+
 async function benchMouseDrag(
     page: Page,
-    kind: 'outline' | 'sidebearing' | 'anchor'
+    kind: 'outline' | 'sidebearing' | 'anchor',
+    lanes?: {
+        liveLane: BenchLane;
+        commitLane: BenchLane;
+        allowAutomaticSidebearing?: boolean;
+    }
 ): Promise<void> {
     const liveLane: BenchLane =
-        kind === 'outline'
+        lanes?.liveLane ??
+        (kind === 'outline'
             ? 'live:mouse-drag-outline'
             : kind === 'sidebearing'
               ? 'live:mouse-drag-sidebearing'
-              : 'live:mouse-drag-anchor';
+              : 'live:mouse-drag-anchor');
     const commitLane: BenchLane =
-        kind === 'outline'
+        lanes?.commitLane ??
+        (kind === 'outline'
             ? 'commit:mouse-drag-outline'
             : kind === 'sidebearing'
               ? 'commit:mouse-drag-sidebearing'
-              : 'commit:mouse-drag-anchor';
+              : 'commit:mouse-drag-anchor');
 
     for (let i = 0; i < ITERS; i += 1) {
         if (kind === 'outline') {
             await selectFirstOnCurve(page);
         } else if (kind === 'sidebearing') {
-            await panLeftSidebearingHandleIntoView(page);
-            await selectLeftSidebearing(page);
+            await panLeftSidebearingHandleIntoView(page, {
+                allowAutomatic: lanes?.allowAutomaticSidebearing
+            });
+            await selectLeftSidebearing(page, {
+                allowAutomatic: lanes?.allowAutomaticSidebearing
+            });
         } else {
             await page.evaluate(() => {
                 const oe = (window as any).glyphCanvas?.outlineEditor;
