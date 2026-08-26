@@ -10,7 +10,7 @@
         "editor_harfbuzz_cl": "0 1 2 3 4 5 12 12 11 11 9 9 8 6 6",
         "editor_harfbuzz_dx": "0 0 0 0 0 0 37 0 36 0 133 0 0 182 0",
         "editor_harfbuzz_dy": "0 0 0 0 0 0 286 0 -96 0 61 0 0 62 0",
-        "editor_harfbuzz_gids": "24 26 10 10 19 28 7 17 5 14 30 2 16 30 37",
+        "editor_harfbuzz_gids": "15 24 4 4 2 19 16 11 1 9 5 13 25 5 23",
         "editor_harfbuzz_glyph_names": "h e l l o space fathatan-ar alef-ar.short.fina dotbelow-ar behDotless-ar.medi fatha-ar hah-ar.init reh-ar.fina fatha-ar meem-ar.init",
         "editor_isAnimating": false,
         "editor_isInterpolating": false,
