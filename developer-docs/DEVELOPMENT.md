@@ -161,11 +161,6 @@ Optional console queries:
 - Marks: `performance.getEntriesByType('mark').filter((e) => e.name.startsWith('cp:'))`
 - Measures: `performance.getEntriesByType('measure').filter((e) => e.name.startsWith('cp:'))`
 
-### Shrink Exported Traces For LLM Analysis
-
-- Script: `node shrink-trace-to-timings.mjs [--llm|--summary] temp/<trace>.json [output.json]`
-- Modes: default filtered `traceEvents`, `--llm` for minimal event fields, `--summary` for compact aggregates only
-
 ## Release Process
 
 Create and deploy a new release from the repository root:
