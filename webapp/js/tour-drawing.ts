@@ -609,30 +609,73 @@ function matchingDrawnSegment(segment: {
     start: FontPoint;
     end: FontPoint;
 }): CurveSegment | null {
-    const drawn = getTourDrawnPath();
-    if (!drawn) {
+    const path = getTourDrawnPath();
+    if (!path) {
         return null;
     }
-    for (const candidate of getCurveSegments(drawn)) {
-        if (
-            samePoint(candidate.start, segment.start, ON_CURVE_MATCH_UNITS) &&
-            samePoint(candidate.end, segment.end, ON_CURVE_MATCH_UNITS)
-        ) {
-            return candidate;
+    const templates = templateCurveSegments();
+    const drawn = getCurveSegments(path);
+    const taken = new Set<number>();
+    let matched: CurveSegment | null = null;
+    for (const template of templates) {
+        let bestIndex = -1;
+        let bestDist = Infinity;
+        let reverse = false;
+        for (let index = 0; index < drawn.length; index++) {
+            if (taken.has(index)) {
+                continue;
+            }
+            const candidate = drawn[index];
+            const forward =
+                Math.hypot(
+                    template.start.x - candidate.start.x,
+                    template.start.y - candidate.start.y
+                ) +
+                Math.hypot(
+                    template.end.x - candidate.end.x,
+                    template.end.y - candidate.end.y
+                );
+            const backward =
+                Math.hypot(
+                    template.start.x - candidate.end.x,
+                    template.start.y - candidate.end.y
+                ) +
+                Math.hypot(
+                    template.end.x - candidate.start.x,
+                    template.end.y - candidate.start.y
+                );
+            if (forward < bestDist) {
+                bestDist = forward;
+                bestIndex = index;
+                reverse = false;
+            }
+            if (backward < bestDist) {
+                bestDist = backward;
+                bestIndex = index;
+                reverse = true;
+            }
         }
+        if (bestIndex < 0) {
+            continue;
+        }
+        taken.add(bestIndex);
+        const candidate = drawn[bestIndex];
+        const aligned = reverse
+            ? {
+                  start: candidate.end,
+                  end: candidate.start,
+                  off1: candidate.off2,
+                  off2: candidate.off1
+              }
+            : candidate;
         if (
-            samePoint(candidate.start, segment.end, ON_CURVE_MATCH_UNITS) &&
-            samePoint(candidate.end, segment.start, ON_CURVE_MATCH_UNITS)
+            samePoint(template.start, segment.start, 0.5) &&
+            samePoint(template.end, segment.end, 0.5)
         ) {
-            return {
-                start: segment.start,
-                end: segment.end,
-                off1: candidate.off2,
-                off2: candidate.off1
-            };
+            matched = aligned;
         }
     }
-    return null;
+    return matched;
 }
 
 function handleTargetKey(point: FontPoint): string {
@@ -732,7 +775,7 @@ function activateHandleMove(move: HandleMove): void {
         return;
     }
     session.handleTarget = target;
-    session.handleRest = move.rest;
+    session.handleRest = move.current ?? move.rest;
     session.handleDragStarted = false;
 }
 
@@ -901,15 +944,18 @@ function getGuidePoints(kind: TourDrawingGuides): FontPoint[] {
             .map((segment) => midpoint(segment.start, segment.end));
     }
     if (kind === 'lss04-smooth') {
-        return template.onCurves.filter((node) => {
+        return template.onCurves.flatMap((node) => {
             if (!node.smooth) {
-                return false;
+                return [];
             }
             if (!path) {
-                return true;
+                return [node];
             }
             const nearest = nearestOnCurve(path, node);
-            return !nearest?.smooth;
+            if (!nearest || nearest.smooth) {
+                return [];
+            }
+            return [{ x: nearest.x, y: nearest.y }];
         });
     }
     return handleGuidePoints();

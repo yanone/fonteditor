@@ -1285,19 +1285,69 @@ describe('tour intro', () => {
         expect(rings()[0].getAttribute('cx')).not.toBe(firstCx);
     });
 
+    test('smooth-curve-toggle marks live on-curve nodes', async () => {
+        const { getTourSlide } = require('../js/tour-slides');
+        const { showTourSlide } = require('../js/tour-spotlight');
+        const { captureTourDrawArea } = require('../js/tour-drawing');
+        const nodes = [
+            { x: 252, y: 2, nodetype: 'Line', smooth: false },
+            { x: 252, y: 121, nodetype: 'Line', smooth: false },
+            { x: 217, y: 119, nodetype: 'OffCurve' },
+            { x: 200, y: 145, nodetype: 'OffCurve' },
+            { x: 198, y: 186, nodetype: 'Line', smooth: false },
+            { x: 198, y: 734, nodetype: 'Line' },
+            { x: 67, y: 718, nodetype: 'Line' },
+            { x: 67, y: 157, nodetype: 'Line', smooth: false },
+            { x: 65, y: 59, nodetype: 'OffCurve' },
+            { x: 125, y: 0, nodetype: 'OffCurve' }
+        ];
+        window.glyphCanvas.outlineEditor = {
+            active: true,
+            currentGlyphName: 'l.ss04',
+            layerData: { shapes: [{ closed: true, nodes }] }
+        };
+        mockLss04Background();
+        window.glyphCanvas.textRunEditor.selectedGlyphIndex = 0;
+        window.glyphCanvas.glyphBounds = [
+            { x: 0, y: 0, x1: 0, y1: 0, x2: 254, y2: 736 }
+        ];
+        window.glyphCanvas.canvas.getBoundingClientRect = () => ({
+            x: 0,
+            y: 0,
+            left: 0,
+            top: 0,
+            right: 800,
+            bottom: 600,
+            width: 800,
+            height: 600,
+            toJSON() {}
+        });
+        captureTourDrawArea();
+        await showTourSlide(getTourSlide('smooth-curve-toggle'), () => {});
+        const markKeys = [
+            ...new Set(
+                [...document.querySelectorAll('.tour-guide-ring')].map(
+                    (ring) =>
+                        `${ring.getAttribute('cx')},${ring.getAttribute('cy')}`
+                )
+            )
+        ].sort();
+        expect(markKeys).toEqual(['198,186', '67,157']);
+    });
+
     test('place-handles marks one handle at rest then target-only while dragging', async () => {
         const { getTourSlide } = require('../js/tour-slides');
         const { showTourSlide } = require('../js/tour-spotlight');
         const { captureTourDrawArea } = require('../js/tour-drawing');
         const nodes = [
-            { x: 254, y: 0, nodetype: 'Line', smooth: false },
-            { x: 254, y: 119, nodetype: 'Line', smooth: false },
+            { x: 252, y: 2, nodetype: 'Line', smooth: false },
+            { x: 252, y: 121, nodetype: 'Line', smooth: false },
             { x: 180, y: 119, nodetype: 'OffCurve' },
             { x: 190, y: 145, nodetype: 'OffCurve' },
-            { x: 200, y: 184, nodetype: 'Line', smooth: true },
-            { x: 200, y: 736, nodetype: 'Line' },
-            { x: 65, y: 720, nodetype: 'Line' },
-            { x: 65, y: 159, nodetype: 'Line', smooth: true },
+            { x: 198, y: 186, nodetype: 'Line', smooth: true },
+            { x: 198, y: 734, nodetype: 'Line' },
+            { x: 67, y: 718, nodetype: 'Line' },
+            { x: 67, y: 157, nodetype: 'Line', smooth: true },
             { x: 65, y: 90, nodetype: 'OffCurve' },
             { x: 125, y: 0, nodetype: 'OffCurve' }
         ];
