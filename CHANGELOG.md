@@ -1,5 +1,9 @@
 # Unreleased
 
+- **Add items here** for the next release (Replace this comment)
+
+# v0.3
+
 - **New tour**: Adjusted text buffer and editing flow in the tour.
 - **Glyph overview Unicode insertion**: Add “Insert as Unicode” for encoded glyph selections, including Alt + double-click, while keeping regular double-click insertion as glyph-name tokens. Encoded glyph names are shown in bold.
 - **Keyboard preview bursts**: Modifier-only keydowns no longer flush pending keyboard preview commits. Overlay prepare/render steps coalesce while an earlier run is still in flight.
