@@ -60,11 +60,17 @@ type CurveSegment = {
 type DrawingSession = {
     drawArea: FontRect | null;
     template: TourPath | null;
+    handleRest: FontPoint | null;
+    handleTarget: FontPoint | null;
+    handleDragStarted: boolean;
 };
 
 let session: DrawingSession = {
     drawArea: null,
-    template: null
+    template: null,
+    handleRest: null,
+    handleTarget: null,
+    handleDragStarted: false
 };
 
 let guidesRoot: SVGSVGElement | null = null;
@@ -72,7 +78,10 @@ let guidesRoot: SVGSVGElement | null = null;
 export function resetTourDrawingSession(): void {
     session = {
         drawArea: null,
-        template: null
+        template: null,
+        handleRest: null,
+        handleTarget: null,
+        handleDragStarted: false
     };
 }
 
@@ -633,6 +642,63 @@ function unsmoothedHandleMoves(): HandleMove[] {
     return moves;
 }
 
+function isDraggingHandle(): boolean {
+    return window.glyphCanvas?.outlineEditor?.isDraggingPoint === true;
+}
+
+function activateHandleMove(move: HandleMove): void {
+    const target = move.target;
+    if (session.handleTarget && samePoint(session.handleTarget, target, 0.5)) {
+        return;
+    }
+    session.handleTarget = target;
+    session.handleRest = move.current;
+    session.handleDragStarted = false;
+}
+
+function activeHandleMove(): HandleMove | null {
+    const moves = unsmoothedHandleMoves();
+    if (moves.length === 0) {
+        return null;
+    }
+    if (isDraggingHandle() && session.handleTarget) {
+        const locked = moves.find((move) =>
+            samePoint(move.target, session.handleTarget as FontPoint, 0.5)
+        );
+        if (locked) {
+            return locked;
+        }
+    }
+    return moves.find((move) => !handleIsPlaced(move)) || null;
+}
+
+function handleGuidePoints(): FontPoint[] {
+    const active = activeHandleMove();
+    if (!active) {
+        session.handleRest = null;
+        session.handleTarget = null;
+        session.handleDragStarted = false;
+        return [];
+    }
+    activateHandleMove(active);
+    const rest = session.handleRest;
+    if (
+        !session.handleDragStarted &&
+        rest &&
+        active.current &&
+        !samePoint(rest, active.current, 0.5)
+    ) {
+        session.handleDragStarted = true;
+    }
+    if (isDraggingHandle()) {
+        session.handleDragStarted = true;
+    }
+    if (session.handleDragStarted || !rest) {
+        return [active.target];
+    }
+    return [rest, active.target];
+}
+
 function handleIsPlaced(move: HandleMove): boolean {
     if (!move.current) {
         return false;
@@ -765,17 +831,7 @@ function getGuidePoints(kind: TourDrawingGuides): FontPoint[] {
             return !nearest?.smooth;
         });
     }
-    const points: FontPoint[] = [];
-    for (const move of unsmoothedHandleMoves()) {
-        if (handleIsPlaced(move)) {
-            continue;
-        }
-        if (move.current) {
-            points.push(move.current);
-        }
-        points.push(move.target);
-    }
-    return points;
+    return handleGuidePoints();
 }
 
 function ensureGuidesRoot(parent: HTMLElement): SVGSVGElement {
@@ -865,7 +921,9 @@ function isForegroundPathDeleted(): boolean {
 
 function handlesArePlaced(): boolean {
     const moves = unsmoothedHandleMoves();
-    return moves.length > 0 && moves.every(handleIsPlaced);
+    return (
+        moves.length > 0 && moves.every(handleIsPlaced) && !isDraggingHandle()
+    );
 }
 
 export function isTourDrawingGoalMet(kind: TourAdvanceWhen): boolean {

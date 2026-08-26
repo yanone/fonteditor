@@ -1285,7 +1285,7 @@ describe('tour intro', () => {
         expect(rings()[0].getAttribute('cx')).not.toBe(firstCx);
     });
 
-    test('place-handles marks current and target for both unsmooth handles', async () => {
+    test('place-handles marks one handle at rest then target-only while dragging', async () => {
         const { getTourSlide } = require('../js/tour-slides');
         const { showTourSlide } = require('../js/tour-spotlight');
         const { captureTourDrawArea } = require('../js/tour-drawing');
@@ -1304,6 +1304,7 @@ describe('tour intro', () => {
         window.glyphCanvas.outlineEditor = {
             active: true,
             currentGlyphName: 'l.ss04',
+            isDraggingPoint: false,
             layerData: { shapes: [{ closed: true, nodes }] }
         };
         mockLss04Background();
@@ -1333,31 +1334,18 @@ describe('tour intro', () => {
             }
             return [...keys].sort();
         };
-        expect(document.querySelectorAll('.tour-guide-ring').length).toBe(12);
-        expect(markKeys()).toEqual(['125,0', '180,119', '217,119', '80,0']);
-        expect(
-            [...document.querySelectorAll('.tour-guide-ring')].map((ring) =>
-                ring.getAttribute('r')
-            )
-        ).toEqual([
-            '15',
-            '10',
-            '5',
-            '15',
-            '10',
-            '5',
-            '15',
-            '10',
-            '5',
-            '15',
-            '10',
-            '5'
-        ]);
+        expect(document.querySelectorAll('.tour-guide-ring').length).toBe(6);
+        expect(markKeys()).toEqual(['180,119', '217,119']);
+        window.glyphCanvas.outlineEditor.isDraggingPoint = true;
         nodes[2] = { x: 217, y: 119, nodetype: 'OffCurve' };
         window.dispatchEvent(new CustomEvent('glyphCanvasRendered'));
         await new Promise((resolve) => requestAnimationFrame(resolve));
         await new Promise((resolve) => requestAnimationFrame(resolve));
-        expect(document.querySelectorAll('.tour-guide-ring').length).toBe(6);
+        expect(markKeys()).toEqual(['217,119']);
+        window.glyphCanvas.outlineEditor.isDraggingPoint = false;
+        window.dispatchEvent(new CustomEvent('glyphCanvasRendered'));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
         expect(markKeys()).toEqual(['125,0', '80,0']);
     });
 
