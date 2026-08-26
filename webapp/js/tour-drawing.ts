@@ -7,9 +7,10 @@ import { Logger } from './logger';
 
 const console = new Logger('Tour');
 
-/** Match the inactive red close-target rings: 5px inner, 2× outer. */
-const GUIDE_INNER_PX = 5;
-const GUIDE_OUTER_PX = 10;
+/** Concentric target rings: inner radius, then two more at the same step. */
+const GUIDE_RING_STEP_PX = 5;
+const GUIDE_RING_COUNT = 3;
+const GUIDE_RING_OPACITY = [1, 0.55, 0.3];
 /** Drop a handle within this many CSS pixels of the frozen mark. */
 const HANDLE_DROP_CLIENT_PX = 28;
 const ON_CURVE_MATCH_UNITS = 24;
@@ -580,18 +581,78 @@ function templateCurveSegments(): CurveSegment[] {
     return session.template ? getCurveSegments(session.template) : [];
 }
 
-function unsmoothedHandleTargets(): FontPoint[] {
-    const segments = templateCurveSegments();
-    const targets: FontPoint[] = [];
-    for (const segment of segments) {
-        if (!segment.start.smooth) {
-            targets.push(segment.off1);
+type HandleMove = {
+    current: FontPoint | null;
+    target: FontPoint;
+};
+
+function matchingDrawnSegment(segment: CurveSegment): CurveSegment | null {
+    const drawn = getTourDrawnPath();
+    if (!drawn) {
+        return null;
+    }
+    for (const candidate of getCurveSegments(drawn)) {
+        if (
+            samePoint(candidate.start, segment.start, ON_CURVE_MATCH_UNITS) &&
+            samePoint(candidate.end, segment.end, ON_CURVE_MATCH_UNITS)
+        ) {
+            return candidate;
         }
-        if (!segment.end.smooth) {
-            targets.push(segment.off2);
+        if (
+            samePoint(candidate.start, segment.end, ON_CURVE_MATCH_UNITS) &&
+            samePoint(candidate.end, segment.start, ON_CURVE_MATCH_UNITS)
+        ) {
+            return {
+                start: segment.start,
+                end: segment.end,
+                off1: candidate.off2,
+                off2: candidate.off1
+            };
         }
     }
-    return targets;
+    return null;
+}
+
+function unsmoothedHandleMoves(): HandleMove[] {
+    const moves: HandleMove[] = [];
+    for (const segment of templateCurveSegments()) {
+        const drawn = matchingDrawnSegment(segment);
+        if (!segment.start.smooth) {
+            moves.push({
+                current: drawn?.off1 ?? null,
+                target: segment.off1
+            });
+        }
+        if (!segment.end.smooth) {
+            moves.push({
+                current: drawn?.off2 ?? null,
+                target: segment.off2
+            });
+        }
+    }
+    return moves;
+}
+
+function handleIsPlaced(move: HandleMove): boolean {
+    if (!move.current) {
+        return false;
+    }
+    const currentClient = fontPointToClient(move.current);
+    const targetClient = fontPointToClient(move.target);
+    if (!currentClient || !targetClient) {
+        return (
+            Math.hypot(
+                move.current.x - move.target.x,
+                move.current.y - move.target.y
+            ) <= ON_CURVE_MATCH_UNITS
+        );
+    }
+    return (
+        Math.hypot(
+            currentClient.x - targetClient.x,
+            currentClient.y - targetClient.y
+        ) <= HANDLE_DROP_CLIENT_PX
+    );
 }
 
 function getStemMidpoint(): FontPoint | null {
@@ -704,31 +765,17 @@ function getGuidePoints(kind: TourDrawingGuides): FontPoint[] {
             return !nearest?.smooth;
         });
     }
-    const targets = unsmoothedHandleTargets();
-    if (!path) {
-        return targets;
-    }
-    return targets.filter((target) => {
-        const targetClient = fontPointToClient(target);
-        if (!targetClient) {
-            return true;
+    const points: FontPoint[] = [];
+    for (const move of unsmoothedHandleMoves()) {
+        if (handleIsPlaced(move)) {
+            continue;
         }
-        return !path.vertices.some((vertex) => {
-            if (!vertex.offCurve) {
-                return false;
-            }
-            const client = fontPointToClient(vertex);
-            if (!client) {
-                return false;
-            }
-            return (
-                Math.hypot(
-                    client.x - targetClient.x,
-                    client.y - targetClient.y
-                ) <= HANDLE_DROP_CLIENT_PX
-            );
-        });
-    });
+        if (move.current) {
+            points.push(move.current);
+        }
+        points.push(move.target);
+    }
+    return points;
 }
 
 function ensureGuidesRoot(parent: HTMLElement): SVGSVGElement {
@@ -768,17 +815,18 @@ export function syncTourDrawingGuides(
         }
         const svgPoint = clientToSvg(svg, client);
         const group = document.createElementNS(ns, 'g');
-        const outer = document.createElementNS(ns, 'circle');
-        outer.classList.add('tour-guide-ring');
-        outer.setAttribute('cx', String(svgPoint.x));
-        outer.setAttribute('cy', String(svgPoint.y));
-        outer.setAttribute('r', String(GUIDE_OUTER_PX));
-        const inner = document.createElementNS(ns, 'circle');
-        inner.classList.add('tour-guide-ring');
-        inner.setAttribute('cx', String(svgPoint.x));
-        inner.setAttribute('cy', String(svgPoint.y));
-        inner.setAttribute('r', String(GUIDE_INNER_PX));
-        group.append(outer, inner);
+        for (let ring = GUIDE_RING_COUNT - 1; ring >= 0; ring -= 1) {
+            const circle = document.createElementNS(ns, 'circle');
+            circle.classList.add('tour-guide-ring');
+            circle.setAttribute('cx', String(svgPoint.x));
+            circle.setAttribute('cy', String(svgPoint.y));
+            circle.setAttribute('r', String(GUIDE_RING_STEP_PX * (ring + 1)));
+            circle.setAttribute(
+                'opacity',
+                String(GUIDE_RING_OPACITY[ring] ?? 1)
+            );
+            group.append(circle);
+        }
         svg.append(group);
     }
 }
@@ -815,32 +863,9 @@ function isForegroundPathDeleted(): boolean {
     });
 }
 
-function handlesArePlaced(path: TourPath): boolean {
-    const targets = unsmoothedHandleTargets();
-    if (targets.length === 0) {
-        return false;
-    }
-    return targets.every((target) => {
-        const targetClient = fontPointToClient(target);
-        if (!targetClient) {
-            return false;
-        }
-        return path.vertices.some((vertex) => {
-            if (!vertex.offCurve) {
-                return false;
-            }
-            const client = fontPointToClient(vertex);
-            if (!client) {
-                return false;
-            }
-            return (
-                Math.hypot(
-                    client.x - targetClient.x,
-                    client.y - targetClient.y
-                ) <= HANDLE_DROP_CLIENT_PX
-            );
-        });
-    });
+function handlesArePlaced(): boolean {
+    const moves = unsmoothedHandleMoves();
+    return moves.length > 0 && moves.every(handleIsPlaced);
 }
 
 export function isTourDrawingGoalMet(kind: TourAdvanceWhen): boolean {
@@ -884,7 +909,7 @@ export function isTourDrawingGoalMet(kind: TourAdvanceWhen): boolean {
         });
     }
     if (kind === 'handles-placed') {
-        return handlesArePlaced(path);
+        return handlesArePlaced();
     }
     console.log('Unknown drawing goal', kind);
     return false;

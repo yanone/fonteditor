@@ -1071,7 +1071,7 @@ describe('tour intro', () => {
             { x: 0, y: 0, x1: 0, y1: 0, x2: 100, y2: 900 }
         ];
         expect(getDrawAreaFontRect()).toEqual(frozen);
-        expect(document.querySelectorAll('.tour-guide-ring').length).toBe(2);
+        expect(document.querySelectorAll('.tour-guide-ring').length).toBe(3);
         expect(document.querySelectorAll('.tour-guide-cross').length).toBe(0);
         const firstMark = document.querySelector('.tour-guide-ring');
         expect(firstMark.getAttribute('cx')).toBe('254');
@@ -1088,7 +1088,7 @@ describe('tour intro', () => {
         await new Promise((resolve) => requestAnimationFrame(resolve));
         await new Promise((resolve) => requestAnimationFrame(resolve));
         const nextMark = document.querySelector('.tour-guide-ring');
-        expect(document.querySelectorAll('.tour-guide-ring').length).toBe(2);
+        expect(document.querySelectorAll('.tour-guide-ring').length).toBe(3);
         expect(nextMark.getAttribute('cx')).toBe('254');
         expect(nextMark.getAttribute('cy')).toBe('119');
         window.glyphCanvas.outlineEditor.layerData = {
@@ -1110,7 +1110,7 @@ describe('tour intro', () => {
         await new Promise((resolve) => requestAnimationFrame(resolve));
         await new Promise((resolve) => requestAnimationFrame(resolve));
         const closeMark = document.querySelector('.tour-guide-ring');
-        expect(document.querySelectorAll('.tour-guide-ring').length).toBe(2);
+        expect(document.querySelectorAll('.tour-guide-ring').length).toBe(3);
         expect(closeMark.getAttribute('cx')).toBe('254');
         expect(closeMark.getAttribute('cy')).toBe('0');
     });
@@ -1262,7 +1262,7 @@ describe('tour intro', () => {
         await showTourSlide(getTourSlide('convert-tool'), () => {});
         const rings = () =>
             Array.from(document.querySelectorAll('.tour-guide-ring'));
-        expect(rings().length).toBe(4);
+        expect(rings().length).toBe(6);
         const firstCx = rings()[0].getAttribute('cx');
         nodes.splice(
             2,
@@ -1281,8 +1281,84 @@ describe('tour intro', () => {
         window.dispatchEvent(new CustomEvent('glyphCanvasRendered'));
         await new Promise((resolve) => requestAnimationFrame(resolve));
         await new Promise((resolve) => requestAnimationFrame(resolve));
-        expect(rings().length).toBe(2);
+        expect(rings().length).toBe(3);
         expect(rings()[0].getAttribute('cx')).not.toBe(firstCx);
+    });
+
+    test('place-handles marks current and target for both unsmooth handles', async () => {
+        const { getTourSlide } = require('../js/tour-slides');
+        const { showTourSlide } = require('../js/tour-spotlight');
+        const { captureTourDrawArea } = require('../js/tour-drawing');
+        const nodes = [
+            { x: 254, y: 0, nodetype: 'Line', smooth: false },
+            { x: 254, y: 119, nodetype: 'Line', smooth: false },
+            { x: 180, y: 119, nodetype: 'OffCurve' },
+            { x: 200, y: 145, nodetype: 'OffCurve' },
+            { x: 200, y: 184, nodetype: 'Line', smooth: true },
+            { x: 200, y: 736, nodetype: 'Line' },
+            { x: 65, y: 720, nodetype: 'Line' },
+            { x: 65, y: 159, nodetype: 'Line', smooth: true },
+            { x: 65, y: 59, nodetype: 'OffCurve' },
+            { x: 80, y: 0, nodetype: 'OffCurve' }
+        ];
+        window.glyphCanvas.outlineEditor = {
+            active: true,
+            currentGlyphName: 'l.ss04',
+            layerData: { shapes: [{ closed: true, nodes }] }
+        };
+        mockLss04Background();
+        window.glyphCanvas.textRunEditor.selectedGlyphIndex = 0;
+        window.glyphCanvas.glyphBounds = [
+            { x: 0, y: 0, x1: 0, y1: 0, x2: 254, y2: 736 }
+        ];
+        window.glyphCanvas.canvas.getBoundingClientRect = () => ({
+            x: 0,
+            y: 0,
+            left: 0,
+            top: 0,
+            right: 800,
+            bottom: 600,
+            width: 800,
+            height: 600,
+            toJSON() {}
+        });
+        captureTourDrawArea();
+        await showTourSlide(getTourSlide('place-handles'), () => {});
+        const markKeys = () => {
+            const keys = new Set();
+            for (const ring of document.querySelectorAll('.tour-guide-ring')) {
+                keys.add(
+                    `${ring.getAttribute('cx')},${ring.getAttribute('cy')}`
+                );
+            }
+            return [...keys].sort();
+        };
+        expect(document.querySelectorAll('.tour-guide-ring').length).toBe(12);
+        expect(markKeys()).toEqual(['125,0', '180,119', '217,119', '80,0']);
+        expect(
+            [...document.querySelectorAll('.tour-guide-ring')].map((ring) =>
+                ring.getAttribute('r')
+            )
+        ).toEqual([
+            '15',
+            '10',
+            '5',
+            '15',
+            '10',
+            '5',
+            '15',
+            '10',
+            '5',
+            '15',
+            '10',
+            '5'
+        ]);
+        nodes[2] = { x: 217, y: 119, nodetype: 'OffCurve' };
+        window.dispatchEvent(new CustomEvent('glyphCanvasRendered'));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        expect(document.querySelectorAll('.tour-guide-ring').length).toBe(6);
+        expect(markKeys()).toEqual(['125,0', '80,0']);
     });
 
     test('formats OS keyboard shortcuts as pre chips', async () => {
