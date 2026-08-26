@@ -18,6 +18,7 @@ SERVICE_WORKER_FILE="webapp/coi-serviceworker.js"
 CHANGELOG_FILE="CHANGELOG.md"
 RELEASE_NOTES_FILE="release-notes.md"
 API_MD_FILE="API.md"
+HANDBOOK_API_FILE="documentation/python/06-python-api.md"
 
 # Validate version tag format (v followed by number)
 if ! echo "$VERSION_TAG" | grep -qE '^v[0-9]+'; then
@@ -62,9 +63,9 @@ echo "Updating version in $API_MD_FILE..."
 node scripts/generate-api-docs.mjs "$VERSION_TAG"
 echo "✅ API documentation regenerated with version $VERSION_TAG"
 
-# Commit the version updates to API.md and service worker separately
-echo "Committing API.md and service worker version updates..."
-git add "$SERVICE_WORKER_FILE" "$API_MD_FILE"
+# Commit the version updates to API docs and service worker separately
+echo "Committing API docs and service worker version updates..."
+git add "$SERVICE_WORKER_FILE" "$API_MD_FILE" "$HANDBOOK_API_FILE"
 if git diff --cached --quiet; then
     echo "  No changes to commit (files already up to date)"
 else
