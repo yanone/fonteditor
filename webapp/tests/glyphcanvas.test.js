@@ -12041,7 +12041,7 @@ describe('OutlineEditor structural outline compile scheduling', () => {
         await new Promise((resolve) => setTimeout(resolve, 0));
     }
 
-    test('cmd path close syncs the latest structural data before key release', async () => {
+    test('cmd path close commits the structural packet immediately', async () => {
         const font = Font.fromData({
             upm: 1000,
             version: [1, 0],
@@ -12149,7 +12149,11 @@ describe('OutlineEditor structural outline compile scheduling', () => {
 
             await flushStructuralCompileTick();
 
-            expect(env.bridge.beginTransaction).not.toHaveBeenCalled();
+            expect(env.bridge.beginTransaction).toHaveBeenCalledWith(
+                'Draw path'
+            );
+            expect(env.bridge.endTransaction).toHaveBeenCalledTimes(1);
+            expect(canvas.outlineEditor.pendingCommandPathEdit).toBeNull();
             expect(currentLayer.paths[0].closed).toBe(true);
             expect(fontManager.lastChangeSource).toBeNull();
             expect(fontManager.lastEditType).toBeNull();
@@ -12160,10 +12164,6 @@ describe('OutlineEditor structural outline compile scheduling', () => {
                 'keyboard-outline'
             );
             expect(env.currentFont.syncJsonFromModel).not.toHaveBeenCalled();
-            expect(env.structuralLayerSyncSpy).toHaveBeenCalledWith(
-                'A',
-                'layer-1'
-            );
         } finally {
             env.restore();
         }
