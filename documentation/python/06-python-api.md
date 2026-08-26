@@ -1,5 +1,7 @@
 # Python API
 
+**Version:** v0.3
+
 *Auto-generated from JavaScript object model introspection*
 
 
@@ -583,6 +585,9 @@ True when this automatic layer stacks unattached bases that resolve to
 the kerning pair (`glyph` or `@group` keys).
 
 #### `usesAutomaticLigatureKerningGroupMembership(pairSide: 'first' | 'second', glyphNames: Iterable<string>) -> bool`
+True when an unattached ligature operand is one of the glyphs whose
+kern-group membership just changed (`first` = left of the pair).
+
 #### `getComputedName() -> str`
 #### `findAnchor(anchorName: str) -> [Anchor](#anchor) | None`
 #### `computedAnchors() -> ComputedAnchorMap`
