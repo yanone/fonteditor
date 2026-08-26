@@ -10378,7 +10378,7 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         }
     });
 
-    test('cmd-click drawing creates and closes a linked path, then commits one history item on key release', async () => {
+    test('cmd-click drawing creates and closes a linked path, then commits one history item on close', async () => {
         const font = Font.fromData({
             upm: 1000,
             version: [1, 0],
@@ -10534,13 +10534,17 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
                 metaKey: true,
                 ctrlKey: false
             });
-            canvas.outlineEditor.setCommandKeyPressed(false);
-
-            await new Promise((resolve) => setTimeout(resolve, 0));
 
             expect(linkedLayersSpy).toHaveBeenCalled();
             expect(bridge.beginTransaction).toHaveBeenCalledWith('Draw path');
             expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
+            expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
+            expect(canvas.outlineEditor.pendingCommandPathEdit).toBeNull();
+
+            canvas.outlineEditor.setCommandKeyPressed(false);
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(bridge.beginTransaction).toHaveBeenCalledTimes(1);
             expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
             expect(currentLayer.paths).toHaveLength(1);
             expect(linkedLayer.paths).toHaveLength(1);
@@ -10748,14 +10752,18 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
                 metaKey: true,
                 ctrlKey: false
             });
-            canvas.outlineEditor.setCommandKeyPressed(false);
 
+            expect(bridge.beginTransaction).toHaveBeenCalledTimes(1);
+            expect(bridge.beginTransaction).toHaveBeenCalledWith('Draw path');
+            expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
+            expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
+            expect(canvas.outlineEditor.pendingCommandPathEdit).toBeNull();
+
+            canvas.outlineEditor.setCommandKeyPressed(false);
             await new Promise((resolve) => setTimeout(resolve, 0));
 
             expect(linkedLayersSpy).toHaveBeenCalled();
             expect(bridge.beginTransaction).toHaveBeenCalledTimes(1);
-            expect(bridge.beginTransaction).toHaveBeenCalledWith('Draw path');
-            expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
             expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
             expect(currentLayer.paths).toHaveLength(1);
             expect(linkedLayer.paths).toHaveLength(1);
@@ -11139,21 +11147,22 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
                 ctrlKey: false
             });
 
-            expect(bridge.beginTransaction).not.toHaveBeenCalled();
-            expect(bridge.syncGlyphFromJson).not.toHaveBeenCalled();
-
-            canvas.outlineEditor.setCommandKeyPressed(false);
-            await new Promise((resolve) => setTimeout(resolve, 0));
-
             expect(linkedLayersSpy).toHaveBeenCalled();
             expect(bridge.beginTransaction).toHaveBeenCalledWith('Draw path');
             expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
             expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
+            expect(canvas.outlineEditor.pendingCommandPathEdit).toBeNull();
             expect(fontManager.lastChangeSource).toBeNull();
             expect(fontManager.lastEditType).toBeNull();
             expect(
                 window.autoCompileManager.checkAndSchedule
             ).not.toHaveBeenCalled();
+
+            canvas.outlineEditor.setCommandKeyPressed(false);
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(bridge.beginTransaction).toHaveBeenCalledTimes(1);
+            expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
             expect(currentLayer.paths[0].closed).toBe(true);
             expect(linkedLayer.paths[0].closed).toBe(true);
             expect(
@@ -11318,15 +11327,16 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
                 ctrlKey: false
             });
 
-            expect(bridge.beginTransaction).not.toHaveBeenCalled();
-            expect(bridge.syncGlyphFromJson).not.toHaveBeenCalled();
+            expect(linkedLayersSpy).toHaveBeenCalled();
+            expect(bridge.beginTransaction).toHaveBeenCalledWith('Draw path');
+            expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
+            expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
+            expect(canvas.outlineEditor.pendingCommandPathEdit).toBeNull();
 
             canvas.outlineEditor.setCommandKeyPressed(false);
             await new Promise((resolve) => setTimeout(resolve, 0));
 
-            expect(linkedLayersSpy).toHaveBeenCalled();
-            expect(bridge.beginTransaction).toHaveBeenCalledWith('Draw path');
-            expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
+            expect(bridge.beginTransaction).toHaveBeenCalledTimes(1);
             expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
             expect(currentLayer.paths[0].closed).toBe(true);
             expect(linkedLayer.paths[0].closed).toBe(true);

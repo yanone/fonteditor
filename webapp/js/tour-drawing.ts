@@ -9,8 +9,8 @@ const console = new Logger('Tour');
 
 /** Concentric target rings: inner radius, then two more at the same step. */
 const GUIDE_RING_STEP_PX = 5;
-const GUIDE_RING_COUNT = 3;
-const GUIDE_RING_OPACITY = [1, 0.55, 0.3];
+const GUIDE_RING_COUNT = 4;
+const GUIDE_RING_OPACITY = [1, 0.55, 0.3, 0.14];
 /** Drop a handle within this many CSS pixels of the frozen mark. */
 const HANDLE_DROP_CLIENT_PX = 28;
 const ON_CURVE_MATCH_UNITS = 24;
@@ -63,6 +63,8 @@ type DrawingSession = {
     handleRest: FontPoint | null;
     handleTarget: FontPoint | null;
     handleDragStarted: boolean;
+    completedHandleKeys: Set<string>;
+    handleQueue: HandleMove[] | null;
 };
 
 let session: DrawingSession = {
@@ -70,7 +72,9 @@ let session: DrawingSession = {
     template: null,
     handleRest: null,
     handleTarget: null,
-    handleDragStarted: false
+    handleDragStarted: false,
+    completedHandleKeys: new Set(),
+    handleQueue: null
 };
 
 let guidesRoot: SVGSVGElement | null = null;
@@ -81,7 +85,9 @@ export function resetTourDrawingSession(): void {
         template: null,
         handleRest: null,
         handleTarget: null,
-        handleDragStarted: false
+        handleDragStarted: false,
+        completedHandleKeys: new Set(),
+        handleQueue: null
     };
 }
 
@@ -306,7 +312,7 @@ function pathFromRaw(raw: {
         const point = {
             x: Number.isFinite(x) ? x : 0,
             y: Number.isFinite(y) ? y : 0,
-            smooth: node.smooth === true,
+            smooth: !!node.smooth,
             offCurve
         };
         vertices.push(point);
@@ -592,10 +598,17 @@ function templateCurveSegments(): CurveSegment[] {
 
 type HandleMove = {
     current: FontPoint | null;
+    rest: FontPoint | null;
     target: FontPoint;
+    start: FontPoint;
+    end: FontPoint;
+    which: 'off1' | 'off2';
 };
 
-function matchingDrawnSegment(segment: CurveSegment): CurveSegment | null {
+function matchingDrawnSegment(segment: {
+    start: FontPoint;
+    end: FontPoint;
+}): CurveSegment | null {
     const drawn = getTourDrawnPath();
     if (!drawn) {
         return null;
@@ -622,24 +635,91 @@ function matchingDrawnSegment(segment: CurveSegment): CurveSegment | null {
     return null;
 }
 
-function unsmoothedHandleMoves(): HandleMove[] {
+function handleTargetKey(point: FontPoint): string {
+    return `${Math.round(point.x)},${Math.round(point.y)}`;
+}
+
+function handleMoveDistance(move: HandleMove): number {
+    if (!move.current) {
+        return Number.POSITIVE_INFINITY;
+    }
+    return Math.hypot(
+        move.current.x - move.target.x,
+        move.current.y - move.target.y
+    );
+}
+
+function liveHandleCurrent(move: HandleMove): FontPoint | null {
+    const drawn = matchingDrawnSegment(move);
+    if (!drawn) {
+        return move.rest;
+    }
+    return move.which === 'off1' ? drawn.off1 : drawn.off2;
+}
+
+function pickCurveHandleMoves(): HandleMove[] {
     const moves: HandleMove[] = [];
     for (const segment of templateCurveSegments()) {
         const drawn = matchingDrawnSegment(segment);
-        if (!segment.start.smooth) {
-            moves.push({
+        const pair: HandleMove[] = [
+            {
                 current: drawn?.off1 ?? null,
-                target: segment.off1
-            });
-        }
-        if (!segment.end.smooth) {
-            moves.push({
+                rest: drawn?.off1 ?? null,
+                target: segment.off1,
+                start: segment.start,
+                end: segment.end,
+                which: 'off1'
+            },
+            {
                 current: drawn?.off2 ?? null,
-                target: segment.off2
-            });
-        }
+                rest: drawn?.off2 ?? null,
+                target: segment.off2,
+                start: segment.start,
+                end: segment.end,
+                which: 'off2'
+            }
+        ];
+        pair.sort(
+            (left, right) =>
+                handleMoveDistance(right) - handleMoveDistance(left)
+        );
+        moves.push(pair[0]);
     }
     return moves;
+}
+
+function hydrateHandleMove(move: HandleMove): HandleMove {
+    return {
+        ...move,
+        current: liveHandleCurrent(move)
+    };
+}
+
+function curveHandleMoves(): HandleMove[] {
+    if (session.handleQueue) {
+        return session.handleQueue.map(hydrateHandleMove);
+    }
+    const picked = pickCurveHandleMoves();
+    if (picked.length > 0 && picked.every((move) => move.rest)) {
+        session.handleQueue = picked.map((move) => ({ ...move }));
+        return session.handleQueue.map(hydrateHandleMove);
+    }
+    return picked;
+}
+
+function isHandleCompleted(move: HandleMove): boolean {
+    return session.completedHandleKeys.has(handleTargetKey(move.target));
+}
+
+function completeActiveHandleIfDropped(): void {
+    if (isDraggingHandle()) {
+        return;
+    }
+    const active = curveHandleMoves().find((move) => !isHandleCompleted(move));
+    if (!active || !handleIsPlaced(active) || !session.handleDragStarted) {
+        return;
+    }
+    session.completedHandleKeys.add(handleTargetKey(active.target));
 }
 
 function isDraggingHandle(): boolean {
@@ -652,12 +732,12 @@ function activateHandleMove(move: HandleMove): void {
         return;
     }
     session.handleTarget = target;
-    session.handleRest = move.current;
+    session.handleRest = move.rest;
     session.handleDragStarted = false;
 }
 
 function activeHandleMove(): HandleMove | null {
-    const moves = unsmoothedHandleMoves();
+    const moves = curveHandleMoves();
     if (moves.length === 0) {
         return null;
     }
@@ -669,10 +749,11 @@ function activeHandleMove(): HandleMove | null {
             return locked;
         }
     }
-    return moves.find((move) => !handleIsPlaced(move)) || null;
+    return moves.find((move) => !isHandleCompleted(move)) || null;
 }
 
 function handleGuidePoints(): FontPoint[] {
+    completeActiveHandleIfDropped();
     const active = activeHandleMove();
     if (!active) {
         session.handleRest = null;
@@ -694,9 +775,9 @@ function handleGuidePoints(): FontPoint[] {
         session.handleDragStarted = true;
     }
     if (session.handleDragStarted || !rest) {
-        return [active.target];
+        return [session.handleTarget ?? active.target];
     }
-    return [rest, active.target];
+    return [rest, session.handleTarget ?? active.target];
 }
 
 function handleIsPlaced(move: HandleMove): boolean {
@@ -920,9 +1001,12 @@ function isForegroundPathDeleted(): boolean {
 }
 
 function handlesArePlaced(): boolean {
-    const moves = unsmoothedHandleMoves();
+    completeActiveHandleIfDropped();
+    const moves = curveHandleMoves();
     return (
-        moves.length > 0 && moves.every(handleIsPlaced) && !isDraggingHandle()
+        moves.length > 0 &&
+        moves.every(isHandleCompleted) &&
+        !isDraggingHandle()
     );
 }
 

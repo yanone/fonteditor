@@ -19174,7 +19174,16 @@ export class OutlineEditor {
             this.performHitDetection(null);
             this.glyphCanvas.updatePropertyPanel();
             this.glyphCanvas.render();
-            this.queueStructuralOutlineCompileFromModel(options.compileReason);
+            if (finalizedResult.closed) {
+                // Closed contours must enter the committed funnel immediately
+                // (same as contour delete) so other text-run slots recompile
+                // from the new outline without waiting for Command/pen release.
+                this.finalizePendingCommandPathEdit();
+            } else {
+                this.queueStructuralOutlineCompileFromModel(
+                    options.compileReason
+                );
+            }
             return true;
         }
 
