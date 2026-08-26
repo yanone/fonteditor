@@ -21,6 +21,7 @@ type TourCutoutRect = {
 const IDENTITY = [1, 0, 0, 1, 0, 0];
 const PAN_MARGIN_PX = 20;
 const PAN_SETTLE_MS = 220;
+const FIT_SETTLE_MS = 280;
 
 type FontRect = {
     minX: number;
@@ -30,6 +31,8 @@ type FontRect = {
 };
 
 const LETTER_BASE_GLYPH_NAMES: Record<string, string> = {
+    ë: 'edieresis',
+    e: 'e',
     ä: 'adieresis',
     a: 'a'
 };
@@ -181,6 +184,80 @@ export function getTourLetterCutout(letter: string): TourCutoutRect | null {
         return null;
     }
     return fontRectToCutout(rect);
+}
+
+/**
+ * Cmd+0-style zoom-to-fit for a letter in the text run, without selecting it.
+ */
+export async function fitTourLetterIntoView(letter: string): Promise<void> {
+    const canvas = window.glyphCanvas;
+    const viewport = canvas?.viewportManager;
+    const textRun = canvas?.textRunEditor;
+    const index = findShapedGlyphIndexForLetter(letter);
+    if (
+        !canvas ||
+        !viewport ||
+        !textRun ||
+        index < 0 ||
+        typeof canvas.getCanvasContentFrame !== 'function' ||
+        typeof viewport.frameGlyph !== 'function' ||
+        typeof textRun._getGlyphPosition !== 'function'
+    ) {
+        await panTourLetterFullyIntoView(letter);
+        return;
+    }
+    const frame = canvas.getCanvasContentFrame();
+    if (!frame || frame.width <= 0 || frame.height <= 0) {
+        await panTourLetterFullyIntoView(letter);
+        return;
+    }
+    const position = textRun._getGlyphPosition(index);
+    const stored = canvas.glyphBounds?.[index];
+    let minX: number;
+    let maxX: number;
+    let minY: number;
+    let maxY: number;
+    if (
+        stored &&
+        Number.isFinite(stored.x1) &&
+        Number.isFinite(stored.x2) &&
+        Number.isFinite(stored.y1) &&
+        Number.isFinite(stored.y2)
+    ) {
+        minX = stored.x1;
+        maxX = stored.x2;
+        minY = stored.y1;
+        maxY = stored.y2;
+    } else {
+        const rect = getLetterFontRect(letter);
+        if (!rect) {
+            return;
+        }
+        minX = rect.minX - (position.xPosition + position.xOffset);
+        maxX = rect.maxX - (position.xPosition + position.xOffset);
+        minY = rect.minY - position.yOffset;
+        maxY = rect.maxY - position.yOffset;
+    }
+    const width = maxX - minX;
+    const height = maxY - minY;
+    if (!(width > 0) || !(height > 0)) {
+        await panTourLetterFullyIntoView(letter);
+        return;
+    }
+    const margin =
+        typeof canvas.getCmdZeroFrameMargin === 'function'
+            ? canvas.getCmdZeroFrameMargin(frame)
+            : PAN_MARGIN_PX;
+    viewport.frameGlyph(
+        { minX, maxX, minY, maxY, width, height },
+        position,
+        frame,
+        () => {
+            canvas.render?.();
+        },
+        margin
+    );
+    await delay(FIT_SETTLE_MS);
 }
 
 export async function panTourLetterFullyIntoView(

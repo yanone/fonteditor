@@ -243,6 +243,12 @@ function viewAnimationDelayMs(): number {
     return 0;
 }
 
+function waitForNextAnimationFrame(): Promise<void> {
+    return new Promise((resolve) => {
+        requestAnimationFrame(() => resolve());
+    });
+}
+
 async function maximizeEditorView(): Promise<void> {
     window.focusView?.('view-editor');
     await wait(viewAnimationDelayMs());
@@ -250,6 +256,78 @@ async function maximizeEditorView(): Promise<void> {
     await wait(viewAnimationDelayMs());
     window.resizeView?.('view-editor');
     await wait(viewAnimationDelayMs());
+}
+
+/** Same settle + fit as font load after the sample text is set. */
+async function fitTourSampleTextViewport(): Promise<void> {
+    await waitForTourSampleCompiledGlyphs();
+    await waitForNextAnimationFrame();
+    await waitForNextAnimationFrame();
+    await window.glyphCanvas?.applyInitialViewportFit?.();
+}
+
+function tourSampleTextHasCompiledGlyphs(): boolean {
+    const textRun = window.glyphCanvas?.textRunEditor;
+    const glyphs = textRun?.shapedGlyphs || [];
+    if (glyphs.length === 0) {
+        return false;
+    }
+    const names = textRun?.glyphNameBuffer;
+    if (Array.isArray(names) && names.length === glyphs.length) {
+        return names.every((name) => !!name && name !== '.notdef');
+    }
+    return glyphs.every((glyph) => (glyph.g ?? 0) !== 0);
+}
+
+async function waitForTourSampleCompiledGlyphs(): Promise<void> {
+    if (tourSampleTextHasCompiledGlyphs()) {
+        return;
+    }
+    const started = Date.now();
+    await new Promise<void>((resolve) => {
+        let settled = false;
+        const finish = () => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            window.removeEventListener('glyphCanvasRendered', onPulse);
+            window.clearInterval(intervalId);
+            resolve();
+        };
+        const onPulse = () => {
+            if (
+                tourSampleTextHasCompiledGlyphs() ||
+                Date.now() - started >= 8000
+            ) {
+                finish();
+            }
+        };
+        const intervalId = window.setInterval(onPulse, 50);
+        window.addEventListener('glyphCanvasRendered', onPulse);
+    });
+}
+
+async function resetReachableOpenTypeFeatures(): Promise<void> {
+    const manager = window.glyphCanvas?.featuresManager;
+    if (typeof manager?.setEnabledFeatures === 'function') {
+        try {
+            await manager.setEnabledFeatures([]);
+            return;
+        } catch {
+            // Features UI may not be ready; fall through to button clicks.
+        }
+    }
+
+    const buttons = document.querySelectorAll<HTMLButtonElement>(
+        'button[data-feature-tag]'
+    );
+    for (const button of buttons) {
+        if (button.disabled || !button.classList.contains('enabled')) {
+            continue;
+        }
+        button.click();
+    }
 }
 
 async function prepareEditorForFirstSlide(): Promise<void> {
@@ -260,9 +338,9 @@ async function prepareEditorForFirstSlide(): Promise<void> {
     }
     await selectTourMasterByName(TOUR_REGULAR_MASTER_NAME);
     canvas?.outlineEditor?.setGuidelinesVisible?.(false);
+    await resetReachableOpenTypeFeatures();
     canvas?.textRunEditor?.setTextBuffer(TOUR_SAMPLE_TEXT);
-    await canvas?.applyInitialViewportFit?.();
-    await wait(50);
+    await fitTourSampleTextViewport();
 }
 
 function markTourStarted(): void {

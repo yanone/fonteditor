@@ -35,7 +35,7 @@ import {
 import { beginLoadingCursor, endLoadingCursor } from './loading-cursor';
 import { reloadLinkedEditorWindows } from './window-buttons';
 import { readUrlState, updateUrlState } from './url-state';
-import { TOUR_FUSTAT_PATH } from './tour-slides';
+import { TOUR_FUSTAT_PATH, TOUR_SAMPLE_TEXT } from './tour-slides';
 import { shouldHandleOpenPathBeforeEditorReady } from './open-font-readiness';
 import { serializeFontForSourceSave } from './font-manager';
 import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
@@ -63,7 +63,6 @@ const console = new Logger('FileBrowser');
 
 const LAST_CONTEXT_KEY = 'lastFilesystemContext';
 const FILE_BROWSER_READY_EVENT = 'fileBrowserReady';
-const DEFAULT_STARTUP_TEXT = 'hello مَرْحَباً';
 
 function armDefaultStartupRegularLocation(): void {
     if (readUrlState().location) {
@@ -4132,10 +4131,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             if (window.stateManager) {
-                window.stateManager.editor_text_buffer = DEFAULT_STARTUP_TEXT;
+                window.stateManager.editor_text_buffer = TOUR_SAMPLE_TEXT;
             }
             window.glyphCanvas?.textRunEditor?.setTextBuffer?.(
-                DEFAULT_STARTUP_TEXT
+                TOUR_SAMPLE_TEXT
             );
         };
 

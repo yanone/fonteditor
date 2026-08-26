@@ -511,6 +511,57 @@ function paintSampleTextPreview(): void {
     });
 }
 
+function shouldPaintTourGeometry(host: SpotlightHost): boolean {
+    if (!host.slide || !host.visible) {
+        return false;
+    }
+    if (!host.advancing) {
+        return true;
+    }
+    return (
+        host.previewingSampleText ||
+        host.slide.trackCutoutsWhileAdvancing === true
+    );
+}
+
+async function waitUntilLayerSwitchSettled(): Promise<true> {
+    const editor = window.glyphCanvas?.outlineEditor;
+    if (typeof editor?.isLayerSwitchAnimating !== 'boolean') {
+        return true;
+    }
+    const started = Date.now();
+    while (Date.now() - started < 400) {
+        if (editor.isLayerSwitchAnimating) {
+            break;
+        }
+        await wait(16);
+    }
+    while (editor.isLayerSwitchAnimating && Date.now() - started < 4000) {
+        await wait(16);
+    }
+    return true;
+}
+
+function startAdvancingCutoutTracking(): void {
+    const host = getHost();
+    stopSampleTextTracking();
+    const tick = () => {
+        const current = getHost();
+        if (
+            !current.visible ||
+            !current.slide ||
+            !current.advancing ||
+            !current.slide.trackCutoutsWhileAdvancing
+        ) {
+            current.sampleTextTrackFrame = 0;
+            return;
+        }
+        paintSpotlight(current.slide);
+        current.sampleTextTrackFrame = window.requestAnimationFrame(tick);
+    };
+    host.sampleTextTrackFrame = window.requestAnimationFrame(tick);
+}
+
 function startSampleTextTracking(): void {
     const host = getHost();
     stopSampleTextTracking();
@@ -555,6 +606,9 @@ async function finishWithReaction(
     }
     host.advancing = true;
     unbindSlideInteraction();
+    if (host.slide?.trackCutoutsWhileAdvancing) {
+        startAdvancingCutoutTracking();
+    }
     try {
         if (options?.previewTextBeforeApply) {
             await fadeOutCutoutsAndTooltip();
@@ -676,6 +730,19 @@ function bindSlideInteraction(slide: TourSlide): void {
                 return;
             }
             if (button instanceof HTMLButtonElement && button.disabled) {
+                return;
+            }
+            if (slide.advanceOnClickPassThrough) {
+                void finishWithReaction(
+                    slide.trackCutoutsWhileAdvancing
+                        ? waitUntilLayerSwitchSettled
+                        : undefined,
+                    {
+                        previewTextBeforeApply: false,
+                        afterApplyMs:
+                            slide.advanceDelayMs ?? TOUR_AFTER_APPLY_MS
+                    }
+                );
                 return;
             }
             event.preventDefault();
@@ -810,7 +877,7 @@ function bindSlideInteraction(slide: TourSlide): void {
 
     if (slide.advanceOnNodeDrag) {
         const letterCutout = slide.cutouts.find(
-            (cutout) => cutout.id === 'letter-m'
+            (cutout) => cutout.id === 'letter-l'
         );
         let origin: { x: number; y: number } | null = null;
         let moved = false;
@@ -889,15 +956,17 @@ function bindSlideInteraction(slide: TourSlide): void {
                 afterApplyMs: slide.advanceDelayMs ?? TOUR_AFTER_SLIDER_MS
             });
         };
-        const waitForDrop = goal === 'peak-moved';
+        const waitForDrop = goal === 'handles-placed';
         const onPointerUp = () => {
             window.requestAnimationFrame(() => {
                 maybeAdvance();
             });
         };
         document.addEventListener('mouseup', onPointerUp, true);
+        document.addEventListener('keyup', maybeAdvance, true);
         cleanups.push(() => {
             document.removeEventListener('mouseup', onPointerUp, true);
+            document.removeEventListener('keyup', maybeAdvance, true);
         });
         if (!waitForDrop) {
             document.addEventListener('dblclick', maybeAdvance, true);
@@ -1216,8 +1285,17 @@ export function isTourKeyEventAllowed(event: KeyboardEvent): boolean {
             return true;
         }
     }
+    const code = typeof event.code === 'string' ? event.code.toLowerCase() : '';
     if (
         host.slide?.allowedKeys?.includes(event.key.toLowerCase()) &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey
+    ) {
+        return true;
+    }
+    if (
+        host.slide?.allowedKeys?.includes(code) &&
         !event.metaKey &&
         !event.ctrlKey &&
         !event.altKey
@@ -1383,7 +1461,7 @@ export async function showTourSlide(
 
     if (!host.resizeObserver && typeof ResizeObserver !== 'undefined') {
         host.resizeObserver = new ResizeObserver(() => {
-            if (host.slide && host.visible && !host.advancing) {
+            if (shouldPaintTourGeometry(host) && host.slide) {
                 paintSpotlight(host.slide);
             }
         });
@@ -1419,11 +1497,7 @@ function onTourGeometryChange(): void {
     geometryFrame = window.requestAnimationFrame(() => {
         geometryFrame = 0;
         const host = getHost();
-        if (
-            host.slide &&
-            host.visible &&
-            (!host.advancing || host.previewingSampleText)
-        ) {
+        if (shouldPaintTourGeometry(host) && host.slide) {
             if (host.previewingSampleText) {
                 paintSampleTextPreview();
             } else {
@@ -1439,8 +1513,9 @@ export async function transitionTourSlide(
 ): Promise<void> {
     const previous = getHost().slide;
     const keepCutouts = Boolean(
-        previous?.cutouts.some((cutout) => cutout.id === 'draw-area') &&
-        slide.cutouts.some((cutout) => cutout.id === 'draw-area')
+        previous?.cutouts.some((cutout) =>
+            slide.cutouts.some((next) => next.id === cutout.id)
+        )
     );
     unbindSlideInteraction();
     setTooltipVisible(false);

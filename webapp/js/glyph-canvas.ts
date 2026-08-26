@@ -11953,6 +11953,10 @@ class GlyphCanvas {
                     return;
                 }
                 settled = true;
+                const snapshot = this.snapshotCurrentViewport();
+                if (snapshot) {
+                    this.lastStableViewportSnapshot = snapshot;
+                }
                 resolve();
             };
             this.textRunEditor?.updateCursorVisualPosition();

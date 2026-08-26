@@ -1,5 +1,5 @@
 {
-.appVersion = "3343";
+.appVersion = "3434";
 .formatVersion = 3;
 axes = (
 {
@@ -29445,6 +29445,25 @@ name = topright;
 pos = (190,720);
 }
 );
+background = {
+shapes = (
+{
+closed = 1;
+nodes = (
+(214,0,c),
+(214,73,l),
+(154,73,o),
+(150,109,o),
+(150,145,cs),
+(150,729,l),
+(75,720,l),
+(75,145,ls),
+(75,71,o),
+(102,0,o)
+);
+}
+);
+};
 layerId = "14EEE41F-D714-4243-A717-73445EE7DABA";
 shapes = (
 {
@@ -29529,6 +29548,25 @@ name = topright;
 pos = (230,720);
 }
 );
+background = {
+shapes = (
+{
+closed = 1;
+nodes = (
+(254,0,c),
+(254,119,l),
+(217,119,o),
+(200,145,o),
+(200,184,cs),
+(200,736,l),
+(65,720,l),
+(65,159,ls),
+(65,59,o),
+(125,0,o)
+);
+}
+);
+};
 layerId = "090CB6A0-BE7C-4D17-A551-206C7456A8A3";
 shapes = (
 {
