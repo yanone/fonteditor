@@ -34,6 +34,10 @@ Each view title bar shows the same shortcut.
 - `Cmd/Ctrl+Z` / `Cmd/Ctrl+Shift+Z` — undo / redo font history for Python and assistant edits while Scripts, Konsole, or Assistant is focused
 - `Cmd/Ctrl+Alt/Option+Z` / `Cmd/Ctrl+Alt/Option+Shift+Z` — undo / redo text inside the Script Editor or Features Ace buffer
 
+## Assistant
+
+- `Cmd/Ctrl+Enter` — send the current prompt (when the prompt is focused)
+
 ## Editor
 
 ### Text mode

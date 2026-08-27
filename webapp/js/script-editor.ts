@@ -62,7 +62,6 @@ import { showNamedUnsavedChangesDialog } from './ui/confirm-dialog';
     let fileButton: HTMLButtonElement | null = null;
     let reloadButton: HTMLButtonElement | null = null;
     let isScriptViewFocused = false;
-    let isAceEditorFocused = false;
     let tippyInstance: TippyInstance | null = null;
 
     // File state
@@ -139,7 +138,7 @@ import { showNamedUnsavedChangesDialog } from './ui/confirm-dialog';
         const shortcut = runButton.querySelector(
             '.run-script-shortcut'
         ) as HTMLElement | null;
-        const showShortcut = isAceEditorFocused && !isGlyphFilterDocument();
+        const showShortcut = isScriptViewFocused && !isGlyphFilterDocument();
         if (shortcut) {
             shortcut.hidden = !showShortcut;
         }
@@ -449,15 +448,6 @@ import { showNamedUnsavedChangesDialog } from './ui/confirm-dialog';
             }
         });
 
-        editor.on('focus', () => {
-            isAceEditorFocused = true;
-            updateRunButtonShortcutVisibility();
-        });
-        editor.on('blur', () => {
-            isAceEditorFocused = false;
-            updateRunButtonShortcutVisibility();
-        });
-
         // Add file operation shortcuts
         editor.commands.addCommand({
             name: 'newFile',
@@ -594,6 +584,7 @@ import { showNamedUnsavedChangesDialog } from './ui/confirm-dialog';
         window.addEventListener('viewFocused', (event) => {
             const customEvent = event as CustomEvent;
             isScriptViewFocused = customEvent.detail.viewId === 'view-scripts';
+            updateRunButtonShortcutVisibility();
 
             if (isScriptViewFocused && editor) {
                 // Focus the editor

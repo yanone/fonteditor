@@ -4680,6 +4680,12 @@ if '_assistant_original_stdout' in dir():
     updateSessionMetricsBar(): void {
         const bar = document.getElementById('assistant-session-metrics');
         if (!bar) return;
+        const isDev = window.isDevelopment?.() ?? false;
+        if (!isDev) {
+            bar.style.display = 'none';
+            bar.textContent = '';
+            return;
+        }
         const s = this.sessionTotals;
         const hasData =
             s.prompt_tokens != null ||

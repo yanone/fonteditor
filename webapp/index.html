@@ -1007,6 +1007,7 @@
                                     <div id="assistant-prompt-wrapper">
                                         <textarea
                                             id="assistant-prompt"
+                                            rows="1"
                                             placeholder="Ask the Assistant about the font or app..."
                                             data-1p-ignore
                                         ></textarea>
@@ -1015,12 +1016,17 @@
                                         <button
                                             id="assistant-send-btn"
                                             class="assistant-send-button"
+                                            title="Ask Assistant (⌘⏎)"
                                         >
                                             <span
                                                 class="material-symbols-outlined"
-                                                >robot_2</span
+                                                >smart_toy</span
                                             >
                                             Ask Assistant
+                                            <span
+                                                class="keyboard-shortcut assistant-send-shortcut"
+                                                data-keyboard-shortcut="⌘⏎"
+                                            ></span>
                                         </button>
                                         <div
                                             id="assistant-stream-indicator"

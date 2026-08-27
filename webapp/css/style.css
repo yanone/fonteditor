@@ -1686,6 +1686,13 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
     color: inherit;
 }
 
+/* Parent buttons set 18px icons; keep shortcut glyphs at chip size. */
+.view-title-button .keyboard-shortcut .material-symbols-outlined,
+.assistant-send-button .keyboard-shortcut .material-symbols-outlined,
+.dialog-button .keyboard-shortcut .material-symbols-outlined {
+    font-size: 1.2em;
+}
+
 /* Content containers for views with text content */
 .view-content {
     margin-top: 0px;
@@ -2281,7 +2288,7 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
     gap: 3px;
 }
 
-.view-title-button .material-symbols-outlined {
+.view-title-button > .material-symbols-outlined {
     font-size: 18px;
 }
 
@@ -4973,6 +4980,11 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
     display: inline-flex;
 }
 
+#view-assistant:not(.focused) .assistant-send-shortcut,
+#view-scripts:not(.focused) .run-script-shortcut {
+    display: none;
+}
+
 /* ======================== ASSISTANT VIEW ======================== */
 
 .view-assistant .view-content {
@@ -5030,7 +5042,7 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
 #assistant-input-container {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 3px;
     flex-shrink: 0;
     padding: 10px 12px;
     /* margin-top: 8px; */
@@ -5045,7 +5057,7 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
 
 #assistant-prompt {
     width: 100%;
-    min-height: 34px;
+    min-height: calc(1.4em + 14px);
     max-height: 120px;
     padding: 6px 10px;
     font-family: var(--font-families-mono);
@@ -5061,7 +5073,7 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
 }
 
 #assistant-prompt::placeholder {
-    color: var(--text-tertiary);
+    color: var(--text-faint);
 }
 
 #assistant-prompt:focus {
@@ -5122,7 +5134,7 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
     cursor: not-allowed;
 }
 
-.assistant-send-button .material-symbols-outlined {
+.assistant-send-button > .material-symbols-outlined {
     font-size: 18px;
 }
 
