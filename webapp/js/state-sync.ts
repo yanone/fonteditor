@@ -101,7 +101,10 @@ export function enableSync() {
             }
             featuresManager.syncFeatureButtonEnabledClasses();
             featuresManager.updateFeatureResetButton();
-            if (needsReshape) {
+            // Do not reshape over a live outline session that started after
+            // restore (tests and users can enter edit before this compile
+            // finishes). Feature tags are already on FeaturesManager.
+            if (needsReshape && !window.glyphCanvas?.outlineEditor?.active) {
                 featuresManager.call('change');
             }
         }

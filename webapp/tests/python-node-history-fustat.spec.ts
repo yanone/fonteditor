@@ -3,7 +3,10 @@ import { type Page } from '@playwright/test';
 import {
     focusView,
     waitForCanvasReady,
-    waitForOpenSessionReady
+    waitForEditingFontBytes,
+    waitForOpenSessionReady,
+    waitForPredicate,
+    waitForShapedTextBuffer
 } from './helpers/snapshot-helper';
 
 async function openFustatNodeEditLayer(page: Page): Promise<void> {
@@ -23,6 +26,7 @@ async function openFustatNodeEditLayer(page: Page): Promise<void> {
     await fustatItem.dblclick();
     await waitForOpenSessionReady(page, 'Fustat.glyphs');
     await focusView(page, 'Meta+Shift+E', 'view-editor');
+    await waitForEditingFontBytes(page);
 
     await page.evaluate(async () => {
         const win = window as any;
@@ -41,6 +45,7 @@ async function openFustatNodeEditLayer(page: Page): Promise<void> {
             stateManager.editor_text_buffer = 'oö';
             stateManager.editor_cursor_position = 0;
             stateManager.editor_mode = 'edit';
+            stateManager.editor_variation_location = { wght: 200 };
         }
         if (fontManager) {
             fontManager.currentText = 'oö';
@@ -48,17 +53,36 @@ async function openFustatNodeEditLayer(page: Page): Promise<void> {
         }
 
         textRunEditor.setTextBuffer('oö');
-        await textRunEditor.selectGlyphByIndex(0, true);
-        outlineEditor.active = true;
         outlineEditor.currentGlyphName = 'o';
-        axesManager.variationSettings = { wght: 200 };
+        if (typeof axesManager.setAxisValue === 'function') {
+            axesManager.setAxisValue('wght', 200);
+            axesManager.updateAxisSliders?.();
+        } else {
+            axesManager.variationSettings = { wght: 200 };
+        }
+        await glyphCanvas.doUIUpdateAsync?.();
+    });
+
+    await waitForShapedTextBuffer(page, 'oö');
+
+    await page.evaluate(async () => {
+        const glyphCanvas = (window as any).glyphCanvas;
+        const textRunEditor = glyphCanvas?.textRunEditor;
+        const outlineEditor = glyphCanvas?.outlineEditor;
+        if (!glyphCanvas || !textRunEditor || !outlineEditor) {
+            throw new Error('Missing Fustat node-edit layer dependencies');
+        }
+
+        await textRunEditor.selectGlyphByIndex(0, true);
+        outlineEditor.currentGlyphName = 'o';
         await glyphCanvas.doUIUpdateAsync?.();
         await outlineEditor.autoSelectMatchingLayer?.();
         await glyphCanvas.enterGlyphEditModeAtCursor?.();
         await glyphCanvas.doUIUpdateAsync?.();
     });
 
-    await page.waitForFunction(
+    await waitForPredicate(
+        page,
         () => {
             const win = window as any;
             const outlineEditor = win.glyphCanvas?.outlineEditor;
@@ -78,7 +102,7 @@ async function openFustatNodeEditLayer(page: Page): Promise<void> {
                 )
             );
         },
-        { timeout: 60000 }
+        60000
     );
 }
 

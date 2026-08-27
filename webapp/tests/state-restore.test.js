@@ -329,4 +329,70 @@ describe('ensureStartupStateReady', () => {
         expect(window.stateManager.editor_cursor_position).toBe(1);
         expect(glyphCanvas.outlineEditor.active).toBe(true);
     });
+
+    test('drops pending URL cursor restore after live text and edit mode diverge', async () => {
+        const initStateSync = jest.fn();
+        const enableSync = jest.fn();
+        const disableSync = jest.fn();
+
+        jest.doMock('../js/state-sync', () => ({
+            initStateSync,
+            enableSync,
+            disableSync
+        }));
+
+        const {
+            restoreStateFromUrl,
+            reapplyStartupCursorIfNeeded
+        } = require('../js/state-restore');
+
+        window.history.replaceState(
+            {},
+            '',
+            '/?text=Hamburgevons&cursor=0&mode=text'
+        );
+
+        const selectGlyphByIndex = jest.fn();
+        const updateCursorVisualPosition = jest.fn();
+        const glyphCanvas = {
+            featuresManager: null,
+            axesManager: null,
+            textRunEditor: null,
+            outlineEditor: { active: false },
+            renderer: { render: jest.fn() },
+            autoSelectMatchingMaster: jest.fn().mockResolvedValue(undefined),
+            alignTextModeEscapeStateWithCurrentMaster: jest.fn()
+        };
+
+        window.stateManager = {
+            editor_file: '',
+            editor_text_buffer: '',
+            editor_cursor_position: 0,
+            editor_mode: 'text',
+            editor_variation_location: {},
+            editor_opentype_features_in_subset: {},
+            editor_opentype_features_not_in_subset: {}
+        };
+
+        await restoreStateFromUrl(glyphCanvas);
+
+        glyphCanvas.textRunEditor = {
+            textBuffer: 'oö',
+            shapedGlyphs: [{ cl: 0 }, { cl: 1 }],
+            selectedGlyphIndex: 0,
+            cursorPosition: 0,
+            setTextBuffer: jest.fn(),
+            updateCursorVisualPosition,
+            selectGlyphByIndex
+        };
+        glyphCanvas.outlineEditor.active = true;
+        window.stateManager.editor_mode = 'edit';
+        window.stateManager.editor_text_buffer = 'oö';
+
+        await reapplyStartupCursorIfNeeded(glyphCanvas);
+
+        expect(selectGlyphByIndex).not.toHaveBeenCalled();
+        expect(updateCursorVisualPosition).not.toHaveBeenCalled();
+        expect(glyphCanvas.outlineEditor.active).toBe(true);
+    });
 });

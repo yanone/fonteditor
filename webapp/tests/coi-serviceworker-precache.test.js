@@ -218,4 +218,18 @@ describe('COI ServiceWorker PRECACHE_ASSETS', () => {
         expect(swContent).toMatch(/['"]SKIP_WAITING['"]/);
         expect(swContent).toMatch(/includeUncontrolled:\s*true/);
     });
+
+    test('skips COI reload when a service worker is already controlling', () => {
+        const swContent = fs.readFileSync(SW_PATH, 'utf-8');
+        expect(swContent).toMatch(
+            /Service worker activated while already controlling - skipping reload/
+        );
+        const activateReload = swContent.match(
+            /Case 2: SW is still installing[\s\S]*?registration\.installing\.addEventListener/
+        );
+        expect(activateReload).not.toBeNull();
+        expect(swContent).toMatch(
+            /if \(navigator\.serviceWorker\.controller\)/
+        );
+    });
 });

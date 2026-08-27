@@ -3,7 +3,10 @@ import { type Page } from '@playwright/test';
 import {
     focusView,
     waitForCanvasReady,
-    waitForOpenSessionReady
+    waitForEditingFontBytes,
+    waitForOpenSessionReady,
+    waitForPredicate,
+    waitForShapedTextBuffer
 } from './helpers/snapshot-helper';
 
 async function installCompileErrorTracker(page: Page): Promise<void> {
@@ -165,6 +168,7 @@ async function openFustatAndPrepareEditor(page: Page): Promise<void> {
 
     await waitForOpenSessionReady(page, 'Fustat.glyphs');
     await focusView(page, 'Meta+Shift+E', 'view-editor');
+    await waitForEditingFontBytes(page);
 
     await page.evaluate(async () => {
         const win = window as any;
@@ -187,6 +191,7 @@ async function openFustatAndPrepareEditor(page: Page): Promise<void> {
             stateManager.editor_text_buffer = targetTextBuffer;
             stateManager.editor_cursor_position = 0;
             stateManager.editor_mode = 'edit';
+            stateManager.editor_variation_location = { ...location };
         }
         if (fontManager) {
             fontManager.currentText = targetTextBuffer;
@@ -194,34 +199,56 @@ async function openFustatAndPrepareEditor(page: Page): Promise<void> {
         }
 
         textRunEditor.setTextBuffer(targetTextBuffer);
-        await textRunEditor.selectGlyphByIndex(0, true);
-        outlineEditor.active = true;
-        outlineEditor.currentGlyphName = targetGlyphName;
-        axesManager.variationSettings = { ...location };
+        if (typeof axesManager.setAxisValue === 'function') {
+            axesManager.setAxisValue('wght', location.wght);
+            axesManager.updateAxisSliders?.();
+        } else {
+            axesManager.variationSettings = { ...location };
+        }
         outlineEditor.isInterpolating = true;
+        outlineEditor.currentGlyphName = targetGlyphName;
+        await glyphCanvas.doUIUpdateAsync?.();
+    });
+
+    await waitForShapedTextBuffer(page, 'oö');
+
+    await page.evaluate(async () => {
+        const glyphCanvas = (window as any).glyphCanvas;
+        const textRunEditor = glyphCanvas?.textRunEditor;
+        const outlineEditor = glyphCanvas?.outlineEditor;
+        if (!glyphCanvas || !textRunEditor || !outlineEditor) {
+            throw new Error('Missing glyph canvas editor dependencies');
+        }
+
+        await textRunEditor.selectGlyphByIndex(0, true);
+        outlineEditor.currentGlyphName = 'o';
         await glyphCanvas.doUIUpdateAsync?.();
         await outlineEditor.autoSelectMatchingLayer?.();
         await glyphCanvas.enterGlyphEditModeAtCursor?.();
         await glyphCanvas.doUIUpdateAsync?.();
     });
 
-    await page.waitForFunction(() => {
-        const win = window as any;
-        const state = win.stateManager?.getStateSnapshot?.()?.state || {};
-        const glyphCanvas = win.glyphCanvas;
-        const outlineEditor = glyphCanvas?.outlineEditor;
-        const textRunEditor = glyphCanvas?.textRunEditor;
+    await waitForPredicate(
+        page,
+        () => {
+            const win = window as any;
+            const state = win.stateManager?.getStateSnapshot?.()?.state || {};
+            const glyphCanvas = win.glyphCanvas;
+            const outlineEditor = glyphCanvas?.outlineEditor;
+            const textRunEditor = glyphCanvas?.textRunEditor;
 
-        return (
-            state.editor_file?.includes?.('Fustat.glyphs') &&
-            state.editor_text_buffer === 'oö' &&
-            state.editor_mode === 'edit' &&
-            state.editor_variation_location?.wght === 200 &&
-            outlineEditor?.active === true &&
-            outlineEditor?.currentGlyphName === 'o' &&
-            (textRunEditor?.selectedGlyphIndex ?? -1) === 0
-        );
-    });
+            return (
+                state.editor_file?.includes?.('Fustat.glyphs') &&
+                state.editor_text_buffer === 'oö' &&
+                state.editor_mode === 'edit' &&
+                state.editor_variation_location?.wght === 200 &&
+                outlineEditor?.active === true &&
+                outlineEditor?.currentGlyphName === 'o' &&
+                (textRunEditor?.selectedGlyphIndex ?? -1) === 0
+            );
+        },
+        60000
+    );
 }
 
 test.describe('anchor drag compile stability', () => {

@@ -4,6 +4,7 @@ import {
     waitForCanvasReady,
     waitForFontLoaded,
     waitForOpenSessionReady,
+    waitForPredicate,
     focusView,
     openFileFromFilesView
 } from './helpers/snapshot-helper';
@@ -311,7 +312,8 @@ async function waitForOptionalEditingFontCompileEvent(
 
 /** Wait for the linked window to receive full state from the main window. */
 async function waitForFullStateSync(page: Page): Promise<void> {
-    await page.waitForFunction(
+    await waitForPredicate(
+        page,
         () => {
             const sync = (window as any).windowSync;
             const bridge = (window as any).changeBridge;
@@ -323,7 +325,7 @@ async function waitForFullStateSync(page: Page): Promise<void> {
             glyphsMap.forEach(() => glyphCount++);
             return glyphCount > 0;
         },
-        { timeout: 20000 }
+        20000
     );
     await page.waitForTimeout(500);
 }
@@ -332,38 +334,68 @@ async function getLastFontModelSyncTime(page: Page): Promise<number> {
     return page.evaluate(() => (window as any).__lastFontModelSyncTime ?? 0);
 }
 
+function isDestroyedExecutionContext(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return (
+        message.includes('Execution context was destroyed') ||
+        message.includes('Target closed') ||
+        message.includes('Frame was detached')
+    );
+}
+
+async function recoverLinkedWindowAfterNavigation(page: Page): Promise<void> {
+    await page.waitForLoadState('domcontentloaded');
+    await waitForCanvasReady(page);
+    await waitForFontLoaded(page);
+    await waitForFullStateSync(page);
+    await waitForBridgeReady(page);
+    await waitForWindowSyncReady(page);
+    await installJsonCanonicalizer(page);
+    await installFontModelSyncTracker(page);
+    await installEditingFontCompileTracker(page);
+}
+
 /**
  * Wait for a remote change to arrive and be processed in the linked window.
  * Uses the `fontModelSync` event that fires after _onAfterSync,
  * which is called after every applyRemoteUpdate.
+ *
+ * Poll the timestamp instead of holding a page.evaluate Promise: a late
+ * service-worker or COI navigation destroys that execution context even
+ * after the Yjs update has already landed.
  */
 async function waitForRemoteChange(
     linkedPage: Page,
     previousSyncTime: number
 ): Promise<void> {
-    await linkedPage.evaluate((lastSeenSyncTime) => {
-        return new Promise<void>((resolve, reject) => {
-            const currentSyncTime =
-                (window as any).__lastFontModelSyncTime ?? 0;
-            if (currentSyncTime > lastSeenSyncTime) {
-                resolve();
-                return;
+    const deadline = Date.now() + 30000;
+    let lastError: unknown = null;
+
+    while (Date.now() < deadline) {
+        try {
+            await waitForPredicate(
+                linkedPage,
+                (lastSeenSyncTime: number) =>
+                    Number((window as any).__lastFontModelSyncTime ?? 0) >
+                    lastSeenSyncTime,
+                Math.max(1000, deadline - Date.now()),
+                previousSyncTime
+            );
+            // Allow UI state to paint; compile completion is awaited separately.
+            await linkedPage.waitForTimeout(1000);
+            return;
+        } catch (error) {
+            lastError = error;
+            if (!isDestroyedExecutionContext(error)) {
+                throw error;
             }
-            const handler = () => {
-                (window as any).__lastFontModelSyncTime = Date.now();
-                clearTimeout(timeoutId);
-                window.removeEventListener('fontModelSync', handler);
-                resolve();
-            };
-            window.addEventListener('fontModelSync', handler);
-            const timeoutId = window.setTimeout(() => {
-                window.removeEventListener('fontModelSync', handler);
-                reject(new Error('Timed out waiting for remote fontModelSync'));
-            }, 15000);
-        });
-    }, previousSyncTime);
-    // Allow UI state to paint; compile completion is awaited separately.
-    await linkedPage.waitForTimeout(1000);
+            await recoverLinkedWindowAfterNavigation(linkedPage);
+        }
+    }
+
+    throw lastError instanceof Error
+        ? lastError
+        : new Error('Timed out waiting for remote fontModelSync');
 }
 
 async function waitForRawLayerAnchors(
@@ -1238,6 +1270,31 @@ test.describe('Cross-window ChangeBridge sync', () => {
 
         // ── 1. Open main window ──────────────────────────────────
         const context = await browser.newContext();
+        await context.addInitScript(() => {
+            const testWindow = window as any;
+            if (!testWindow.__fontModelSyncTrackerInstalled) {
+                testWindow.__lastFontModelSyncTime = 0;
+                window.addEventListener('fontModelSync', () => {
+                    testWindow.__lastFontModelSyncTime = Date.now();
+                });
+                testWindow.__fontModelSyncTrackerInstalled = true;
+            }
+            if (!testWindow.__editingFontCompileTrackerInstalled) {
+                testWindow.__editingFontCompiledCount = 0;
+                testWindow.__lastEditingFontCompiledRevision = -1;
+                window.addEventListener(
+                    'editingFontCompiled',
+                    (event: Event) => {
+                        const detail = (event as CustomEvent).detail;
+                        testWindow.__editingFontCompiledCount += 1;
+                        testWindow.__lastEditingFontCompiledRevision = Number(
+                            detail?.fontRevisionKey ?? -1
+                        );
+                    }
+                );
+                testWindow.__editingFontCompileTrackerInstalled = true;
+            }
+        });
         const mainPage = await context.newPage();
 
         // Track console errors

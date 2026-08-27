@@ -134,4 +134,37 @@ describe('state-sync variation initialization', () => {
 
         delete window.glyphCanvas;
     });
+
+    test('does not reshape restored features over an active outline editor', () => {
+        const featuresManager = {
+            featureSettings: { dlig: false },
+            syncFeatureButtonEnabledClasses: jest.fn(),
+            updateFeatureResetButton: jest.fn(),
+            call: jest.fn()
+        };
+
+        window.glyphCanvas = {
+            axesManager: null,
+            featuresManager,
+            outlineEditor: { active: true }
+        };
+        window.stateManager = {
+            editor_opentype_features_in_subset: { dlig: true },
+            editor_variation_location: {},
+            enableUrlSync: jest.fn()
+        };
+
+        let enableSync;
+        jest.isolateModules(() => {
+            ({ enableSync } = require('../js/state-sync'));
+        });
+
+        enableSync();
+
+        expect(featuresManager.featureSettings.dlig).toBe(true);
+        expect(featuresManager.call).not.toHaveBeenCalled();
+        expect(window.stateManager.enableUrlSync).toHaveBeenCalled();
+
+        delete window.glyphCanvas;
+    });
 });

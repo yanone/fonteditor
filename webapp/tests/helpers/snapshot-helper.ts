@@ -6,13 +6,45 @@ import { timedStep } from './timed-step';
  * `{ timeout }` as the second argument is treated as `arg`, so the timeout
  * never applies and the wait burns the full test budget.
  */
-async function waitForPredicate(
+export async function waitForPredicate(
     page: any,
     predicate: (...args: any[]) => unknown,
     timeout: number,
     arg?: unknown
 ): Promise<void> {
     await page.waitForFunction(predicate, arg, { timeout });
+}
+
+export async function waitForEditingFontBytes(
+    page: any,
+    timeout = 180000
+): Promise<void> {
+    await waitForPredicate(
+        page,
+        () => Number((window as any).fontManager?.editingFont?.length || 0) > 0,
+        timeout
+    );
+}
+
+export async function waitForShapedTextBuffer(
+    page: any,
+    textBuffer: string,
+    timeout = 60000
+): Promise<void> {
+    await waitForPredicate(
+        page,
+        (targetBuf: string) => {
+            const tr = (window as any).glyphCanvas?.textRunEditor;
+            return (
+                !!tr &&
+                tr.textBuffer === targetBuf &&
+                Array.isArray(tr.shapedGlyphs) &&
+                tr.shapedGlyphs.length > 0
+            );
+        },
+        timeout,
+        textBuffer
+    );
 }
 
 /**

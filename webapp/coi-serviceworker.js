@@ -540,22 +540,32 @@ if (typeof window === 'undefined') {
                                     '[COI] Service worker state changed to:',
                                     e.target.state
                                 );
-                                if (e.target.state === 'activated') {
-                                    // Check flag again - might have been set by another listener
-                                    if (
-                                        !window.sessionStorage.getItem(
-                                            'coiReloadedBySelf'
-                                        )
-                                    ) {
-                                        console.log(
-                                            '[COI] Service worker activated - reloading...'
-                                        );
-                                        window.sessionStorage.setItem(
-                                            'coiReloadedBySelf',
-                                            'true'
-                                        );
-                                        window.location.reload();
-                                    }
+                                if (e.target.state !== 'activated') {
+                                    return;
+                                }
+                                // A later cache/install (e.g. precache updates)
+                                // must not reload a document that already has
+                                // isolation. Only the first COI bootstrap
+                                // needs a reload, when there is no controller.
+                                if (navigator.serviceWorker.controller) {
+                                    console.log(
+                                        '[COI] Service worker activated while already controlling - skipping reload'
+                                    );
+                                    return;
+                                }
+                                if (
+                                    !window.sessionStorage.getItem(
+                                        'coiReloadedBySelf'
+                                    )
+                                ) {
+                                    console.log(
+                                        '[COI] Service worker activated - reloading...'
+                                    );
+                                    window.sessionStorage.setItem(
+                                        'coiReloadedBySelf',
+                                        'true'
+                                    );
+                                    window.location.reload();
                                 }
                             }
                         );

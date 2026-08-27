@@ -13,6 +13,7 @@ let startupStateReadyPromise: Promise<void> | null = null;
 let pendingUrlCursorRestore: {
     cursor: number;
     mode: 'text' | 'edit' | null;
+    text: string | null;
 } | null = null;
 
 function waitForNextAnimationFrame(): Promise<void> {
@@ -170,15 +171,21 @@ export async function restoreStateFromUrl(
             urlState.mode === 'edit' || urlState.mode === 'text'
                 ? urlState.mode
                 : null;
+        const restoredText =
+            typeof window.stateManager.editor_text_buffer === 'string'
+                ? window.stateManager.editor_text_buffer
+                : null;
         if (urlState.cursor !== null && urlState.cursor !== undefined) {
             pendingUrlCursorRestore = {
                 cursor: urlState.cursor,
-                mode: restoredMode
+                mode: restoredMode,
+                text: restoredText
             };
         } else if (restoredMode === 'edit') {
             pendingUrlCursorRestore = {
                 cursor: window.stateManager.editor_cursor_position,
-                mode: 'edit'
+                mode: 'edit',
+                text: restoredText
             };
         } else {
             pendingUrlCursorRestore = null;
@@ -295,15 +302,46 @@ async function applyStateToManagers(glyphCanvas: GlyphCanvas): Promise<void> {
     }
 }
 
+function liveEditorDivergedFromPendingCursor(
+    glyphCanvas: GlyphCanvas,
+    pending: NonNullable<typeof pendingUrlCursorRestore>
+): boolean {
+    const liveText = glyphCanvas.textRunEditor?.textBuffer;
+    if (
+        pending.text != null &&
+        pending.text !== '' &&
+        typeof liveText === 'string' &&
+        liveText !== pending.text
+    ) {
+        return true;
+    }
+    if (glyphCanvas.outlineEditor?.active && pending.mode !== 'edit') {
+        return true;
+    }
+    if (
+        window.stateManager?.editor_mode === 'edit' &&
+        pending.mode !== 'edit'
+    ) {
+        return true;
+    }
+    return false;
+}
+
 /**
  * Re-apply a URL cursor that restore could not place yet (no shaped run).
  * Called after later setFont/shape passes during the same open.
+ * Drop the pending restore if the live buffer/mode already moved on.
  */
 export async function reapplyStartupCursorIfNeeded(
     glyphCanvas: GlyphCanvas
 ): Promise<void> {
     const pending = pendingUrlCursorRestore;
     if (!pending || !glyphCanvas?.textRunEditor) {
+        return;
+    }
+
+    if (liveEditorDivergedFromPendingCursor(glyphCanvas, pending)) {
+        pendingUrlCursorRestore = null;
         return;
     }
 
@@ -384,6 +422,10 @@ async function applyUrlCursorToEditor(
         glyphCanvas.outlineEditor.active = false;
         glyphCanvas.renderer?.render();
         return false;
+    }
+
+    if ((mode === 'text' || !mode) && glyphCanvas.outlineEditor?.active) {
+        return true;
     }
 
     const maxPos = textRunEditor.textBuffer.length;
