@@ -13516,7 +13516,8 @@ describe('GlyphCanvas anchor movement', () => {
                     width: 610,
                     anchors: [{ name: 'top', x: 140, y: 760 }],
                     shapes: rebuiltDependentShapes
-                })
+                }),
+                { authoritativeOptionalLayerFields: ['anchors'] }
             );
             expect(
                 currentFont.babelfontData.glyphs[1].layers[0].shapes
