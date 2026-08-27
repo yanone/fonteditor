@@ -157,6 +157,7 @@ function extractProperty(node, sourceFile) {
         type,
         readOnly: isReadOnly || (hasGetter && !hasSetter),
         jsDoc: jsDoc?.description || null,
+        example: jsDoc?.example || null,
     };
 }
 
@@ -227,7 +228,17 @@ function tsToPythonType(tsType) {
         null: "None",
         "Babelfont.I18NDictionary": "dict[str, str]",
         "Babelfont.Names": "dict[str, dict[str, str] | None]",
-        "Babelfont.Features": "dict[str, Any]",
+        "Babelfont.Features": "dict",
+        "Babelfont.CustomOTValues": "dict[str, Any]",
+        "Babelfont.DecomposedAffine": "dict",
+        "Babelfont.Position": "dict",
+        "Babelfont.Color": "dict",
+        "Babelfont.LayerType": "dict",
+        MasterMetrics: "dict[str, float | int]",
+        FeatureVariationAxisRule: "dict",
+        GlyphDataSearchResult: "dict",
+        DesignspaceLocation: "dict[str, float | int]",
+        UserspaceLocation: "dict[str, float | int]",
     };
 
     // Handle array types
@@ -272,6 +283,19 @@ function tsToPythonType(tsType) {
     }
 
     return tsType;
+}
+
+function appendPropertyDocs(lines, prop) {
+    const pyType = tsToPythonType(prop.type);
+    const desc = prop.jsDoc ? `: ${prop.jsDoc}` : "";
+    lines.push(`- **\`${prop.name}\`** (${pyType})${desc}`);
+    if (prop.example) {
+        lines.push(``);
+        lines.push(`**Example:**`);
+        lines.push(`\`\`\`python`);
+        lines.push(prop.example);
+        lines.push(`\`\`\``);
+    }
 }
 
 /**
@@ -324,9 +348,7 @@ function generateClassDocs(classInfo) {
 
         // Document read/write properties
         readWriteProps.forEach((prop) => {
-            const pyType = tsToPythonType(prop.type);
-            const desc = prop.jsDoc ? `: ${prop.jsDoc}` : "";
-            lines.push(`- **\`${prop.name}\`** (${pyType})${desc}`);
+            appendPropertyDocs(lines, prop);
         });
 
         if (readWriteProps.length > 0 && readOnlyProps.length > 0) {
@@ -336,9 +358,7 @@ function generateClassDocs(classInfo) {
 
         // Document read-only properties
         readOnlyProps.forEach((prop) => {
-            const pyType = tsToPythonType(prop.type);
-            const desc = prop.jsDoc ? `: ${prop.jsDoc}` : "";
-            lines.push(`- **\`${prop.name}\`** (${pyType})${desc}`);
+            appendPropertyDocs(lines, prop);
         });
 
         lines.push(``);
@@ -495,11 +515,11 @@ function generateAPIDocs(version = null) {
         REPO_ROOT,
         "documentation",
         "python",
-        "06-python-api.md"
+        "06-python-api.md",
     );
     const handbookDocs = docs.replace(
         /^# Font Object Model API Documentation/m,
-        "# Python API"
+        "# Python API",
     );
     writeFileSync(handbookPath, handbookDocs, "utf-8");
     console.log(`📝 Handbook copy saved to: ${handbookPath}`);
@@ -526,20 +546,26 @@ font = Font()
 ### Dictionary Access (Python wrappers)
 
 Dictionary-like object model fields are wrapped as live Python mappings.
-Use normal Python dictionary access for both reading and writing.
+Use attribute access when the key is a valid Python identifier. Use dictionary
+access for I18N language tags, kerning pair/group keys, and Python keywords
+such as \`type\`.
 
 \`\`\`python
 font = Font()
 master = font.masters[0]
 
-# Nested kerning dictionary (live two-way view)
+# Nested kerning dictionary
 master.kerning["A"]["V"] = -80
 
-# Internationalized naming dictionaries
-font.names.familyName["dflt"] = "My Family"
-font.names.familyName["de"] = "Meine Familie"
-font.names.familyName["fr"] = "Ma Famille"
-font.names.familyName["ar"] = "عائلتي"
+# Per-master vertical metrics (babelfont MetricType JSON names)
+xh = master.metrics.XHeight
+master.metrics.Ascender = 800
+
+# Internationalized naming dictionaries (language tags stay keyed)
+font.names.family_name["dflt"] = "My Family"
+font.names.family_name["de"] = "Meine Familie"
+font.names.family_name["fr"] = "Ma Famille"
+font.names.family_name["ar"] = "عائلتي"
 master.name["dflt"] = "Standard"
 master.name["de"] = "Standard"
 master.name["fr"] = "Standard"
@@ -734,15 +760,15 @@ if "A" not in master.kerning:
 master.kerning["A"]["V"] = -90
 master.kerning["A"]["W"] = -70
 
-# Read values with standard dict APIs
-av_value = master.kerning["A"].get("V")
+# Read values
+av_value = master.kerning["A"]["V"]
 print(f"A/V kerning: {av_value}")
 
 # Update localized names
-font.names.familyName["dflt"] = "Counterpunch Sans"
-font.names.familyName["de"] = "Counterpunch Sans DE"
-font.names.familyName["fr"] = "Counterpunch Sans FR"
-font.names.familyName["ar"] = "كاونتربنش سانس"
+font.names.family_name["dflt"] = "Counterpunch Sans"
+font.names.family_name["de"] = "Counterpunch Sans DE"
+font.names.family_name["fr"] = "Counterpunch Sans FR"
+font.names.family_name["ar"] = "كاونتربنش سانس"
 \`\`\`
 
 ### Example 8: Editing OpenType Features List
@@ -806,13 +832,13 @@ Dictionary-like fields reject scalar overwrite assignments to prevent broken mod
 
 \`\`\`python
 # ❌ Avoid replacing a language dictionary with a string
-# font.names.familyName = "My Font"
+# font.names.family_name = "My Font"
 
 # ✅ Set a language value inside the dictionary
-font.names.familyName["dflt"] = "My Font"
+font.names.family_name["dflt"] = "My Font"
 
 # ✅ Or replace with a full mapping
-font.names.familyName = {
+font.names.family_name = {
     "dflt": "My Font",
     "de": "Meine Schrift"
 }

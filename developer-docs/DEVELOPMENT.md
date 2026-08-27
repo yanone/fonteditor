@@ -70,7 +70,7 @@ def classify_glyph(glyph):
     return node_count > 1000
 ```
 
-Object model dictionaries are also live mappings, including `master.kerning`, `font.names`, and `instance.custom_names`, and can be read or written with normal Python dict syntax without calling `.to_py()` first.
+Object model dictionaries are also live mappings, including `master.kerning`, `font.names`, and `instance.custom_names`. Use attribute access for identifier keys (`master.metrics.XHeight`) and dictionary access for I18N language tags (`font.names.family_name["dflt"]`). Do not call `.to_py()` first.
 
 Notes:
 

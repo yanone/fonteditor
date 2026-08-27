@@ -291,6 +291,46 @@ type AutomaticCompositionSourceAnchor = {
 
 type ComputedAnchorMap = Record<string, { x: number; y: number }>;
 
+/**
+ * Per-master numeric metrics. Keys are babelfont `MetricType` JSON names.
+ */
+export type MasterMetrics = {
+    XHeight?: number;
+    CapHeight?: number;
+    Ascender?: number;
+    Descender?: number;
+    ItalicAngle?: number;
+    HheaAscender?: number;
+    HheaDescender?: number;
+    HheaLineGap?: number;
+    WinAscent?: number;
+    WinDescent?: number;
+    TypoAscender?: number;
+    TypoDescender?: number;
+    TypoLineGap?: number;
+    SubscriptXSize?: number;
+    SubscriptYSize?: number;
+    SubscriptXOffset?: number;
+    SubscriptYOffset?: number;
+    SuperscriptXSize?: number;
+    SuperscriptYSize?: number;
+    SuperscriptXOffset?: number;
+    SuperscriptYOffset?: number;
+    StrikeoutSize?: number;
+    StrikeoutPosition?: number;
+    UnderlinePosition?: number;
+    UnderlineThickness?: number;
+    HheaCaretSlopeRise?: number;
+    HheaCaretSlopeRun?: number;
+    HheaCaretOffset?: number;
+} & Record<string, number | undefined>;
+
+/** One axis condition on a Glyphs feature-variation family (`font.axes` order). */
+export type FeatureVariationAxisRule = {
+    min?: number;
+    max?: number;
+};
+
 type AutomaticCompositionSourceData = {
     shapes: Unsafe[] | undefined;
     width: number;
@@ -5290,6 +5330,13 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
         }
     }
 
+    /**
+     * Decomposed affine: `translation` [x, y], `scale` [x, y],
+     * `rotation` (degrees), `skew` [x, y], `order` (`Glyphs` or
+     * `RestOfTheWorld`).
+     * @example
+     * component.transform.translation = [10, 0]
+     */
     get transform(): Babelfont.DecomposedAffine {
         return getLiveMutableValue(
             this,
@@ -5306,6 +5353,10 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
         recordAndMarkDirty(this, 'transform', old, value);
     }
 
+    /**
+     * Variable-component location: axis tag → designspace value
+     * (`{"wght": 400}`).
+     */
     get location(): DesignspaceLocation | undefined {
         return getLiveMutableValue(
             this,
@@ -5793,6 +5844,11 @@ export class Guide extends ArrayElementBase<GuideData, Layer | Master> {
         }
     }
 
+    /**
+     * Guide position: `x`, `y`, optional `angle` in degrees.
+     * @example
+     * guide.pos.y = 700
+     */
     get pos(): Babelfont.Position {
         return getLiveMutableValue(
             this,
@@ -5820,6 +5876,9 @@ export class Guide extends ArrayElementBase<GuideData, Layer | Master> {
         recordAndMarkDirty(this, 'name', old, value);
     }
 
+    /**
+     * RGBA color channels `r`, `g`, `b`, `a`.
+     */
     get color(): Babelfont.Color | undefined {
         return getLiveMutableValue(
             this,
@@ -8460,6 +8519,13 @@ export class Layer extends ArrayElementBase {
         recordAndMarkDirty(this, 'id', old, value);
     }
 
+    /**
+     * Tagged layer-to-master link: `{ "type": "DefaultForMaster", "master": id }`,
+     * `"AssociatedWithMaster"`, or `"FreeFloating"` (master optional).
+     * @example
+     * layer.master["type"]  # `type` is a Python keyword
+     * layer.master.master
+     */
     get master(): Babelfont.LayerType | undefined {
         const layerId = this.data.id || '[no-layer-id]';
         assertTaggedLayerMaster(this.data.master, `Layer#${layerId}.master`);
@@ -8482,6 +8548,9 @@ export class Layer extends ArrayElementBase {
         recordAndMarkDirty(this, 'master', old, value);
     }
 
+    /**
+     * Smart-component location: glyph-axis tag → userspace value.
+     */
     get smart_component_location(): UserspaceLocation | undefined {
         return getLiveMutableValue(
             this,
@@ -8615,6 +8684,9 @@ export class Layer extends ArrayElementBase {
         return this.collectComputedAnchors(new Set());
     }
 
+    /**
+     * RGBA color channels `r`, `g`, `b`, `a`.
+     */
     get color(): Babelfont.Color | undefined {
         return this.data.color;
     }
@@ -8721,6 +8793,10 @@ export class Layer extends ArrayElementBase {
         this._virtualBackgroundOwner = null;
     }
 
+    /**
+     * Intermediate designspace location: axis tag → numeric value
+     * (`{"wght": 400}`). Absent when the layer sits at its master default.
+     */
     get location(): DesignspaceLocation | undefined {
         return getLiveMutableValue(
             this,
@@ -10546,7 +10622,9 @@ export class Glyph extends ArrayElementBase {
      * Create one associated feature-variation layer for every base master layer,
      * copying each layer's materialized background when present.
      */
-    addFeatureVariation(axisRules: Unsafe[]): FeatureVariationGlyph {
+    addFeatureVariation(
+        axisRules: FeatureVariationAxisRule[]
+    ): FeatureVariationGlyph {
         assertModelMutationAllowed();
         const template = {
             format_specific: {
@@ -10762,6 +10840,10 @@ export class Glyph extends ArrayElementBase {
      * Read-only Unicode metadata from the bundled Glyph Data catalog.
      * Encoded base glyphs win over editable glyph names; dotted glyphs inherit
      * the identity of their base glyph before a name fallback is attempted.
+     * Fields include `character`, `glyph_name`, `name`, `codepoint`,
+     * `general_category`, `category`, `script`, `script_extensions`, `block`,
+     * `age`, `joining_type`, `joining_group`, `decomposition`,
+     * `combining_class`, `bidi_class`, `uppercase`, `lowercase`, `titlecase`.
      */
     get glyphData(): GlyphDataSearchResult | undefined {
         const font = this.parent() as Font | null;
@@ -10785,7 +10867,7 @@ export class Glyph extends ArrayElementBase {
      * glyph cannot be identified or no checks fire. Does not write the font.
      * @example
      * for message in glyph.qa:
-     *     print(message["checkId"], message["message"])
+     *     print(message.checkId, message.message)
      */
     get qa(): GlyphQaMessage[] {
         const font = this.parent() as Font | null;
@@ -11374,20 +11456,28 @@ export class FeatureVariationGlyph {
         return this.sourceGlyph.name;
     }
 
-    get axisRules(): Unsafe[] {
+    /**
+     * Shared Glyphs feature-variation conditions. Each item is `{ min?, max? }`
+     * for the corresponding font axis (same order as `font.axes`).
+     * @example
+     * feature_variation.axisRules[0].min
+     */
+    get axisRules(): FeatureVariationAxisRule[] {
         const layer = this.layers[0];
         const attributes = layer?.format_specific?.[
             GLYPHS_FEATURE_VARIATION_ATTRIBUTES_KEY
         ] as Record<string, Unsafe> | undefined;
         return Array.isArray(attributes?.axisRules)
-            ? cloneForHistory(attributes.axisRules)
+            ? (cloneForHistory(
+                  attributes.axisRules
+              ) as FeatureVariationAxisRule[])
             : [];
     }
 
     /**
      * Replace the shared Glyphs feature-variation rules on every raw family layer.
      */
-    setAxisRules(axisRules: Unsafe[]): FeatureVariationGlyph {
+    setAxisRules(axisRules: FeatureVariationAxisRule[]): FeatureVariationGlyph {
         const template = {
             format_specific: {
                 [GLYPHS_FEATURE_VARIATION_ATTRIBUTES_KEY]: { axisRules }
@@ -11586,6 +11676,9 @@ export class Axis extends ArrayElementBase {
         recordAndMarkDirty(this, 'default', old, value);
     }
 
+    /**
+     * avar mapping: list of `[userspace, designspace]` coordinate pairs.
+     */
     get map(): [number, number][] | undefined {
         return getLiveMutableValue(
             this,
@@ -11694,6 +11787,10 @@ export class Master extends ArrayElementBase {
         recordAndMarkDirty(this, 'id', old, value);
     }
 
+    /**
+     * Master location in designspace: axis tag → numeric value
+     * (`{"wght": 400}`).
+     */
     get location(): DesignspaceLocation | undefined {
         return getLiveMutableValue(
             this,
@@ -11772,7 +11869,21 @@ export class Master extends ArrayElementBase {
         }
     }
 
-    get metrics(): Record<string, number> {
+    /**
+     * Per-master numeric metrics as a live dict. Keys are babelfont
+     * `MetricType` JSON names: `XHeight`, `CapHeight`, `Ascender`, `Descender`,
+     * `ItalicAngle`, `HheaAscender`, `HheaDescender`, `HheaLineGap`,
+     * `WinAscent`, `WinDescent`, `TypoAscender`, `TypoDescender`, `TypoLineGap`,
+     * `SubscriptXSize`, `SubscriptYSize`, `SubscriptXOffset`, `SubscriptYOffset`,
+     * `SuperscriptXSize`, `SuperscriptYSize`, `SuperscriptXOffset`,
+     * `SuperscriptYOffset`, `StrikeoutSize`, `StrikeoutPosition`,
+     * `UnderlinePosition`, `UnderlineThickness`, `HheaCaretSlopeRise`,
+     * `HheaCaretSlopeRun`, `HheaCaretOffset`.
+     * @example
+     * xh = master.metrics.XHeight
+     * master.metrics.Ascender = 800
+     */
+    get metrics(): MasterMetrics {
         return getLiveMutableValue(
             this,
             'metrics',
@@ -11781,13 +11892,19 @@ export class Master extends ArrayElementBase {
         );
     }
 
-    set metrics(value: Record<string, number>) {
+    set metrics(value: MasterMetrics) {
         assertModelMutationAllowed();
         const old = this.data.metrics;
         this.data.metrics = value;
         recordAndMarkDirty(this, 'metrics', old, value);
     }
 
+    /**
+     * Nested LTR kerning: `kerning[left][right] = value`. Keys are glyph names
+     * or `@groupName` (first vs second group from key position).
+     * @example
+     * master.kerning["A"]["V"] = -80
+     */
     get kerning(): Record<string, Record<string, number>> {
         return getLiveMutableValue(
             this,
@@ -11804,6 +11921,12 @@ export class Master extends ArrayElementBase {
         recordAndMarkDirty(this, 'kerning', old, value);
     }
 
+    /**
+     * Flat RTL kerning: pair key `"first:second"` → value, same operand rules
+     * as LTR.
+     * @example
+     * master.kerning_rtl["reh-ar:alef-ar"] = -80
+     */
     get kerning_rtl(): Record<string, number> {
         return getLiveMutableValue(
             this,
@@ -11824,7 +11947,12 @@ export class Master extends ArrayElementBase {
         recordAndMarkDirty(this, 'kerning_rtl', old, value);
     }
 
-    get custom_ot_values(): Unsafe[] | undefined {
+    /**
+     * Per-master OpenType table overrides as a live dict (not a list).
+     * Same keys as `Font.custom_ot_values`. Master-varying vertical metrics
+     * belong on `metrics`, not here.
+     */
+    get custom_ot_values(): Babelfont.CustomOTValues | undefined {
         return getLiveMutableValue(
             this,
             'custom_ot_values',
@@ -11833,7 +11961,7 @@ export class Master extends ArrayElementBase {
         );
     }
 
-    set custom_ot_values(value: Unsafe[] | undefined) {
+    set custom_ot_values(value: Babelfont.CustomOTValues | undefined) {
         assertModelMutationAllowed();
         const old = this.data.custom_ot_values;
         this.data.custom_ot_values = value;
@@ -11962,6 +12090,10 @@ export class Instance extends ArrayElementBase {
         recordAndMarkDirty(this, 'name', old, value);
     }
 
+    /**
+     * Instance location in designspace: axis tag → numeric value
+     * (`{"wght": 400}`).
+     */
     get location(): DesignspaceLocation | undefined {
         return getLiveMutableValue(
             this,
@@ -11978,6 +12110,9 @@ export class Instance extends ArrayElementBase {
         recordAndMarkDirty(this, 'location', old, value);
     }
 
+    /**
+     * Same OpenType name-table fields as `Font.names`, for this static instance.
+     */
     get custom_names(): Babelfont.Names {
         return getLiveMutableValue(
             this,
@@ -13179,6 +13314,18 @@ export class Font extends ModelBase {
         recordAndMarkDirty(this, 'date', old, value);
     }
 
+    /**
+     * OpenType name table as a live nested dict. Each field is an I18N map
+     * (`dflt`, `en`, …). Known fields: `family_name`, `preferred_subfamily_name`,
+     * `full_name`, `copyright`, `unique_id`, `version`, `postscript_name`,
+     * `trademark`, `manufacturer`, `designer`, `description`, `manufacturer_url`,
+     * `designer_url`, `license`, `license_url`, `typographic_family`,
+     * `typographic_subfamily`, `compatible_full_name`, `sample_text`,
+     * `postscript_cid_name`, `wws_family_name`, `wws_subfamily_name`,
+     * `variations_postscript_name_prefix`.
+     * @example
+     * font.names.family_name["dflt"] = "My Family"
+     */
     get names(): Babelfont.Names {
         return getLiveMutableValue(
             this,
@@ -13195,7 +13342,19 @@ export class Font extends ModelBase {
         recordAndMarkDirty(this, 'names', old, value);
     }
 
-    get custom_ot_values(): Unsafe[] | undefined {
+    /**
+     * Font-wide OpenType table overrides as a live dict (not a list).
+     * Known keys include `head_flags`, `head_lowest_rec_ppem`,
+     * `os2_us_weight_class`, `os2_us_width_class`, `os2_fs_type`,
+     * `os2_family_class`, `os2_panose`, `os2_unicode_range1`–`4`,
+     * `os2_vendor_id`, `os2_fs_selection`, `os2_code_page_range1`/`2`,
+     * `cff_blue_values`, `cff_other_blues`, `cff_family_blues`,
+     * `cff_family_other_blues`, `cff_stem_snap_h`, `cff_stem_snap_v`.
+     * Master-varying metrics belong on `Master.metrics`, not here.
+     * @example
+     * font.custom_ot_values.os2_us_weight_class = 400
+     */
+    get custom_ot_values(): Babelfont.CustomOTValues | undefined {
         return getLiveMutableValue(
             this,
             'custom_ot_values',
@@ -13204,13 +13363,17 @@ export class Font extends ModelBase {
         );
     }
 
-    set custom_ot_values(value: Unsafe[] | undefined) {
+    set custom_ot_values(value: Babelfont.CustomOTValues | undefined) {
         assertModelMutationAllowed();
         const old = this._data.custom_ot_values;
         this._data.custom_ot_values = value;
         recordAndMarkDirty(this, 'custom_ot_values', old, value);
     }
 
+    /**
+     * Unicode Variation Sequences mapped to glyph names. Nested as
+     * selector codepoint → unicode → glyph name when present.
+     */
     get variation_sequences():
         Record<number, Record<number, string>> | undefined {
         return getLiveMutableValue(
@@ -13230,6 +13393,15 @@ export class Font extends ModelBase {
         recordAndMarkDirty(this, 'variation_sequences', old, value);
     }
 
+    /**
+     * OpenType features as a live dict with `classes`, `prefixes`, `features`,
+     * and optional `include_paths`. Class/prefix values are `{ code, automatic? }`.
+     * `features` is a list of `[tag, code_dict]` pairs. Class names have no
+     * leading `@`.
+     * @example
+     * font.features.classes["vowels"].code
+     * font.features.features[0][0]  # feature tag
+     */
     get features(): Babelfont.Features {
         return getPreciseLiveMutableValue(
             this.getPath().concat('features'),
@@ -13245,6 +13417,10 @@ export class Font extends ModelBase {
         recordAndMarkDirty(this, 'features', old, value);
     }
 
+    /**
+     * Kerning groups for the first (left, in LTR) operand: group name (no `@`)
+     * → glyph names. Generally keyed by the glyph's *right-side* profile.
+     */
     get first_kern_groups(): Record<string, string[]> | undefined {
         return getLiveMutableValue(
             this,
@@ -13261,6 +13437,10 @@ export class Font extends ModelBase {
         recordAndMarkDirty(this, 'first_kern_groups', old, value);
     }
 
+    /**
+     * Kerning groups for the second (right, in LTR) operand: group name (no `@`)
+     * → glyph names. Generally keyed by the glyph's *left-side* profile.
+     */
     get second_kern_groups(): Record<string, string[]> | undefined {
         return getLiveMutableValue(
             this,
