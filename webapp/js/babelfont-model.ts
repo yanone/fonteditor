@@ -292,7 +292,7 @@ type AutomaticCompositionSourceAnchor = {
 type ComputedAnchorMap = Record<string, { x: number; y: number }>;
 
 /**
- * Per-master numeric metrics. Keys are babelfont `MetricType` JSON names.
+ * Per-master vertical metrics. Access as attributes (`metrics.XHeight`).
  */
 export type MasterMetrics = {
     XHeight?: number;
@@ -11870,15 +11870,14 @@ export class Master extends ArrayElementBase {
     }
 
     /**
-     * Per-master numeric metrics as a live dict. Keys are babelfont
-     * `MetricType` JSON names: `XHeight`, `CapHeight`, `Ascender`, `Descender`,
-     * `ItalicAngle`, `HheaAscender`, `HheaDescender`, `HheaLineGap`,
-     * `WinAscent`, `WinDescent`, `TypoAscender`, `TypoDescender`, `TypoLineGap`,
-     * `SubscriptXSize`, `SubscriptYSize`, `SubscriptXOffset`, `SubscriptYOffset`,
-     * `SuperscriptXSize`, `SuperscriptYSize`, `SuperscriptXOffset`,
-     * `SuperscriptYOffset`, `StrikeoutSize`, `StrikeoutPosition`,
-     * `UnderlinePosition`, `UnderlineThickness`, `HheaCaretSlopeRise`,
-     * `HheaCaretSlopeRun`, `HheaCaretOffset`.
+     * Per-master vertical metrics. Access as attributes: `XHeight`, `CapHeight`,
+     * `Ascender`, `Descender`, `ItalicAngle`, `HheaAscender`, `HheaDescender`,
+     * `HheaLineGap`, `WinAscent`, `WinDescent`, `TypoAscender`, `TypoDescender`,
+     * `TypoLineGap`, `SubscriptXSize`, `SubscriptYSize`, `SubscriptXOffset`,
+     * `SubscriptYOffset`, `SuperscriptXSize`, `SuperscriptYSize`,
+     * `SuperscriptXOffset`, `SuperscriptYOffset`, `StrikeoutSize`,
+     * `StrikeoutPosition`, `UnderlinePosition`, `UnderlineThickness`,
+     * `HheaCaretSlopeRise`, `HheaCaretSlopeRun`, `HheaCaretOffset`.
      * @example
      * xh = master.metrics.XHeight
      * master.metrics.Ascender = 800

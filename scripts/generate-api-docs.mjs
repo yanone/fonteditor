@@ -234,7 +234,6 @@ function tsToPythonType(tsType) {
         "Babelfont.Position": "dict",
         "Babelfont.Color": "dict",
         "Babelfont.LayerType": "dict",
-        MasterMetrics: "dict[str, float | int]",
         FeatureVariationAxisRule: "dict",
         GlyphDataSearchResult: "dict",
         DesignspaceLocation: "dict[str, float | int]",
@@ -557,7 +556,7 @@ master = font.masters[0]
 # Nested kerning dictionary
 master.kerning["A"]["V"] = -80
 
-# Per-master vertical metrics (babelfont MetricType JSON names)
+# Per-master vertical metrics
 xh = master.metrics.XHeight
 master.metrics.Ascender = 800
 

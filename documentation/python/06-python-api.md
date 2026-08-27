@@ -51,7 +51,7 @@ master = font.masters[0]
 # Nested kerning dictionary
 master.kerning["A"]["V"] = -80
 
-# Per-master vertical metrics (babelfont MetricType JSON names)
+# Per-master vertical metrics
 xh = master.metrics.XHeight
 master.metrics.Ascender = 800
 
@@ -1239,15 +1239,14 @@ master = font.findMaster("master-id")
 - **`id`** (str)
 - **`location`** (dict[str, float | int] | None): Master location in designspace: axis tag → numeric value
   (`{"wght": 400}`).
-- **`metrics`** (dict[str, float | int]): Per-master numeric metrics as a live dict. Keys are babelfont
-  `MetricType` JSON names: `XHeight`, `CapHeight`, `Ascender`, `Descender`,
-  `ItalicAngle`, `HheaAscender`, `HheaDescender`, `HheaLineGap`,
-  `WinAscent`, `WinDescent`, `TypoAscender`, `TypoDescender`, `TypoLineGap`,
-  `SubscriptXSize`, `SubscriptYSize`, `SubscriptXOffset`, `SubscriptYOffset`,
-  `SuperscriptXSize`, `SuperscriptYSize`, `SuperscriptXOffset`,
-  `SuperscriptYOffset`, `StrikeoutSize`, `StrikeoutPosition`,
-  `UnderlinePosition`, `UnderlineThickness`, `HheaCaretSlopeRise`,
-  `HheaCaretSlopeRun`, `HheaCaretOffset`.
+- **`metrics`** (MasterMetrics): Per-master vertical metrics. Access as attributes: `XHeight`, `CapHeight`,
+  `Ascender`, `Descender`, `ItalicAngle`, `HheaAscender`, `HheaDescender`,
+  `HheaLineGap`, `WinAscent`, `WinDescent`, `TypoAscender`, `TypoDescender`,
+  `TypoLineGap`, `SubscriptXSize`, `SubscriptYSize`, `SubscriptXOffset`,
+  `SubscriptYOffset`, `SuperscriptXSize`, `SuperscriptYSize`,
+  `SuperscriptXOffset`, `SuperscriptYOffset`, `StrikeoutSize`,
+  `StrikeoutPosition`, `UnderlinePosition`, `UnderlineThickness`,
+  `HheaCaretSlopeRise`, `HheaCaretSlopeRun`, `HheaCaretOffset`.
 
 **Example:**
 
