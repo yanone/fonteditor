@@ -20613,7 +20613,7 @@ export class OutlineEditor {
 
         const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
         const interpolatingLayers = (currentGlyphModel.layers || []).filter(
-            (layer) => !!layer.id
+            (layer: Layer) => !!layer.id
         );
         const bridge = window.patchSyncEngine;
         const structuralLayerTargets = (
@@ -20621,8 +20621,8 @@ export class OutlineEditor {
                 ? interpolatingLayers
                 : [currentLayerModel, ...linkedLayers]
         )
-            .filter((layer) => !!layer.id)
-            .map((layer) => ({
+            .filter((layer: Layer) => !!layer.id)
+            .map((layer: Layer) => ({
                 glyphName: currentGlyphModel.name,
                 layerId: layer.id!
             }));

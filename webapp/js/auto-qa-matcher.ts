@@ -137,7 +137,7 @@ export function labelsForGlyph(
     ) {
         cachedContext = buildContextFromObservations(
             font,
-            table,
+            context.table,
             context.options,
             glyphsByNameMap(font),
             observeFont(font)
