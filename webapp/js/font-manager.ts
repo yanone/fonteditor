@@ -3140,6 +3140,7 @@ class FontManager {
                 return this.editingFont;
             }
             console.error('❌ Failed to compile editing font:', error);
+            window.glyphCanvas?.releaseDeferredPaintAfterFailedCompile?.();
             // Log the problematic JSON area when Rust reports a line/column
             if (
                 errorMsg.includes('expected a sequence') ||

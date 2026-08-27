@@ -232,8 +232,8 @@ Expect mismatch and missing peer to dominate. That is not a blocker. It
 only tells how much optional point-supervision exists. Geometric training
 does not wait on a high match rate.
 
-Same pass can emit a first QA sketch (see use case 1) for a handful of
-identities (`A`, `a`, `Aacute`, `acutecomb`).
+Auto QA is a **separate** extract/aggregate pipeline (Use case 1), not a
+side product of this deformer mill.
 
 ### What the mill extracts
 
@@ -365,141 +365,263 @@ Automatic composition can rest after bases and marks move.
 
 ---
 
-## Use case 1 — Font engineering QA
+## Use case 1 — Font engineering QA (Auto QA)
+
+v1 is **missing component** and **missing anchor** labels, keyed in a
+neutral `uniXXXX` scheme. No neural net. No deformer. No AGL fallback.
+
+This section is the implementation plan. Surfaces (overview badges, filters)
+are out of scope here; the product is a **label list** the rest of the app
+can consume.
 
 ### Job
 
-Given the glyphs of an open font, produce per-glyph **labels** of the form:
+Given an open font, emit zero or more labels per identifiable glyph:
 
-- missing component: referenced identity `I` (and optionally slot/order)
-- missing anchor: name `N`
+```text
+{ glyph_name, identity, kind: "missing_component" | "missing_anchor",
+  missing: <component identity | anchor name>,
+  n, k, confidence }
+```
 
-each with a **confidence** in `[0, 1]`. A threshold `X` (for example 0.8 or
-0.9) decides which labels are worth keeping. This document does not specify
-how they are shown.
+`confidence` is a lower bound on the corpus rate that this identity has
+that component or anchor. A runtime threshold `X` (default 0.85) drops
+weaker labels. v1 does not auto-insert anything.
 
-This is the primary QA job. It is feasible **without a neural net**.
+### Why tables
 
-### Why tables beat a classifier here
+“Does `uni00C1` usually contain `uni0041` and `uni0301.case`?” is a count
+over the Google Fonts sources. A classifier softmax on `n = 2` would lie.
+Wilson’s lower bound on `k/n` will not.
 
-“Does `/Aacute` usually contain `/A` and an acute mark?” is an empirical
-frequency over the corpus, conditioned on glyph identity. There is no
-geometry to generate. A softmax would hallucinate confidence on tiny `n`.
-A binomial rate with a **lower confidence bound** will not.
+### Identity (locked)
 
-### Glyph identity
+Same function on extract and at runtime. Implemented in
+`../gfsources/scripts/extract-qa-glyphs.py`; the editor must port it
+verbatim.
 
-Prefer unicode (the codepoint list on the glyph). Fall back to an
-AGL-normalized name when there is no codepoint.
+1. Glyph name `N`. If `N` starts with `.`, the root is `N` and there is no
+   suffix (`.notdef` is not split).
+2. Otherwise the root is the substring before the first `.`, and the suffix
+   is from that dot onward (`A.ss04` → root `A`, suffix `.ss04`;
+   `E.swsh.001` → root `E`, suffix `.swsh.001`; `Aacute.swsh` → root
+   `Aacute`, suffix `.swsh`).
+3. Look up the **root glyph in the same font**. If it is missing, the glyph
+   is not identifiable → **drop**.
+4. Take the root’s first integer codepoint `≥ 0`. If none, **drop**. Do not
+   use the variant’s own cmap instead. Do not guess from AGL.
+5. Identity = `uni` + uppercase hex of that codepoint + suffix.
+   BMP is four digits (`uni0041`). Higher planes use as many as needed
+   (`uni1F600`).
 
-Component references in sources are names (`A`, `acutecomb.case`). The mill
-must map those to identities too, so `.case` / `.sc` / language suffixes
-collapse or are stored as a **variant of** a base identity rather than as
-unrelated keys. Exact policy:
+Work Sans (verified):
 
-- Store recipes both at the raw reference-name level and at a normalized
-  identity level.
-- At match time, try raw name first, then normalized identity.
-- Do not treat `acutecomb.case` as a miss for a font that uses `acutecomb`
-  if the normalized identity is the same combining acute.
+| glyph_name | identity | unicode |
+| --- | --- | --- |
+| `A` | `uni0041` | 65 |
+| `A.swsh` | `uni0041.swsh` | 65 |
+| `Aacute` | `uni00C1` | 193 |
+| `Aacute.swsh` | `uni00C1.swsh` | 193 |
+| `acutecomb.case` | `uni0301.case` | 769 |
+| `a.sc` | `uni0061.sc` | 97 |
+| `E.swsh.001` | `uni0045.swsh.001` | 69 |
 
-### What is stored per identity
+Unencoded drawing parts (`_part.swsh_topleft`) have no encoded root → no
+row.
 
-For each identity `G`, aggregated across corpus layers. Default
-recommendation: one row per source glyph, using the default master (or the
-only layer in a static source):
+### Components in the same scheme
 
-- `n` — number of corpus observations
-- For each component identity `C` (and optionally multiplicity / order):
-  `k_C` — how many observations include at least one component `C`
-- For each anchor name `A`: `k_A` — how many observations include `A`
-- Optional: whether the glyph is typically a pure composite (no local
-  path nodes), a mixed composite, or outlines-only
+Each `reference` on a non-background layer is passed through **the same
+identity function**. Store the identity, not the authored name.
 
-Example from Work Sans (illustrative, not a mill result): `/A` carries
-`bottom`, `ogonek`, `top`, `top_ring`; `/Aacute` is `reference: A` plus
-`reference: acutecomb.case` and has no anchors of its own. QA must flag
-missing `top` on **`/A`**, and missing the acute component on **`/Aacute`**.
-Flagging “`/Aacute` is missing anchor `top`” would be a false model of how
-those sources are built.
+Work Sans: `Aacute` components `A` + `acutecomb.case` become `uni0041` +
+`uni0301.case`. `Aacute.swsh` becomes `uni0041.swsh` + `uni0301.case`.
+
+If a ref cannot be keyed, **omit it** from the component list. Do not mix
+raw names into the recipe. `A.swsh` referencing only `_part.swsh_topleft`
+therefore has `components: []`.
+
+Dedup by identity, first-seen order, union across non-background layers of
+that glyph (v1 does not emit one row per master).
+
+### Anchors
+
+Authored names only (`top`, `_top`, `bottom`, `ogonek`, `top_ring`). Not
+passed through `uniXXXX`. Union across non-background layers, first-seen
+order, unique.
+
+Role: missing-anchor labels apply to identities that usually **have**
+anchors (bases, marks). Composites like `uni00C1` in this corpus often have
+**no** anchors; the marks live on `uni0041` and `uni0301.case`. Do not flag
+`uni00C1` for missing `top` unless the corpus actually puts `top` on
+`uni00C1`.
+
+### Observation schema (per source glyph)
+
+Extractor writes JSONL, one object per kept glyph per `.babelfont` file:
+
+```text
+source          relative path under gfsources/babelfont
+identity        uniXXXX + suffix
+unicode         root codepoint (int)
+glyph_name      authored name (debug / join key only)
+components      list of component identities
+anchors         list of anchor names
+```
+
+Command:
+
+```text
+python3 ../gfsources/scripts/extract-qa-glyphs.py
+python3 ../gfsources/scripts/extract-qa-glyphs.py --family ofl/worksans
+```
+
+Default out: `../gfsources/results/qa_glyphs.jsonl`. Static sources are
+included (QA does not need axes).
+
+### Corpus table (aggregated asset)
+
+A second offline pass (not yet written) reads the JSONL and writes a compact
+JSON the editor can fetch. Keyed by `identity`:
+
+```text
+n                 observation count
+components[C]     { k }   k = observations whose component list
+                          contains C at least once
+anchors[A]        { k }   same for anchor name A
+```
+
+Optional later fields (do not block v1): `k_has_any_component`,
+`k_has_any_anchor`.
+
+Do not store `glyph_name` in the shipped table. Names differ across fonts;
+identity is the join key. `n` is per identity across **all** sources and
+both roman/italic files. (If italic recipes systematically differ we can
+split later; v1 is pooled.)
+
+Ship as a versioned JSON asset with the app (same idea as wheels). No ONNX.
+
+### Matching an open font
+
+1. Port `split_glyph_name`, `uni_label`, `glyph_identity`,
+   `component_identities`, `anchor_names` to TypeScript against
+   `window.currentFontModel` (skip background layers).
+2. For each glyph that keys to an identity `G` present in the corpus table
+   with `n` large enough (ignore identities with `n < n_min`, default 20):
+   - Let `C_obs` / `A_obs` be that glyph’s component identities and anchor
+     names.
+   - For each corpus component `C` with Wilson lower bound `≥ X` and
+     `C ∉ C_obs` → `missing_component`.
+   - For each corpus anchor `A` with lower bound `≥ X` and `A ∉ A_obs` →
+     `missing_anchor`.
+3. Apply gating. Sort remaining labels by confidence descending.
+
+Glyphs that do not key (unencoded parts) produce no labels. Identities
+unseen in the corpus produce no labels.
 
 ### Confidence
 
-Let `p̂ = k / n`. Displayed confidence is not `p̂`. It is the **lower bound**
-of a Wilson (or Jeffreys) interval at a fixed level (95% is a reasonable
-default). That stops `2/2 = 100%` from firing.
+For a slot with counts `k` successes in `n` observations, `p̂ = k / n` is
+**not** the label confidence. Use the Wilson score interval at 95% and take
+the **lower bound**:
 
-A label is emitted when:
+```text
+z = 1.959964
+centre = (p̂ + z²/2n) / (1 + z²/n)
+margin = z √(p̂(1-p̂)/n + z²/4n²) / (1 + z²/n)
+lower = centre - margin
+```
 
-1. The lower bound ≥ threshold `X`, and
-2. The open glyph lacks that component identity or that anchor name, and
-3. Gating (below) does not suppress it.
+`2/2` is then well below 0.85. `X` and `n_min` are runtime constants, not
+baked into the JSON (`X` default 0.85, `n_min` default 20). Tune from eval.
 
-`X` is a runtime parameter, not baked into the tables.
+### Gating (required)
 
-### Gating (required, or the feature nags)
+Without this, every Latin `/A` in a dingbat font is “missing `top`”.
 
-Corpus priors are global. Fonts are local.
+**Mark-system gate.** Classify an anchor as mark-related if its name is in
+a list built from frequent corpus names (`top`, `bottom`, `ogonek`,
+`center`/`centre`/`_center`, `_top`, `_bottom`, and others that dominate
+the aggregated table). Classify a component as a mark if its identity’s
+unicode is a combining mark (U+0300–U+036F and other Mn) **or** the
+unsuffixed identity is a combining mark (`uni0301.case`).
 
-**Mark-system gate.** Do not flag mark anchors (`top`, `bottom`, `_top`, …)
-or mark components if *this font* has no combining marks, no accented
-composites, and no combining unicodes. A symbol font’s `/A` is allowed to
-lack `top`.
+Do not emit mark-related missing-anchor or missing-component labels unless
+**this font** has at least one of: a combining-mark identity, an accented
+composite (a glyph whose components include a mark identity), or a
+combining codepoint in its cmap.
 
-**Role gate.** Apply anchor priors to identities that usually *have*
-anchors (bases, marks). Apply component priors to identities that are
-usually composites. Do not demand that a composite also copy the base’s
-anchor set unless the corpus actually puts those anchors on the composite.
+**Role gate.** Missing-anchor: only if this identity usually carries
+anchors in the corpus (share of `n` with at least one of the frequent
+anchors, or a later `k_has_any_anchor` field). Missing-component: only if
+this identity usually has at least one keyed component. That stops
+outlines-only `uni0041` from inheriting `uni00C1`’s recipe, and stops
+`uni00C1` from being nagged for `top`.
 
-**Within-font consistency (stronger than the corpus when available).** If
-this font has 42 glyphs whose identity is “base + acute” in the corpus, and
-40 of those 42 in *this font* are composites of the same shape, then the two
-that are outlines should be labeled even if the global rate is milder. If
-this font systematically draws accents, the within-font rate is near zero
-and the corpus should not override it. A practical rule: if the font has at
-least `M` peers in the same recipe class (say `M = 8`), use the **maximum**
-of (corpus lower bound, within-font lower bound) only when the within-font
-rate is also high; if the within-font rate is low, suppress the corpus
-label (intentional decomposed design).
+**Within-font consistency.** Let `G` be an identity that is usually a
+composite in the corpus. In **this** font, take other glyphs in a similar
+recipe class (v1: components include a mark identity). If there are ≥ `M`
+such peers (default `M = 8`):
 
-**Copy of the label (semantic, not UI chrome).** The fact stored is
-“92% of corpus `/Aacute` observations are `A` + acute-mark (n=…, lower
-bound=…).” It is not “this glyph is broken.” Decomposed accents are a
-legitimate design choice. v1 does not auto-insert components or anchors.
+- If the within-font rate of “has this component” is high, keep the corpus
+  label (optionally max of corpus and within-font lower bounds).
+- If the within-font rate is low, **suppress** the corpus label: this
+  designer draws that accent.
 
-### Secondary QA (later, not required to start)
+v1 can ship mark-system + role gates first and add within-font in the same
+milestone if eval nags decomposed families.
 
-- Unicode vs name mismatches (AGL + corpus majority map).
-- Shape outliers: a tiny raster encoder and per-identity centroid; high
-  distance means “this `/a` does not look like an `/a`.” Needs the mill’s
-  rasters. Do not block missing-component/anchor on this.
-- Unusual contour counts, zero-width encoded glyphs, etc.
+### Label copy (data, not chrome)
 
-### Data needed
+The structured fact is: of `n` corpus observations of `identity`, `k` had
+component `C` (or anchor `A`); lower bound = …. It is not “this glyph is
+broken.” Decomposed `uni00C1` is a valid design. v1 never writes components
+or anchors.
 
-- QA tables from **all** corpus sources (static included).
-- Identity normalization tables (AGL, unicode, mark `.case` / `.sc`).
-- No ONNX required for v1.
+### Eval
 
-### Eval (offline, no editor)
+Offline, against the aggregated table, no UI:
 
-Take a corpus source that has `/A` with `top` and `/Aacute` as `A` + acute:
+1. Work Sans roman: `uni0041` must have high-confidence `top` / `bottom` /
+   `ogonek`; `uni00C1` must have high-confidence components `uni0041` and
+   `uni0301.case` and must **not** demand `top`.
+2. Planted: strip `top` from `A`, strip the `uni0301.case` component from
+   `Aacute` → those two labels fire above `X`.
+3. Marks-free: a source with `A` and no combining marks → no `top` label on
+   `uni0041`.
+4. Decomposed family: if ≥ `M` accented glyphs are outlines, do not
+   mass-flag missing mark components.
+5. Sweep `X` ∈ {0.7, 0.8, 0.85, 0.9} and `n_min` ∈ {10, 20, 50}; pick
+   defaults from precision/recall on planted vs clean Work Sans.
 
-- Delete `top` from `/A` → label fires above `X`.
-- Delete the acute component from `/Aacute` → label fires above `X`.
-- A marks-free subset (or a symbol source) with `/A` and no `top` → no mark
-  labels.
-- A source that draws `/Aacute` as outlines, consistently → no “missing
-  component” labels once the within-font gate sees enough peers.
+### Build sequence
 
-Report precision/recall at a few `X` values. Tune `X` and `M` from that,
-not from intuition.
+1. **Extractor** — done: `../gfsources/scripts/extract-qa-glyphs.py`.
+2. **Full-corpus JSONL** — run the extractor over `../gfsources/babelfont`
+   (needs unsandboxed access to that tree).
+3. **Aggregator** — new script: JSONL → compact `qa_corpus.json` keyed by
+   identity (`n`, per-component `k`, per-anchor `k`).
+4. **Shared identity** — TypeScript port of the Python functions; Jest
+   fixtures from Work Sans rows (`Aacute` → `uni00C1` +
+   `['uni0041','uni0301.case']`).
+5. **Matcher** — table + open font → label list; unit tests for planted
+   omissions, mark-system gate, role gate.
+6. **Asset** — versioned JSON fetched like wheels; matcher runs in the
+   editor process (cheap; no worker required). Wiring into overview/filter
+   UI is a later change.
+
+### What v1 does not include
+
+- The deformer, axes, or compatible masters.
+- Unicode-vs-name mismatch, shape outliers, contour-count heuristics.
+- Auto-fix, AGL fallback, raster models.
+- Per-master (sparse Bold) rows; union across layers is enough to start.
+- Resolving unkeyed component parts into the recipe.
 
 ### What this use case does not need
 
-- The deformer.
-- Axis inventory (except that the mill can share a walk of the tree).
-- Compatible masters.
+- ONNX, PyTorch, or Pyodide.
+- Axis inventory.
 
 ---
 
@@ -673,15 +795,17 @@ belongs in the editor source tree as training data.
 
 ## Work sequence (capability, not UI)
 
-1. **Inventory** every axis tag, case/small-cap match–mismatch–missing
-   counts, and a first QA frequency sketch.
-2. **Mill** cubic shards (axis + 2D geometric residuals from masters;
-   optional matching glyph pairs; skip gaps) and full QA tables.
-3. **Train one deformer.** Export ONNX.
-4. **Eval** QA and every deformer call site with the offline protocols
-   above.
-5. Only then integrate inference into the app (out of scope for this
-   document).
+Auto QA is independent of the deformer and goes first:
+
+1. Extractor (done) → full-corpus JSONL → aggregator → TS identity + matcher
+   + eval (see Use case 1 build sequence).
+2. **Inventory** every axis tag and case/small-cap match–mismatch–missing
+   counts (deformer only).
+3. **Mill** cubic shards (axis + 2D geometric residuals from masters;
+   optional matching glyph pairs; skip gaps).
+4. **Train one deformer.** Export ONNX.
+5. **Eval** deformer call sites. Only then integrate deformer inference
+   (out of scope here).
 
 ## Open decisions (blocked on inventory and eval, not on taste)
 
@@ -689,13 +813,13 @@ belongs in the editor source tree as training data.
 - Log vs linear `sx`/`sy`; pivot (origin vs bounds centre) as mill law.
 - Threshold on `|log s|` that separates geometric examples from weight-like
   pairs.
-- One QA observation per source glyph vs per master layer.
-- Wilson vs Jeffreys interval; default `X` and within-font `M`.
 - Composite policy A vs B if A fails on a real family.
 - Whether a raster CNN is needed for deformer quality, or only for later
   shape-outlier QA.
 - Whether mismatch `/A` vs `/A.sc` pairs later get a raster/stem auxiliary
   loss (still no point alignment). v1 skips them.
+- Auto QA: exact mark-anchor name list (derive from aggregated table);
+  whether within-font gating ships in the first matcher milestone.
 
 ## References inside this repo
 

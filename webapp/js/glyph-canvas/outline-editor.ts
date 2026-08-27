@@ -7159,7 +7159,11 @@ export class OutlineEditor {
         const closureSourceTargets = [{ glyphName, layerId: activeLayerId }];
         const closure = this.computeRecompositionClosure({
             sourceTargets: closureSourceTargets,
-            editKinds: new Set(['outline']),
+            editKinds: new Set(
+                compileChangeSource.endsWith('-anchor')
+                    ? ['anchor']
+                    : ['outline']
+            ),
             scope: 'all',
             activeLayerId
         });
@@ -20608,8 +20612,15 @@ export class OutlineEditor {
         }
 
         const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
+        const interpolatingLayers = (currentGlyphModel.layers || []).filter(
+            (layer) => !!layer.id
+        );
         const bridge = window.patchSyncEngine;
-        const structuralLayerTargets = [currentLayerModel, ...linkedLayers]
+        const structuralLayerTargets = (
+            hasAnchorSelection
+                ? interpolatingLayers
+                : [currentLayerModel, ...linkedLayers]
+        )
             .filter((layer) => !!layer.id)
             .map((layer) => ({
                 glyphName: currentGlyphModel.name,
@@ -20796,8 +20807,18 @@ export class OutlineEditor {
                 for (const linkedLayer of linkedLayers) {
                     deleteContourFromLayer(linkedLayer);
                     deleteComponentsFromLayer(linkedLayer);
-                    removeAnchorsByName(linkedLayer);
+                    if (!hasAnchorSelection) {
+                        removeAnchorsByName(linkedLayer);
+                    }
                     removeSelectedGuideFromLayer(linkedLayer);
+                }
+                if (hasAnchorSelection) {
+                    for (const interpolatingLayer of interpolatingLayers) {
+                        if (interpolatingLayer === currentLayerModel) {
+                            continue;
+                        }
+                        removeAnchorsByName(interpolatingLayer);
+                    }
                 }
             });
 
@@ -20810,14 +20831,28 @@ export class OutlineEditor {
             const deletedPathGeometry = pointsByPath.size > 0;
             const deletedComponentStructure =
                 selectedComponentIndicesDescending.length > 0;
+            const deletedAnchorStructure =
+                selectedAnchorIndicesDescending.length > 0;
+            const deletedGuideStructure = selectedGuideHandle !== null;
             const deletedStructuralGeometry =
                 deletedPathGeometry || deletedComponentStructure;
             let affectedGlyphNames = new Set<string>(
                 [currentGlyphModel.name].filter(Boolean) as string[]
             );
             let bboxCenterAnchorScreen: { x: number; y: number } | null = null;
-            if (deletedStructuralGeometry) {
+            // Commit copies editor layerData back onto the active model layer.
+            // Anchor/guide-only deletes mutate the model first, so refresh
+            // that working copy before snapshotting or the deleted objects
+            // are resurrected on the current layer while linked layers stay
+            // deleted (fontc BadAnchor NoDefault).
+            if (
+                deletedStructuralGeometry ||
+                deletedAnchorStructure ||
+                deletedGuideStructure
+            ) {
                 this.syncCurrentExactLayerDataFromModel();
+            }
+            if (deletedStructuralGeometry) {
                 bboxCenterAnchorScreen =
                     this.getBoundingBoxCenterScreenPosition();
                 affectedGlyphNames = this.recomputeMetricsKeysForGlyph(
@@ -20825,9 +20860,17 @@ export class OutlineEditor {
                 );
             }
 
+            const compileChangeSource =
+                deletedAnchorStructure &&
+                !deletedPathGeometry &&
+                !deletedComponentStructure
+                    ? 'keyboard-anchor'
+                    : 'keyboard-outline';
+
             this.commitStructuralOutlineChange(deletionLabel, {
                 reuseTransaction: true,
-                layerTargets: structuralLayerTargets
+                layerTargets: structuralLayerTargets,
+                compileChangeSource
             });
 
             if (deletedStructuralGeometry) {
@@ -22530,18 +22573,15 @@ export class OutlineEditor {
                         typeof modelLayer?.toJSON === 'function'
                             ? modelLayer.toJSON()
                             : (targetCurrentLayerData ?? modelLayer);
-                    const serializedLayer = isDirectEditedLayer
-                        ? fontManager.serializeLayerForCommittedSync(
-                              target.glyphName,
-                              target.layerId,
-                              modelLayerJson,
-                              { authoritativeOptionalLayerFields }
-                          )
-                        : fontManager.serializeLayerForCommittedSync(
-                              target.glyphName,
-                              target.layerId,
-                              modelLayerJson
-                          );
+                    const serializedLayer =
+                        fontManager.serializeLayerForCommittedSync(
+                            target.glyphName,
+                            target.layerId,
+                            modelLayerJson,
+                            authoritativeOptionalLayerFields.length
+                                ? { authoritativeOptionalLayerFields }
+                                : undefined
+                        );
                     if (!serializedLayer) {
                         continue;
                     }
@@ -22567,9 +22607,8 @@ export class OutlineEditor {
                         glyphName: target.glyphName,
                         layerId: target.layerId,
                         layerJson: serializedLayer,
-                        ...(isDirectEditedLayer && {
-                            authoritativeOptionalLayerFields:
-                                authoritativeOptionalLayerFields
+                        ...(authoritativeOptionalLayerFields.length > 0 && {
+                            authoritativeOptionalLayerFields
                         })
                     });
                 }

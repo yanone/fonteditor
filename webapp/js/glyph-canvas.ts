@@ -107,6 +107,9 @@ import { getUndoRedoContext } from './undo-redo-context';
 import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
 import { getCommittedChangeRefreshPromise } from './change-bridge-init';
 import { recordLiveTextDiagnostic } from './live-text-diagnostics';
+import { QA_CORPUS_READY_EVENT } from './auto-qa-corpus';
+import { labelsForGlyph } from './auto-qa-matcher';
+import { destroyAutoQaTippy, renderAutoQaWidget } from './auto-qa-widget';
 
 let console: Logger = new Logger('GlyphCanvas');
 let latestOpenSessionId: string | null = null;
@@ -883,6 +886,23 @@ class GlyphCanvas {
     }
 
     /**
+     * Editing compiles hold an idle viewer lock until reshape. A failed
+     * compile never emits `editingFontCompiled`, so drop that lock and paint
+     * again instead of leaving the canvas frozen.
+     */
+    releaseDeferredPaintAfterFailedCompile(): void {
+        const hadIdleLock = this.hasPendingIdleViewLock();
+        const wasSuppressed = this.renderSuppressed;
+        if (!hadIdleLock && !wasSuppressed) {
+            return;
+        }
+        this.renderSuppressed = false;
+        this.clearIdleViewLock();
+        this.outlineEditor?.clearPendingSidebearingBboxCenterAnchor?.();
+        this.render();
+    }
+
+    /**
      * Fail-safe for keyboard (and collapse restore) resizes: place the
      * caret / glyph bbox center at a target screen point, clamped inside
      * the current canvas so content cannot stay invisible after reopen.
@@ -1521,6 +1541,9 @@ class GlyphCanvas {
 
         // Set up event listeners
         this.setupEventListeners();
+        window.addEventListener(QA_CORPUS_READY_EVENT, () => {
+            this.updatePropertyPanel();
+        });
 
         // Initial render
         this.render();
@@ -9215,10 +9238,25 @@ class GlyphCanvas {
         };
     }
 
+    private renderCurrentGlyphAutoQaWidget(): HTMLElement | null {
+        const fontModel = fontManager.currentFont?.fontModel;
+        const glyphName = this.getCurrentGlyphName();
+        if (!fontModel || !glyphName || glyphName === 'undefined') {
+            return null;
+        }
+        if (!fontModel.findGlyph?.(glyphName)) {
+            return null;
+        }
+        const labels = labelsForGlyph(fontModel, glyphName);
+        return renderAutoQaWidget(labels);
+    }
+
     updatePropertyPanel(): void {
         if (!this.propertyPanel) {
             return;
         }
+
+        destroyAutoQaTippy();
 
         const activeInputState = this.getActivePropertyInputState();
         this.propertyPanel.classList.remove('component-properties');
@@ -10331,6 +10369,13 @@ class GlyphCanvas {
                 );
             }
         });
+        const autoQaWidget = this.renderCurrentGlyphAutoQaWidget();
+        if (autoQaWidget) {
+            const kerningShell = this.propertyPanel.querySelector(
+                '.glyph-kerning-panel-shell'
+            );
+            (kerningShell ?? this.propertyPanel).appendChild(autoQaWidget);
+        }
         this.restoreActivePropertyInput(activeInputState);
     }
 

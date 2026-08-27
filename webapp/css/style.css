@@ -6769,6 +6769,65 @@ select.glyph-property-input {
     justify-content: center;
 }
 
+.glyph-auto-qa-widget {
+    flex: 0 0 auto;
+}
+
+.glyph-auto-qa-icon {
+    font-size: 18px;
+    line-height: 1;
+    color: var(--status-warning, #e6a817);
+    cursor: help;
+}
+
+.glyph-auto-qa-popup {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    text-align: left;
+}
+
+.glyph-auto-qa-popup p {
+    margin: 0;
+}
+
+.glyph-auto-qa-explainer {
+    color: var(--text-faint);
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+.glyph-auto-qa-popup .glyph-auto-qa-item-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.glyph-auto-qa-popup .glyph-auto-qa-item {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 12px;
+    line-height: 1.4;
+    padding: 8px 10px;
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    background: var(--background-primary);
+}
+
+.glyph-auto-qa-popup .glyph-auto-qa-item pre {
+    display: inline;
+    margin: 0;
+    padding: 0 4px;
+    font-family: var(--font-families-mono);
+    font-size: 11px;
+    background: var(--background-hover);
+    border-radius: 3px;
+    white-space: nowrap;
+}
+
 .glyph-property-panel-placeholder {
     width: 100%;
     display: flex;
@@ -6939,7 +6998,8 @@ select.glyph-property-input {
     width: fit-content;
     max-width: 100%;
     display: grid;
-    grid-template-columns: auto auto auto;
+    grid-auto-flow: column;
+    grid-auto-columns: auto;
     justify-content: center;
     justify-items: stretch;
     align-items: stretch;

@@ -1,0 +1,415 @@
+{
+    "upm": 1000,
+    "version": [1, 0],
+    "axes": [],
+    "masters": [
+        {
+            "name": {
+                "dflt": "Regular"
+            },
+            "id": "master-1",
+            "location": {},
+            "guides": [],
+            "metrics": {},
+            "kerning": {}
+        }
+    ],
+    "glyphs": [
+        {
+            "name": "A",
+            "codepoints": [65],
+            "category": "Unknown",
+            "exported": true,
+            "layers": [
+                {
+                    "width": 660.0,
+                    "id": "4A17B37A-CBFD-40E5-9E02-2080A0E1F76C",
+                    "is_background": false,
+                    "shapes": [],
+                    "anchors": [
+                        {
+                            "name": "bottom",
+                            "x": 330.0,
+                            "y": 0.0
+                        },
+                        {
+                            "name": "ogonek",
+                            "x": 634.0,
+                            "y": 0.0
+                        },
+                        {
+                            "name": "top",
+                            "x": 330.0,
+                            "y": 660.0
+                        },
+                        {
+                            "name": "top_ring",
+                            "x": 331.0,
+                            "y": 535.0
+                        }
+                    ],
+                    "master": {
+                        "type": "DefaultForMaster",
+                        "master": "master-1"
+                    },
+                    "guides": [],
+                    "format_specific": {}
+                }
+            ],
+            "format_specific": {}
+        },
+        {
+            "name": "Aacute",
+            "codepoints": [193],
+            "category": "Unknown",
+            "exported": true,
+            "layers": [
+                {
+                    "width": 660.0,
+                    "id": "4A17B37A-CBFD-40E5-9E02-2080A0E1F76C",
+                    "is_background": false,
+                    "shapes": [
+                        {
+                            "reference": "A"
+                        },
+                        {
+                            "reference": "acutecomb.case"
+                        }
+                    ],
+                    "anchors": [],
+                    "master": {
+                        "type": "DefaultForMaster",
+                        "master": "master-1"
+                    },
+                    "guides": [],
+                    "format_specific": {}
+                }
+            ],
+            "format_specific": {}
+        },
+        {
+            "name": "E",
+            "codepoints": [69],
+            "category": "Unknown",
+            "exported": true,
+            "layers": [
+                {
+                    "width": 638.0,
+                    "id": "4A17B37A-CBFD-40E5-9E02-2080A0E1F76C",
+                    "is_background": false,
+                    "shapes": [],
+                    "anchors": [
+                        {
+                            "name": "bottom",
+                            "x": 350.0,
+                            "y": 0.0
+                        },
+                        {
+                            "name": "ogonek",
+                            "x": 586.0,
+                            "y": 0.0
+                        },
+                        {
+                            "name": "top",
+                            "x": 340.0,
+                            "y": 660.0
+                        }
+                    ],
+                    "master": {
+                        "type": "DefaultForMaster",
+                        "master": "master-1"
+                    },
+                    "guides": [],
+                    "format_specific": {}
+                }
+            ],
+            "format_specific": {}
+        },
+        {
+            "name": "E.swsh.001",
+            "codepoints": null,
+            "category": "Unknown",
+            "exported": true,
+            "layers": [
+                {
+                    "width": 687.0,
+                    "id": "1C7CD022-87C7-4E11-B656-E47B18819458",
+                    "is_background": false,
+                    "shapes": [],
+                    "anchors": [
+                        {
+                            "name": "bottom",
+                            "x": 317.0,
+                            "y": 0.0
+                        },
+                        {
+                            "name": "ogonek",
+                            "x": 504.0,
+                            "y": 0.0
+                        },
+                        {
+                            "name": "top",
+                            "x": 357.0,
+                            "y": 660.0
+                        }
+                    ],
+                    "master": {
+                        "type": "DefaultForMaster",
+                        "master": "master-1"
+                    },
+                    "guides": [],
+                    "format_specific": {}
+                }
+            ],
+            "format_specific": {}
+        },
+        {
+            "name": "A.swsh",
+            "codepoints": null,
+            "category": "Unknown",
+            "exported": true,
+            "layers": [
+                {
+                    "width": 874.0,
+                    "id": "1C7CD022-87C7-4E11-B656-E47B18819458",
+                    "is_background": false,
+                    "shapes": [
+                        {
+                            "reference": "_part.swsh_topleft"
+                        }
+                    ],
+                    "anchors": [
+                        {
+                            "name": "bottom",
+                            "x": 581.0,
+                            "y": 0.0
+                        },
+                        {
+                            "name": "ogonek",
+                            "x": 862.0,
+                            "y": 0.0
+                        },
+                        {
+                            "name": "top",
+                            "x": 581.0,
+                            "y": 660.0
+                        }
+                    ],
+                    "master": {
+                        "type": "DefaultForMaster",
+                        "master": "master-1"
+                    },
+                    "guides": [],
+                    "format_specific": {}
+                }
+            ],
+            "format_specific": {}
+        },
+        {
+            "name": "Aacute.swsh",
+            "codepoints": null,
+            "category": "Unknown",
+            "exported": true,
+            "layers": [
+                {
+                    "width": 874.0,
+                    "id": "1C7CD022-87C7-4E11-B656-E47B18819458",
+                    "is_background": false,
+                    "shapes": [
+                        {
+                            "reference": "A.swsh"
+                        },
+                        {
+                            "reference": "acutecomb.case"
+                        }
+                    ],
+                    "anchors": [],
+                    "master": {
+                        "type": "DefaultForMaster",
+                        "master": "master-1"
+                    },
+                    "guides": [],
+                    "format_specific": {}
+                }
+            ],
+            "format_specific": {}
+        },
+        {
+            "name": "a",
+            "codepoints": [97],
+            "category": "Unknown",
+            "exported": true,
+            "layers": [
+                {
+                    "width": 566.0,
+                    "id": "4A17B37A-CBFD-40E5-9E02-2080A0E1F76C",
+                    "is_background": false,
+                    "shapes": [],
+                    "anchors": [
+                        {
+                            "name": "bottom",
+                            "x": 276.0,
+                            "y": 0.0
+                        },
+                        {
+                            "name": "ogonek",
+                            "x": 536.0,
+                            "y": 3.0
+                        },
+                        {
+                            "name": "top",
+                            "x": 276.0,
+                            "y": 500.0
+                        }
+                    ],
+                    "master": {
+                        "type": "DefaultForMaster",
+                        "master": "master-1"
+                    },
+                    "guides": [],
+                    "format_specific": {}
+                }
+            ],
+            "format_specific": {}
+        },
+        {
+            "name": "a.sc",
+            "codepoints": null,
+            "category": "Unknown",
+            "exported": true,
+            "layers": [
+                {
+                    "width": 595.0,
+                    "id": "4A17B37A-CBFD-40E5-9E02-2080A0E1F76C",
+                    "is_background": false,
+                    "shapes": [],
+                    "anchors": [
+                        {
+                            "name": "bottom",
+                            "x": 297.0,
+                            "y": 0.0
+                        },
+                        {
+                            "name": "ogonek",
+                            "x": 572.0,
+                            "y": 0.0
+                        },
+                        {
+                            "name": "top",
+                            "x": 297.0,
+                            "y": 560.0
+                        },
+                        {
+                            "name": "top_ring",
+                            "x": 300.0,
+                            "y": 435.0
+                        }
+                    ],
+                    "master": {
+                        "type": "DefaultForMaster",
+                        "master": "master-1"
+                    },
+                    "guides": [],
+                    "format_specific": {}
+                }
+            ],
+            "format_specific": {}
+        },
+        {
+            "name": "acutecomb",
+            "codepoints": [769],
+            "category": "Unknown",
+            "exported": true,
+            "layers": [
+                {
+                    "width": 600.0,
+                    "id": "1C7CD022-87C7-4E11-B656-E47B18819458",
+                    "is_background": false,
+                    "shapes": [],
+                    "anchors": [
+                        {
+                            "name": "_top",
+                            "x": 0.0,
+                            "y": 500.0
+                        },
+                        {
+                            "name": "top",
+                            "x": 0.0,
+                            "y": 661.0
+                        }
+                    ],
+                    "master": {
+                        "type": "DefaultForMaster",
+                        "master": "master-1"
+                    },
+                    "guides": [],
+                    "format_specific": {}
+                }
+            ],
+            "format_specific": {}
+        },
+        {
+            "name": "acutecomb.case",
+            "codepoints": null,
+            "category": "Unknown",
+            "exported": true,
+            "layers": [
+                {
+                    "width": 600.0,
+                    "id": "4A17B37A-CBFD-40E5-9E02-2080A0E1F76C",
+                    "is_background": false,
+                    "shapes": [],
+                    "anchors": [
+                        {
+                            "name": "_top",
+                            "x": 0.0,
+                            "y": 660.0
+                        },
+                        {
+                            "name": "top",
+                            "x": 0.0,
+                            "y": 871.0
+                        }
+                    ],
+                    "master": {
+                        "type": "DefaultForMaster",
+                        "master": "master-1"
+                    },
+                    "guides": [],
+                    "format_specific": {}
+                }
+            ],
+            "format_specific": {}
+        },
+        {
+            "name": "_part.swsh_topleft",
+            "codepoints": null,
+            "category": "Unknown",
+            "exported": true,
+            "layers": [
+                {
+                    "width": 507.0,
+                    "id": "1C7CD022-87C7-4E11-B656-E47B18819458",
+                    "is_background": false,
+                    "shapes": [],
+                    "anchors": [],
+                    "master": {
+                        "type": "DefaultForMaster",
+                        "master": "master-1"
+                    },
+                    "guides": [],
+                    "format_specific": {}
+                }
+            ],
+            "format_specific": {}
+        }
+    ],
+    "instances": [],
+    "cross_axis_mappings": [],
+    "note": "",
+    "features": {
+        "classes": {},
+        "prefixes": {},
+        "features": []
+    }
+}

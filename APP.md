@@ -150,6 +150,16 @@ Here, undo, redo, and remote Yjs packets converge with forward GUI edits to be p
 
 ## Glyphs
 
+### Auto QA
+
+Auto QA labels likely missing components and missing anchors on an identifiable glyph using a bundled corpus table (per-identity counts from Google Fonts `.babelfont` sources). It is not a neural net and it never writes components or anchors.
+
+Glyph identity is the root name before the first `.`, looked up in the same font, then that root’s first codepoint as `uniXXXX` plus the suffix. Glyphs whose root is missing or unencoded produce no labels. Component refs use the same identity; unkeyed refs are omitted. Anchors stay authored names.
+
+The matcher emits `missing_component` / `missing_anchor` labels when the Wilson 95% lower bound on `k/n` is at least `X` (default 0.85) and `n ≥ n_min` (default 20). Mark-related slots use `n_mark_system` (observations in sources that have a mark system) so dingbat and CJK files do not dilute Latin mark rates. Candidates with Wilson between `softX` (default 0.3) and `X` are kept only when at least `M` (default 8) peer glyphs in this font that usually have that slot also have it. Mark-system gating suppresses mark-related labels when the open font has no combining marks, accented composites, or combining cmap entries. Role gating suppresses missing-anchor labels on identities that usually have no anchors, and missing-component labels on identities that usually have no keyed components. Within-font gating also suppresses a high-confidence corpus label when those peers omit the slot (decomposed families). Remaining labels sort by confidence descending.
+
+When those labels exist for the current glyph in outline edit mode, the Editing View property panel shows a separate bordered Auto QA widget labeled `QA` that contains a warning icon. With no labels the widget is not shown. Hovering the widget opens a tippy: friendly missing-component / missing-anchor messages first, using this font’s glyph names (not `uniXXXX` identities) in `<pre>`, then a fainter note that the hints come from comparing with similar glyphs in open-source fonts. Auto QA never writes components or anchors.
+
 ### Glyph Stack Labels
 
 `glyphStack` serializes the current component-editing path as `rootGlyphName@rootLayerId>componentIndex:componentGlyphName@componentLayerId>...`. The root segment has no component-index prefix; every nested segment's zero-based `componentIndex` identifies the component in the preceding segment's layer. A foreground selection always uses that foreground layer's persisted ID.

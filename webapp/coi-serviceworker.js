@@ -41,6 +41,7 @@ const PRECACHE_ASSETS = [
 
     // Glyph catalog and plugin wheels (runtime fetches)
     './data/glyph-data.json.gz',
+    './data/qa-corpus.json.gz',
     './wheels/wheels.json',
     './wheels/base_canvas_plugin-0.1.0-py3-none-any.whl',
     './wheels/base_glyph_filter_plugin-0.1.0-py3-none-any.whl',

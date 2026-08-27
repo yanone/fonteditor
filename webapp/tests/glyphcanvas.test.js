@@ -6079,6 +6079,22 @@ describe('GlyphCanvas property panel metrics edits', () => {
         }
     });
 
+    test('releaseDeferredPaintAfterFailedCompile clears a pending idle lock and paints', () => {
+        const rendererRender = jest.spyOn(canvas.renderer, 'render');
+        canvas.outlineEditor.active = false;
+        canvas.viewportManager.panX = 40;
+        canvas.viewportManager.scale = 2;
+        canvas.textRunEditor.cursorX = 100;
+
+        expect(canvas.captureIdleViewLock({ kerningPair: false })).toBe(true);
+        rendererRender.mockClear();
+        canvas.releaseDeferredPaintAfterFailedCompile();
+
+        expect(canvas.hasPendingIdleViewLock()).toBe(false);
+        expect(rendererRender).toHaveBeenCalled();
+        rendererRender.mockRestore();
+    });
+
     test('setFont skips properties UI refresh when requested', async () => {
         canvas.initialFontLoaded = true;
         canvas.textRunEditor.setFont = jest.fn().mockResolvedValue({});
@@ -9793,6 +9809,166 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             expect(window.changeBridge.endTransaction).toHaveBeenCalledTimes(1);
         } finally {
             window.changeBridge = previousChangeBridge;
+            workerCacheSpy.mockRestore();
+            dirtyIndicatorSpy.mockRestore();
+            currentFontSpy.mockRestore();
+        }
+    });
+
+    test('deletes selected anchors across linked layers without resurrecting them on the active layer', async () => {
+        const sharedPath = {
+            nodes: [
+                { x: 0, y: 0, nodetype: 'Move' },
+                { x: 50, y: 0, nodetype: 'Line' },
+                { x: 50, y: 50, nodetype: 'Line' }
+            ],
+            closed: false
+        };
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [{ tag: 'wght', min: 400, max: 700, default: 400 }],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-regular',
+                    name: { en: 'Regular' },
+                    location: { wght: 400 },
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                },
+                {
+                    id: 'master-bold',
+                    name: { en: 'Bold' },
+                    location: { wght: 700 },
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-regular',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-regular'
+                            },
+                            shapes: [sharedPath],
+                            anchors: [
+                                { name: 'keep', x: 5, y: 5 },
+                                { name: 'top', x: 25, y: 90 }
+                            ]
+                        },
+                        {
+                            id: 'layer-bold',
+                            width: 520,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-bold'
+                            },
+                            shapes: [sharedPath],
+                            anchors: [
+                                { name: 'keep', x: 8, y: 8 },
+                                { name: 'top', x: 30, y: 95 }
+                            ]
+                        }
+                    ]
+                }
+            ],
+            names: {
+                family_name: { en: 'Delete Anchor Linked Test' }
+            },
+            note: '',
+            date: '2026-03-26',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        const currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({
+                fontModel: font,
+                babelfontData: font.toJSON(),
+                markDirty: jest.fn(),
+                syncJsonFromModel: jest.fn(),
+                hasUnsavedChanges: false
+            });
+        const dirtyIndicatorSpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
+        const workerCacheSpy = jest
+            .spyOn(fontManager, 'updateWorkerFontCache')
+            .mockResolvedValue();
+        const previousPatchSyncEngine = window.patchSyncEngine;
+        const syncLayerSnapshotsFromJson = jest.fn();
+        window.patchSyncEngine = {
+            beginTransaction: jest.fn(),
+            endTransaction: jest.fn(),
+            syncLayerSnapshotsFromJson,
+            syncGlyphFromJson: jest.fn()
+        };
+        window.currentFontModel = font;
+
+        const glyph = font.findGlyph('A');
+        const currentLayer = glyph.findLayerById('layer-bold');
+        const linkedLayer = glyph.findLayerById('layer-regular');
+
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = 'layer-bold';
+        canvas.outlineEditor.layerData = JSON.parse(
+            JSON.stringify(currentLayer.toJSON())
+        );
+        canvas.outlineEditor.selectedAnchors = [1];
+        canvas.outlineEditor.selectedPoints = [];
+        canvas.outlineEditor.selectedComponents = [];
+        canvas.outlineEditor.selectedGuideHandle = null;
+
+        try {
+            await canvas.outlineEditor.deleteSelectedNodes();
+
+            expect(currentLayer.toJSON().anchors).toEqual([
+                { name: 'keep', x: 8, y: 8 }
+            ]);
+            expect(linkedLayer.toJSON().anchors).toEqual([
+                { name: 'keep', x: 5, y: 5 }
+            ]);
+            expect(canvas.outlineEditor.layerData.anchors).toEqual([
+                { name: 'keep', x: 8, y: 8 }
+            ]);
+            expect(syncLayerSnapshotsFromJson).toHaveBeenCalled();
+            const snapshotLayers = syncLayerSnapshotsFromJson.mock.calls[0][0];
+            expect(snapshotLayers).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        glyphName: 'A',
+                        layerId: 'layer-bold',
+                        layerJson: expect.objectContaining({
+                            anchors: [{ name: 'keep', x: 8, y: 8 }]
+                        })
+                    }),
+                    expect.objectContaining({
+                        glyphName: 'A',
+                        layerId: 'layer-regular',
+                        layerJson: expect.objectContaining({
+                            anchors: [{ name: 'keep', x: 5, y: 5 }]
+                        })
+                    })
+                ])
+            );
+        } finally {
+            window.patchSyncEngine = previousPatchSyncEngine;
             workerCacheSpy.mockRestore();
             dirtyIndicatorSpy.mockRestore();
             currentFontSpy.mockRestore();
