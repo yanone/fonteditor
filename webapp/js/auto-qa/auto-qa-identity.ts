@@ -1,4 +1,4 @@
-import type { Font, Glyph } from './babelfont-model';
+import type { Font, Glyph } from '../babelfont-model';
 
 /**
  * Auto QA identity helpers, ported verbatim from

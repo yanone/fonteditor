@@ -40,7 +40,10 @@ import { Logger } from './logger';
 import { editorHealth } from './editor-health-monitor';
 import APP_SETTINGS from './settings';
 import { attachTopRowSidebarInterpolation } from './top-row-sidebar-interpolation';
-import { isStartupStateReady } from './state-restore';
+import {
+    isStartupStateReady,
+    reapplyStartupCursorIfNeeded
+} from './state-restore';
 import { designspaceToUserspace, userspaceToDesignspace } from './locations';
 import type { DesignspaceLocation, UserspaceLocation } from './locations';
 import {
@@ -107,9 +110,12 @@ import { getUndoRedoContext } from './undo-redo-context';
 import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
 import { getCommittedChangeRefreshPromise } from './change-bridge-init';
 import { recordLiveTextDiagnostic } from './live-text-diagnostics';
-import { QA_CORPUS_READY_EVENT } from './auto-qa-corpus';
-import { labelsForGlyph } from './auto-qa-matcher';
-import { destroyAutoQaTippy, renderAutoQaWidget } from './auto-qa-widget';
+import { QA_CORPUS_READY_EVENT } from './auto-qa/auto-qa-corpus';
+import { labelsForGlyph } from './auto-qa/auto-qa-matcher';
+import {
+    destroyAutoQaTippy,
+    renderAutoQaWidget
+} from './auto-qa/auto-qa-widget';
 
 let console: Logger = new Logger('GlyphCanvas');
 let latestOpenSessionId: string | null = null;
@@ -4025,6 +4031,7 @@ class GlyphCanvas {
                 this.textRunEditor!.shapeText(
                     options?.skipInitialShapeRender === true
                 );
+                await reapplyStartupCursorIfNeeded(this);
                 timelineSpanEnd(shapeTextSpanId);
                 console.log(
                     '[GlyphCanvas]',
@@ -4215,6 +4222,7 @@ class GlyphCanvas {
 
         if (this.textRunEditor) {
             this.textRunEditor.selectedGlyphIndex = -1;
+            this.textRunEditor.cursorPosition = 0;
             this.textRunEditor.selectedMasterId = null;
             this.textRunEditor.selectionStart = null;
             this.textRunEditor.selectionEnd = null;

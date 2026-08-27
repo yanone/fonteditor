@@ -62,4 +62,43 @@ describe('state-sync variation initialization', () => {
             { axisCount: 1 }
         );
     });
+
+    test('keeps edit-mode URL cursor as the selected glyph index after reshape', () => {
+        const callbacks = {};
+        const glyphCanvas = {
+            outlineEditor: { active: true },
+            axesManager: null,
+            featuresManager: null,
+            textRunEditor: {
+                cursorPosition: 15,
+                selectedGlyphIndex: 2,
+                shapedGlyphs: [],
+                glyphNameBuffer: [],
+                on: jest.fn((event, callback) => {
+                    callbacks[event] = callback;
+                })
+            }
+        };
+
+        window.stateManager = {
+            editor_cursor_position: 2,
+            isUrlSyncEnabled: jest.fn(() => true),
+            recordEvent: jest.fn()
+        };
+
+        let initStateSync;
+        jest.isolateModules(() => {
+            ({ initStateSync } = require('../js/state-sync'));
+        });
+
+        initStateSync(glyphCanvas);
+        callbacks.cursormoved();
+
+        expect(window.stateManager.editor_cursor_position).toBe(2);
+        expect(window.stateManager.recordEvent).toHaveBeenCalledWith(
+            'cursor_moved',
+            'TextRunEditor',
+            { cursor: 2 }
+        );
+    });
 });

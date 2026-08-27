@@ -17,20 +17,20 @@ const {
     localNamesByIdentity,
     observeGlyph,
     observeFont
-} = require('../../js/auto-qa-identity.ts');
-const { wilsonLowerBound } = require('../../js/auto-qa-stats.ts');
-const { qaCorpusIndex } = require('../../js/auto-qa-corpus.ts');
+} = require('../../js/auto-qa/auto-qa-identity.ts');
+const { wilsonLowerBound } = require('../../js/auto-qa/auto-qa-stats.ts');
+const { qaCorpusIndex } = require('../../js/auto-qa/auto-qa-corpus.ts');
 const {
     matchOpenFont,
     labelsForGlyph,
     formatQaLabel,
     invalidateQaMatchCache
-} = require('../../js/auto-qa-matcher.ts');
+} = require('../../js/auto-qa/auto-qa-matcher.ts');
 const {
     buildAutoQaPopup,
     destroyAutoQaTippy,
     renderAutoQaWidget
-} = require('../../js/auto-qa-widget.ts');
+} = require('../../js/auto-qa/auto-qa-widget.ts');
 
 const WORK_SANS_FIXTURE = JSON.parse(
     fs.readFileSync(

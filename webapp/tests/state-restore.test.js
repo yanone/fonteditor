@@ -12,10 +12,12 @@ describe('ensureStartupStateReady', () => {
 
         const initStateSync = jest.fn();
         const enableSync = jest.fn();
+        const disableSync = jest.fn();
 
         jest.doMock('../js/state-sync', () => ({
             initStateSync,
-            enableSync
+            enableSync,
+            disableSync
         }));
 
         const { ensureStartupStateReady } = require('../js/state-restore');
@@ -59,6 +61,7 @@ describe('ensureStartupStateReady', () => {
         await ensureStartupStateReady(glyphCanvas);
 
         expect(initStateSync).toHaveBeenCalledTimes(1);
+        expect(disableSync).toHaveBeenCalled();
         expect(enableSync).toHaveBeenCalledTimes(1);
         expect(glyphCanvas.hasInitializedStateSync).toBe(true);
         expect(setAxisValue).toHaveBeenCalledWith('wght', 540);
@@ -85,10 +88,12 @@ describe('ensureStartupStateReady', () => {
 
         const initStateSync = jest.fn();
         const enableSync = jest.fn();
+        const disableSync = jest.fn();
 
         jest.doMock('../js/state-sync', () => ({
             initStateSync,
-            enableSync
+            enableSync,
+            disableSync
         }));
 
         const { restoreStateFromUrl } = require('../js/state-restore');
@@ -99,6 +104,7 @@ describe('ensureStartupStateReady', () => {
             .fn()
             .mockImplementation(async (index) => {
                 glyphCanvas.textRunEditor.selectedGlyphIndex = index;
+                glyphCanvas.textRunEditor.cursorPosition = 15;
             });
         const setTextBuffer = jest.fn();
         const updateCursorVisualPosition = jest.fn();
@@ -147,6 +153,7 @@ describe('ensureStartupStateReady', () => {
         expect(selectGlyphByIndex).toHaveBeenCalledWith(1);
         expect(fetchLayerData).toHaveBeenCalledWith(true);
         expect(glyphCanvas.outlineEditor.active).toBe(true);
+        expect(window.stateManager.editor_cursor_position).toBe(1);
         // Overview highlight/scroll waits for the single fontReady overview paint.
         expect(syncActiveGlyphFocus).not.toHaveBeenCalled();
 
@@ -161,10 +168,12 @@ describe('ensureStartupStateReady', () => {
 
         const initStateSync = jest.fn();
         const enableSync = jest.fn();
+        const disableSync = jest.fn();
 
         jest.doMock('../js/state-sync', () => ({
             initStateSync,
-            enableSync
+            enableSync,
+            disableSync
         }));
         jest.doMock('../js/url-state', () => ({
             readUrlState: jest.fn(() => {
@@ -210,10 +219,12 @@ describe('ensureStartupStateReady', () => {
 
         const initStateSync = jest.fn();
         const enableSync = jest.fn();
+        const disableSync = jest.fn();
 
         jest.doMock('../js/state-sync', () => ({
             initStateSync,
-            enableSync
+            enableSync,
+            disableSync
         }));
         jest.unmock('../js/url-state');
 
@@ -247,5 +258,75 @@ describe('ensureStartupStateReady', () => {
         await restoreStateFromUrl(glyphCanvas);
 
         expect(setEnabledFeatures).toHaveBeenCalledWith(['liga', 'dlig']);
+    });
+
+    test('retries URL cursor after shaping if edit restore had no glyphs', async () => {
+        const initStateSync = jest.fn();
+        const enableSync = jest.fn();
+        const disableSync = jest.fn();
+
+        jest.doMock('../js/state-sync', () => ({
+            initStateSync,
+            enableSync,
+            disableSync
+        }));
+
+        const {
+            restoreStateFromUrl,
+            reapplyStartupCursorIfNeeded
+        } = require('../js/state-restore');
+
+        window.history.replaceState({}, '', '/?text=ab&cursor=1&mode=edit');
+
+        const selectGlyphByIndex = jest
+            .fn()
+            .mockImplementation(async (index) => {
+                glyphCanvas.textRunEditor.selectedGlyphIndex = index;
+                glyphCanvas.textRunEditor.cursorPosition = 15;
+            });
+
+        const glyphCanvas = {
+            featuresManager: null,
+            axesManager: null,
+            textRunEditor: {
+                textBuffer: 'ab',
+                shapedGlyphs: [],
+                selectedGlyphIndex: -1,
+                cursorPosition: 0,
+                setTextBuffer: jest.fn(),
+                updateCursorVisualPosition: jest.fn(),
+                selectGlyphByIndex
+            },
+            outlineEditor: {
+                active: false,
+                selectedLayerId: 'layer-1',
+                fetchLayerData: jest.fn().mockResolvedValue(undefined),
+                interpolateCurrentGlyph: jest.fn()
+            },
+            renderer: { render: jest.fn() },
+            autoSelectMatchingMaster: jest.fn().mockResolvedValue(undefined),
+            alignTextModeEscapeStateWithCurrentMaster: jest.fn()
+        };
+
+        window.stateManager = {
+            editor_file: '',
+            editor_text_buffer: '',
+            editor_cursor_position: 0,
+            editor_mode: 'text',
+            editor_variation_location: {},
+            editor_opentype_features_in_subset: {},
+            editor_opentype_features_not_in_subset: {}
+        };
+
+        await restoreStateFromUrl(glyphCanvas);
+        expect(selectGlyphByIndex).not.toHaveBeenCalled();
+        expect(window.stateManager.editor_cursor_position).toBe(1);
+
+        glyphCanvas.textRunEditor.shapedGlyphs = [{ cl: 0 }, { cl: 15 }];
+        await reapplyStartupCursorIfNeeded(glyphCanvas);
+
+        expect(selectGlyphByIndex).toHaveBeenCalledWith(1);
+        expect(window.stateManager.editor_cursor_position).toBe(1);
+        expect(glyphCanvas.outlineEditor.active).toBe(true);
     });
 });

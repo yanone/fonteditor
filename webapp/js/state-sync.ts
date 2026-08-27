@@ -10,6 +10,39 @@ const console = new Logger('StateSync');
 let isInitialized = false;
 
 /**
+ * URL `cursor` is the caret index in text mode and the selected glyph
+ * index in edit mode. Reshape always emits `cursormoved` even when the
+ * caret cluster changed as a side effect of `selectGlyphByIndex`.
+ */
+export function getUrlCursorFromEditor(glyphCanvas: GlyphCanvas): number {
+    const textRunEditor = glyphCanvas.textRunEditor;
+    if (!textRunEditor) {
+        return Number(window.stateManager?.editor_cursor_position ?? 0);
+    }
+
+    if (
+        glyphCanvas.outlineEditor?.active &&
+        textRunEditor.selectedGlyphIndex >= 0
+    ) {
+        return textRunEditor.selectedGlyphIndex;
+    }
+
+    return textRunEditor.cursorPosition;
+}
+
+function syncEditorCursorToState(glyphCanvas: GlyphCanvas): void {
+    if (!window.stateManager?.isUrlSyncEnabled()) {
+        return;
+    }
+
+    const cursor = getUrlCursorFromEditor(glyphCanvas);
+    window.stateManager.editor_cursor_position = cursor;
+    window.stateManager.recordEvent('cursor_moved', 'TextRunEditor', {
+        cursor
+    });
+}
+
+/**
  * Disable URL synchronization temporarily (e.g., during state restoration)
  */
 export function disableSync() {
@@ -132,13 +165,7 @@ export function initStateSync(glyphCanvas: GlyphCanvas) {
 
         // Monitor cursor position changes
         glyphCanvas.textRunEditor.on('cursormoved', () => {
-            if (!window.stateManager.isUrlSyncEnabled()) return;
-
-            const cursor = glyphCanvas.textRunEditor!.cursorPosition;
-            window.stateManager.editor_cursor_position = cursor;
-            window.stateManager.recordEvent('cursor_moved', 'TextRunEditor', {
-                cursor
-            });
+            syncEditorCursorToState(glyphCanvas);
         });
 
         syncHarfBuzzGlyphState();
@@ -159,6 +186,11 @@ export function initStateSync(glyphCanvas: GlyphCanvas) {
                     { cursor }
                 );
             }
+            return;
+        }
+
+        if (e.detail.mode === 'text' && glyphCanvas.textRunEditor) {
+            syncEditorCursorToState(glyphCanvas);
         }
     }) as EventListener);
 

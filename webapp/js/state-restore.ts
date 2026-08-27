@@ -5,11 +5,15 @@ import { readUrlState, decodeLocation, decodeFeatures } from './url-state';
 import { Logger } from './logger';
 import type { GlyphCanvas } from './glyph-canvas';
 import type { UserspaceLocation } from './locations';
-import { enableSync, initStateSync } from './state-sync';
+import { enableSync, initStateSync, disableSync } from './state-sync';
 
 const console = new Logger('StateRestore');
 let startupStateReady = false;
 let startupStateReadyPromise: Promise<void> | null = null;
+let pendingUrlCursorRestore: {
+    cursor: number;
+    mode: 'text' | 'edit' | null;
+} | null = null;
 
 function waitForNextAnimationFrame(): Promise<void> {
     return new Promise((resolve) => {
@@ -26,6 +30,8 @@ export function isStartupStateReady(): boolean {
 export function resetStartupStateReady(): void {
     startupStateReady = false;
     startupStateReadyPromise = null;
+    pendingUrlCursorRestore = null;
+    disableSync();
 }
 
 export async function ensureStartupStateReady(
@@ -41,6 +47,8 @@ export async function ensureStartupStateReady(
 
     startupStateReadyPromise = (async () => {
         try {
+            disableSync();
+
             if (!(glyphCanvas as any).hasInitializedStateSync) {
                 (glyphCanvas as any).hasInitializedStateSync = true;
                 initStateSync(glyphCanvas);
@@ -158,6 +166,24 @@ export async function restoreStateFromUrl(
             window.stateManager.editor_mode = urlState.mode;
         }
 
+        const restoredMode =
+            urlState.mode === 'edit' || urlState.mode === 'text'
+                ? urlState.mode
+                : null;
+        if (urlState.cursor !== null && urlState.cursor !== undefined) {
+            pendingUrlCursorRestore = {
+                cursor: urlState.cursor,
+                mode: restoredMode
+            };
+        } else if (restoredMode === 'edit') {
+            pendingUrlCursorRestore = {
+                cursor: window.stateManager.editor_cursor_position,
+                mode: 'edit'
+            };
+        } else {
+            pendingUrlCursorRestore = null;
+        }
+
         console.log('StateManager updated');
 
         // Now apply the state from StateManager to the actual managers
@@ -237,97 +263,24 @@ async function applyStateToManagers(glyphCanvas: GlyphCanvas): Promise<void> {
         glyphCanvas.textRunEditor.setTextBuffer(textBuffer);
     }
 
-    // 4. Apply cursor position
+    // 4-5. Apply cursor + mode. URL `cursor` is a caret offset in text
+    // mode and a shaped-glyph index in edit mode. Keep that value in
+    // StateManager so a later reshape cannot rewrite the URL from the
+    // cluster start `selectGlyphByIndex` stored on the caret.
     const cursorPosition = window.stateManager.editor_cursor_position;
-    if (
-        cursorPosition !== null &&
-        cursorPosition !== undefined &&
-        glyphCanvas.textRunEditor
-    ) {
-        console.log('Applying cursor position:', cursorPosition);
-
-        const maxPos = glyphCanvas.textRunEditor.textBuffer.length;
-        const cursorPos = Math.min(cursorPosition, maxPos);
-
-        glyphCanvas.textRunEditor.cursorPosition = cursorPos;
-        glyphCanvas.textRunEditor.updateCursorVisualPosition();
-
-        // Trigger render to show cursor at restored position
-        glyphCanvas.renderer?.render();
-    }
-
-    // 5. Apply mode (text vs editing)
-    const mode = window.stateManager.editor_mode;
-    if (mode) {
-        console.log('Applying mode:', mode);
-
-        if (mode === 'edit') {
-            // Enter editing mode
-            // Use cursor position to select the glyph
-            let glyphIndex = cursorPosition ?? 0;
-
-            // Ensure glyph index is within bounds
-            const maxIndex = glyphCanvas.textRunEditor!.shapedGlyphs.length - 1;
-            glyphIndex = Math.max(0, Math.min(glyphIndex, maxIndex));
-
-            console.log('Selecting glyph at index:', glyphIndex);
-            try {
-                await glyphCanvas.textRunEditor!.selectGlyphByIndex(glyphIndex);
-            } catch (error) {
-                console.warn(
-                    'selectGlyphByIndex failed during restore; continuing in edit mode when possible:',
-                    error
-                );
-            }
-
-            // Activate editing mode
-            if (glyphCanvas.textRunEditor!.selectedGlyphIndex >= 0) {
-                glyphCanvas.outlineEditor.active = true;
-
-                // Ensure layer data + render metrics are initialized on startup restore.
-                // Without this, metric underlay lines may not appear until a manual layer switch.
-                if (glyphCanvas.outlineEditor.selectedLayerId !== null) {
-                    try {
-                        await glyphCanvas.outlineEditor.fetchLayerData(true);
-                    } catch (error) {
-                        console.warn(
-                            'fetchLayerData failed during restore; continuing:',
-                            error
-                        );
-                    }
-                } else {
-                    try {
-                        await glyphCanvas.outlineEditor.interpolateCurrentGlyph(
-                            true
-                        );
-                    } catch (error) {
-                        console.warn(
-                            'interpolateCurrentGlyph failed during restore; continuing:',
-                            error
-                        );
-                    }
-                }
-
-                glyphCanvas.renderer?.render();
-            } else {
-                // If glyph selection failed, keep state as text mode to avoid inconsistent UI
-                glyphCanvas.outlineEditor.active = false;
-                glyphCanvas.renderer?.render();
-            }
-        } else {
-            // Ensure we're in text mode
-            glyphCanvas.outlineEditor.active = false;
-            try {
-                await glyphCanvas.autoSelectMatchingMaster();
-                glyphCanvas.alignTextModeEscapeStateWithCurrentMaster();
-            } catch (error) {
-                console.warn(
-                    'autoSelectMatchingMaster failed during text-mode restore; continuing:',
-                    error
-                );
-            }
-            glyphCanvas.renderer?.render();
-        }
+    const mode =
+        pendingUrlCursorRestore?.mode ??
+        (window.stateManager.editor_mode === 'edit' ||
+        window.stateManager.editor_mode === 'text'
+            ? window.stateManager.editor_mode
+            : null);
+    const applied = await applyUrlCursorToEditor(
+        glyphCanvas,
+        pendingUrlCursorRestore?.cursor ?? cursorPosition,
+        mode
+    );
+    if (applied) {
+        pendingUrlCursorRestore = null;
     } else if (!glyphCanvas.outlineEditor.active) {
         try {
             await glyphCanvas.autoSelectMatchingMaster();
@@ -338,7 +291,124 @@ async function applyStateToManagers(glyphCanvas: GlyphCanvas): Promise<void> {
                 error
             );
         }
+        glyphCanvas.renderer?.render();
     }
+}
+
+/**
+ * Re-apply a URL cursor that restore could not place yet (no shaped run).
+ * Called after later setFont/shape passes during the same open.
+ */
+export async function reapplyStartupCursorIfNeeded(
+    glyphCanvas: GlyphCanvas
+): Promise<void> {
+    const pending = pendingUrlCursorRestore;
+    if (!pending || !glyphCanvas?.textRunEditor) {
+        return;
+    }
+
+    const applied = await applyUrlCursorToEditor(
+        glyphCanvas,
+        pending.cursor,
+        pending.mode
+    );
+    if (applied) {
+        pendingUrlCursorRestore = null;
+    }
+}
+
+async function applyUrlCursorToEditor(
+    glyphCanvas: GlyphCanvas,
+    cursorPosition: number,
+    mode: 'text' | 'edit' | null
+): Promise<boolean> {
+    const textRunEditor = glyphCanvas.textRunEditor;
+    if (!textRunEditor) {
+        return false;
+    }
+
+    if (mode === 'edit') {
+        if (!textRunEditor.shapedGlyphs.length) {
+            console.log(
+                'Deferring edit-mode cursor restore until glyphs are shaped:',
+                cursorPosition
+            );
+            return false;
+        }
+
+        let glyphIndex = cursorPosition ?? 0;
+        const maxIndex = textRunEditor.shapedGlyphs.length - 1;
+        glyphIndex = Math.max(0, Math.min(glyphIndex, maxIndex));
+
+        console.log('Selecting glyph at index:', glyphIndex);
+        try {
+            await textRunEditor.selectGlyphByIndex(glyphIndex);
+        } catch (error) {
+            console.warn(
+                'selectGlyphByIndex failed during restore; continuing in edit mode when possible:',
+                error
+            );
+        }
+
+        if (textRunEditor.selectedGlyphIndex >= 0) {
+            glyphCanvas.outlineEditor.active = true;
+            window.stateManager.editor_cursor_position =
+                textRunEditor.selectedGlyphIndex;
+
+            if (glyphCanvas.outlineEditor.selectedLayerId !== null) {
+                try {
+                    await glyphCanvas.outlineEditor.fetchLayerData(true);
+                } catch (error) {
+                    console.warn(
+                        'fetchLayerData failed during restore; continuing:',
+                        error
+                    );
+                }
+            } else {
+                try {
+                    await glyphCanvas.outlineEditor.interpolateCurrentGlyph(
+                        true
+                    );
+                } catch (error) {
+                    console.warn(
+                        'interpolateCurrentGlyph failed during restore; continuing:',
+                        error
+                    );
+                }
+            }
+
+            glyphCanvas.renderer?.render();
+            return true;
+        }
+
+        glyphCanvas.outlineEditor.active = false;
+        glyphCanvas.renderer?.render();
+        return false;
+    }
+
+    const maxPos = textRunEditor.textBuffer.length;
+    const cursorPos = Math.min(Math.max(0, cursorPosition ?? 0), maxPos);
+    console.log('Applying cursor position:', cursorPos);
+    textRunEditor.cursorPosition = cursorPos;
+    textRunEditor.updateCursorVisualPosition();
+    window.stateManager.editor_cursor_position = cursorPos;
+    glyphCanvas.renderer?.render();
+
+    if (mode === 'text' || !mode) {
+        glyphCanvas.outlineEditor.active = false;
+        try {
+            await glyphCanvas.autoSelectMatchingMaster();
+            glyphCanvas.alignTextModeEscapeStateWithCurrentMaster();
+        } catch (error) {
+            console.warn(
+                'autoSelectMatchingMaster failed during text-mode restore; continuing:',
+                error
+            );
+        }
+        glyphCanvas.renderer?.render();
+    }
+
+    return true;
 }
 
 // Export for use in window

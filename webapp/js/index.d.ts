@@ -15,7 +15,7 @@ import type { WindowRoleManager } from './window-role';
 import type { CloudPlugin, CloudEligibility, CloudAsset } from './cloud-plugin';
 import type { FindGlyphDialog } from './find-glyph-dialog';
 import type { GlyphDataIndex } from './glyph-data';
-import type { QaCorpusIndex } from './auto-qa-corpus';
+import type { QaCorpusIndex } from './auto-qa/auto-qa-corpus';
 import type { AddGlyphsDialog } from './add-glyphs-dialog';
 import type { RenameGlyphsDialog } from './rename-glyphs-dialog';
 import type { DeleteGlyphsDialog } from './delete-glyphs-dialog';

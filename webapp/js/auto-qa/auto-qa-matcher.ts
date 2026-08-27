@@ -1,4 +1,4 @@
-import type { Font, Glyph } from './babelfont-model';
+import type { Font, Glyph } from '../babelfont-model';
 import {
     glyphsByNameMap,
     localNamesByIdentity,

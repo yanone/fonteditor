@@ -1,7 +1,7 @@
 import tippy, { type Instance } from 'tippy.js';
 import type { QaLabel } from './auto-qa-matcher';
 import { formatQaLabel } from './auto-qa-matcher';
-import { getTheme } from './tippy-utils';
+import { getTheme } from '../tippy-utils';
 
 let autoQaTippy: Instance | null = null;
 
