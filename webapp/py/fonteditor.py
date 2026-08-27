@@ -51,12 +51,14 @@ _DICT_LIKE_FIELDS_BY_CLASS = {
         'color',
         'format_specific',
         'location',
+        'master',
         'smart_component_location',
     },
     'Master': {
         'custom_ot_values',
         'format_specific',
         'kerning',
+        'kerning_rtl',
         'location',
         'metrics',
         'name',
@@ -91,17 +93,35 @@ def _get_constructor_name(value):
         return ''
 
 
+def _has_js_callable(value, name):
+    try:
+        attr = getattr(value, name, None)
+    except Exception:
+        return False
+    if attr is None or _is_js_null_or_undefined(attr):
+        return False
+    return _is_js_function(attr) or callable(attr)
+
+
 def _infer_model_class_name(value):
     name = _get_constructor_name(value)
     if name in _DICT_LIKE_FIELDS_BY_CLASS:
         return name
     try:
-        find_glyph = getattr(value, 'findGlyph', None)
-        if _is_js_function(find_glyph) or callable(find_glyph):
+        if _has_js_callable(value, 'findGlyph'):
             return 'Font'
-        add_layer = getattr(value, 'addLayer', None)
-        if _is_js_function(add_layer) or callable(add_layer):
+        if _has_js_callable(value, 'addLayer'):
             return 'Glyph'
+        if _has_js_callable(value, 'getMaster') or _has_js_callable(
+            value, 'addAnchor'
+        ):
+            return 'Layer'
+        if _has_js_callable(value, 'addGuide'):
+            return 'Master'
+        if _has_js_callable(value, 'addPath') and _has_js_callable(
+            value, 'addComponent'
+        ):
+            return 'Layer'
     except Exception:
         pass
     return name
@@ -186,7 +206,7 @@ def _js_proxy_to_py_dict(value):
                 continue
             nested = (
                 _js_proxy_to_py_dict(item)
-                if isinstance(item, pyodide.ffi.JsProxy)
+                if (_is_js_proxy_value(item) or _is_plain_js_object(item))
                 and not _is_js_array(item)
                 and not _is_js_function(item)
                 else None
@@ -222,26 +242,56 @@ def _is_js_array(value):
     return _get_constructor_name(value) == 'Array'
 
 
+_PLAIN_JS_OBJECT_CONSTRUCTORS = frozenset(
+    {'', 'Object', 'Proxy', 'LiveMutableProxy'}
+)
+
+
+def _is_js_proxy_value(value):
+    try:
+        if isinstance(value, pyodide.ffi.JsProxy):
+            return True
+    except TypeError:
+        pass
+    return False
+
+
+def _is_python_scalar_or_container(value):
+    return value is None or isinstance(
+        value, (str, int, float, bool, dict, list, tuple, bytes)
+    )
+
+
 def _is_plain_js_object(value):
-    if not isinstance(value, pyodide.ffi.JsProxy):
+    if isinstance(
+        value, (ModelObjectProxy, LiveDictProxy, LiveMapProxy, LiveListProxy)
+    ):
+        return False
+    if _is_python_scalar_or_container(value):
         return False
     if _is_js_array(value):
         return False
     if _is_js_map(value):
         return False
-
-    constructor_name = _get_constructor_name(value)
-    if constructor_name == 'Object':
-        return True
-
-    if constructor_name not in ('', 'Proxy'):
+    if _is_js_function(value):
         return False
 
-    return _get_object_tag(value) == '[object Object]'
+    if _infer_model_class_name(value) in _DICT_LIKE_FIELDS_BY_CLASS:
+        return False
+    constructor_name = _get_constructor_name(value)
+    if constructor_name not in _PLAIN_JS_OBJECT_CONSTRUCTORS:
+        if _get_object_tag(value) != '[object Object]':
+            return False
+
+    try:
+        js.Object.keys(value)
+        return True
+    except Exception:
+        return False
 
 
 def _is_js_map(value):
-    if not isinstance(value, pyodide.ffi.JsProxy):
+    if _is_python_scalar_or_container(value):
         return False
     if _get_constructor_name(value) == 'Map':
         return True
@@ -274,6 +324,10 @@ def _materialize_py_value(value):
         return value.to_py()
     if isinstance(value, ModelObjectProxy):
         return value._js_obj
+    if _is_js_map(value) or _is_plain_js_object(value):
+        wrapped = _wrap_js_value(value)
+        if wrapped is not value and hasattr(wrapped, 'to_py'):
+            return wrapped.to_py()
     return value
 
 
@@ -283,6 +337,18 @@ def _js_get(target, key):
 
 def _js_set(target, key, value):
     js.Reflect.set(target, key, value)
+
+
+def _js_has_property(target, key):
+    try:
+        return bool(js.Reflect.has(target, key))
+    except Exception:
+        try:
+            return bool(
+                js.Object.prototype.hasOwnProperty.call(target, key)
+            )
+        except Exception:
+            return False
 
 
 def _is_mapping_assignment_value(value):
@@ -307,41 +373,28 @@ def _wrap_js_value(value, owner_class_name=None, attr_name=None):
     if _is_js_array(value):
         return LiveListProxy(value)
 
-    if not isinstance(value, pyodide.ffi.JsProxy):
-        return value
-
     constructor_name = _infer_model_class_name(value)
-    dict_fields = _DICT_LIKE_FIELDS_BY_CLASS.get(constructor_name, set())
-    wrap_object_fields = _WRAPPED_OBJECT_FIELDS_BY_CLASS.get(
-        owner_class_name or constructor_name, set()
-    )
-    force_dict_wrap = attr_name in dict_fields
-    snapshot_object = (
+    owner = owner_class_name or constructor_name
+    dict_fields = _DICT_LIKE_FIELDS_BY_CLASS.get(owner, set())
+    wrap_object_fields = _WRAPPED_OBJECT_FIELDS_BY_CLASS.get(owner, set())
+    force_dict_wrap = bool(attr_name) and attr_name in dict_fields
+    snapshot_object = bool(attr_name) and (
         attr_name in _SNAPSHOT_OBJECT_ATTRS or attr_name in wrap_object_fields
     )
 
-    if snapshot_object:
+    if snapshot_object and not _is_python_scalar_or_container(value):
         converted = _js_proxy_to_py_dict(value)
         if converted is not None:
             return converted
 
-    if force_dict_wrap and _is_js_map(value):
-        return LiveMapProxy(value)
-
-    if force_dict_wrap and _is_plain_js_object(value):
-        return LiveDictProxy(value)
-
-    if force_dict_wrap:
-        return LiveDictProxy(value)
+    if constructor_name in _DICT_LIKE_FIELDS_BY_CLASS:
+        return ModelObjectProxy(value)
 
     if _is_js_map(value):
         return LiveMapProxy(value)
 
-    if _is_plain_js_object(value):
+    if force_dict_wrap or _is_plain_js_object(value):
         return LiveDictProxy(value)
-
-    if constructor_name in _DICT_LIKE_FIELDS_BY_CLASS:
-        return ModelObjectProxy(value)
 
     return value
 
@@ -375,7 +428,7 @@ class LiveDictProxy(MutableMapping):
 
     def __getitem__(self, key):
         key_string = str(key)
-        if not bool(js.Object.prototype.hasOwnProperty.call(self._js_obj, key_string)):
+        if not _js_has_property(self._js_obj, key_string):
             raise KeyError(key)
         return _wrap_js_value(_js_get(self._js_obj, key_string))
 
@@ -421,6 +474,9 @@ class LiveDictProxy(MutableMapping):
 
     def __repr__(self):
         return repr(self.to_py())
+
+    def __str__(self):
+        return self.__repr__()
 
     def __getattr__(self, name):
         if self._is_attr_key(name):
@@ -494,6 +550,9 @@ class LiveMapProxy(MutableMapping):
 
     def __repr__(self):
         return repr(self.to_py())
+
+    def __str__(self):
+        return self.__repr__()
 
     def __getattr__(self, name):
         if self._is_attr_key(name):
@@ -663,6 +722,27 @@ class ModelObjectProxy:
         if owner_class_name == 'Layer' and name == 'selection':
             return LayerSelectionProxy(self._js_obj)
 
+        if owner_class_name == 'Glyph' and name == 'anchors':
+            try:
+                raw_anchors = getattr(self._js_obj, 'anchors', None)
+            except AttributeError:
+                raw_anchors = None
+            if raw_anchors is not None and not _is_js_null_or_undefined(
+                raw_anchors
+            ):
+                return _wrap_js_value(raw_anchors, owner_class_name, name)
+
+            layers = _wrap_js_value(
+                getattr(self._js_obj, 'layers', None), 'Glyph', 'layers'
+            )
+            collected = []
+            if layers:
+                for layer in layers:
+                    layer_anchors = getattr(layer, 'anchors', None)
+                    if layer_anchors:
+                        collected.extend(list(layer_anchors))
+            return collected
+
         raw = getattr(self._js_obj, name)
         if _is_js_function(raw):
             def method(*args, **kwargs):
@@ -740,7 +820,7 @@ def _cp_classify_filter_glyphs(glyphs, classify_fn, candidate_fn=None):
 
     results = {}
     for glyph in glyphs:
-        wrapped = _cp_wrap_js_value(glyph)
+        wrapped = _as_model_proxy(glyph)
         name = getattr(wrapped, 'name', None)
         if not name:
             continue

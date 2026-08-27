@@ -168,11 +168,45 @@ window.cleanPythonTraceback = function cleanPythonTraceback(
         const afterHeader = headerMatch[1].trim();
         // If there are no "File" lines (no frames), just return the error message
         if (!afterHeader.includes('File "')) {
-            return afterHeader;
+            return window.sanitizePythonRuntimeError(afterHeader);
         }
     }
 
-    return result;
+    return window.sanitizePythonRuntimeError(result);
+};
+
+/**
+ * Rewrite Pyodide/JsProxy exceptions so assistants and the console see
+ * ordinary Python errors.
+ */
+window.sanitizePythonRuntimeError = function sanitizePythonRuntimeError(
+    errorMessage: string
+): string {
+    if (!errorMessage || typeof errorMessage !== 'string') {
+        return errorMessage;
+    }
+
+    let text = errorMessage;
+    text = text.replace(
+        /'pyodide\.ffi\.JsProxy' object is not subscriptable/g,
+        'object is not subscriptable; use attribute access (for example name.dflt)'
+    );
+    text = text.replace(
+        /'JsProxy' object is not subscriptable/g,
+        'object is not subscriptable; use attribute access (for example name.dflt)'
+    );
+    text = text.replace(/pyodide\.ffi\.JsProxy/g, 'object');
+    text = text.replace(/pyodide\.ffi\.JsNull/g, 'None');
+    text = text.replace(/pyodide\.ffi\.JsUndefined/g, 'None');
+    text = text.replace(/\bJsProxy\b/g, 'object');
+    text = text.replace(/\bJsNull\b/g, 'None');
+    text = text.replace(/\bJsUndefined\b/g, 'None');
+    text = text.replace(/\bpyodide\.ffi\./g, '');
+    text = text.replace(/\s*\(Pyodide\)/gi, '');
+    text = text.replace(/\bPyodide\b/g, 'Python');
+    text = text.replace(/\bpyodide\b/g, 'Python');
+    text = text.replace(/\bjs\./g, '');
+    return text;
 };
 
 /**

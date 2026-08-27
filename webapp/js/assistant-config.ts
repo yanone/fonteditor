@@ -166,7 +166,7 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
         function: {
             name: 'execute_python_code',
             description:
-                "Execute a custom Python script to read or modify the current font. Use the tool `python_api_docs` first to learn how to write Python scripts for the font model. The font is accessible via the Font() function which is readily available and doesn't need to be imported. For quality-assurance messages, read glyph.qa (list of dicts with sourceId, severity, checkId, message, messageId; built-in Auto QA uses sourceId 'auto-qa'). Print output with print() to see results. Changes to the font model are automatically tracked and compiled.",
+                "Execute Python to read or modify the current font. Call python_api_docs first for unfamiliar APIs. Font() is preloaded. Inspect with print() on specific fields (print(master.name.dflt), print(master.location)); do not serialize the whole font to JSON to read one field. For quality-assurance messages, read glyph.qa (list of dicts with sourceId, severity, checkId, message, messageId; built-in Auto QA uses sourceId 'auto-qa'). Changes to the font model are automatically tracked and compiled.",
             parameters: {
                 type: 'object',
                 properties: {
@@ -749,7 +749,7 @@ At the beginning of every prompt, call set_prompt_history_summary with a concise
 
 Every request includes the current editor state and whether Assistant editing is allowed. Treat that permission as authoritative. The editor state names the active glyph (activeGlyphName, null when none is being edited) and the text-run caret (cursorPosition, a logical index into textBufferRaw). When Assistant editing is disabled, you may still inspect the font, including with execute_python_code, and adjust editor UI state. Do not use Python or any other tool to modify font data. If you decline an edit because of this permission, tell the user that they can enable editing with the pen button in the Assistant title bar before sending a new prompt. You cannot change the permission yourself, and it remains frozen for the current prompt.
 
-Use execute_python_code to inspect or modify the current font model. Call python_api_docs before using unfamiliar model APIs.
+Use execute_python_code to inspect or modify the current font model. Call python_api_docs before using unfamiliar model APIs. Inspect with print() on the field you need, for example print(master.name.dflt) and print(master.location). Never serialize the whole font to JSON to read one field.
 
 Quality-assurance messages live on Glyph.qa. That getter returns a list of dicts with sourceId, severity, checkId, message, and messageId. Built-in Auto QA uses sourceId "auto-qa" and checkId values such as missing_component, missing_anchor, and wrong_component_order. Future plugins may add more rows to the same list. Read glyph.qa with execute_python_code when the user asks about missing components, anchors, component order, or other glyph QA. It never writes the font.
 

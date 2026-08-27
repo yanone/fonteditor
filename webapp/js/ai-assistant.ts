@@ -3040,7 +3040,7 @@ def classify_glyph(glyph):
                 const pyodide = (window as any).pyodide;
                 if (!pyodide)
                     throw new Error(
-                        'Python environment (Pyodide) not loaded yet. Please wait and try again.'
+                        'Python environment not loaded yet. Please wait and try again.'
                     );
 
                 // Stdout setup and cleanup are implementation details, not
@@ -3109,14 +3109,20 @@ if '_assistant_original_stdout' in dir():
                                     cleanupError
                                 );
                             }
+                            const pythonError =
+                                window.sanitizePythonRuntimeError(
+                                    err?.message
+                                        ? String(err.message)
+                                        : String(err)
+                                );
                             if (execution?.commitState === 'partial') {
                                 return JSON.stringify({
-                                    error: `Python error: ${err.message}`,
+                                    error: `Python error: ${pythonError}`,
                                     changesCommitted: true,
                                     state: 'partial'
                                 });
                             }
-                            throw new Error(`Python error: ${err.message}`);
+                            throw new Error(`Python error: ${pythonError}`);
                         }
 
                         return output || '(no output)';

@@ -84,11 +84,25 @@
             } catch (error) {
                 const errorMessage =
                     error instanceof Error ? error.message : String(error);
+                const sanitizedMessage =
+                    typeof window.sanitizePythonRuntimeError === 'function'
+                        ? window.sanitizePythonRuntimeError(errorMessage)
+                        : errorMessage;
                 console.error(
                     '[PythonExec]',
                     `❌ Execution #${execId} failed:`,
-                    errorMessage
+                    sanitizedMessage
                 );
+                if (
+                    error instanceof Error &&
+                    error.message !== sanitizedMessage
+                ) {
+                    try {
+                        error.message = sanitizedMessage;
+                    } catch {
+                        // Some host Error objects freeze message.
+                    }
+                }
                 throw error;
             } finally {
                 // Call after-execution hook (always, even on error)
@@ -150,11 +164,25 @@
             } catch (error) {
                 const errorMessage =
                     error instanceof Error ? error.message : String(error);
+                const sanitizedMessage =
+                    typeof window.sanitizePythonRuntimeError === 'function'
+                        ? window.sanitizePythonRuntimeError(errorMessage)
+                        : errorMessage;
                 console.error(
                     '[PythonExec]',
                     `❌ Execution #${execId} failed:`,
-                    errorMessage
+                    sanitizedMessage
                 );
+                if (
+                    error instanceof Error &&
+                    error.message !== sanitizedMessage
+                ) {
+                    try {
+                        error.message = sanitizedMessage;
+                    } catch {
+                        // Some host Error objects freeze message.
+                    }
+                }
                 throw error;
             } finally {
                 // Call after-execution hook (always, even on error)

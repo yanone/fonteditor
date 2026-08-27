@@ -226,8 +226,8 @@ function tsToPythonType(tsType) {
         void: "None",
         undefined: "None",
         null: "None",
-        "Babelfont.I18NDictionary": "dict[str, str]",
-        "Babelfont.Names": "dict[str, dict[str, str] | None]",
+        "Babelfont.I18NDictionary": "I18NDictionary",
+        "Babelfont.Names": "Names",
         "Babelfont.Features": "dict",
         "Babelfont.CustomOTValues": "dict[str, Any]",
         "Babelfont.DecomposedAffine": "dict",
@@ -545,9 +545,10 @@ font = Font()
 ### Dictionary Access (Python wrappers)
 
 Dictionary-like object model fields are wrapped as live Python mappings.
-Use attribute access when the key is a valid Python identifier. Use dictionary
-access for I18N language tags, kerning pair/group keys, and Python keywords
-such as \`type\`.
+Use attribute access when the name is a Python identifier, including I18N
+language tags (\`name.dflt\`) and designspace locations (\`location.wght\`).
+Do not use \`.get()\`. Index kerning by glyph or group name
+(\`kerning["A"]["V"]\`).
 
 \`\`\`python
 font = Font()
@@ -560,15 +561,17 @@ master.kerning["A"]["V"] = -80
 xh = master.metrics.XHeight
 master.metrics.Ascender = 800
 
-# Internationalized naming dictionaries (language tags stay keyed)
-font.names.family_name["dflt"] = "My Family"
-font.names.family_name["de"] = "Meine Familie"
-font.names.family_name["fr"] = "Ma Famille"
-font.names.family_name["ar"] = "عائلتي"
-master.name["dflt"] = "Standard"
-master.name["de"] = "Standard"
-master.name["fr"] = "Standard"
-master.name["ar"] = "قياسي"
+# I18N: language tags are attributes
+print(font.names.family_name.dflt)
+font.names.family_name.dflt = "My Family"
+font.names.family_name.de = "Meine Familie"
+font.names.family_name.fr = "Ma Famille"
+print(master.name.dflt)
+master.name.dflt = "Standard"
+
+# Designspace location
+print(master.location)
+print(master.location.wght)
 
 # Optional snapshot copy when needed
 kerning_snapshot = master.kerning.as_dict()
@@ -764,10 +767,9 @@ av_value = master.kerning["A"]["V"]
 print(f"A/V kerning: {av_value}")
 
 # Update localized names
-font.names.family_name["dflt"] = "Counterpunch Sans"
-font.names.family_name["de"] = "Counterpunch Sans DE"
-font.names.family_name["fr"] = "Counterpunch Sans FR"
-font.names.family_name["ar"] = "كاونتربنش سانس"
+font.names.family_name.dflt = "Counterpunch Sans"
+font.names.family_name.de = "Counterpunch Sans DE"
+font.names.family_name.fr = "Counterpunch Sans FR"
 \`\`\`
 
 ### Example 8: Editing OpenType Features List
@@ -830,11 +832,12 @@ if glyph.layers:
 Dictionary-like fields reject scalar overwrite assignments to prevent broken model state.
 
 \`\`\`python
-# ❌ Avoid replacing a language dictionary with a string
+# ❌ Avoid replacing a language table with a string
 # font.names.family_name = "My Font"
+# font.names.family_name.get("dflt")
 
-# ✅ Set a language value inside the dictionary
-font.names.family_name["dflt"] = "My Font"
+# ✅ Language tags are attributes
+font.names.family_name.dflt = "My Font"
 
 # ✅ Or replace with a full mapping
 font.names.family_name = {

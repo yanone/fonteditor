@@ -257,6 +257,7 @@ declare global {
             errorMessage: string,
             options?: number | { lineOffset?: number; skipExecFrames?: boolean }
         ) => string;
+        sanitizePythonRuntimeError: (errorMessage: string) => string;
         adjustTracebackLineNumbers: (
             errorMessage: string,
             lineOffset: number,

@@ -19,6 +19,8 @@ describe('assistant configuration', () => {
             }
         });
         expect(tool.function.description).toContain('Font()');
+        expect(tool.function.description).toContain('print(master.name.dflt)');
+        expect(tool.function.description).not.toContain('Pyodide');
     });
 
     test('directs users to enable font editing from the Assistant title bar', () => {
@@ -40,6 +42,11 @@ describe('assistant configuration', () => {
         expect(ASSISTANT_SYSTEM_PROMPT).not.toContain(
             'must not modify font data or run execute_python_code'
         );
+        expect(ASSISTANT_SYSTEM_PROMPT).toContain('print(master.name.dflt)');
+        expect(ASSISTANT_SYSTEM_PROMPT).toContain(
+            'Never serialize the whole font to JSON to read one field'
+        );
+        expect(ASSISTANT_SYSTEM_PROMPT).not.toContain('Pyodide');
     });
 
     test('gives a literal Python document workflow before substantive edits', () => {

@@ -76,13 +76,21 @@ class FakeJsMap(JsProxy):
         return list(self._store.keys())
 
 
-class FakeJsObjectProxy(JsProxy):
+class FakeRecordStore:
     constructor_name = 'Proxy'
 
     def __init__(self, data=None):
         self.constructor = FakeConstructor(self.constructor_name)
         self._data = dict(data or {})
 
+    def __str__(self):
+        return '[object Object]'
+
+    def __repr__(self):
+        return '[object Object]'
+
+
+class FakeJsObjectProxy(FakeRecordStore, JsProxy):
     def to_py(self):
         result = {}
         for key, item in self._data.items():
@@ -91,6 +99,10 @@ class FakeJsObjectProxy(JsProxy):
             else:
                 result[key] = item
         return result
+
+
+class FakeLiveRecord(FakeRecordStore):
+    """A getLiveMutableValue-style Proxy that is not a Pyodide JsProxy."""
 
 
 class FakeJsOpaqueObject(FakeJsObjectProxy):
@@ -146,10 +158,20 @@ class FakeLayer(FakeJsBase):
 class FakeMaster(FakeJsBase):
     constructor_name = 'Master'
 
-    def __init__(self, kerning, master_id='master-1'):
+    def __init__(
+        self,
+        kerning,
+        master_id='master-1',
+        name=None,
+        location=None,
+        metrics=None,
+    ):
         super().__init__()
         self.id = master_id
         self.kerning = kerning
+        self.name = name if name is not None else FakeLiveRecord({'dflt': 'ExtraLight'})
+        self.location = location if location is not None else FakeLiveRecord({'wght': 30})
+        self.metrics = metrics if metrics is not None else FakeLiveRecord({'XHeight': 500})
 
 
 class FakeGlyph(FakeJsBase):
@@ -173,6 +195,9 @@ class FakeFont(FakeJsBase):
         super().__init__()
         self.glyphs = FakeJsArray(glyphs)
         self.masters = FakeJsArray(masters)
+        self.names = FakeLiveRecord(
+            {'family_name': FakeLiveRecord({'dflt': 'Test Family'})}
+        )
 
     def findGlyph(self, name):
         for glyph in self.glyphs:
@@ -197,6 +222,9 @@ class FakeLayerForMaster(FakeJsBase):
 
     def getMaster(self):
         return self._master
+
+    def addAnchor(self, *args):
+        return None
 
 
 class FakeOutlineEditor(FakeJsBase):
@@ -238,7 +266,7 @@ class FakeHost(FakeJsBase):
 
 
 def _fake_has_own_property(obj, key):
-    if isinstance(obj, FakeJsObjectProxy):
+    if isinstance(obj, FakeRecordStore):
         return str(key) in obj._data
     if isinstance(obj, dict):
         return str(key) in obj
@@ -250,13 +278,13 @@ def _fake_to_string(value):
         return '[object Array]'
     if isinstance(value, FakeJsMap):
         return '[object Map]'
-    if isinstance(value, FakeJsObjectProxy):
+    if isinstance(value, FakeRecordStore):
         return '[object Object]'
     return '[object Object]'
 
 
 def _fake_keys(obj):
-    if isinstance(obj, FakeJsObjectProxy):
+    if isinstance(obj, FakeRecordStore):
         return FakeJsArray(list(obj._data.keys()))
     if isinstance(obj, dict):
         return FakeJsArray(list(obj.keys()))
@@ -272,7 +300,7 @@ def _fake_keys(obj):
 def _fake_reflect_get(target, key):
     if isinstance(target, (list, FakeJsArray)):
         return target[key]
-    if isinstance(target, FakeJsObjectProxy):
+    if isinstance(target, FakeRecordStore):
         return target._data[str(key)]
     if isinstance(target, dict):
         return target[str(key)]
@@ -289,7 +317,7 @@ def _fake_reflect_set(target, key, value):
             target.append(None)
         target[index] = value
         return True
-    if isinstance(target, FakeJsObjectProxy):
+    if isinstance(target, FakeRecordStore):
         target._data[str(key)] = value
         return True
     if isinstance(target, dict):
@@ -324,10 +352,20 @@ def _install_stub_modules():
         fromEntries=lambda entries: dict(entries),
         keys=_fake_keys,
     )
-    js_module.Reflect = types.SimpleNamespace(get=_fake_reflect_get, set=_fake_reflect_set)
+    js_module.Reflect = types.SimpleNamespace(
+        get=_fake_reflect_get,
+        set=_fake_reflect_set,
+        has=lambda target, key: (
+            str(key) in target._data
+            if isinstance(target, FakeRecordStore)
+            else str(key) in target
+            if isinstance(target, dict)
+            else hasattr(target, str(key))
+        ),
+    )
     js_module.Reflect.deleteProperty = lambda target, key: (
         target._data.pop(str(key), None) is not None
-        if isinstance(target, FakeJsObjectProxy)
+        if isinstance(target, FakeRecordStore)
         else target.pop(str(key), None) is not None
         if isinstance(target, dict)
         else False
@@ -336,7 +374,7 @@ def _install_stub_modules():
     def _fake_json_stringify(value):
         import json as json_module
 
-        if isinstance(value, FakeJsObjectProxy):
+        if isinstance(value, FakeRecordStore):
             if value._data.get('__empty_json__'):
                 return '{}'
             return json_module.dumps(
@@ -603,6 +641,84 @@ class FontEditorSelectionBridgeTest(unittest.TestCase):
         self.assertEqual(resolved.glyphData['script'], 'Latn')
         self.assertNotIn('[object Object]', repr(resolved.category))
         self.assertNotIn('[object Object]', repr(resolved.glyphData))
+
+    def test_proxy_constructed_layer_exposes_anchors(self):
+        layer = FakeLayerForMaster('layer-1')
+        layer.constructor = FakeConstructor('Proxy')
+        layer.anchors = FakeJsArray([self.anchor_a])
+        proxy = self.fonteditor._wrap_js_value(layer)
+
+        self.assertIsInstance(proxy, self.fonteditor.ModelObjectProxy)
+        self.assertEqual(len(proxy.anchors), 1)
+        self.assertEqual(proxy.anchors[0]._js_obj, self.anchor_a)
+
+    def test_classify_filter_glyphs_reads_anchors_on_proxy_glyph(self):
+        layer = FakeLayerForMaster('layer-1')
+        layer.constructor = FakeConstructor('Proxy')
+        layer.anchors = FakeJsArray([])
+        glyph = FakeGlyph('A', [layer])
+        glyph.constructor = FakeConstructor('Proxy')
+
+        seen = []
+
+        def classify_glyph(wrapped_glyph):
+            seen.append(list(wrapped_glyph.anchors or []))
+            if wrapped_glyph.anchors:
+                return False
+            return True
+
+        results = self.fonteditor._cp_classify_filter_glyphs(
+            [glyph], classify_glyph
+        )
+
+        self.assertEqual(results, {'A': True})
+        self.assertEqual(seen, [[]])
+        self.assertIsInstance(
+            self.fonteditor._as_model_proxy(glyph),
+            self.fonteditor.ModelObjectProxy,
+        )
+
+    def test_master_live_proxy_records_are_python_mappings(self):
+        master = FakeMaster({})
+        self.assertFalse(isinstance(master.name, JsProxy))
+        self.assertEqual(str(master.name), '[object Object]')
+
+        proxy = self.fonteditor.ModelObjectProxy(master)
+        name = proxy.name
+        location = proxy.location
+        metrics = proxy.metrics
+
+        self.assertIsInstance(name, self.fonteditor.LiveDictProxy)
+        self.assertEqual(name.dflt, 'ExtraLight')
+        name.dflt = 'Thin'
+        self.assertEqual(master.name._data['dflt'], 'Thin')
+
+        self.assertNotIn('[object Object]', repr(name))
+        self.assertNotIn('[object Object]', str(name))
+        self.assertEqual(name.to_py(), {'dflt': 'Thin'})
+        self.assertIsInstance(name.to_py(), dict)
+
+        self.assertEqual(location.wght, 30)
+        self.assertNotIn('[object Object]', repr(location))
+        self.assertEqual(location.to_py(), {'wght': 30})
+
+        self.assertEqual(metrics.XHeight, 500)
+
+        with self.assertRaises(TypeError) as raised:
+            _ = master.name['dflt']
+        self.assertNotIn('JsProxy', str(raised.exception))
+        self.assertNotIn('pyodide', str(raised.exception).lower())
+
+    def test_nested_font_names_are_python_mappings(self):
+        font = FakeFont([], [])
+        proxy = self.fonteditor.ModelObjectProxy(font)
+
+        family_name = proxy.names.family_name
+        self.assertEqual(family_name.dflt, 'Test Family')
+        self.assertNotIn('[object Object]', repr(proxy.names))
+        self.assertNotIn('[object Object]', repr(family_name))
+        family_name.dflt = 'Renamed'
+        self.assertEqual(font.names._data['family_name']._data['dflt'], 'Renamed')
 
 
 if __name__ == '__main__':

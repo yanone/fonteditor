@@ -70,7 +70,7 @@ def classify_glyph(glyph):
     return node_count > 1000
 ```
 
-Object model dictionaries are also live mappings, including `master.kerning`, `font.names`, and `instance.custom_names`. Use attribute access for identifier keys (`master.metrics.XHeight`) and dictionary access for I18N language tags (`font.names.family_name["dflt"]`). Do not call `.to_py()` first.
+Object model dictionaries are also live mappings, including `master.kerning`, `font.names`, and `instance.custom_names`. Use attribute access for identifier names (`master.metrics.XHeight`, `font.names.family_name.dflt`, `master.location.wght`). Do not use `.get()`. Do not call `.to_py()` first.
 
 Notes:
 

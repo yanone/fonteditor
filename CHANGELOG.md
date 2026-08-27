@@ -1,5 +1,6 @@
 # Unreleased
 
+- **Python model mappings**: Record fields on the font object model (`name`, `location`, `metrics`, `kerning`, nested `font.names`, and the rest) wrap as live Python mappings. Attribute access works for identifier keys (`master.name.dflt`, `master.location.wght`, `master.metrics.XHeight`); kerning stays subscripted (`kerning["A"]["V"]`). `print`/`repr`/`to_py()` are Python dicts and lists, not `[object Object]`. Assistant and Konsole errors no longer mention the JS runtime. Glyph filters can read `glyph.anchors` (union of layer anchors). Documented in the Python API.
 - **Assistant editor state**: The editor state given to the assistant now includes the active glyph name and the text-run caret (`cursorPosition`).
 - **Delete anchors on variable glyphs**: Deleting an anchor now removes it from every interpolating layer and commits those layers, so fontc no longer fails with `BadAnchor NoDefault` and the canvas no longer stays frozen after the failed compile.
 - **Auto QA**: Bundled corpus tables label likely missing components and anchors. When labels fire, the Editing View property panel shows a warning-only widget; hover explains the hint. The same messages are on `Glyph.qa`. Auto QA never auto-inserts outlines, components, or anchors.

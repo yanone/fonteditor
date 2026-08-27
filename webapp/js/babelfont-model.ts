@@ -5354,8 +5354,8 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
     }
 
     /**
-     * Variable-component location: axis tag → designspace value
-     * (`{"wght": 400}`).
+     * Variable-component location. Access axis tags as attributes
+     * (`component.location.wght`).
      */
     get location(): DesignspaceLocation | undefined {
         return getLiveMutableValue(
@@ -8794,8 +8794,8 @@ export class Layer extends ArrayElementBase {
     }
 
     /**
-     * Intermediate designspace location: axis tag → numeric value
-     * (`{"wght": 400}`). Absent when the layer sits at its master default.
+     * Intermediate designspace location. Access axis tags as attributes
+     * (`layer.location.wght`). Absent when the layer sits at its master default.
      */
     get location(): DesignspaceLocation | undefined {
         return getLiveMutableValue(
@@ -11605,6 +11605,10 @@ export class Axis extends ArrayElementBase {
         return ['axes', this._index];
     }
 
+    /**
+     * Localized axis name. Access language tags as attributes
+     * (`axis.name.dflt`). Do not use `.get()`.
+     */
     get name(): Babelfont.I18NDictionary {
         return getLiveMutableValue(
             this,
@@ -11760,6 +11764,10 @@ export class Master extends ArrayElementBase {
         return ['masters', this._index];
     }
 
+    /**
+     * Localized master name. Access language tags as attributes
+     * (`master.name.dflt`). Do not use `.get()`.
+     */
     get name(): Babelfont.I18NDictionary {
         return getLiveMutableValue(
             this,
@@ -11788,8 +11796,11 @@ export class Master extends ArrayElementBase {
     }
 
     /**
-     * Master location in designspace: axis tag → numeric value
-     * (`{"wght": 400}`).
+     * Master location in designspace. Access axis tags as attributes
+     * (`master.location.wght`).
+     * @example
+     * print(master.location)
+     * print(master.location.wght)
      */
     get location(): DesignspaceLocation | undefined {
         return getLiveMutableValue(
@@ -12073,6 +12084,10 @@ export class Instance extends ArrayElementBase {
         recordAndMarkDirty(this, 'id', old, value);
     }
 
+    /**
+     * Localized instance name. Access language tags as attributes
+     * (`instance.name.dflt`). Do not use `.get()`.
+     */
     get name(): Babelfont.I18NDictionary {
         return getLiveMutableValue(
             this,
@@ -12090,8 +12105,8 @@ export class Instance extends ArrayElementBase {
     }
 
     /**
-     * Instance location in designspace: axis tag → numeric value
-     * (`{"wght": 400}`).
+     * Instance location in designspace. Access axis tags as attributes
+     * (`instance.location.wght`).
      */
     get location(): DesignspaceLocation | undefined {
         return getLiveMutableValue(
@@ -12110,7 +12125,9 @@ export class Instance extends ArrayElementBase {
     }
 
     /**
-     * Same OpenType name-table fields as `Font.names`, for this static instance.
+     * Same OpenType name-table fields as `Font.names`. Access language tags as
+     * attributes (`instance.custom_names.family_name.dflt`). Do not use
+     * `.get()`.
      */
     get custom_names(): Babelfont.Names {
         return getLiveMutableValue(
@@ -13314,16 +13331,18 @@ export class Font extends ModelBase {
     }
 
     /**
-     * OpenType name table as a live nested dict. Each field is an I18N map
-     * (`dflt`, `en`, …). Known fields: `family_name`, `preferred_subfamily_name`,
-     * `full_name`, `copyright`, `unique_id`, `version`, `postscript_name`,
-     * `trademark`, `manufacturer`, `designer`, `description`, `manufacturer_url`,
-     * `designer_url`, `license`, `license_url`, `typographic_family`,
-     * `typographic_subfamily`, `compatible_full_name`, `sample_text`,
-     * `postscript_cid_name`, `wws_family_name`, `wws_subfamily_name`,
-     * `variations_postscript_name_prefix`.
+     * OpenType name table. Fields are attributes (`family_name`,
+     * `preferred_subfamily_name`, `full_name`, `copyright`, `unique_id`,
+     * `version`, `postscript_name`, `trademark`, `manufacturer`, `designer`,
+     * `description`, `manufacturer_url`, `designer_url`, `license`,
+     * `license_url`, `typographic_family`, `typographic_subfamily`,
+     * `compatible_full_name`, `sample_text`, `postscript_cid_name`,
+     * `wws_family_name`, `wws_subfamily_name`,
+     * `variations_postscript_name_prefix`). Access language tags as attributes
+     * (`font.names.family_name.dflt`). Do not use `.get()`.
      * @example
-     * font.names.family_name["dflt"] = "My Family"
+     * print(font.names.family_name.dflt)
+     * font.names.family_name.dflt = "My Family"
      */
     get names(): Babelfont.Names {
         return getLiveMutableValue(
