@@ -14,6 +14,7 @@ import {
 import {
     DEFAULT_QA_N_MIN,
     DEFAULT_QA_PEER_M,
+    DEFAULT_QA_MARK_PEER_M,
     DEFAULT_QA_ROLE_SHARE,
     DEFAULT_QA_SOFT_X,
     DEFAULT_QA_THRESHOLD_X,
@@ -41,6 +42,7 @@ export type QaMatchOptions = {
     softX?: number;
     nMin?: number;
     peerM?: number;
+    markPeerM?: number;
     roleShare?: number;
     withinFontRate?: number;
 };
@@ -50,6 +52,7 @@ type ResolvedMatchOptions = {
     softX: number;
     nMin: number;
     peerM: number;
+    markPeerM: number;
     roleShare: number;
     withinFontRate: number;
 };
@@ -63,6 +66,7 @@ type CandidateSlot = {
     k: number;
     n: number;
     confidence: number;
+    markRelated: boolean;
 };
 
 type WithinFontStatus = {
@@ -203,6 +207,7 @@ function contextMatches(
         context.options.softX === options.softX &&
         context.options.nMin === options.nMin &&
         context.options.peerM === options.peerM &&
+        context.options.markPeerM === options.markPeerM &&
         context.options.roleShare === options.roleShare &&
         context.options.withinFontRate === options.withinFontRate
     );
@@ -276,7 +281,8 @@ function labelsForObservation(
                 peerStats.get(peerKey(candidate.slot, candidate.missing)) || {
                     peerCount: 0,
                     rate: 0
-                }
+                },
+                candidate.markRelated
             )
         ) {
             continue;
@@ -362,7 +368,7 @@ function slotIfViable(
     if (confidence < softX) {
         return null;
     }
-    return { kind, slot, missing, k, n, confidence };
+    return { kind, slot, missing, k, n, confidence, markRelated };
 }
 
 function buildPeerStats(
@@ -419,6 +425,7 @@ function resolveOptions(options: QaMatchOptions): ResolvedMatchOptions {
         softX: options.softX ?? DEFAULT_QA_SOFT_X,
         nMin: options.nMin ?? DEFAULT_QA_N_MIN,
         peerM: options.peerM ?? DEFAULT_QA_PEER_M,
+        markPeerM: options.markPeerM ?? DEFAULT_QA_MARK_PEER_M,
         roleShare: options.roleShare ?? DEFAULT_QA_ROLE_SHARE,
         withinFontRate: options.withinFontRate ?? DEFAULT_QA_WITHIN_FONT_RATE
     };
@@ -484,16 +491,18 @@ function fontHasMarkSystem(
 function shouldEmitSlot(
     confidence: number,
     options: ResolvedMatchOptions,
-    withinFont: WithinFontStatus
+    withinFont: WithinFontStatus,
+    markRelated: boolean
 ): boolean {
     if (confidence < options.softX) {
         return false;
     }
+    const minPeers = markRelated ? options.markPeerM : options.peerM;
     const corroborated =
-        withinFont.peerCount >= options.peerM &&
+        withinFont.peerCount >= minPeers &&
         withinFont.rate >= options.withinFontRate;
     const contradicted =
-        withinFont.peerCount >= options.peerM &&
+        withinFont.peerCount >= minPeers &&
         withinFont.rate < options.withinFontRate;
     if (confidence >= options.X) {
         return !contradicted;

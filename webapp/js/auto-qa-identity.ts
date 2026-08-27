@@ -127,6 +127,31 @@ export function glyphIdentity(
     };
 }
 
+/**
+ * Identity for a component reference. Same join as `glyphIdentity` when the
+ * unsuffixed root exists; if only the suffixed glyph is in the font and it
+ * carries a codepoint (typical `.case` marks), use that glyph’s own encoding.
+ */
+export function componentIdentity(
+    name: string,
+    glyphsByName: Map<string, Glyph>
+): QaIdentity | null {
+    const keyed = glyphIdentity(name, glyphsByName);
+    if (keyed) {
+        return keyed;
+    }
+    const glyph = glyphsByName.get(name);
+    const codepoint = firstCodepoint(glyph);
+    if (codepoint === null) {
+        return null;
+    }
+    const [, suffix] = splitGlyphName(name);
+    return {
+        identity: uniLabel(codepoint) + suffix,
+        unicode: codepoint
+    };
+}
+
 export function componentIdentities(
     glyph: Glyph,
     glyphsByName: Map<string, Glyph>
@@ -142,7 +167,7 @@ export function componentIdentities(
             if (typeof ref !== 'string' || !ref) {
                 continue;
             }
-            const keyed = glyphIdentity(ref, glyphsByName);
+            const keyed = componentIdentity(ref, glyphsByName);
             if (!keyed) {
                 continue;
             }

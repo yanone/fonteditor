@@ -3,6 +3,7 @@ export const DEFAULT_QA_THRESHOLD_X = 0.85;
 export const DEFAULT_QA_SOFT_X = 0.3;
 export const DEFAULT_QA_N_MIN = 20;
 export const DEFAULT_QA_PEER_M = 8;
+export const DEFAULT_QA_MARK_PEER_M = 3;
 export const DEFAULT_QA_ROLE_SHARE = 0.5;
 export const DEFAULT_QA_WITHIN_FONT_RATE = 0.5;
 

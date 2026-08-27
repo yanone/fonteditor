@@ -361,6 +361,70 @@ describe('Auto QA matcher', () => {
         }
     });
 
+    test('uppercase .case mark components fire with fewer than eight peers', () => {
+        const letters = [
+            ['A', 0x41, 'Adieresis', 0xc4],
+            ['E', 0x45, 'Edieresis', 0xcb],
+            ['I', 0x49, 'Idieresis', 0xcf],
+            ['O', 0x4f, 'Odieresis', 0xd6],
+            ['U', 0x55, 'Udieresis', 0xdc],
+            ['W', 0x57, 'Wdieresis', 0x1e84],
+            ['Y', 0x59, 'Ydieresis', 0x178]
+        ];
+        const font = makeFont([
+            makeGlyph('dieresiscomb.case', { codepoints: [0x308] }),
+            ...letters.flatMap(([base, baseCp, accent, accentCp]) => [
+                makeGlyph(base, { codepoints: [baseCp] }),
+                makeGlyph(accent, {
+                    codepoints: [accentCp],
+                    components:
+                        accent === 'Adieresis'
+                            ? [base]
+                            : [base, 'dieresiscomb.case']
+                })
+            ])
+        ]);
+        const identities = {};
+        for (const [base, baseCp, accent, accentCp] of letters) {
+            identities[
+                `uni${baseCp.toString(16).toUpperCase().padStart(4, '0')}`
+            ] = {
+                n: 400,
+                n_mark_system: 350,
+                k_has_any_component: 10,
+                k_has_any_anchor: 20,
+                components: {},
+                anchors: {}
+            };
+            identities[
+                `uni${accentCp.toString(16).toUpperCase().padStart(4, '0')}`
+            ] = {
+                n: 1500,
+                n_mark_system: 1350,
+                k_has_any_component: 1150,
+                k_has_any_anchor: 80,
+                components: {
+                    [`uni${baseCp.toString(16).toUpperCase().padStart(4, '0')}`]: 1140,
+                    'uni0308.case': 535
+                },
+                anchors: {}
+            };
+        }
+        const labels = matchOpenFont(font, {
+            version: 1,
+            mark_anchor_names: ['top', '_top'],
+            identities
+        });
+        expect(
+            labels.some(
+                (label) =>
+                    label.glyph_name === 'Adieresis' &&
+                    label.missing === 'uni0308.case' &&
+                    label.displayName === 'dieresiscomb.case'
+            )
+        ).toBe(true);
+    });
+
     test('marks-free fonts do not nag A for top', () => {
         const font = makeFont([
             makeGlyph('A', { codepoints: [0x41], anchors: ['bottom'] })
