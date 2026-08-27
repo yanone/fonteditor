@@ -152,28 +152,45 @@ export function componentIdentity(
     };
 }
 
-export function componentIdentities(
+export function layerComponentIdentities(
     glyph: Glyph,
     glyphsByName: Map<string, Glyph>
-): string[] {
-    const identities: string[] = [];
-    const seen = new Set<string>();
+): string[][] {
+    const sequences: string[][] = [];
     for (const layer of glyph.layers || []) {
         if (layer.is_background) {
             continue;
         }
+        const identities: string[] = [];
+        const seen = new Set<string>();
         for (const component of layer.components || []) {
             const ref = component.reference;
             if (typeof ref !== 'string' || !ref) {
                 continue;
             }
             const keyed = componentIdentity(ref, glyphsByName);
-            if (!keyed) {
+            if (!keyed || seen.has(keyed.identity)) {
                 continue;
             }
-            if (!seen.has(keyed.identity)) {
-                seen.add(keyed.identity);
-                identities.push(keyed.identity);
+            seen.add(keyed.identity);
+            identities.push(keyed.identity);
+        }
+        sequences.push(identities);
+    }
+    return sequences;
+}
+
+export function componentIdentities(
+    glyph: Glyph,
+    glyphsByName: Map<string, Glyph>
+): string[] {
+    const identities: string[] = [];
+    const seen = new Set<string>();
+    for (const sequence of layerComponentIdentities(glyph, glyphsByName)) {
+        for (const identity of sequence) {
+            if (!seen.has(identity)) {
+                seen.add(identity);
+                identities.push(identity);
             }
         }
     }
@@ -203,6 +220,7 @@ export type QaGlyphObservation = {
     identity: string;
     unicode: number;
     components: string[];
+    componentSequences: string[][];
     anchors: string[];
 };
 
@@ -218,11 +236,23 @@ export function observeGlyph(
     if (!keyed) {
         return null;
     }
+    const sequences = layerComponentIdentities(glyph, glyphsByName);
+    const components: string[] = [];
+    const seen = new Set<string>();
+    for (const sequence of sequences) {
+        for (const identity of sequence) {
+            if (!seen.has(identity)) {
+                seen.add(identity);
+                components.push(identity);
+            }
+        }
+    }
     return {
         glyphName: name,
         identity: keyed.identity,
         unicode: keyed.unicode,
-        components: componentIdentities(glyph, glyphsByName),
+        components,
+        componentSequences: sequences,
         anchors: anchorNames(glyph)
     };
 }

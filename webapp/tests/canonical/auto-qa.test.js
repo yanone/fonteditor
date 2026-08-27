@@ -361,6 +361,43 @@ describe('Auto QA matcher', () => {
         }
     });
 
+    test('mark-before-base component order is labeled', () => {
+        const font = makeFont([
+            makeGlyph('A', { codepoints: [0x41] }),
+            makeGlyph('acutecomb.case', { codepoints: [0x301] }),
+            makeGlyph('Aacute', {
+                codepoints: [0xc1],
+                components: ['acutecomb.case', 'A']
+            }),
+            makeGlyph('E', { codepoints: [0x45] }),
+            makeGlyph('Eacute', {
+                codepoints: [0xc9],
+                components: ['E', 'acutecomb.case']
+            }),
+            makeGlyph('I', { codepoints: [0x49] }),
+            makeGlyph('Iacute', {
+                codepoints: [0xcd],
+                components: ['I', 'acutecomb.case']
+            })
+        ]);
+        const labels = matchOpenFont(font, workSansPriors());
+        const order = labels.find(
+            (label) =>
+                label.glyph_name === 'Aacute' &&
+                label.kind === 'wrong_component_order'
+        );
+        expect(order?.displayName).toBe('acutecomb.case');
+        expect(order?.relatedDisplayName).toBe('A');
+        expect(formatQaLabel(order)).toMatch(/usually comes after/);
+        expect(
+            labels.some(
+                (label) =>
+                    label.glyph_name === 'Eacute' &&
+                    label.kind === 'wrong_component_order'
+            )
+        ).toBe(false);
+    });
+
     test('uppercase .case mark components fire with fewer than eight peers', () => {
         const letters = [
             ['A', 0x41, 'Adieresis', 0xc4],

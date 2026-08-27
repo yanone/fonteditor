@@ -59,3 +59,31 @@ export function isCombiningMarkIdentity(identity: string): boolean {
     }
     return isCombiningMarkCodepoint(parsed.codepoint);
 }
+
+/** Combining marks plus spacing accents that fonts use as mark components. */
+export function isMarkLikeIdentity(identity: string): boolean {
+    const parsed = parseUniIdentity(identity);
+    if (!parsed) {
+        return false;
+    }
+    if (isCombiningMarkCodepoint(parsed.codepoint)) {
+        return true;
+    }
+    try {
+        if (/\p{M}/u.test(String.fromCodePoint(parsed.codepoint))) {
+            return true;
+        }
+    } catch {
+        // ignore
+    }
+    const codepoint = parsed.codepoint;
+    if (
+        codepoint === 0xa8 ||
+        codepoint === 0xaf ||
+        codepoint === 0xb4 ||
+        codepoint === 0xb8
+    ) {
+        return true;
+    }
+    return codepoint >= 0x2c6 && codepoint <= 0x2ff;
+}

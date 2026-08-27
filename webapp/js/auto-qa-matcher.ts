@@ -21,10 +21,12 @@ import {
     DEFAULT_QA_WITHIN_FONT_RATE,
     isCombiningMarkCodepoint,
     isCombiningMarkIdentity,
+    isMarkLikeIdentity,
     wilsonLowerBound
 } from './auto-qa-stats';
 
-export type QaLabelKind = 'missing_component' | 'missing_anchor';
+export type QaLabelKind =
+    'missing_component' | 'missing_anchor' | 'wrong_component_order';
 
 export type QaLabel = {
     glyph_name: string;
@@ -32,6 +34,7 @@ export type QaLabel = {
     kind: QaLabelKind;
     missing: string;
     displayName: string;
+    relatedDisplayName?: string;
     n: number;
     k: number;
     confidence: number;
@@ -298,6 +301,10 @@ function labelsForObservation(
             confidence: candidate.confidence
         });
     }
+    const orderLabel = wrongComponentOrderLabel(observation, context);
+    if (orderLabel) {
+        labels.push(orderLabel);
+    }
     return labels;
 }
 
@@ -441,6 +448,12 @@ function sameObservation(
     return (
         left.identity === right.identity &&
         left.components.join('\0') === right.components.join('\0') &&
+        left.componentSequences
+            .map((sequence) => sequence.join(','))
+            .join('|') ===
+            right.componentSequences
+                .map((sequence) => sequence.join(','))
+                .join('|') &&
         left.anchors.join('\0') === right.anchors.join('\0')
     );
 }
@@ -527,10 +540,63 @@ function sortLabels(labels: QaLabel[]): QaLabel[] {
 
 export function formatQaLabel(label: QaLabel): string {
     const name = `\`${label.displayName || label.missing}\``;
+    if (label.kind === 'wrong_component_order') {
+        const base = `\`${label.relatedDisplayName || 'the base'}\``;
+        return `The mark ${name} usually comes after ${base}, not before.`;
+    }
     if (label.kind === 'missing_component') {
         return `Similar fonts usually include the component ${name}. This glyph does not.`;
     }
     return `Similar fonts usually have an anchor named ${name}. This glyph does not.`;
+}
+
+function displayNameForIdentity(
+    identity: string,
+    context: QaFontMatchContext
+): string {
+    return context.nameByIdentity.get(identity) || identity;
+}
+
+function firstMarkBeforeBase(
+    sequence: string[]
+): { mark: string; base: string } | null {
+    let mark: string | null = null;
+    for (const identity of sequence) {
+        if (isMarkLikeIdentity(identity)) {
+            if (!mark) {
+                mark = identity;
+            }
+            continue;
+        }
+        if (mark) {
+            return { mark, base: identity };
+        }
+    }
+    return null;
+}
+
+function wrongComponentOrderLabel(
+    observation: QaGlyphObservation,
+    context: QaFontMatchContext
+): QaLabel | null {
+    for (const sequence of observation.componentSequences) {
+        const pair = firstMarkBeforeBase(sequence);
+        if (!pair) {
+            continue;
+        }
+        return {
+            glyph_name: observation.glyphName,
+            identity: observation.identity,
+            kind: 'wrong_component_order',
+            missing: `${pair.mark}>${pair.base}`,
+            displayName: displayNameForIdentity(pair.mark, context),
+            relatedDisplayName: displayNameForIdentity(pair.base, context),
+            n: 0,
+            k: 0,
+            confidence: 0.5
+        };
+    }
+    return null;
 }
 
 function displayNameForSlot(
