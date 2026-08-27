@@ -216,8 +216,8 @@ async function applyStateToManagers(glyphCanvas: GlyphCanvas): Promise<void> {
             .map(([tag]) => tag);
 
         await glyphCanvas.featuresManager.setEnabledFeatures(enabledFeatures);
-        // Note: no explicit recompile here — the text buffer restore in step 3
-        // calls setTextBuffer() which triggers a debounced subset compile.
+        // Text buffer restore in step 3 calls setTextBuffer(), which reshapes
+        // with the restored HarfBuzz feature settings.
     }
 
     // 2. Apply userspace variation location

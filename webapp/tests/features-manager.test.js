@@ -62,7 +62,7 @@ describe('FeaturesManager setEnabledFeatures', () => {
         expect(manager.featureSettings.dlig).toBe(true);
         expect(ligaButton.classList.contains('enabled')).toBe(false);
         expect(dligButton.classList.contains('enabled')).toBe(true);
-        expect(changeSpy).toHaveBeenCalledTimes(2);
+        expect(changeSpy).toHaveBeenCalledTimes(1);
     });
 
     test('shows compiled stylistic set names instead of the generic label', async () => {
@@ -244,5 +244,36 @@ describe('FeaturesManager setEnabledFeatures', () => {
             ?.parentElement?.querySelector('.tag-description');
 
         expect(ss03Name?.textContent).toBe('From binary');
+    });
+
+    test('enables URL-restored features even when the subset button is disabled', async () => {
+        const {
+            get_font_features_with_tables
+        } = require('../wasm-dist/babelfont_fontc_web');
+        get_font_features_with_tables.mockReturnValue(
+            JSON.stringify({
+                liga: ['GSUB']
+            })
+        );
+
+        const manager = new FeaturesManager();
+        manager.editingFontBytes = new Uint8Array([1, 2, 3]);
+        const changeSpy = jest.fn();
+        manager.on('change', changeSpy);
+        document.body.appendChild(manager.createFeaturesSection());
+
+        await manager.updateFeaturesUI();
+        await flushUi();
+
+        const dligButton = manager.featuresSection.querySelector(
+            'button[data-feature-tag="dlig"]'
+        );
+        expect(dligButton.disabled).toBe(true);
+
+        await manager.setEnabledFeatures(['dlig']);
+
+        expect(manager.featureSettings.dlig).toBe(true);
+        expect(dligButton.classList.contains('enabled')).toBe(true);
+        expect(changeSpy).toHaveBeenCalledTimes(1);
     });
 });

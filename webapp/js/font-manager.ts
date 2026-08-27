@@ -49,7 +49,7 @@ import {
     isStartupStateReady,
     resetStartupStateReady
 } from './state-restore';
-import { formatUrl, readUrlState } from './url-state';
+import { decodeFeatures, formatUrl, readUrlState } from './url-state';
 import {
     normalizeWorkerReplayTargets,
     type WorkerReplayTarget
@@ -2239,6 +2239,37 @@ class FontManager {
         );
     }
 
+    resolveEditingFeaturesForCompile(
+        explicitFeatures: string[] = []
+    ): string[] {
+        if (explicitFeatures.length > 0) {
+            return explicitFeatures;
+        }
+
+        // Startup compile runs before URL restore applies `?features=` to
+        // FeaturesManager. Use the URL/state tags so layout closure and the
+        // first shaping pass include those discretionary features.
+        if (!isStartupStateReady()) {
+            const urlFeatures = readUrlState().features;
+            if (urlFeatures) {
+                const decoded = decodeFeatures(urlFeatures);
+                if (decoded && decoded.length > 0) {
+                    return decoded;
+                }
+            }
+            const stateFeatures = Object.entries(
+                window.stateManager?.editor_opentype_features_in_subset || {}
+            )
+                .filter(([, enabled]) => enabled)
+                .map(([tag]) => tag);
+            if (stateFeatures.length > 0) {
+                return stateFeatures;
+            }
+        }
+
+        return explicitFeatures;
+    }
+
     getLiveVisibleGlyphNames(): string[] {
         const glyphNameBuffer =
             window.glyphCanvas?.textRunEditor?.glyphNameBuffer || [];
@@ -2635,7 +2666,9 @@ class FontManager {
         // Store current text and features for future use
         const resolvedText = this.resolveEditingTextForCompile(text);
         this.currentText = resolvedText;
-        this.selectedFeatures = features;
+        const resolvedFeatures =
+            this.resolveEditingFeaturesForCompile(features);
+        this.selectedFeatures = resolvedFeatures;
 
         let responseRevisionKey = String(
             this.currentFont.compileRequestVersion
@@ -2736,7 +2769,7 @@ class FontManager {
         const startTime = performance.now();
         const compileEditingSpanId = timelineSpanStart('font.compileEditing', {
             textBuffer: text,
-            features,
+            features: resolvedFeatures,
             subsetGlyphs: subsetGlyphs || []
         });
 
@@ -2972,7 +3005,7 @@ class FontManager {
                     {
                         dragActive: dragActiveAtRequest,
                         compileSource: incrementalChangeSource || undefined,
-                        selectedFeatures: features,
+                        selectedFeatures: resolvedFeatures,
                         optionOverrides,
                         usePatchedWorkerCache:
                             dataFreshnessModeAtRequest ===

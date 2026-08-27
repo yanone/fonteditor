@@ -675,6 +675,58 @@ export class FeaturesManager {
         }
     }
 
+    syncFeatureButtonEnabledClasses(): void {
+        if (!this.featuresSection) {
+            return;
+        }
+
+        const buttons =
+            this.featuresSection.querySelectorAll<HTMLButtonElement>(
+                'button[data-feature-tag]'
+            );
+        buttons.forEach((button) => {
+            const tag = button.getAttribute('data-feature-tag');
+            if (!tag) {
+                return;
+            }
+            button.classList.toggle(
+                'enabled',
+                this.featureSettings[tag] === true
+            );
+        });
+    }
+
+    /**
+     * Apply the exact enabled-tag set to featureSettings.
+     * Tags not in the list are turned off. Unknown requested tags stay on
+     * so URL restore and assistant updates work before the sidebar exists.
+     * Unavailable (greyed) buttons still receive the preference so reload
+     * can reshape with those features and a later subset can pick them up.
+     */
+    applyEnabledFeatureTags(featureTags: string[]): boolean {
+        const requestedFeatures = new Set(featureTags);
+        let changed = false;
+
+        for (const tag of requestedFeatures) {
+            if (this.featureSettings[tag] !== true) {
+                this.featureSettings[tag] = true;
+                changed = true;
+            }
+        }
+
+        for (const tag of Object.keys(this.featureSettings)) {
+            const shouldEnable = requestedFeatures.has(tag);
+            if (this.featureSettings[tag] !== shouldEnable) {
+                this.featureSettings[tag] = shouldEnable;
+                changed = true;
+            }
+        }
+
+        this.syncFeatureButtonEnabledClasses();
+        this.updateFeatureResetButton();
+        return changed;
+    }
+
     async setEnabledFeatures(featureTags: string[]): Promise<void> {
         if (!this.featuresSection) {
             throw new Error('OpenType features UI is not ready');
@@ -688,6 +740,9 @@ export class FeaturesManager {
 
         if (buttons.length === 0) {
             await this.updateFeaturesUI();
+            await new Promise<void>((resolve) => {
+                requestAnimationFrame(() => resolve());
+            });
             buttons = Array.from(
                 this.featuresSection.querySelectorAll<HTMLButtonElement>(
                     'button[data-feature-tag]'
@@ -695,24 +750,9 @@ export class FeaturesManager {
             );
         }
 
-        const requestedFeatures = new Set(featureTags);
-
-        for (const button of buttons) {
-            const tag = button.getAttribute('data-feature-tag');
-            if (!tag) {
-                continue;
-            }
-
-            const shouldEnable = requestedFeatures.has(tag);
-            const isEnabled = this.featureSettings[tag] === true;
-
-            if (isEnabled === shouldEnable || button.disabled) {
-                continue;
-            }
-
-            // Reuse the exact sidebar button click path so UI state and
-            // downstream callbacks stay in sync with manual interaction.
-            button.click();
+        const changed = this.applyEnabledFeatureTags(featureTags);
+        if (changed) {
+            this.call('change');
         }
     }
 

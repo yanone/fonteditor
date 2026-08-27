@@ -101,4 +101,37 @@ describe('state-sync variation initialization', () => {
             { cursor: 2 }
         );
     });
+
+    test('re-applies URL-restored OpenType features when enabling sync', () => {
+        const featuresManager = {
+            featureSettings: { liga: true, dlig: false },
+            featuresSection: null,
+            syncFeatureButtonEnabledClasses: jest.fn(),
+            updateFeatureResetButton: jest.fn(),
+            call: jest.fn()
+        };
+
+        window.glyphCanvas = {
+            axesManager: null,
+            featuresManager
+        };
+        window.stateManager = {
+            editor_opentype_features_in_subset: { dlig: true },
+            editor_variation_location: {},
+            enableUrlSync: jest.fn()
+        };
+
+        let enableSync;
+        jest.isolateModules(() => {
+            ({ enableSync } = require('../js/state-sync'));
+        });
+
+        enableSync();
+
+        expect(featuresManager.featureSettings.dlig).toBe(true);
+        expect(featuresManager.call).toHaveBeenCalledWith('change');
+        expect(window.stateManager.enableUrlSync).toHaveBeenCalled();
+
+        delete window.glyphCanvas;
+    });
 });

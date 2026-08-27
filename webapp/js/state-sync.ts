@@ -80,6 +80,33 @@ export function enableSync() {
         }
     }
 
+    // Same race as axes: updateFeaturesUI can fill default-off states after
+    // URL restore wrote enabled tags into StateManager. Push those tags back
+    // onto FeaturesManager and reshape so `?features=` survives reload.
+    const featuresManager = window.glyphCanvas?.featuresManager;
+    if (featuresManager && window.stateManager) {
+        const restored =
+            window.stateManager.editor_opentype_features_in_subset || {};
+        const enabledTags = Object.entries(restored)
+            .filter(([, enabled]) => enabled)
+            .map(([tag]) => tag);
+
+        if (enabledTags.length > 0) {
+            let needsReshape = false;
+            for (const tag of enabledTags) {
+                if (featuresManager.featureSettings[tag] !== true) {
+                    featuresManager.featureSettings[tag] = true;
+                    needsReshape = true;
+                }
+            }
+            featuresManager.syncFeatureButtonEnabledClasses();
+            featuresManager.updateFeatureResetButton();
+            if (needsReshape) {
+                featuresManager.call('change');
+            }
+        }
+    }
+
     console.log('URL sync enabled');
 }
 

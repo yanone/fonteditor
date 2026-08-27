@@ -2383,6 +2383,38 @@ describe('FontManager editing subset inclusion', () => {
         }
     });
 
+    test('compileEditingFont uses URL features for the first compile before startup restore', async () => {
+        const urlState = require('../js/url-state');
+        const stateRestore = require('../js/state-restore');
+        const readUrlSpy = jest
+            .spyOn(urlState, 'readUrlState')
+            .mockReturnValue({ text: 'Hämburger', features: 'dlig' });
+        const startupReadySpy = jest
+            .spyOn(stateRestore, 'isStartupStateReady')
+            .mockReturnValue(false);
+        window.glyphCanvas.textRunEditor.textBuffer = 'Hamburgevons';
+        window.glyphCanvas.textRunEditor.glyphNameBuffer = ['H'];
+        window.glyphCanvas.outlineEditor.currentGlyphName = null;
+        window.glyphCanvas.getCurrentGlyphName = jest.fn(() => null);
+        fontManager.currentText = '';
+        const deriveSpy = jest
+            .spyOn(fontManager, 'deriveSubsetGlyphsFromText')
+            .mockReturnValue(['H', 'adieresis', 'm', 'b', 'u', 'r', 'g', 'e']);
+
+        try {
+            await fontManager.compileEditingFont();
+
+            expect(fontManager.selectedFeatures).toEqual(['dlig']);
+            expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
+                selectedFeatures: ['dlig']
+            });
+        } finally {
+            deriveSpy.mockRestore();
+            readUrlSpy.mockRestore();
+            startupReadySpy.mockRestore();
+        }
+    });
+
     test('open-session compile gate still compiles when the subset widens', async () => {
         window.glyphCanvas.outlineEditor.currentGlyphName = null;
         window.glyphCanvas.getCurrentGlyphName = jest.fn(() => null);
