@@ -1,7 +1,5 @@
 # Font Object Model API Documentation
 
-**Version:** v0.3
-
 *Auto-generated from JavaScript object model introspection*
 
 
@@ -374,6 +372,10 @@ glyph = font.findGlyph("A")
 - **`glyphData`** (GlyphDataSearchResult | None): Read-only Unicode metadata from the bundled Glyph Data catalog.
 Encoded base glyphs win over editable glyph names; dotted glyphs inherit
 the identity of their base glyph before a name fallback is attempted.
+- **`qa`** (list[GlyphQaMessage]): Read-only quality-assurance messages for this glyph. Built-in Auto QA
+plus future plugin checks. Each item is a dict with `sourceId`,
+`severity`, `checkId`, `message`, and `messageId`. Empty when the
+glyph cannot be identified or no checks fire. Does not write the font.
 - **`layers`** (list[[Layer](#layer)] | None)
 - **`isCompatible`** (bool): Returns True/False based on whether the outline structure (components + paths + anchors) is compatible across all main layers of this glyph.
 

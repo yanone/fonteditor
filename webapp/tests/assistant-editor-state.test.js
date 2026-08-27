@@ -33,6 +33,7 @@ describe('get_editor_state text-buffer interpretation', () => {
             getStateSnapshot: jest.fn(() => ({
                 state: {
                     editor_text_buffer: '0/10',
+                    editor_cursor_position: 0,
                     editor_harfbuzz_glyph_names: '',
                     editor_harfbuzz_gids: '',
                     editor_harfbuzz_ax: '',
@@ -43,12 +44,18 @@ describe('get_editor_state text-buffer interpretation', () => {
             }))
         };
         window.glyphCanvas = {
+            getCurrentGlyphName: jest.fn(() => 'undefined'),
+            outlineEditor: {
+                active: false,
+                currentGlyphName: null
+            },
             textRunEditor: {
                 textBuffer: '0/10',
                 displayTextBuffer: '0/10',
                 explicitGlyphTokens: [],
                 glyphNameBuffer: [],
-                shapedGlyphs: []
+                shapedGlyphs: [],
+                cursorPosition: 0
             }
         };
     });
@@ -73,10 +80,81 @@ describe('get_editor_state text-buffer interpretation', () => {
             textBufferRaw: '0/10',
             textBufferDisplay: '0/10',
             textBufferInterpretationIsCurrent: true,
-            explicitGlyphTokens: []
+            explicitGlyphTokens: [],
+            activeGlyphName: null,
+            cursorPosition: 0
         });
         expect(result.textBufferRaw).not.toContain('//');
         expect(result.textBufferSyntax).toContain('Never infer //');
+    });
+
+    test('reports the active glyph and text-run cursor position', async () => {
+        window.stateManager.getStateSnapshot.mockReturnValue({
+            state: {
+                editor_text_buffer: 'Hamburgevons',
+                editor_cursor_position: 1,
+                editor_opentype_features_in_subset: {},
+                editor_opentype_features_not_in_subset: {}
+            }
+        });
+        window.glyphCanvas.getCurrentGlyphName = jest.fn(() => 'a.ss04');
+        window.glyphCanvas.outlineEditor = {
+            active: true,
+            currentGlyphName: 'a.ss04'
+        };
+        window.glyphCanvas.textRunEditor = {
+            textBuffer: 'Hamburgevons',
+            displayTextBuffer: 'Hamburgevons',
+            explicitGlyphTokens: [],
+            glyphNameBuffer: ['H', 'a.ss04'],
+            shapedGlyphs: [
+                { g: 1, ax: 500, cl: 0 },
+                { g: 2, ax: 400, cl: 1 }
+            ],
+            cursorPosition: 1
+        };
+
+        const assistant = new AIAssistant();
+        const result = JSON.parse(
+            await assistant.executeToolCall({
+                function: { name: 'get_editor_state', arguments: '{}' }
+            })
+        );
+
+        expect(result.activeGlyphName).toBe('a.ss04');
+        expect(result.cursorPosition).toBe(1);
+    });
+
+    test('uses nested-component glyph name while editing and snapshot cursor when live caret is missing', async () => {
+        window.stateManager.getStateSnapshot.mockReturnValue({
+            state: {
+                editor_text_buffer: 'A',
+                editor_cursor_position: 0,
+                editor_opentype_features_in_subset: {},
+                editor_opentype_features_not_in_subset: {}
+            }
+        });
+        window.glyphCanvas.getCurrentGlyphName = jest.fn(() => 'Adieresis');
+        window.glyphCanvas.outlineEditor = {
+            active: true,
+            currentGlyphName: 'dieresiscomb.case'
+        };
+        window.glyphCanvas.textRunEditor = {
+            textBuffer: 'A',
+            displayTextBuffer: 'A',
+            explicitGlyphTokens: []
+        };
+
+        const assistant = new AIAssistant();
+        const result = JSON.parse(
+            await assistant.executeToolCall({
+                function: { name: 'get_editor_state', arguments: '{}' }
+            })
+        );
+
+        expect(result.activeGlyphName).toBe('dieresiscomb.case');
+        expect(result.cursorPosition).toBe(0);
+        expect(result.textBufferInterpretationIsCurrent).toBe(true);
     });
 
     test('explains which OpenType features are reachable in the current subset', async () => {

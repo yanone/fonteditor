@@ -3444,6 +3444,40 @@ if '_assistant_original_stdout' in dir():
                 const hasLiveShapingState =
                     Array.isArray(liveGlyphNameBuffer) &&
                     Array.isArray(liveGlyphBuffer);
+                const liveCursorPosition =
+                    textRunStateMatches &&
+                    typeof textRunEditor.cursorPosition === 'number' &&
+                    Number.isFinite(textRunEditor.cursorPosition)
+                        ? textRunEditor.cursorPosition
+                        : null;
+                const snapshotCursor = Number(s.editor_cursor_position);
+                const cursorPosition =
+                    liveCursorPosition ??
+                    (Number.isFinite(snapshotCursor) ? snapshotCursor : 0);
+                const glyphCanvas = (window as any).glyphCanvas;
+                const outlineEditor = glyphCanvas?.outlineEditor;
+                const outlineGlyphName =
+                    typeof outlineEditor?.currentGlyphName === 'string'
+                        ? outlineEditor.currentGlyphName
+                        : '';
+                const namedOutlineGlyph =
+                    outlineGlyphName && outlineGlyphName !== 'undefined'
+                        ? outlineGlyphName
+                        : null;
+                const getterGlyphName =
+                    typeof glyphCanvas?.getCurrentGlyphName === 'function'
+                        ? glyphCanvas.getCurrentGlyphName()
+                        : null;
+                const namedGetterGlyph =
+                    typeof getterGlyphName === 'string' &&
+                    getterGlyphName &&
+                    getterGlyphName !== 'undefined'
+                        ? getterGlyphName
+                        : null;
+                const activeGlyphName =
+                    outlineEditor?.active === true && namedOutlineGlyph
+                        ? namedOutlineGlyph
+                        : namedGetterGlyph;
                 const glyphs = hasLiveShapingState
                     ? liveGlyphNameBuffer.join(' ')
                     : s.editor_harfbuzz_glyph_names || '';
@@ -3472,6 +3506,8 @@ if '_assistant_original_stdout' in dir():
                         explicitGlyphTokens,
                         textBufferSyntax:
                             'Raw syntax: // is one literal slash; /glyphname is an explicit glyph reference only when it resolves. Never infer // unless textBufferRaw contains it.',
+                        activeGlyphName,
+                        cursorPosition,
                         glyphs,
                         gids: Array.isArray(gids) ? gids.join(' ') : gids,
                         advances: Array.isArray(advances)

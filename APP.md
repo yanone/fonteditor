@@ -160,6 +160,8 @@ The matcher emits `missing_component` / `missing_anchor` labels when the Wilson 
 
 When those labels exist for the current glyph in outline edit mode, the Editing View property panel shows a separate bordered Auto QA widget labeled `QA` that contains a warning icon. With no labels the widget is not shown. Hovering the widget opens a tippy: friendly missing-component / missing-anchor messages first, using this font’s glyph names (not `uniXXXX` identities) in `<pre>`, plus a wrong-order hint when a mark-like component precedes a base on a layer, then a fainter note that the hints come from comparing with similar glyphs in open-source fonts. Auto QA never writes components or anchors.
 
+The same messages are exposed on the font object model as `Glyph.qa`, a read-only list of dicts with `sourceId`, `severity`, `checkId`, `message`, and `messageId`. Built-in Auto QA uses `sourceId` `"auto-qa"` and `checkId` values `missing_component`, `missing_anchor`, and `wrong_component_order`. Plugin checks may append to the same list later. `Glyph.qa` does not write the font.
+
 ### Glyph Stack Labels
 
 `glyphStack` serializes the current component-editing path as `rootGlyphName@rootLayerId>componentIndex:componentGlyphName@componentLayerId>...`. The root segment has no component-index prefix; every nested segment's zero-based `componentIndex` identifies the component in the preceding segment's layer. A foreground selection always uses that foreground layer's persisted ID.

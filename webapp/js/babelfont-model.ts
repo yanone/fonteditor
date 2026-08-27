@@ -15,6 +15,11 @@ import type { Babelfont } from './babelfont';
 import { setYPath } from './change-bridge-ydoc';
 import { toRestingLayerJson } from './resting-layer-json';
 import { glyphDataIndex, type GlyphDataSearchResult } from './glyph-data';
+import {
+    labelsForGlyph,
+    toGlyphQaMessages,
+    type GlyphQaMessage
+} from './auto-qa/auto-qa-matcher';
 import { assertModelMutationAllowed } from './model-mutation-policy';
 import { applyGlyphRenameUiContext } from './rename-glyphs-ui-context';
 import { assertGlyphRenamePreflight } from './rename-glyphs-preflight';
@@ -10771,6 +10776,24 @@ export class Glyph extends ArrayElementBase {
                 ? undefined
                 : glyphDataIndex.getGlyphDataForName(baseName));
         return record;
+    }
+
+    /**
+     * Read-only quality-assurance messages for this glyph. Built-in Auto QA
+     * plus future plugin checks. Each item is a dict with `sourceId`,
+     * `severity`, `checkId`, `message`, and `messageId`. Empty when the
+     * glyph cannot be identified or no checks fire. Does not write the font.
+     * @example
+     * for message in glyph.qa:
+     *     print(message["checkId"], message["message"])
+     */
+    get qa(): GlyphQaMessage[] {
+        const font = this.parent() as Font | null;
+        const name = this.name;
+        if (!font || typeof name !== 'string' || !name) {
+            return [];
+        }
+        return toGlyphQaMessages(labelsForGlyph(font, name));
     }
 
     /**

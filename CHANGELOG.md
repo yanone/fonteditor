@@ -1,7 +1,8 @@
 # Unreleased
 
+- **Assistant editor state**: The editor state given to the assistant now includes the active glyph name and the text-run caret (`cursorPosition`).
 - **Delete anchors on variable glyphs**: Deleting an anchor now removes it from every interpolating layer and commits those layers, so fontc no longer fails with `BadAnchor NoDefault` and the canvas no longer stays frozen after the failed compile.
-- **Auto QA**: Bundled corpus tables label likely missing components and anchors. When labels fire, the Editing View property panel shows a warning-only widget; hover explains the hint. Auto QA never auto-inserts outlines, components, or anchors.
+- **Auto QA**: Bundled corpus tables label likely missing components and anchors. When labels fire, the Editing View property panel shows a warning-only widget; hover explains the hint. The same messages are on `Glyph.qa`. Auto QA never auto-inserts outlines, components, or anchors.
 
 # v0.3
 

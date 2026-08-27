@@ -108,7 +108,7 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
         function: {
             name: 'python_api_docs',
             description:
-                'Get the complete Python API documentation for the font editing model. Includes all classes, methods, and properties available for scripting font operations.',
+                'Get the complete Python API documentation for the font editing model. Includes all classes, methods, and properties available for scripting font operations. Glyph.qa is the quality-assurance message list (Auto QA and future plugin checks).',
             parameters: {
                 type: 'object',
                 properties: {},
@@ -166,7 +166,7 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
         function: {
             name: 'execute_python_code',
             description:
-                "Execute a custom Python script to read or modify the current font. Use the tool `python_api_docs` first to learn how to write Python scripts for the font model. The font is accessible via the Font() function which is readily available and doesn't need to be imported. Print output with print() to see results. Changes to the font model are automatically tracked and compiled.",
+                "Execute a custom Python script to read or modify the current font. Use the tool `python_api_docs` first to learn how to write Python scripts for the font model. The font is accessible via the Font() function which is readily available and doesn't need to be imported. For quality-assurance messages, read glyph.qa (list of dicts with sourceId, severity, checkId, message, messageId; built-in Auto QA uses sourceId 'auto-qa'). Print output with print() to see results. Changes to the font model are automatically tracked and compiled.",
             parameters: {
                 type: 'object',
                 properties: {
@@ -184,7 +184,7 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
         function: {
             name: 'get_editor_state',
             description:
-                'Get the current editor state for both inspection and parameter-copying. Returns raw text-buffer syntax as textBuffer and textBufferRaw, user-visible text as textBufferDisplay, parsed explicit glyph tokens, HarfBuzz shaped buffers (glyph names, gids, advances, clusters), OpenType feature inventory, userspace/designspace location, and the current file. OpenType features: every listed feature exists in the font. Features with availableToActivate true are reachable in the current editing subset (determined by the text buffer and active feature set) and can be turned on/off now. Features with availableToActivate false still exist, but are greyed out in the sidebar because the current subset cannot reach them yet; explain that to the user and recommend enabling them with set_editor_opentype_features when their effect is wanted. Read opentypeFeaturesExplanation and each feature status/note in the tool output for the plain-language breakdown. In raw text syntax, // represents one literal slash and /glyphname is an explicit glyph reference only when it resolves; never claim an escaped slash pair unless textBufferRaw explicitly contains //. Refresh this state after text, feature, or font-data edits.',
+                'Get the current editor state for both inspection and parameter-copying. Returns the active glyph name (null in text mode when no glyph is being edited), the text-run caret as cursorPosition (logical index into textBufferRaw; 0 is before the first character), raw text-buffer syntax as textBuffer and textBufferRaw, user-visible text as textBufferDisplay, parsed explicit glyph tokens, HarfBuzz shaped buffers (glyph names, gids, advances, clusters), OpenType feature inventory, userspace/designspace location, and the current file. OpenType features: every listed feature exists in the font. Features with availableToActivate true are reachable in the current editing subset (determined by the text buffer and active feature set) and can be turned on/off now. Features with availableToActivate false still exist, but are greyed out in the sidebar because the current subset cannot reach them yet; explain that to the user and recommend enabling them with set_editor_opentype_features when their effect is wanted. Read opentypeFeaturesExplanation and each feature status/note in the tool output for the plain-language breakdown. In raw text syntax, // represents one literal slash and /glyphname is an explicit glyph reference only when it resolves; never claim an escaped slash pair unless textBufferRaw explicitly contains //. Refresh this state after text, feature, or font-data edits.',
             parameters: {
                 type: 'object',
                 properties: {},
@@ -747,9 +747,11 @@ Use the available tools to operate the app.
 
 At the beginning of every prompt, call set_prompt_history_summary with a concise description of the requested font work. Do not mention that summary in your chat response.
 
-Every request includes the current editor state and whether Assistant editing is allowed. Treat that permission as authoritative. When Assistant editing is disabled, you may still inspect the font, including with execute_python_code, and adjust editor UI state. Do not use Python or any other tool to modify font data. If you decline an edit because of this permission, tell the user that they can enable editing with the pen button in the Assistant title bar before sending a new prompt. You cannot change the permission yourself, and it remains frozen for the current prompt.
+Every request includes the current editor state and whether Assistant editing is allowed. Treat that permission as authoritative. The editor state names the active glyph (activeGlyphName, null when none is being edited) and the text-run caret (cursorPosition, a logical index into textBufferRaw). When Assistant editing is disabled, you may still inspect the font, including with execute_python_code, and adjust editor UI state. Do not use Python or any other tool to modify font data. If you decline an edit because of this permission, tell the user that they can enable editing with the pen button in the Assistant title bar before sending a new prompt. You cannot change the permission yourself, and it remains frozen for the current prompt.
 
 Use execute_python_code to inspect or modify the current font model. Call python_api_docs before using unfamiliar model APIs.
+
+Quality-assurance messages live on Glyph.qa. That getter returns a list of dicts with sourceId, severity, checkId, message, and messageId. Built-in Auto QA uses sourceId "auto-qa" and checkId values such as missing_component, missing_anchor, and wrong_component_order. Future plugins may add more rows to the same list. Read glyph.qa with execute_python_code when the user asks about missing components, anchors, component order, or other glyph QA. It never writes the font.
 
 When linking users to handbook topics in markdown, use the docs:// tokens from handbook_toc (for example [Outline drawing](docs://editor/outline-drawing)). Do not link raw .md file paths.
 

@@ -25,6 +25,18 @@ import {
     wilsonLowerBound
 } from './auto-qa-stats';
 
+export const AUTO_QA_SOURCE_ID = 'auto-qa';
+
+export type GlyphQaSeverity = 'info' | 'warning' | 'error';
+
+export type GlyphQaMessage = {
+    sourceId: string;
+    severity: GlyphQaSeverity;
+    checkId: string;
+    message: string;
+    messageId: string;
+};
+
 export type QaLabelKind =
     'missing_component' | 'missing_anchor' | 'wrong_component_order';
 
@@ -539,9 +551,28 @@ function sortLabels(labels: QaLabel[]): QaLabel[] {
 }
 
 export function formatQaLabel(label: QaLabel): string {
-    const name = `\`${label.displayName || label.missing}\``;
+    return formatQaMessageText(label, true);
+}
+
+export function formatQaPlainMessage(label: QaLabel): string {
+    return formatQaMessageText(label, false);
+}
+
+export function toGlyphQaMessages(labels: QaLabel[]): GlyphQaMessage[] {
+    return labels.map((label) => ({
+        sourceId: AUTO_QA_SOURCE_ID,
+        severity: 'warning',
+        checkId: label.kind,
+        message: formatQaPlainMessage(label),
+        messageId: `${label.kind}:${label.missing}`
+    }));
+}
+
+function formatQaMessageText(label: QaLabel, markdownNames: boolean): string {
+    const wrap = (value: string) => (markdownNames ? `\`${value}\`` : value);
+    const name = wrap(label.displayName || label.missing);
     if (label.kind === 'wrong_component_order') {
-        const base = `\`${label.relatedDisplayName || 'the base'}\``;
+        const base = wrap(label.relatedDisplayName || 'the base');
         return `The mark ${name} usually comes after ${base}, not before.`;
     }
     if (label.kind === 'missing_component') {

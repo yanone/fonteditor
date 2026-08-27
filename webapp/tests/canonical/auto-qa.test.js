@@ -398,6 +398,41 @@ describe('Auto QA matcher', () => {
         ).toBe(false);
     });
 
+    test('Glyph.qa exposes Auto QA messages as dicts', () => {
+        const font = makeFont([
+            makeGlyph('A', { codepoints: [0x41] }),
+            makeGlyph('acutecomb.case', { codepoints: [0x301] }),
+            makeGlyph('Aacute', {
+                codepoints: [0xc1],
+                components: ['acutecomb.case', 'A']
+            }),
+            makeGlyph('E', { codepoints: [0x45] }),
+            makeGlyph('Eacute', {
+                codepoints: [0xc9],
+                components: ['E', 'acutecomb.case']
+            }),
+            makeGlyph('I', { codepoints: [0x49] }),
+            makeGlyph('Iacute', {
+                codepoints: [0xcd],
+                components: ['I', 'acutecomb.case']
+            })
+        ]);
+        qaCorpusIndex.loadTableForTests(workSansPriors());
+        const messages = font.findGlyph('Aacute').qa;
+        expect(messages.length).toBeGreaterThan(0);
+        expect(messages[0]).toEqual(
+            expect.objectContaining({
+                sourceId: 'auto-qa',
+                severity: 'warning',
+                checkId: 'wrong_component_order',
+                messageId: 'wrong_component_order:uni0301.case>uni0041'
+            })
+        );
+        expect(messages[0].message).toMatch(/acutecomb\.case/);
+        expect(messages[0].message).not.toMatch(/`/);
+        expect(font.findGlyph('Eacute').qa).toEqual([]);
+    });
+
     test('uppercase .case mark components fire with fewer than eight peers', () => {
         const letters = [
             ['A', 0x41, 'Adieresis', 0xc4],
