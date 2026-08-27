@@ -6260,7 +6260,7 @@ describe('Babelfont Object Model', () => {
                 renameFont.findGlyph('B.alt').layers[0].components[0].reference
             ).toBe('A.alt');
             expect(renameFont.masters[0].kerning).toEqual({
-                'A.alt': { 'B.alt': -40 }
+                'A.alt:B.alt': -40
             });
             expect(renameFont.masters[0].kerning_rtl).toEqual({
                 'A.alt:B.alt': -50
@@ -6575,7 +6575,7 @@ describe('Babelfont Object Model', () => {
             expect(font.findGlyph('A')).toBeUndefined();
             expect(font.findGlyph('B').layers[0].components).toHaveLength(0);
             expect(font.findGlyph('C').leftMetricsKey).toBeUndefined();
-            expect(font.masters[0].kerning).toEqual({ B: { C: -5 } });
+            expect(font.masters[0].kerning).toEqual({ 'B:C': -5 });
             expect(font.masters[0].kerning_rtl).toEqual({ 'B:C': -20 });
             expect(font.first_kern_groups).toEqual({});
             expect(font.second_kern_groups).toEqual({ right: ['B', 'C'] });
@@ -6757,8 +6757,8 @@ describe('Babelfont Object Model', () => {
             ]);
 
             font.deleteGlyphs(['A']);
-            expect(font.masters[0].kerning).toEqual({ B: { C: -5 } });
-            expect(font.masters[1].kerning).toEqual({ B: { C: -5 } });
+            expect(font.masters[0].kerning).toEqual({ 'B:C': -5 });
+            expect(font.masters[1].kerning).toEqual({ 'B:C': -5 });
             expect(font.masters[0].kerning_rtl).toEqual({});
             expect(font.first_kern_groups).toEqual({});
             expect(font.second_kern_groups).toEqual({ T: ['T'] });
@@ -6836,7 +6836,7 @@ describe('Babelfont Object Model', () => {
 
             font.deleteGlyphs(['A']);
             expect(font.masters[0].kerning).toEqual({
-                '@shared': { T: -20 }
+                '@shared:T': -20
             });
             expect(font.first_kern_groups).toEqual({ shared: ['Agrave'] });
         });

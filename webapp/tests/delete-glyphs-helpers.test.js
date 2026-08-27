@@ -4,7 +4,8 @@ const {
     commentOutFeatureLinesReferencingDeletedGlyphs,
     collectFeatureLinesReferencingDeletedGlyphs,
     buildAffectedKerningKeys,
-    filterKerningMap
+    filterKerningMap,
+    flattenKerningMap
 } = require('../js/delete-glyphs-preflight');
 const {
     glyphStackReferencesDeletedGlyph
@@ -51,7 +52,11 @@ describe('delete glyphs helpers', () => {
                 keys.removedLeftKeys,
                 keys.removedRightKeys
             )
-        ).toEqual({ '@shared': { T: -10 }, 'B': { C: -5 } });
+        ).toEqual({ '@shared:T': -10, 'B:C': -5 });
+        expect(flattenKerningMap({ 'A': { V: -80 }, 'B:W': -10 })).toEqual({
+            'A:V': -80,
+            'B:W': -10
+        });
     });
 
     test('keeps feature block wrappers when commenting rules', () => {

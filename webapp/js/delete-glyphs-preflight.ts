@@ -176,35 +176,54 @@ export function isFlatKerningMap(kerning: unknown): boolean {
     );
 }
 
+/** Convert nested `{left: {right: n}}` maps to `"left:right"` pair keys. */
+export function flattenKerningMap(kerning: unknown): Record<string, number> {
+    const next: Record<string, number> = {};
+    if (kerning instanceof Map) {
+        for (const [key, value] of kerning.entries()) {
+            if (typeof value === 'number') {
+                const pairKey = String(key);
+                if (pairKey.includes(':')) {
+                    next[pairKey] = value;
+                }
+                continue;
+            }
+            if (!value || typeof value !== 'object') {
+                continue;
+            }
+            const rowEntries =
+                value instanceof Map
+                    ? value.entries()
+                    : Object.entries(value as Record<string, unknown>);
+            for (const [right, pairValue] of rowEntries) {
+                if (typeof pairValue === 'number') {
+                    next[`${key}:${right}`] = pairValue;
+                }
+            }
+        }
+        return next;
+    }
+    forEachKerningPair(kerning, (left, right, value) => {
+        next[`${left}:${right}`] = value;
+    });
+    return next;
+}
+
 /**
  * Drop pairs whose left/right keys are affected by a glyph deletion.
- * Preserves flat vs nested storage shape.
+ * Storage is always flat `"left:right"` → number.
  */
 export function filterKerningMap(
     kerning: unknown,
     leftKeys: ReadonlySet<string>,
     rightKeys: ReadonlySet<string>
-): Record<string, number> | Record<string, Record<string, number>> {
-    const flat = isFlatKerningMap(kerning);
-    if (flat) {
-        const next: Record<string, number> = {};
-        forEachKerningPair(kerning, (left, right, value) => {
-            if (kerningPairIsAffected(left, right, leftKeys, rightKeys)) {
-                return;
-            }
-            next[`${left}:${right}`] = value;
-        });
-        return next;
-    }
-    const next: Record<string, Record<string, number>> = {};
+): Record<string, number> {
+    const next: Record<string, number> = {};
     forEachKerningPair(kerning, (left, right, value) => {
         if (kerningPairIsAffected(left, right, leftKeys, rightKeys)) {
             return;
         }
-        if (!next[left]) {
-            next[left] = {};
-        }
-        next[left][right] = value;
+        next[`${left}:${right}`] = value;
     });
     return next;
 }

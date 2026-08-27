@@ -1,4 +1,5 @@
 import type { Master } from './babelfont-model';
+import { flattenKerningMap } from './delete-glyphs-preflight';
 
 export type KerningRow = Map<string, number> | Record<string, number>;
 export type KerningContainer =
@@ -261,131 +262,19 @@ export function setKerningPairValueOnMaster(
     isRTL: boolean = false
 ): void {
     try {
-        const kerning = (isRTL ? master.kerning_rtl : master.kerning) as
-            KerningContainer | undefined;
-        const setKerning = (value: KerningContainer) => {
-            if (isRTL) {
-                master.kerning_rtl = value as Record<string, number>;
-            } else {
-                master.kerning = value as unknown as Master['kerning'];
-            }
-        };
+        const nextKerning = flattenKerningMap(
+            isRTL ? master.kerning_rtl : master.kerning
+        );
         const flatKey = getFlatKerningPairKey(firstKey, secondKey);
-
-        if (isRTL) {
-            const nextKerning =
-                kerning && !(kerning instanceof Map) ? { ...kerning } : {};
-
-            if (nextValue === null) {
-                delete nextKerning[flatKey];
-            } else {
-                nextKerning[flatKey] = nextValue;
-            }
-
-            setKerning(nextKerning as unknown as Master['kerning']);
-            return;
-        }
-
-        if (!kerning || usesFlatKerningPairs(kerning)) {
-            if (kerning instanceof Map) {
-                if (nextValue === null) {
-                    kerning.delete(flatKey);
-                } else {
-                    kerning.set(flatKey, nextValue);
-                }
-                return;
-            }
-
-            if (!kerning) {
-                if (nextValue === null) {
-                    return;
-                }
-                setKerning({
-                    [flatKey]: nextValue
-                } as unknown as Master['kerning']);
-                return;
-            }
-
-            if (nextValue === null) {
-                delete kerning[flatKey];
-            } else {
-                kerning[flatKey] = nextValue;
-            }
-            return;
-        }
-
-        if (kerning instanceof Map) {
-            if (nextValue === null) {
-                const row = kerning.get(firstKey);
-                if (row instanceof Map) {
-                    row.delete(secondKey);
-                    if (row.size === 0) {
-                        kerning.delete(firstKey);
-                    }
-                } else if (isKerningRow(row) && secondKey in row) {
-                    delete row[secondKey];
-                    if (Object.keys(row).length === 0) {
-                        kerning.delete(firstKey);
-                    }
-                }
-                return;
-            }
-
-            const existingRow = kerning.get(firstKey);
-            if (existingRow instanceof Map) {
-                existingRow.set(secondKey, nextValue);
-                return;
-            }
-            if (isKerningRow(existingRow)) {
-                existingRow[secondKey] = nextValue;
-                return;
-            }
-
-            kerning.set(firstKey, new Map([[secondKey, nextValue]]));
-            return;
-        }
-
-        if (!kerning) {
-            if (nextValue === null) {
-                return;
-            }
-            setKerning({
-                [firstKey]: {
-                    [secondKey]: nextValue
-                }
-            } as unknown as Master['kerning']);
-            return;
-        }
-
         if (nextValue === null) {
-            const row = kerning[firstKey];
-            if (!isKerningRow(row)) {
-                return;
-            }
-            if (row instanceof Map) {
-                row.delete(secondKey);
-                if (row.size === 0) {
-                    delete kerning[firstKey];
-                }
-                return;
-            }
-
-            delete row[secondKey];
-            if (Object.keys(row).length === 0) {
-                delete kerning[firstKey];
-            }
-            return;
+            delete nextKerning[flatKey];
+        } else {
+            nextKerning[flatKey] = nextValue;
         }
-
-        if (!kerning[firstKey]) {
-            kerning[firstKey] = {};
-        }
-
-        const row = kerning[firstKey];
-        if (row instanceof Map) {
-            row.set(secondKey, nextValue);
-        } else if (isKerningRow(row)) {
-            row[secondKey] = nextValue;
+        if (isRTL) {
+            master.kerning_rtl = nextKerning;
+        } else {
+            master.kerning = nextKerning;
         }
     } finally {
         rebuildAutomaticLigaturesAfterKerningPair(

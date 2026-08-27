@@ -446,8 +446,8 @@ class FontEditorSelectionBridgeTest(unittest.TestCase):
     def test_master_kerning_map_is_wrapped_as_native_python_mapping(self):
         kerning_map = FakeJsMap(
             {
-                'A': FakeJsMap({'V': -80}),
-                '@Left': {'@Right': -120},
+                'A:V': -80,
+                '@Left:@Right': -120,
             }.items()
         )
         master_proxy = self.fonteditor.ModelObjectProxy(FakeMaster(kerning_map))
@@ -455,20 +455,21 @@ class FontEditorSelectionBridgeTest(unittest.TestCase):
         kerning = master_proxy.kerning
 
         self.assertIsInstance(kerning, self.fonteditor.MutableMapping)
-        self.assertEqual(kerning['A']['V'], -80)
-        self.assertEqual(kerning['@Left']['@Right'], -120)
+        self.assertEqual(kerning['A:V'], -80)
+        self.assertEqual(kerning['@Left:@Right'], -120)
 
-        kerning['A']['W'] = -70
-        kerning['B'] = {'Y': -40}
+        kerning['A:W'] = -70
+        kerning['B:Y'] = -40
 
-        self.assertEqual(kerning_map.get('A').get('W'), -70)
-        self.assertEqual(kerning['B']['Y'], -40)
+        self.assertEqual(kerning_map.get('A:W'), -70)
+        self.assertEqual(kerning['B:Y'], -40)
         self.assertEqual(
             kerning.as_dict(),
             {
-                'A': {'V': -80, 'W': -70},
-                '@Left': {'@Right': -120},
-                'B': {'Y': -40},
+                'A:V': -80,
+                '@Left:@Right': -120,
+                'A:W': -70,
+                'B:Y': -40,
             },
         )
 

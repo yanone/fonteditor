@@ -44,15 +44,15 @@ font = Font()
 Dictionary-like object model fields are wrapped as live Python mappings.
 Use attribute access when the name is a Python identifier, including I18N
 language tags (`name.dflt`) and designspace locations (`location.wght`).
-Do not use `.get()`. Index kerning by glyph or group name
-(`kerning["A"]["V"]`).
+Do not use `.get()`. Index kerning by pair key
+(`kerning["A:V"]`).
 
 ```python
 font = Font()
 master = font.masters[0]
 
-# Nested kerning dictionary
-master.kerning["A"]["V"] = -80
+# Pair-key kerning dictionary
+master.kerning["A:V"] = -80
 
 # Per-master vertical metrics
 xh = master.metrics.XHeight
@@ -1093,14 +1093,14 @@ print(master.location.wght)
 xh = master.metrics.XHeight
 master.metrics.Ascender = 800
 ```
-- **`kerning`** (dict): Nested LTR kerning: `kerning[left][right] = value`. Keys are glyph names
-or `@groupName` (first vs second group from key position).
+- **`kerning`** (dict): LTR kerning: pair key `"left:right"` → value. Keys are glyph names or
+`@groupName` (first vs second group from key position).
 
 **Example:**
 ```python
-master.kerning["A"]["V"] = -80
+master.kerning["A:V"] = -80
 ```
-- **`kerning_rtl`** (dict): Flat RTL kerning: pair key `"first:second"` → value, same operand rules
+- **`kerning_rtl`** (dict): RTL kerning: pair key `"first:second"` → value, same operand rules
 as LTR.
 
 **Example:**
@@ -1294,15 +1294,12 @@ print(f"Scaled {len(font.glyphs)} glyphs by {scale_factor}x")
 font = Font()
 master = font.masters[0]
 
-# Ensure nested kerning bucket exists
-if "A" not in master.kerning:
-    master.kerning["A"] = {}
-
-master.kerning["A"]["V"] = -90
-master.kerning["A"]["W"] = -70
+# Pair-key kerning
+master.kerning["A:V"] = -90
+master.kerning["A:W"] = -70
 
 # Read values
-av_value = master.kerning["A"]["V"]
+av_value = master.kerning["A:V"]
 print(f"A/V kerning: {av_value}")
 
 # Update localized names

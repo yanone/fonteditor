@@ -158,7 +158,7 @@ function expectOriginalRenameRefs(font) {
     expect(font.findGlyph('B.alt')).toBeUndefined();
     expect(font.findGlyph('B').layers[0].components[0].reference).toBe('A');
     expectBackgroundComponentRef(font, 'B', 'A');
-    expect(font.masters[0].kerning).toEqual({ A: { B: -40 } });
+    expect(font.masters[0].kerning).toEqual({ 'A:B': -40 });
     expect(font.masters[0].kerning_rtl).toEqual({ 'A:B': -50 });
     expect(font.first_kern_groups).toEqual({ left: ['A'] });
     expect(font.second_kern_groups).toEqual({ right: ['B'] });
@@ -176,7 +176,7 @@ function expectRenamedRefs(font) {
         'A.alt'
     );
     expectBackgroundComponentRef(font, 'B.alt', 'A.alt');
-    expect(font.masters[0].kerning).toEqual({ 'A.alt': { 'B.alt': -40 } });
+    expect(font.masters[0].kerning).toEqual({ 'A.alt:B.alt': -40 });
     expect(font.masters[0].kerning_rtl).toEqual({ 'A.alt:B.alt': -50 });
     expect(font.first_kern_groups).toEqual({ left: ['A.alt'] });
     expect(font.second_kern_groups).toEqual({ right: ['B.alt'] });

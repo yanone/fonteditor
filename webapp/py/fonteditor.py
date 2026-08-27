@@ -55,6 +55,7 @@ _DICT_LIKE_FIELDS_BY_CLASS = {
         'smart_component_location',
     },
     'Master': {
+        # Pair maps keyed as "left:right" (glyph or @group names).
         'custom_ot_values',
         'format_specific',
         'kerning',

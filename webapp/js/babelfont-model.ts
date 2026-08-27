@@ -30,6 +30,7 @@ import {
     stripDeletedGlyphTokensFromClassCode,
     commentOutFeatureLinesReferencingDeletedGlyphs,
     buildAffectedKerningKeys,
+    flattenKerningMap,
     forEachKerningPair,
     kerningPairIsAffected,
     filterKerningMap,
@@ -7345,9 +7346,7 @@ export class Layer extends ArrayElementBase {
                 font &&
                 kerningMaster
                     ? resolveKerningValueForGlyphPair(
-                          kerningMaster.kerning as
-                              | Record<string, Record<string, number>>
-                              | undefined,
+                          kerningMaster.kerning,
                           previousUnattachedBaseReference,
                           input.reference,
                           font.first_kern_groups,
@@ -11910,12 +11909,15 @@ export class Master extends ArrayElementBase {
     }
 
     /**
-     * Nested LTR kerning: `kerning[left][right] = value`. Keys are glyph names
-     * or `@groupName` (first vs second group from key position).
+     * LTR kerning: pair key `"left:right"` → value. Keys are glyph names or
+     * `@groupName` (first vs second group from key position).
      * @example
-     * master.kerning["A"]["V"] = -80
+     * master.kerning["A:V"] = -80
      */
-    get kerning(): Record<string, Record<string, number>> {
+    get kerning(): Record<string, number> {
+        if (kerningMapNeedsFlatten(this.data.kerning)) {
+            this.data.kerning = flattenKerningMap(this.data.kerning) as Unsafe;
+        }
         return getLiveMutableValue(
             this,
             'kerning',
@@ -11924,15 +11926,15 @@ export class Master extends ArrayElementBase {
         );
     }
 
-    set kerning(value: Record<string, Record<string, number>>) {
+    set kerning(value: Record<string, number>) {
         assertModelMutationAllowed();
         const old = this.data.kerning;
-        this.data.kerning = value;
-        recordAndMarkDirty(this, 'kerning', old, value);
+        this.data.kerning = flattenKerningMap(value) as Unsafe;
+        recordAndMarkDirty(this, 'kerning', old, this.data.kerning);
     }
 
     /**
-     * Flat RTL kerning: pair key `"first:second"` → value, same operand rules
+     * RTL kerning: pair key `"first:second"` → value, same operand rules
      * as LTR.
      * @example
      * master.kerning_rtl["reh-ar:alef-ar"] = -80
@@ -12269,6 +12271,37 @@ function syncKerningRtlToFormatSpecific(
     font.format_specific = nextFormatSpecific;
 }
 
+function kerningMapNeedsFlatten(kerning: unknown): boolean {
+    if (!kerning || typeof kerning !== 'object' || Array.isArray(kerning)) {
+        return false;
+    }
+    if (kerning instanceof Map) {
+        for (const value of kerning.values()) {
+            if (value && typeof value === 'object') {
+                return true;
+            }
+        }
+        return false;
+    }
+    return Object.values(kerning as Record<string, unknown>).some(
+        (value) => value !== null && typeof value === 'object'
+    );
+}
+
+function remapFlatKerningPairKeys(
+    kerning: Record<string, number>,
+    replaceName: (name: string) => string
+): Record<string, number> {
+    const next: Record<string, number> = {};
+    for (const [pair, value] of Object.entries(kerning)) {
+        const separator = pair.indexOf(':');
+        const left = separator < 0 ? pair : pair.slice(0, separator);
+        const right = separator < 0 ? '' : pair.slice(separator + 1);
+        next[`${replaceName(left)}:${replaceName(right)}`] = value;
+    }
+    return next;
+}
+
 /**
  * The main font class representing a complete font
  */
@@ -12281,11 +12314,10 @@ export function normalizeLegacyGlyphsRtlKerning(
     const rawRtl = formatSpecific?.['com.schriftgestalt.Glyphs.kerningRTL'] as
         Record<string, Record<string, Record<string, number>>> | undefined;
 
-    // Ensure every master has a kerning_rtl field (empty by default).
+    // Pair-key maps (`"left:right"`). Nested `{left: {right: n}}` is flattened.
     for (const master of masters) {
-        if (!master.kerning_rtl) {
-            master.kerning_rtl = {};
-        }
+        master.kerning = flattenKerningMap(master.kerning) as Unsafe;
+        master.kerning_rtl = flattenKerningMap(master.kerning_rtl);
     }
 
     if (!rawRtl) {
@@ -13628,18 +13660,10 @@ export class Font extends ModelBase {
             }
 
             for (const master of this.masters || []) {
-                const kerning: Record<string, Record<string, number>> = {};
-                for (const [left, pairs] of Object.entries(
-                    master.kerning || {}
-                )) {
-                    kerning[replaceName(left)] = Object.fromEntries(
-                        Object.entries(pairs).map(([right, value]) => [
-                            replaceName(right),
-                            value
-                        ])
-                    );
-                }
-                master.kerning = kerning;
+                master.kerning = remapFlatKerningPairKeys(
+                    flattenKerningMap(master.kerning),
+                    replaceName
+                );
 
                 const rtlKerning: Record<string, number> = {};
                 for (const [pair, value] of Object.entries(
@@ -14276,7 +14300,7 @@ export class Font extends ModelBase {
                 ? this.clonePlainValue(options.location)
                 : this.getNextMasterLocation(),
             metrics,
-            kerning: {} as any,
+            kerning: {} as Unsafe,
             kerning_rtl: {}
         };
     }
@@ -15149,12 +15173,12 @@ export class Font extends ModelBase {
                         master.kerning,
                         removedLeftKeys,
                         removedRightKeys
-                    ) as Record<string, Record<string, number>>;
+                    );
                     master.kerning_rtl = filterKerningMap(
                         master.kerning_rtl,
                         removedLeftKeys,
                         removedRightKeys
-                    ) as Record<string, number>;
+                    );
                 }
 
                 const filterKernGroups = (

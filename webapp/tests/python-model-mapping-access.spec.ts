@@ -16,9 +16,9 @@ master = font.masters[0]
 glyph = font.glyphs[0]
 layer = glyph.layers[0]
 
-if "A" not in master.kerning:
-    master.kerning["A"] = {}
-master.kerning["A"]["V"] = -80
+if "A:V" not in master.kerning:
+    master.kerning["A:V"] = 0
+master.kerning["A:V"] = -80
 master.kerning_rtl["reh-ar:alef-ar"] = -80
 
 original_family = font.names.family_name.dflt
@@ -78,7 +78,7 @@ json.dumps({
     "metrics_keys": list(master.metrics),
     "family_name_dflt": font.names.family_name.dflt,
     "family_written": family_written,
-    "kerning_av": master.kerning["A"]["V"],
+    "kerning_av": master.kerning["A:V"],
     "kerning_as_dict": master.kerning.as_dict(),
     "kerning_rtl": master.kerning_rtl["reh-ar:alef-ar"],
     "axis_name": axis_name,
@@ -179,7 +179,7 @@ test.describe('Python model mapping access (live Pyodide)', () => {
         expect(probe.kerning_rtl).toBe(-80);
         expect(probe.kerning_as_dict).toEqual(
             expect.objectContaining({
-                A: expect.objectContaining({ V: -80 })
+                'A:V': -80
             })
         );
 
