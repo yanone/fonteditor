@@ -17,7 +17,7 @@
         "editor_mode": "edit",
         "editor_opentype_features_in_subset": {
             "dlig": false,
-            "liga": true,
+            "liga": false,
             "pnum": false,
             "ss01": false,
             "ss04": false,
@@ -26,7 +26,7 @@
         "editor_opentype_features_not_in_subset": {
             "case": false,
             "frac": false,
-            "locl": true,
+            "locl": false,
             "ordn": false,
             "sinf": false,
             "ss02": false,

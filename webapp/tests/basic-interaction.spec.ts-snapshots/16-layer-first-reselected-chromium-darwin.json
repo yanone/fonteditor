@@ -2,7 +2,7 @@
     "label": "layer-first-reselected",
     "state": {
         "editor_active_canvas_plugins": [],
-        "editor_cursor_position": 6,
+        "editor_cursor_position": 14,
         "editor_file": "memory:///user/Fustat.glyphs",
         "editor_glyph_stack": "meem-ar.init@3114FB65-9464-41A5-B67E-A8F9F43C0EF1",
         "editor_harfbuzz_ax": "569 544 220 220 570 210 0 196 0 202 0 618 278 0 501",
@@ -17,7 +17,7 @@
         "editor_mode": "edit",
         "editor_opentype_features_in_subset": {
             "dlig": false,
-            "liga": true,
+            "liga": false,
             "pnum": false,
             "ss01": false,
             "ss04": false,
@@ -26,7 +26,7 @@
         "editor_opentype_features_not_in_subset": {
             "case": false,
             "frac": false,
-            "locl": true,
+            "locl": false,
             "ordn": false,
             "sinf": false,
             "ss02": false,
