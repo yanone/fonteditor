@@ -17254,12 +17254,16 @@ export class OutlineEditor {
         }
 
         if (isCmdClick && this.shouldTreatCommandClickAsSelectionToggle()) {
-            const canContinueFromSelectedEndpoint =
-                !!this.getSelectedOpenPathEndpointSeed();
+            const selectedEndpointSeed = this.getSelectedOpenPathEndpointSeed();
+            if (!selectedEndpointSeed) {
+                return false;
+            }
+            const hoveringCloseTarget =
+                this.isCommandPathCloseTarget(selectedEndpointSeed);
             if (
-                !canContinueFromSelectedEndpoint ||
-                !this.isNeutralCommandCanvasTarget() ||
-                this.resolvePathSegmentClick()
+                !hoveringCloseTarget &&
+                (!this.isNeutralCommandCanvasTarget() ||
+                    this.resolvePathSegmentClick())
             ) {
                 return false;
             }

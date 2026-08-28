@@ -126,8 +126,8 @@ function safeSessionStorageGet(key: string): string | null {
 
 function getErrorRuntimeContext() {
     const userAgent = navigator.userAgent || '';
-    const hasServiceWorkerController =
-        'serviceWorker' in navigator && !!navigator.serviceWorker.controller;
+    const serviceWorker = navigator.serviceWorker;
+    const hasServiceWorkerController = !!serviceWorker?.controller;
 
     return {
         startupMs: Math.round(performance.now()),
@@ -136,7 +136,7 @@ function getErrorRuntimeContext() {
         userAgent,
         browserFamily: isSafariUserAgent(userAgent) ? 'safari' : 'other',
         hasServiceWorkerController,
-        serviceWorkerState: navigator.serviceWorker.controller?.state || null,
+        serviceWorkerState: serviceWorker?.controller?.state || null,
         coiReloadedBySelf: safeSessionStorageGet('coiReloadedBySelf'),
         hasSharedArrayBuffer: typeof SharedArrayBuffer !== 'undefined'
     };
