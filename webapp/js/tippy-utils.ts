@@ -71,6 +71,27 @@ export function hasVisibleTippyMenus(): boolean {
     return false;
 }
 
+function hasOpenModalEscape(): boolean {
+    // Lazy require: modal-escape imports this module for hasVisibleTippyMenus.
+    return (
+        require('./ui/modal-escape') as typeof import('./ui/modal-escape')
+    ).hasBoundModalEscape();
+}
+
+/**
+ * After the last registered tippy menu hides, return DOM focus to the
+ * focused view (glyph canvas when Editing View is focused) so shortcuts
+ * work again. Skip while another menu or a bindModalEscape overlay is open.
+ */
+function scheduleFocusedViewRestoreAfterMenus(): void {
+    queueMicrotask(() => {
+        if (hasVisibleTippyMenus() || hasOpenModalEscape()) {
+            return;
+        }
+        window.restoreFocusedViewDomFocus?.();
+    });
+}
+
 function installEscapePriorityListener(): void {
     if (escapePriorityListenerInstalled) {
         return;
@@ -195,6 +216,8 @@ export function addTippyBackdropSupport(
             backdrop.removeEventListener('click', handleBackdropClick);
 
             if (originalOnHide) originalOnHide(instance);
+
+            scheduleFocusedViewRestoreAfterMenus();
         }
     });
 }
