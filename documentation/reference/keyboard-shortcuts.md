@@ -69,8 +69,9 @@ Each view title bar shows the same shortcut.
 - `I` — insert a node on a segment
 - `C` — convert tool
 - Cut has no letter shortcut; choose it in the Editor title bar
-- After the tools feel familiar, hold `Cmd/Ctrl` in empty space to draw a contour, or on a selected open end to continue it (same as Pen / Insert without switching tools)
-- `Cmd/Ctrl+Click` on a segment inserts a point; on an on-curve point it cuts the path open
+- After the tools feel familiar, hold `Cmd/Ctrl` in empty space with nothing selected to draw a contour, or on a selected open end to continue it (same as Pen / Insert without switching tools)
+- With objects already selected, `Cmd/Ctrl+Click` adds or removes from the selection like Shift
+- With an empty selection, `Cmd/Ctrl+Click` on a segment inserts a point; on an on-curve point it cuts the path open
 - Drag one open end onto another to join or close
 - `Alt/Option+Click` on a straight segment converts it to a curve
 - Double-click an on-curve point to toggle smooth and corner

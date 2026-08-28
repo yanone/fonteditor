@@ -8570,7 +8570,16 @@ export class OutlineEditor {
     }
 
     private beginMarqueeSelection(e: MouseEvent): boolean {
-        if (e.altKey || e.metaKey || e.ctrlKey) {
+        if (e.altKey) {
+            return false;
+        }
+
+        const isCommand = e.metaKey || e.ctrlKey;
+        if (
+            isCommand &&
+            (!this.shouldTreatCommandClickAsSelectionToggle() ||
+                this.getSelectedOpenPathEndpointSeed())
+        ) {
             return false;
         }
 
@@ -8578,7 +8587,7 @@ export class OutlineEditor {
         this.isMarqueeSelecting = true;
         this.marqueeSelectionStart = { glyphX, glyphY };
         this.marqueeSelectionCurrent = { glyphX, glyphY };
-        this.marqueeToggleMode = e.shiftKey;
+        this.marqueeToggleMode = e.shiftKey || isCommand;
         this.marqueeInitialPoints = this.cloneSelectedPoints();
         return true;
     }
@@ -11376,10 +11385,20 @@ export class OutlineEditor {
             this.activeEditTool = stickyTool;
         }
 
+        const commandSelectsInstead =
+            this.cmdKeyPressed &&
+            this.shouldTreatCommandClickAsSelectionToggle();
+        const commandDrawsOrInserts =
+            this.cmdKeyPressed && !this.altKeyPressed && !commandSelectsInstead;
+
         const highlightedTool = resolveHighlightedEditTool({
             isEditMode: this.active,
             stickyTool,
-            cmdKeyPressed: this.cmdKeyPressed,
+            cmdKeyPressed:
+                commandDrawsOrInserts ||
+                (this.cmdKeyPressed &&
+                    !this.altKeyPressed &&
+                    !!this.getSelectedOpenPathEndpointSeed()),
             altKeyPressed: this.altKeyPressed,
             hasAddPointPreview: !!this.hoveredAddPointPreview
         });
@@ -11391,7 +11410,10 @@ export class OutlineEditor {
             availability,
             pointerBadge: resolvePointerBadge({
                 highlightedTool,
-                cmdKeyPressed: this.cmdKeyPressed,
+                cmdKeyPressed:
+                    this.cmdKeyPressed &&
+                    !commandSelectsInstead &&
+                    !this.altKeyPressed,
                 hoveringCuttableNode: this.isCuttablePoint(
                     this.hoveredPointIndex
                 )
@@ -11465,11 +11487,62 @@ export class OutlineEditor {
         return true;
     }
 
+    private hasOutlineObjectSelection(): boolean {
+        return (
+            this.selectedPoints.length > 0 ||
+            this.selectedAnchors.length > 0 ||
+            this.selectedComponents.length > 0
+        );
+    }
+
+    /**
+     * With objects already selected, Cmd/Ctrl add/removes from the
+     * selection like Shift instead of drawing, inserting, or cutting.
+     * An in-progress path-drawing session keeps the original Cmd gesture.
+     */
+    private shouldTreatCommandClickAsSelectionToggle(): boolean {
+        if (this.activePathDrawingSession) {
+            return false;
+        }
+        return this.hasOutlineObjectSelection();
+    }
+
+    private isSelectionToggleModifier(e: MouseEvent): boolean {
+        if (e.shiftKey) {
+            return true;
+        }
+        if (e.altKey) {
+            return false;
+        }
+        return (
+            (e.metaKey || e.ctrlKey) &&
+            this.shouldTreatCommandClickAsSelectionToggle()
+        );
+    }
+
+    /** Cmd/Ctrl still draws or inserts only when nothing is selected. */
+    private isCommandDrawInsertArmed(): boolean {
+        if (!this.cmdKeyPressed || this.altKeyPressed) {
+            return false;
+        }
+        if (this.activePathDrawingSession) {
+            return true;
+        }
+        return !this.hasOutlineObjectSelection();
+    }
+
     isPenDrawArmed(): boolean {
         if (!this.active || this.isPreviewMode) {
             return false;
         }
-        if (this.cmdKeyPressed && !this.altKeyPressed) {
+        if (this.isCommandDrawInsertArmed()) {
+            return true;
+        }
+        if (
+            this.cmdKeyPressed &&
+            !this.altKeyPressed &&
+            this.getSelectedOpenPathEndpointSeed()
+        ) {
             return true;
         }
         return this.activeEditTool === 'pen';
@@ -11479,7 +11552,7 @@ export class OutlineEditor {
         if (!this.active || this.isPreviewMode) {
             return false;
         }
-        if (this.cmdKeyPressed && !this.altKeyPressed) {
+        if (this.isCommandDrawInsertArmed()) {
             return true;
         }
         return this.activeEditTool === 'insert';
@@ -11955,7 +12028,11 @@ export class OutlineEditor {
             !e.ctrlKey &&
             !e.altKey &&
             !e.shiftKey;
-        if ((isCmdClick || isInsertToolClick) && this.hoveredAddPointPreview) {
+        if (
+            ((isCmdClick && !this.shouldTreatCommandClickAsSelectionToggle()) ||
+                isInsertToolClick) &&
+            this.hoveredAddPointPreview
+        ) {
             void this.commitHoveredAddPointPreview().then(() => {
                 if (isInsertToolClick && !this.cmdKeyPressed) {
                     this.finalizePendingCommandPathEdit();
@@ -12052,8 +12129,8 @@ export class OutlineEditor {
         if (this.hoveredAnchorIndex !== null) {
             this.selectedGuideHandle = null;
             this.selectedSidebearingHandle = null;
-            if (e.shiftKey) {
-                // Shift-click: add to or remove from selection (keep points selected for mixed selection)
+            if (this.isSelectionToggleModifier(e)) {
+                // Shift/Cmd-click: add to or remove from selection (keep points selected for mixed selection)
                 const existingIndex = this.selectedAnchors.indexOf(
                     this.hoveredAnchorIndex
                 );
@@ -12102,7 +12179,10 @@ export class OutlineEditor {
             this.selectedSidebearingHandle = null;
             const hoveredPoint = this.hoveredPointIndex;
             const isCmdCutClick =
-                (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
+                (e.metaKey || e.ctrlKey) &&
+                !e.altKey &&
+                !e.shiftKey &&
+                !this.shouldTreatCommandClickAsSelectionToggle();
             if (isCmdCutClick && this.cutPathAtNode(hoveredPoint)) {
                 return;
             }
@@ -12111,6 +12191,7 @@ export class OutlineEditor {
                 (e.metaKey || e.ctrlKey) &&
                 !e.altKey &&
                 !e.shiftKey &&
+                !this.shouldTreatCommandClickAsSelectionToggle() &&
                 this.canSlideSmoothPointOnCurve(hoveredPoint)
             ) {
                 this.selectedPoints = [{ ...hoveredPoint }];
@@ -12156,8 +12237,11 @@ export class OutlineEditor {
                         this.selectedPoints.length === 1 &&
                         this.selectedAnchors.length === 0));
 
-            if (e.shiftKey && !canStartShiftOffCurveDrag) {
-                // Shift-click: add to or remove from selection (keep anchors selected for mixed selection)
+            if (
+                this.isSelectionToggleModifier(e) &&
+                !canStartShiftOffCurveDrag
+            ) {
+                // Shift/Cmd-click: add to or remove from selection (keep anchors selected for mixed selection)
                 if (existingIndex >= 0) {
                     // Remove from selection
                     this.selectedPoints.splice(existingIndex, 1);
@@ -12228,8 +12312,8 @@ export class OutlineEditor {
         if (this.hoveredComponentIndex !== null) {
             this.selectedGuideHandle = null;
             this.selectedSidebearingHandle = null;
-            if (e.shiftKey) {
-                // Shift-click: add to or remove from selection (keep points and anchors for mixed selection)
+            if (this.isSelectionToggleModifier(e)) {
+                // Shift/Cmd-click: add to or remove from selection (keep points and anchors for mixed selection)
                 const existingIndex = this.selectedComponents.indexOf(
                     this.hoveredComponentIndex
                 );
@@ -16699,7 +16783,13 @@ export class OutlineEditor {
     }
 
     private handlePathSegmentSelectionClick(e: MouseEvent): boolean {
-        if (e.altKey || e.metaKey || e.ctrlKey) {
+        if (e.altKey) {
+            return false;
+        }
+        if (
+            (e.metaKey || e.ctrlKey) &&
+            !this.shouldTreatCommandClickAsSelectionToggle()
+        ) {
             return false;
         }
         if (!this.isNeutralCommandCanvasTarget()) {
@@ -16709,7 +16799,7 @@ export class OutlineEditor {
         if (!segmentClick) {
             return false;
         }
-        if (e.shiftKey) {
+        if (this.isSelectionToggleModifier(e)) {
             this.toggleSegmentNodeSelection(segmentClick);
         } else {
             this.selectSegmentNodesExclusive(segmentClick);
@@ -17161,6 +17251,18 @@ export class OutlineEditor {
             !e.shiftKey;
         if (!isCmdClick && !isPenToolClick) {
             return false;
+        }
+
+        if (isCmdClick && this.shouldTreatCommandClickAsSelectionToggle()) {
+            const canContinueFromSelectedEndpoint =
+                !!this.getSelectedOpenPathEndpointSeed();
+            if (
+                !canContinueFromSelectedEndpoint ||
+                !this.isNeutralCommandCanvasTarget() ||
+                this.resolvePathSegmentClick()
+            ) {
+                return false;
+            }
         }
 
         if (isCmdClick) {
@@ -18645,6 +18747,10 @@ export class OutlineEditor {
         }
 
         if (!this.cmdKeyPressed && !this.isCutArmed()) {
+            return false;
+        }
+
+        if (this.shouldTreatCommandClickAsSelectionToggle()) {
             return false;
         }
 
