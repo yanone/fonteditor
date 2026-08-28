@@ -7,7 +7,7 @@ Undo follows the **focused undo surface**, not merely whatever glyph name appear
 | Surface | Focused view | `Cmd/Ctrl+Z` undoes |
 | --- | --- | --- |
 | **Canvas** (Editing View) | Glyph editor in edit mode **or** text mode | Layer-origin edits for the current glyph/layer (and other written layers of that glyph), plus Editing View–owned font edits such as text-mode kerning, kern-group membership, and canvas master-guide promotions |
-| **Overview** | Glyph overview | Glyph-structural edits (paste, duplicate, delete, reorder, codepoints, rename, …) |
+| **Overview** | Glyph overview | Glyph-structural edits (paste, cut, duplicate, delete, reorder, codepoints, rename, …) |
 | **Font Info** | Font Info (non-Features) | Pure font-wide edits made there (names, UPM, axes, master topology, …) — not Editing View–owned kerning |
 | **Features** | Font Info Features with an item selected | That feature / class / prefix only |
 | **Automation** | Scripts, Konsole, or Assistant | Font mutations produced by Python or the Assistant |

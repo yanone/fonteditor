@@ -1012,6 +1012,7 @@ export class TextRunEditor {
                 'Copied to clipboard:',
                 `"${selectedText}"`
             );
+            window.glyphCanvas?.rememberClipboardPasteKind?.('text');
         } catch (err) {
             console.error('Failed to copy to clipboard:', err);
         }
@@ -1063,12 +1064,7 @@ export class TextRunEditor {
             // structured layer/glyph documents never enter the text buffer.
             const parsed = parseClipboardPayloads(payloads);
             if (parsed) {
-                const message =
-                    parsed.kind === 'glyphs'
-                        ? 'Clipboard has whole glyphs. Switch to the glyph overview to paste them.'
-                        : 'Clipboard has layer data. Enter glyph editing mode to paste it.';
-                console.warn(message);
-                window.alert?.(message);
+                window.glyphCanvas?.rememberClipboardPasteKind?.(parsed.kind);
                 return;
             }
 
@@ -1079,14 +1075,15 @@ export class TextRunEditor {
                 { type: 'text/plain', data: text }
             ]);
             if (fallbackParsed) {
-                const message =
-                    fallbackParsed.kind === 'glyphs'
-                        ? 'Clipboard has whole glyphs. Switch to the glyph overview to paste them.'
-                        : 'Clipboard has layer data. Enter glyph editing mode to paste it.';
-                console.warn(message);
-                window.alert?.(message);
+                window.glyphCanvas?.rememberClipboardPasteKind?.(
+                    fallbackParsed.kind
+                );
                 return;
             }
+            if (!text) {
+                return;
+            }
+            window.glyphCanvas?.rememberClipboardPasteKind?.('text');
             console.log('Pasting from clipboard:', `"${text}"`);
 
             // insertText already handles replacing selection

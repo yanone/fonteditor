@@ -85,6 +85,7 @@ import {
     describePasteResult,
     isTaggedStructuredClipboard,
     parseClipboardPayloads,
+    classifyClipboardPayloads,
     readClipboardPayloadsAsync,
     mergeClipboardPayloads,
     serializeFontMastersForClipboard,
@@ -93,6 +94,7 @@ import {
     summarizeClipboardDocument,
     writeClipboardDocumentAsync,
     writeClipboardDocumentToDataTransfer,
+    type ClipboardPasteKind,
     type ParsedClipboard,
     type PasteGlyphsDocument
 } from './clipboard';
@@ -135,6 +137,20 @@ function syncLatestOpenSessionIdFromLifecycle(event: Event): void {
 
 function isPlainNumericInputValue(value: string): boolean {
     return /^[+-]?\d+(?:\.\d+)?$/.test(value.trim());
+}
+
+function isViewFocused(viewId: string): boolean {
+    return !!document.getElementById(viewId)?.classList.contains('focused');
+}
+
+function isNativeEditableClipboardTarget(target: EventTarget | null): boolean {
+    const element = target as HTMLElement | null;
+    return !!(
+        element &&
+        (element.tagName === 'INPUT' ||
+            element.tagName === 'TEXTAREA' ||
+            element.isContentEditable)
+    );
 }
 
 function abbreviateGlyphNameMiddle(
@@ -1196,6 +1212,8 @@ class GlyphCanvas {
 
     // Flag to prevent overlapping updatePropertiesUI calls
     isUpdatingPropertiesUI: boolean = false;
+    private cutInFlight = false;
+    private clipboardPasteKind: ClipboardPasteKind = 'empty';
 
     private handleLayerFingerprintChanged = (event: Event): void => {
         if (!this.outlineEditor.active) {
@@ -1226,17 +1244,178 @@ class GlyphCanvas {
      * plus SVG of paths from each glyph's first foreground layer.
      */
     private copySelectedOverviewGlyphsToClipboard(
-        event: ClipboardEvent
+        event?: ClipboardEvent | null
     ): boolean {
+        const prepared = this.prepareOverviewGlyphsClipboardWrite();
+        if (!prepared) {
+            return false;
+        }
+        if (event) {
+            if (!event.clipboardData) {
+                return false;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            writeClipboardDocumentToDataTransfer(
+                event.clipboardData,
+                prepared.document,
+                prepared.svgPaths,
+                prepared.fontraOptions
+            );
+        }
+        void writeClipboardDocumentAsync(
+            prepared.document,
+            prepared.svgPaths,
+            prepared.fontraOptions
+        );
+        console.log(summarizeClipboardDocument(prepared.document));
+        this.rememberClipboardPasteKind('glyphs');
+        return true;
+    }
+
+    rememberClipboardPasteKind(kind: ClipboardPasteKind): void {
+        this.clipboardPasteKind = kind;
+    }
+
+    async refreshClipboardPasteKind(): Promise<void> {
+        const payloads = await readClipboardPayloadsAsync();
+        if (payloads.length === 0) {
+            return;
+        }
+        this.rememberClipboardPasteKind(classifyClipboardPayloads(payloads));
+    }
+
+    canCopyFocusedClipboardSelection(): boolean {
+        return this.canCutFocusedClipboardSelection();
+    }
+
+    canCutFocusedClipboardSelection(): boolean {
+        const overviewFocused = isViewFocused('view-overview');
+        const editorFocused = isViewFocused('view-editor');
+        if (overviewFocused) {
+            return (
+                (window.glyphOverviewInstance?.getSelectedGlyphNames?.()
+                    .length || 0) > 0
+            );
+        }
+        if (!editorFocused) {
+            return false;
+        }
+        if (this.outlineEditor.active) {
+            return this.outlineEditor.hasCopyableSelection();
+        }
+        return !!this.textRunEditor?.hasSelection?.();
+    }
+
+    canPasteFocusedClipboard(): boolean {
+        if (!fontManager.currentFont) {
+            return false;
+        }
+        const kind = this.clipboardPasteKind;
+        if (kind === 'glyphs') {
+            return isViewFocused('view-overview');
+        }
+        if (kind === 'selection') {
+            return isViewFocused('view-editor') && this.outlineEditor.active;
+        }
+        if (kind === 'text') {
+            return isViewFocused('view-editor') && !this.outlineEditor.active;
+        }
+        return false;
+    }
+
+    copyFocusedClipboardSelection(): boolean {
+        const overviewFocused = isViewFocused('view-overview');
+        const editorFocused = isViewFocused('view-editor');
+        if (overviewFocused) {
+            return this.copySelectedOverviewGlyphsToClipboard();
+        }
+        if (editorFocused && this.outlineEditor.active) {
+            return this.outlineEditor.copySelectionToClipboard();
+        }
+        if (
+            editorFocused &&
+            !this.outlineEditor.active &&
+            this.textRunEditor?.hasSelection?.()
+        ) {
+            void this.textRunEditor.copySelection();
+            return true;
+        }
+        return false;
+    }
+
+    async pasteFocusedClipboard(): Promise<void> {
+        await this.refreshClipboardPasteKind();
+        if (!this.canPasteFocusedClipboard()) {
+            return;
+        }
+        const overviewFocused = isViewFocused('view-overview');
+        const editorFocused = isViewFocused('view-editor');
+        if (editorFocused && !this.outlineEditor.active && this.textRunEditor) {
+            await this.textRunEditor.paste();
+            return;
+        }
+        if (!overviewFocused && !(editorFocused && this.outlineEditor.active)) {
+            return;
+        }
+        const payloads = await readClipboardPayloadsAsync();
+        const parsed = parseClipboardPayloads(payloads);
+        if (!parsed) {
+            return;
+        }
+        this.applyParsedClipboardPaste(parsed, null);
+    }
+
+    async cutFocusedClipboardSelection(
+        event?: ClipboardEvent | null
+    ): Promise<boolean> {
+        if (this.cutInFlight) {
+            return false;
+        }
+        this.cutInFlight = true;
+        try {
+            const overviewFocused = isViewFocused('view-overview');
+            const editorFocused = isViewFocused('view-editor');
+            if (overviewFocused) {
+                return await this.cutSelectedOverviewGlyphs(event);
+            }
+            if (editorFocused && this.outlineEditor.active) {
+                return await this.outlineEditor.cutSelectionToClipboard(event);
+            }
+            if (
+                editorFocused &&
+                !this.outlineEditor.active &&
+                this.textRunEditor?.hasSelection?.()
+            ) {
+                event?.preventDefault();
+                event?.stopPropagation();
+                await this.textRunEditor.cutSelection();
+                return true;
+            }
+            return false;
+        } finally {
+            this.cutInFlight = false;
+        }
+    }
+
+    private prepareOverviewGlyphsClipboardWrite(): {
+        document: NonNullable<ReturnType<typeof buildGlyphsClipboardDocument>>;
+        svgPaths: ReturnType<typeof serializePathForClipboard>[];
+        fontraOptions: {
+            glyphCodePoints: Record<string, number[]>;
+            axisNameByKey: Record<string, string>;
+        };
+        selectedNames: string[];
+    } | null {
         const overview = window.glyphOverviewInstance;
         const selectedNames = overview?.getSelectedGlyphNames?.() || [];
-        if (selectedNames.length === 0 || !event.clipboardData) {
-            return false;
+        if (selectedNames.length === 0) {
+            return null;
         }
 
         const fontModel = fontManager.currentFont?.fontModel;
         if (!fontModel?.findGlyph) {
-            return false;
+            return null;
         }
 
         const glyphs = [];
@@ -1265,7 +1444,7 @@ class GlyphCanvas {
             serializeFontMastersForClipboard(fontModel)
         );
         if (!document) {
-            return false;
+            return null;
         }
 
         const glyphCodePoints: Record<string, number[]> = {};
@@ -1280,21 +1459,68 @@ class GlyphCanvas {
             }
         }
 
-        const fontraOptions = {
-            glyphCodePoints,
-            axisNameByKey: buildFontraAxisNameByKey(fontModel.axes || [])
-        };
-
-        event.preventDefault();
-        event.stopPropagation();
-        writeClipboardDocumentToDataTransfer(
-            event.clipboardData,
+        return {
             document,
             svgPaths,
-            fontraOptions
-        );
-        void writeClipboardDocumentAsync(document, svgPaths, fontraOptions);
-        console.log(summarizeClipboardDocument(document));
+            fontraOptions: {
+                glyphCodePoints,
+                axisNameByKey: buildFontraAxisNameByKey(fontModel.axes || [])
+            },
+            selectedNames
+        };
+    }
+
+    /**
+     * Copy selected overview glyphs, then delete them without the confirm
+     * dialog (paste restores the glyphs).
+     */
+    private async cutSelectedOverviewGlyphs(
+        event?: ClipboardEvent | null
+    ): Promise<boolean> {
+        const prepared = this.prepareOverviewGlyphsClipboardWrite();
+        if (!prepared) {
+            return false;
+        }
+        if (event) {
+            if (!event.clipboardData) {
+                return false;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            writeClipboardDocumentToDataTransfer(
+                event.clipboardData,
+                prepared.document,
+                prepared.svgPaths,
+                prepared.fontraOptions
+            );
+            void writeClipboardDocumentAsync(
+                prepared.document,
+                prepared.svgPaths,
+                prepared.fontraOptions
+            );
+        } else {
+            const wrote = await writeClipboardDocumentAsync(
+                prepared.document,
+                prepared.svgPaths,
+                prepared.fontraOptions
+            );
+            if (!wrote) {
+                window.alert?.('Unable to write the clipboard.');
+                return false;
+            }
+        }
+        console.log(summarizeClipboardDocument(prepared.document));
+        this.rememberClipboardPasteKind('glyphs');
+        const font = window.currentFontModel;
+        if (!font?.deleteGlyphs) {
+            return false;
+        }
+        try {
+            font.deleteGlyphs(prepared.selectedNames);
+        } catch (error) {
+            console.error('Failed to delete cut glyphs', error);
+            return false;
+        }
         return true;
     }
 
@@ -1307,38 +1533,19 @@ class GlyphCanvas {
         parsed: ParsedClipboard,
         event: ClipboardEvent | null
     ): void {
-        const overviewFocused = !!document
-            .getElementById('view-overview')
-            ?.classList.contains('focused');
-        const editorFocused = !!document
-            .getElementById('view-editor')
-            ?.classList.contains('focused');
+        this.rememberClipboardPasteKind(parsed.kind);
+        if (!this.canPasteFocusedClipboard()) {
+            event?.preventDefault();
+            event?.stopPropagation();
+            event?.stopImmediatePropagation();
+            return;
+        }
 
         if (parsed.kind === 'glyphs') {
             event?.preventDefault();
             event?.stopPropagation();
             event?.stopImmediatePropagation();
-            if (!overviewFocused) {
-                const message =
-                    'Clipboard has whole glyphs. Switch to the glyph overview to paste them.';
-                console.warn(message);
-                window.alert?.(message);
-                return;
-            }
             this.pasteWholeGlyphsDocument(parsed.document);
-            return;
-        }
-
-        // Selection / SVG paste only when the editor view has `.focused`
-        // and a glyph edit is active. Text mode owns normal text paste.
-        if (!editorFocused || !this.outlineEditor.active) {
-            event?.preventDefault();
-            event?.stopPropagation();
-            event?.stopImmediatePropagation();
-            const message =
-                'Clipboard has layer data. Enter glyph editing mode to paste it.';
-            console.warn(message);
-            window.alert?.(message);
             return;
         }
 
@@ -2083,29 +2290,32 @@ class GlyphCanvas {
                 if (window.glyphCanvas !== this) {
                     return;
                 }
-                const target = e.target as HTMLElement | null;
-                if (
-                    target &&
-                    (target.tagName === 'INPUT' ||
-                        target.tagName === 'TEXTAREA' ||
-                        target.isContentEditable)
-                ) {
+                if (isNativeEditableClipboardTarget(e.target)) {
                     return;
                 }
 
                 const syncPayloads = collectClipboardPayloads(e.clipboardData);
                 const syncParsed = parseClipboardPayloads(syncPayloads);
+                if (syncParsed) {
+                    this.rememberClipboardPasteKind(syncParsed.kind);
+                }
                 if (isTaggedStructuredClipboard(syncParsed)) {
+                    if (!this.canPasteFocusedClipboard()) {
+                        const overviewFocused = isViewFocused('view-overview');
+                        const editorFocused = isViewFocused('view-editor');
+                        if (overviewFocused || editorFocused) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            e.stopImmediatePropagation();
+                        }
+                        return;
+                    }
                     this.applyParsedClipboardPaste(syncParsed!, e);
                     return;
                 }
 
-                const overviewFocused = !!document
-                    .getElementById('view-overview')
-                    ?.classList.contains('focused');
-                const editorFocused = !!document
-                    .getElementById('view-editor')
-                    ?.classList.contains('focused');
+                const overviewFocused = isViewFocused('view-overview');
+                const editorFocused = isViewFocused('view-editor');
                 if (!overviewFocused && !editorFocused) {
                     return;
                 }
@@ -2117,9 +2327,17 @@ class GlyphCanvas {
 
                 void (async () => {
                     const asyncPayloads = await readClipboardPayloadsAsync();
-                    const parsed = parseClipboardPayloads(
-                        mergeClipboardPayloads(asyncPayloads, syncPayloads)
+                    const merged = mergeClipboardPayloads(
+                        asyncPayloads,
+                        syncPayloads
                     );
+                    this.rememberClipboardPasteKind(
+                        classifyClipboardPayloads(merged)
+                    );
+                    if (!this.canPasteFocusedClipboard()) {
+                        return;
+                    }
+                    const parsed = parseClipboardPayloads(merged);
                     if (!parsed) {
                         return;
                     }
@@ -2136,21 +2354,11 @@ class GlyphCanvas {
                 if (window.glyphCanvas !== this) {
                     return;
                 }
-                const target = e.target as HTMLElement | null;
-                if (
-                    target &&
-                    (target.tagName === 'INPUT' ||
-                        target.tagName === 'TEXTAREA' ||
-                        target.isContentEditable)
-                ) {
+                if (isNativeEditableClipboardTarget(e.target)) {
                     return;
                 }
-                const overviewFocused = !!document
-                    .getElementById('view-overview')
-                    ?.classList.contains('focused');
-                const editorFocused = !!document
-                    .getElementById('view-editor')
-                    ?.classList.contains('focused');
+                const overviewFocused = isViewFocused('view-overview');
+                const editorFocused = isViewFocused('view-editor');
                 if (overviewFocused) {
                     this.copySelectedOverviewGlyphsToClipboard(e);
                     return;
@@ -2158,6 +2366,50 @@ class GlyphCanvas {
                 if (editorFocused) {
                     this.outlineEditor.copyToClipboardEvent(e);
                 }
+            },
+            true
+        );
+
+        // Cut often has no DOM selection, so Chromium may not fire a `cut`
+        // event. Handle Cmd/Ctrl+X on keydown, and still listen for `cut`.
+        document.addEventListener(
+            'cut',
+            (e) => {
+                if (window.glyphCanvas !== this) {
+                    return;
+                }
+                if (isNativeEditableClipboardTarget(e.target)) {
+                    return;
+                }
+                void this.cutFocusedClipboardSelection(e);
+            },
+            true
+        );
+        document.addEventListener(
+            'keydown',
+            (e) => {
+                if (window.glyphCanvas !== this) {
+                    return;
+                }
+                if (isNativeEditableClipboardTarget(e.target)) {
+                    return;
+                }
+                const cmdKey = e.metaKey || e.ctrlKey;
+                if (
+                    !cmdKey ||
+                    e.altKey ||
+                    e.shiftKey ||
+                    e.key.toLowerCase() !== 'x'
+                ) {
+                    return;
+                }
+                if (!this.canCutFocusedClipboardSelection()) {
+                    return;
+                }
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                void this.cutFocusedClipboardSelection();
             },
             true
         );

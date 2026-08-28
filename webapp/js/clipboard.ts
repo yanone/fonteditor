@@ -118,6 +118,8 @@ export type ParsedClipboard =
     | { kind: 'selection'; fragment: PasteFragment }
     | { kind: 'glyphs'; document: PasteGlyphsDocument };
 
+export type ClipboardPasteKind = 'glyphs' | 'selection' | 'text' | 'empty';
+
 export type ApplyPasteOptions = {
     activeLayer: Layer;
     linkedLayers: Layer[];
@@ -486,6 +488,29 @@ export function parseClipboardPayloads(
     }
 
     return null;
+}
+
+/**
+ * Classify clipboard contents for paste targeting: whole glyphs, layer
+ * selection / SVG, ordinary text, or nothing pasteable.
+ */
+export function classifyClipboardPayloads(
+    payloads: ClipboardPayload[]
+): ClipboardPasteKind {
+    const parsed = parseClipboardPayloads(payloads);
+    if (parsed?.kind === 'glyphs') {
+        return 'glyphs';
+    }
+    if (parsed?.kind === 'selection') {
+        return 'selection';
+    }
+    const text = payloads.find(
+        (payload) => payload.type === 'text/plain'
+    )?.data;
+    if (typeof text === 'string' && text.length > 0) {
+        return 'text';
+    }
+    return 'empty';
 }
 
 export function applyPasteFragment(

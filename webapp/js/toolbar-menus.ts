@@ -173,6 +173,9 @@ function getEditMenuItems(): ToolbarMenuItem[] {
         (window.glyphOverviewInstance?.getSelectedGlyphNames?.().length || 0) >
         0;
     const canReplaceSelectedPaths = canReplaceSelectedPathsInPlace();
+    const canCopy = !!window.glyphCanvas?.canCopyFocusedClipboardSelection?.();
+    const canCut = !!window.glyphCanvas?.canCutFocusedClipboardSelection?.();
+    const canPaste = !!window.glyphCanvas?.canPasteFocusedClipboard?.();
 
     return [
         {
@@ -189,6 +192,35 @@ function getEditMenuItems(): ToolbarMenuItem[] {
             disabled: !hasFontOpen,
             action: triggerRedo
         },
+        { label: '', icon: '', separator: true },
+        {
+            label: 'Copy',
+            icon: 'content_copy',
+            shortcut: '⌘C',
+            disabled: !canCopy,
+            action: async () => {
+                window.glyphCanvas?.copyFocusedClipboardSelection?.();
+            }
+        },
+        {
+            label: 'Paste',
+            icon: 'content_paste',
+            shortcut: '⌘V',
+            disabled: !canPaste,
+            action: async () => {
+                await window.glyphCanvas?.pasteFocusedClipboard?.();
+            }
+        },
+        {
+            label: 'Cut',
+            icon: 'content_cut',
+            shortcut: '⌘X',
+            disabled: !canCut,
+            action: async () => {
+                await window.glyphCanvas?.cutFocusedClipboardSelection?.();
+            }
+        },
+        { label: '', icon: '', separator: true },
         {
             label: 'Replace Path(s) In-Place',
             icon: 'swap_horiz',
@@ -683,7 +715,10 @@ function initToolbarMenus(): void {
     createToolbarMenu(
         'toolbar-edit-menu-btn',
         'toolbar-edit-menu-backdrop',
-        getEditMenuItems
+        getEditMenuItems,
+        () =>
+            window.glyphCanvas?.refreshClipboardPasteKind?.() ??
+            Promise.resolve()
     );
     createToolbarMenu(
         'toolbar-font-menu-btn',

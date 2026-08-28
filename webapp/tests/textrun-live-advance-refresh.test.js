@@ -134,18 +134,9 @@ describe('TextRunEditor live advance refresh', () => {
         expect(insertText).toHaveBeenCalledWith('normal text');
     });
 
-    test.each([
-        [
-            selectionClipboardText,
-            'Clipboard has layer data. Enter glyph editing mode to paste it.'
-        ],
-        [
-            glyphsClipboardText,
-            'Clipboard has whole glyphs. Switch to the glyph overview to paste them.'
-        ]
-    ])(
+    test.each([selectionClipboardText, glyphsClipboardText])(
         'blocks structured clipboard data in focused text mode',
-        async (text, message) => {
+        async (text) => {
             document.body.innerHTML =
                 '<div id="view-editor" class="focused"></div>';
             const originalClipboard = navigator.clipboard;
@@ -165,7 +156,7 @@ describe('TextRunEditor live advance refresh', () => {
                 await editor.paste();
                 expect(readText).toHaveBeenCalledTimes(1);
                 expect(insertText).not.toHaveBeenCalled();
-                expect(alert).toHaveBeenCalledWith(message);
+                expect(alert).not.toHaveBeenCalled();
             } finally {
                 Object.defineProperty(navigator, 'clipboard', {
                     configurable: true,

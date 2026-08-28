@@ -25,6 +25,7 @@ Each view title bar shows the same shortcut.
 - `Cmd/Ctrl+Shift+F` — Rename Glyph(s) for the Overview selection
 - `Cmd/Ctrl+D` — Font → Duplicate Glyph(s); the shortcut fires when Overview is focused
 - `Cmd/Ctrl+F` — focus Overview search (when Overview is focused)
+- `Cmd/Ctrl+X` — Cut selected glyphs (no confirm; paste restores them)
 - Delete / Backspace — delete the Overview selection after confirm
 
 ## Scripts, Konsole, and Ace
@@ -58,6 +59,7 @@ Each view title bar shows the same shortcut.
 - `Cmd/Ctrl+B` — copy the selection to the paired (background) layer
 - `Cmd/Ctrl+Shift+B` — toggle editing the background layer
 - `Cmd/Ctrl+Alt/Option+B` — show or hide the paired layer
+- `Cmd/Ctrl+X` — cut the current selection to the clipboard (Edit → Cut)
 - Arrow keys — nudge selected objects (`Shift` for 10×)
 - `Space` — preview outline fill in one paint according to Editing View → View → Preview Area, and a dotted rectangle marks the canvas viewport (property panel deducted) so you can pan the drawing onto it (grab cursor; drag to pan). Medium hides the editor title bar, sidebar, and property panel but keeps the focused view border; Full hides toolbar and app shell. Medium and Full make the canvas pannable in that same frame. Release Space to restore chrome in one paint.
 - `Tab` — measurement tool; click and drag for a custom line

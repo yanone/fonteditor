@@ -68,6 +68,7 @@ import {
     summarizeClipboardDocument,
     writeClipboardDocumentAsync,
     writeClipboardDocumentToDataTransfer,
+    type CounterpunchSelectionClipboard,
     type ParsedClipboard
 } from '../clipboard';
 import APP_SETTINGS, { interpolateOutlineChromeScreenSize } from '../settings';
@@ -4028,17 +4029,127 @@ export class OutlineEditor {
     }
 
     /**
+     * True when the current outline selection can be copied or cut.
+     */
+    hasCopyableSelection(): boolean {
+        if (!this.active) {
+            return false;
+        }
+        const activeLayer = this.getCurrentLayerModel();
+        const glyph = this.getCurrentGlyphModel();
+        if (!activeLayer || !glyph?.name) {
+            return false;
+        }
+        return !!this.buildSelectionClipboardDocumentFromEditor(
+            activeLayer,
+            glyph.name
+        );
+    }
+
+    /**
      * Copy the current outline selection as Counterpunch JSON clipboard data.
      */
     copyToClipboardEvent(event: ClipboardEvent): boolean {
-        if (!this.active) {
+        return this.copySelectionToClipboard(event);
+    }
+
+    /**
+     * Copy the current outline selection. With a copy/cut event, writes the
+     * sync DataTransfer and kicks off the async ClipboardItem publish. Without
+     * an event (Edit menu), only the async write runs.
+     */
+    copySelectionToClipboard(event?: ClipboardEvent | null): boolean {
+        const prepared = this.prepareSelectionClipboardWrite();
+        if (!prepared) {
             return false;
+        }
+        if (event) {
+            if (!event.clipboardData) {
+                return false;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            writeClipboardDocumentToDataTransfer(
+                event.clipboardData,
+                prepared.document,
+                prepared.document.paths,
+                prepared.fontraOptions
+            );
+        }
+        void writeClipboardDocumentAsync(
+            prepared.document,
+            prepared.document.paths,
+            prepared.fontraOptions
+        );
+        console.log(summarizeClipboardDocument(prepared.document));
+        this.glyphCanvas.rememberClipboardPasteKind('selection');
+        return true;
+    }
+
+    /**
+     * Copy the current outline selection, then delete the copied objects.
+     * Paths that contributed any selected node are removed entirely (same
+     * payload as copy). Components, anchors, and the selected guide follow
+     * the existing delete path.
+     */
+    async cutSelectionToClipboard(
+        event?: ClipboardEvent | null
+    ): Promise<boolean> {
+        const prepared = this.prepareSelectionClipboardWrite();
+        if (!prepared) {
+            return false;
+        }
+        if (event) {
+            if (!event.clipboardData) {
+                return false;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            writeClipboardDocumentToDataTransfer(
+                event.clipboardData,
+                prepared.document,
+                prepared.document.paths,
+                prepared.fontraOptions
+            );
+            void writeClipboardDocumentAsync(
+                prepared.document,
+                prepared.document.paths,
+                prepared.fontraOptions
+            );
+        } else {
+            const wrote = await writeClipboardDocumentAsync(
+                prepared.document,
+                prepared.document.paths,
+                prepared.fontraOptions
+            );
+            if (!wrote) {
+                window.alert?.('Unable to write the clipboard.');
+                return false;
+            }
+        }
+        console.log(summarizeClipboardDocument(prepared.document));
+        this.glyphCanvas.rememberClipboardPasteKind('selection');
+        this.expandTouchedPathsToFullContours();
+        await this.deleteSelectedNodes();
+        return true;
+    }
+
+    private prepareSelectionClipboardWrite(): {
+        document: CounterpunchSelectionClipboard;
+        fontraOptions: {
+            layerId: string;
+            layerWidth: number;
+            codePoints: number[];
+        };
+    } | null {
+        if (!this.active) {
+            return null;
         }
 
         const activeLayer = this.getCurrentLayerModel();
         const glyph = this.getCurrentGlyphModel();
         if (!activeLayer || !glyph?.name) {
-            return false;
+            return null;
         }
 
         const document = this.buildSelectionClipboardDocumentFromEditor(
@@ -4046,36 +4157,64 @@ export class OutlineEditor {
             glyph.name
         );
         if (!document) {
-            return false;
+            return null;
         }
 
-        if (!event.clipboardData) {
-            return false;
-        }
-
-        event.preventDefault();
-        event.stopPropagation();
-        // Sync fallback (JSON). Async write publishes system SVG UTI on macOS.
-        const fontraOptions = {
-            layerId: activeLayer.id || 'clipboard',
-            layerWidth: Number(activeLayer.width) || 0,
-            codePoints: Array.isArray(glyph.codepoints)
-                ? [...glyph.codepoints]
-                : []
+        return {
+            document,
+            fontraOptions: {
+                layerId: activeLayer.id || 'clipboard',
+                layerWidth: Number(activeLayer.width) || 0,
+                codePoints: Array.isArray(glyph.codepoints)
+                    ? [...glyph.codepoints]
+                    : []
+            }
         };
-        writeClipboardDocumentToDataTransfer(
-            event.clipboardData,
-            document,
-            document.paths,
-            fontraOptions
+    }
+
+    /**
+     * Copy writes whole paths when any node is selected. Expand those paths
+     * so delete removes the same objects that landed on the clipboard.
+     */
+    private expandTouchedPathsToFullContours(): void {
+        const activeLayer = this.getCurrentLayerModel();
+        const shapes = activeLayer?.shapes || [];
+        if (shapes.length === 0 || this.selectedPoints.length === 0) {
+            return;
+        }
+
+        const pathIndexes = new Set<number>();
+        for (const point of this.selectedPoints) {
+            if (
+                point.contourIndex >= 0 &&
+                point.contourIndex < shapes.length &&
+                this.isPathShape(shapes[point.contourIndex])
+            ) {
+                pathIndexes.add(point.contourIndex);
+            }
+        }
+        if (pathIndexes.size === 0) {
+            return;
+        }
+
+        const existing = new Set(
+            this.selectedPoints.map(
+                (point) => `${point.contourIndex}:${point.nodeIndex}`
+            )
         );
-        void writeClipboardDocumentAsync(
-            document,
-            document.paths,
-            fontraOptions
-        );
-        console.log(summarizeClipboardDocument(document));
-        return true;
+        const next = [...this.selectedPoints];
+        for (const pathIndex of pathIndexes) {
+            const nodeCount = this.getNodeCountForShape(shapes[pathIndex]);
+            for (let nodeIndex = 0; nodeIndex < nodeCount; nodeIndex++) {
+                const key = `${pathIndex}:${nodeIndex}`;
+                if (existing.has(key)) {
+                    continue;
+                }
+                existing.add(key);
+                next.push({ contourIndex: pathIndex, nodeIndex });
+            }
+        }
+        this.selectedPoints = next;
     }
 
     private buildSelectionClipboardDocumentFromEditor(
@@ -4180,13 +4319,7 @@ export class OutlineEditor {
         }
 
         if (parsed.kind === 'glyphs') {
-            event?.preventDefault();
-            event?.stopPropagation();
-            const message =
-                'Clipboard has whole glyphs. Switch to the glyph overview to paste them.';
-            console.warn(message);
-            window.alert?.(message);
-            return true;
+            return false;
         }
 
         event?.preventDefault();

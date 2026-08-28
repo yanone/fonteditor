@@ -5,6 +5,7 @@ const {
 } = require('../js/clipboard/json');
 const {
     parseClipboardPayloads,
+    classifyClipboardPayloads,
     applyPasteFragment,
     applyPasteGlyphsDocument
 } = require('../js/clipboard');
@@ -68,6 +69,70 @@ describe('clipboard SVG converter', () => {
         expect(parsed.kind).toBe('selection');
         expect(parsed.fragment.format).toBe('svg');
         expect(parsed.fragment.paths[0].closed).toBe(true);
+    });
+});
+
+describe('clipboard paste kind classification', () => {
+    test('classifies selection JSON, whole glyphs, and plain text', () => {
+        expect(
+            classifyClipboardPayloads([
+                {
+                    type: 'text/plain',
+                    data: JSON.stringify(
+                        wireEnvelope({
+                            version: 1,
+                            kind: 'selection',
+                            nodeOrder: 'start-first',
+                            keepAbsoluteCoords: true,
+                            paths: [],
+                            components: [],
+                            anchors: [{ name: 'top', x: 0, y: 0 }],
+                            guides: []
+                        })
+                    )
+                }
+            ])
+        ).toBe('selection');
+        expect(
+            classifyClipboardPayloads([
+                {
+                    type: 'text/plain',
+                    data: JSON.stringify(
+                        wireEnvelope({
+                            version: 1,
+                            kind: 'glyphs',
+                            nodeOrder: 'start-first',
+                            masters: [{ id: 'm0', name: 'Regular' }],
+                            glyphs: [
+                                {
+                                    name: 'A',
+                                    leftMetricsKey: null,
+                                    rightMetricsKey: null,
+                                    layers: [
+                                        {
+                                            name: 'Regular',
+                                            master: {
+                                                type: 'DefaultForMaster',
+                                                masterIndex: 0
+                                            },
+                                            width: 500,
+                                            paths: [],
+                                            components: [],
+                                            anchors: [],
+                                            guides: []
+                                        }
+                                    ]
+                                }
+                            ]
+                        })
+                    )
+                }
+            ])
+        ).toBe('glyphs');
+        expect(
+            classifyClipboardPayloads([{ type: 'text/plain', data: 'hello' }])
+        ).toBe('text');
+        expect(classifyClipboardPayloads([])).toBe('empty');
     });
 });
 
