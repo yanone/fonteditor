@@ -386,6 +386,7 @@ const GENERIC_MUTABLE_GETTER_EXCLUSIONS = new Set([
     'masters',
     'nodes',
     'paths',
+    'qa', // computed Auto QA snapshot; does not write the font
     'rsb',
     'shapes',
     'backgroundLayer', // lazy transient wrapper, materialized only after a path or component edit

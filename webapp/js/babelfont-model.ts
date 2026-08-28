@@ -10871,10 +10871,14 @@ export class Glyph extends ArrayElementBase {
     get qa(): GlyphQaMessage[] {
         const font = this.parent() as Font | null;
         const name = this.name;
-        if (!font || typeof name !== 'string' || !name) {
-            return [];
-        }
-        return toGlyphQaMessages(labelsForGlyph(font, name));
+        const messages =
+            !font || typeof name !== 'string' || !name
+                ? []
+                : toGlyphQaMessages(labelsForGlyph(font, name));
+        return getReadOnlyCollectionValue(
+            messages,
+            'Glyph.qa is a read-only snapshot. It does not write the font.'
+        );
     }
 
     /**
@@ -11915,9 +11919,6 @@ export class Master extends ArrayElementBase {
      * master.kerning["A:V"] = -80
      */
     get kerning(): Record<string, number> {
-        if (kerningMapNeedsFlatten(this.data.kerning)) {
-            this.data.kerning = flattenKerningMap(this.data.kerning) as Unsafe;
-        }
         return getLiveMutableValue(
             this,
             'kerning',
@@ -12269,23 +12270,6 @@ function syncKerningRtlToFormatSpecific(
     nextRtl[masterId] = nested[masterId] || {};
     nextFormatSpecific[KEY_KERNING_RTL] = nextRtl;
     font.format_specific = nextFormatSpecific;
-}
-
-function kerningMapNeedsFlatten(kerning: unknown): boolean {
-    if (!kerning || typeof kerning !== 'object' || Array.isArray(kerning)) {
-        return false;
-    }
-    if (kerning instanceof Map) {
-        for (const value of kerning.values()) {
-            if (value && typeof value === 'object') {
-                return true;
-            }
-        }
-        return false;
-    }
-    return Object.values(kerning as Record<string, unknown>).some(
-        (value) => value !== null && typeof value === 'object'
-    );
 }
 
 function remapFlatKerningPairKeys(

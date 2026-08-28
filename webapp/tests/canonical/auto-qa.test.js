@@ -431,6 +431,9 @@ describe('Auto QA matcher', () => {
         expect(messages[0].message).toMatch(/acutecomb\.case/);
         expect(messages[0].message).not.toMatch(/`/);
         expect(font.findGlyph('Eacute').qa).toEqual([]);
+        expect(() => font.findGlyph('Aacute').qa.push({})).toThrow(
+            /read-only snapshot/
+        );
     });
 
     test('uppercase .case mark components fire with fewer than eight peers', () => {
