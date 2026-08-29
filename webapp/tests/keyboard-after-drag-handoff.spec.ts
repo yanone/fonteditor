@@ -437,7 +437,6 @@ async function dragLeftSidebearingHandleOnCanvas(page: any): Promise<void> {
         oe.performHitDetection(moveEvent);
         oe.hoveredGuideHandle = null;
         oe.hoveredResizeHandle = null;
-        oe.hoveredContrastAxisHandle = null;
         if (oe.hoveredSidebearingHandle?.side !== 'left') {
             throw new Error(
                 'Left sidebearing handle was not hovered on the canvas'

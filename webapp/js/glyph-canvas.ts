@@ -3812,7 +3812,6 @@ class GlyphCanvas {
         if (
             this.outlineEditor.active &&
             (this.outlineEditor.hoveredResizeHandle !== null ||
-                this.outlineEditor.hoveredContrastAxisHandle !== null ||
                 this.outlineEditor.hoveredGuideHandle !== null ||
                 this.outlineEditor.hoveredSidebearingHandle !== null ||
                 this.outlineEditor.hoveredComponentIndex !== null ||
@@ -7754,10 +7753,6 @@ class GlyphCanvas {
         );
     }
 
-    private canOfferStrokeAwareScalingControl(): boolean {
-        return this.outlineEditor.canOfferStrokeAwareScaling();
-    }
-
     private setSidebearingKeyCompileContext(): void {
         fontManager.setEditingCompileContext('keyboard-sidebearing', null);
     }
@@ -10052,38 +10047,6 @@ class GlyphCanvas {
             placeholder.className = 'glyph-property-panel-placeholder';
             const content = document.createElement('div');
             content.className = 'glyph-component-property-panel-content';
-
-            if (this.canOfferStrokeAwareScalingControl()) {
-                const control = document.createElement('label');
-                control.className =
-                    'glyph-component-property-control glyph-component-property-checkbox';
-
-                const input = document.createElement('input');
-                input.type = 'checkbox';
-                input.className = 'glyph-component-property-checkbox-input';
-                input.dataset.propertyField = 'stroke-aware-scaling';
-                input.checked =
-                    this.outlineEditor.isStrokeAwareScalingEnabled();
-                input.addEventListener('change', () => {
-                    this.outlineEditor.setStrokeAwareScalingEnabled(
-                        input.checked
-                    );
-                    this.updatePropertyPanel();
-                    this.outlineEditor.performHitDetection(null);
-                    this.render();
-                    this.canvas!.focus();
-                });
-
-                const label = document.createElement('span');
-                label.className = 'glyph-property-control-label';
-                label.textContent = 'Stroke Aware';
-                label.title =
-                    'Enable stroke-aware scaling for fully selected closed contours';
-
-                control.appendChild(label);
-                control.appendChild(input);
-                content.appendChild(control);
-            }
 
             const currentLayer = this.getCurrentEditingLayerModel();
             const selectedPathIndexes = currentLayer

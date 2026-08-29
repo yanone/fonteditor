@@ -1,13 +1,7 @@
 import type { EditingCompileContext } from './font-manager';
 
 export type LiveDragEditKind =
-    | 'outline'
-    | 'anchor'
-    | 'sidebearing'
-    | 'component'
-    | 'transform'
-    | 'guide'
-    | 'contrast-axis';
+    'outline' | 'anchor' | 'sidebearing' | 'component' | 'transform' | 'guide';
 
 export type LiveDragCompilingEditType = 'outline' | 'anchor' | null;
 

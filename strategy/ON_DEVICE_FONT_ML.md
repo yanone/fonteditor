@@ -632,9 +632,9 @@ masks and how many glyphs to run.
 
 ### Why the mathematical attempt failed
 
-The outline editor already implements stroke-aware scaling: rasterize the
-fill, thin to a skeleton, attach each node to a centerline with a
-`normalOffset`, scale the skeleton, and try to keep the offset. Type
+A geometric stroke-aware resize (rasterize the fill, thin to a skeleton,
+attach each node to a centerline with a `normalOffset`, scale the skeleton,
+and try to keep the offset) was tried and removed. Type
 designers do not work that way. Designed masters move **corresponding cubic nodes**. Junctions, serifs,
 and contrast are not a constant offset from a Zhang–Suen skeleton. The
 deformer learns those residuals on top of affine scale (or on top of the
@@ -827,7 +827,7 @@ Auto QA is independent of the deformer and goes first:
   (compact node expansion already exists in gfsources sizing scripts).
 - Cubic model: `webapp/js/babelfont-model.ts` (paths, nodes, layers,
   masters, axes).
-- Failed geometric resize (context only): stroke-aware skeleton path in
-  `webapp/js/glyph-canvas/outline-editor.ts`.
+- Failed geometric resize (context only): a stroke-aware skeleton path used
+  to live in `webapp/js/glyph-canvas/outline-editor.ts` and has been removed.
 - Existing add-master interpolation (copies when there is nothing to
   interpolate): `Font.addMaster` in `webapp/js/babelfont-model.ts`.

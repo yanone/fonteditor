@@ -976,7 +976,6 @@ async function benchMouseDrag(
                     oe.performHitDetection(down);
                     oe.hoveredGuideHandle = null;
                     oe.hoveredResizeHandle = null;
-                    oe.hoveredContrastAxisHandle = null;
                     oe.hoveredSidebearingHandle = oe.selectedSidebearingHandle;
                     await oe.onSingleClick(down);
                 } else {

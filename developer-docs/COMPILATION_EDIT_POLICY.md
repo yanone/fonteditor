@@ -248,7 +248,7 @@ fullState...`, `with a peer: yjs-update broadcast omits fullState...`,
 Every committed Yjs packet, local or remote, enters `processCommittedEdit()` in the funnel. The funnel:
 
 1. **Guards:** Skips the startup `changeVersion === 0` bootstrap noise.
-2. **Filters:** Non-compiling edit types (`'guide'`, `'contrast-axis'`) return immediately — no context is set, no compile is requested.
+2. **Filters:** Non-compiling edit types (`'guide'`) return immediately — no context is set, no compile is requested.
 3. **Builds compile context:** Derives `{ changeSource, editType, dataFreshnessMode }` from the committed packet being processed, not from ambient `lastChangeSource` / `lastEditType`.
 4. **Requests compile:** Calls `requestRecompileWithoutDataChange({ compileContext })` + `autoCompileManager.checkAndSchedule()` so the context is snapshotted against the resulting `compileRequestVersion`.
 5. **Force-trigger:** For remote, undo, and redo, awaits `forceTrigger()` for immediate compilation.
@@ -274,7 +274,6 @@ Every committed Yjs packet, local or remote, enters `processCommittedEdit()` in 
 The following edit types are recognized by `inferCommittedEditTypeFromEntries` and routed through the funnel, where they are skipped without setting compile context or requesting compilation:
 
 - `'guide'` — layer-scope guides are editing-time helpers that don't affect font compilation. Master-scope guides are similarly non-compiling.
-- `'contrast-axis'` — contrast axis edits are visual helpers.
 
 These edit types still sync to Yjs for undo/history and collaboration, but the funnel's `processCommittedEdit` returns early for them.
 

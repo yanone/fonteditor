@@ -1274,8 +1274,6 @@ describe('GlyphCanvas renderer anchor-only layers', () => {
             points: [],
             anchors: [{ anchorIndex: 0, x: 110, y: 220 }],
             components: [],
-            strokeAwareTargets: [],
-            smoothHandleDirections: [],
             includesAnchors: true,
             includesGeometry: false
         };
@@ -2807,12 +2805,7 @@ describe('GlyphCanvas onMouseUp', () => {
                     }
                 ],
                 includesGeometry: true,
-                includesAnchors: false,
-                useStrokeAwareScaling: false,
-                strokeAwareGeometry: null,
-                strokeAwareTargets: [],
-                smoothHandleDirections: [],
-                contrastAxisAngleDegrees: 90
+                includesAnchors: false
             };
             canvas.outlineEditor._lastPropertyPanelUpdateTime = 0;
 

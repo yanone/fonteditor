@@ -162,17 +162,6 @@ describe('CompiledEditFunnel', () => {
             ).not.toHaveBeenCalled();
         });
 
-        test('contrast-axis edits skip compilation', async () => {
-            await process('mouse', 'contrast-axis');
-
-            expect(
-                window.fontManager.currentFont.requestRecompileWithoutDataChange
-            ).not.toHaveBeenCalled();
-            expect(
-                window.autoCompileManager.checkAndSchedule
-            ).not.toHaveBeenCalled();
-        });
-
         test('bootstrap guard skips no-data commits before first editing font', async () => {
             window.fontManager.currentFont.changeVersion = 0;
             delete window.fontManager.editingFont;

@@ -13,7 +13,7 @@
  * After each processed edit, any transient compile or edit-source state is cleaned
  * up so one edit cannot poison the next one (APP.md Document Collaboration rule).
  *
- * Edit types that do not need compilation (guide, contrast-axis) are detected
+ * Edit types that do not need compilation (guide) are detected
  * and skipped — no compile context is set, no compile is requested.
  */
 
@@ -27,7 +27,7 @@ const COMMITTED_DATA_FRESHNESS_MODE: EditingCompileContext['dataFreshnessMode'] 
     'authoritative-worker-yjs';
 
 /** Edit types that should NOT trigger font recompilation. */
-const NON_COMPILING_EDIT_TYPES = new Set<string>(['guide', 'contrast-axis']);
+const NON_COMPILING_EDIT_TYPES = new Set<string>(['guide']);
 
 let deferredTimer: number | null = null;
 
