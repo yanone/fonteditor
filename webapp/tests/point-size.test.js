@@ -71,8 +71,8 @@ describe('point-size', () => {
         expect(parseUnitScale('nope')).toBeNull();
         expect(parsePointSize('12.5')).toBe(12.5);
         expect(parsePointSize('0')).toBeNull();
-        expect(formatPointSize(12.345)).toBe('12.35');
-        expect(formatPointSize(12)).toBe('12');
+        expect(formatPointSize(12.345)).toBe('12.3');
+        expect(formatPointSize(12)).toBe('12.0');
     });
 
     test('localStorage unitScale fails open to 1', () => {

@@ -503,6 +503,7 @@ import './change-bridge-init'; // Yjs undo/redo & cross-window sync
 import './editor-plugins-ui';
 import './editor-stack-preview-menu';
 import './editor-edit-tools-ui';
+import './ui/title-bar-text-fields';
 import './example-loader';
 import './file-browser';
 import './font-info'; // Font info view manager (Names/Features tabs)

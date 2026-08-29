@@ -35,9 +35,19 @@ export function showScreenCalibrationDialog(): void {
             </div>
             <div class="info-popup-content">
                 <p>
-                    Measure the bar below with a ruler. This only adjusts the
-                    canvas point-size readout, not the rest of the app. Repeat
-                    after changing OS scale, browser zoom, or monitor.
+                    Point size is a print unit (1&nbsp;pt = 1/72&nbsp;inch).
+                    Screens do not report true physical size, so a
+                    “point” on screen is usually wrong for print.
+                </p>
+                <p>
+                    Measure the bar with a ruler and enter the length to
+                    match on-screen type to printed points.
+                </p>
+                <p>
+                    This only affects the canvas point-size field.
+                    Repeat after changing OS scale, browser zoom, or monitor.
+                    Counterpunch cannot save the calibration settings
+                    for your different monitors.
                 </p>
                 <div class="screen-calibration-ruler-wrap">
                     <div

@@ -44,10 +44,22 @@ function alignmentIconSvg(align: TextAlign): string {
     return `<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">${rects}</svg>`;
 }
 
+function iconLabelHtml(icon: string): string {
+    return `<span class="material-symbols-outlined" aria-hidden="true">${icon}</span>`;
+}
+
 const TEXT_LAYOUT_FIELD_IDS = new Set([
     'glyph-line-height-input',
     'glyph-point-size-input'
 ]);
+
+function isTitleBarTextField(element: EventTarget | null): boolean {
+    return (
+        element instanceof HTMLElement &&
+        (TEXT_LAYOUT_FIELD_IDS.has(element.id) ||
+            element.closest('.view-title-field') !== null)
+    );
+}
 
 function restoreCanvasAfterTextLayoutField(
     arrowInput: ArrowAdjustableTextInput | null,
@@ -56,14 +68,14 @@ function restoreCanvasAfterTextLayoutField(
     if (arrowInput?.isApplyingStep) {
         return;
     }
-    if (
-        relatedTarget instanceof HTMLElement &&
-        TEXT_LAYOUT_FIELD_IDS.has(relatedTarget.id)
-    ) {
+    if (isTitleBarTextField(relatedTarget)) {
         return;
     }
     setTimeout(() => {
         if (arrowInput?.isApplyingStep) {
+            return;
+        }
+        if (isTitleBarTextField(document.activeElement)) {
             return;
         }
         window.glyphCanvas?.canvas?.focus({ preventScroll: true });
@@ -157,6 +169,7 @@ export class TextLayoutControls {
         const section = document.createElement('div');
         section.id = 'glyph-text-layout-section';
         this.section = section;
+        document.getElementById('editor-text-layout')?.appendChild(section);
         this.render();
         return section;
     }
@@ -174,26 +187,27 @@ export class TextLayoutControls {
 
         const temp = document.createElement('div');
 
-        const lineHeightRow = document.createElement('div');
-        lineHeightRow.className = 'text-layout-row';
+        const lineHeightField = document.createElement('div');
+        lineHeightField.className = 'view-title-field text-layout-field';
 
         const lineHeightLabel = document.createElement('label');
-        lineHeightLabel.className = 'text-layout-label';
-        lineHeightLabel.textContent = 'Line height';
+        lineHeightLabel.className = 'text-layout-icon-label';
         lineHeightLabel.setAttribute('for', 'glyph-line-height-input');
-
-        const lineHeightField = document.createElement('div');
-        lineHeightField.className = 'text-layout-lineheight-field';
+        lineHeightLabel.setAttribute('title', 'Line height');
+        lineHeightLabel.setAttribute('aria-label', 'Line height');
+        lineHeightLabel.innerHTML = iconLabelHtml('format_line_spacing');
 
         const input = document.createElement('input');
         input.id = 'glyph-line-height-input';
         input.type = 'text';
         input.inputMode = 'decimal';
         input.value = String(lineHeight);
-        input.className = 'text-layout-lineheight-input';
+        input.className = 'text-layout-input';
+        input.setAttribute('aria-label', 'Line height');
+        input.title = 'Line height';
 
         const suffix = document.createElement('span');
-        suffix.className = 'text-layout-lineheight-suffix';
+        suffix.className = 'text-layout-suffix';
         suffix.textContent = '%';
 
         const commit = () => {
@@ -226,32 +240,32 @@ export class TextLayoutControls {
 
         bindFieldCommitAndCanvasFocus(input, commit, () => this.arrowInput);
 
+        lineHeightField.appendChild(lineHeightLabel);
         lineHeightField.appendChild(input);
         lineHeightField.appendChild(suffix);
-        lineHeightRow.appendChild(lineHeightLabel);
-        lineHeightRow.appendChild(lineHeightField);
-        temp.appendChild(lineHeightRow);
-
-        const pointSizeRow = document.createElement('div');
-        pointSizeRow.className = 'text-layout-row';
-
-        const pointSizeLabel = document.createElement('label');
-        pointSizeLabel.className = 'text-layout-label';
-        pointSizeLabel.textContent = 'Point size';
-        pointSizeLabel.setAttribute('for', 'glyph-point-size-input');
+        temp.appendChild(lineHeightField);
 
         const pointSizeField = document.createElement('div');
-        pointSizeField.className = 'text-layout-lineheight-field';
+        pointSizeField.className = 'view-title-field text-layout-field';
+
+        const pointSizeLabel = document.createElement('label');
+        pointSizeLabel.className = 'text-layout-icon-label';
+        pointSizeLabel.setAttribute('for', 'glyph-point-size-input');
+        pointSizeLabel.setAttribute('title', 'Point size');
+        pointSizeLabel.setAttribute('aria-label', 'Point size');
+        pointSizeLabel.innerHTML = iconLabelHtml('format_size');
 
         const pointInput = document.createElement('input');
         pointInput.id = 'glyph-point-size-input';
         pointInput.type = 'text';
         pointInput.inputMode = 'decimal';
         pointInput.value = pointSize === null ? '' : formatPointSize(pointSize);
-        pointInput.className = 'text-layout-lineheight-input';
+        pointInput.className = 'text-layout-input';
+        pointInput.setAttribute('aria-label', 'Point size');
+        pointInput.title = 'Point size';
 
         const pointSuffix = document.createElement('span');
-        pointSuffix.className = 'text-layout-lineheight-suffix';
+        pointSuffix.className = 'text-layout-suffix';
         pointSuffix.textContent = 'pt';
 
         const commitPointSize = () => {
@@ -300,18 +314,16 @@ export class TextLayoutControls {
         calibrateButton.className = 'text-layout-calibrate-btn';
         calibrateButton.setAttribute('aria-label', 'Calibrate screen');
         calibrateButton.title = 'Calibrate screen';
-        calibrateButton.innerHTML =
-            '<span class="material-symbols-outlined">straighten</span>';
+        calibrateButton.innerHTML = iconLabelHtml('straighten');
         calibrateButton.addEventListener('click', () => {
             showScreenCalibrationDialog();
         });
 
+        pointSizeField.appendChild(pointSizeLabel);
         pointSizeField.appendChild(pointInput);
         pointSizeField.appendChild(pointSuffix);
         pointSizeField.appendChild(calibrateButton);
-        pointSizeRow.appendChild(pointSizeLabel);
-        pointSizeRow.appendChild(pointSizeField);
-        temp.appendChild(pointSizeRow);
+        temp.appendChild(pointSizeField);
 
         const alignRow = document.createElement('div');
         alignRow.className = 'text-layout-align';
@@ -326,7 +338,7 @@ export class TextLayoutControls {
         for (const option of options) {
             const button = document.createElement('button');
             button.type = 'button';
-            button.className = 'text-layout-align-button';
+            button.className = 'view-title-button text-layout-align-button';
             button.setAttribute('aria-label', option.label);
             button.setAttribute(
                 'aria-pressed',

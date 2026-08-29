@@ -133,7 +133,7 @@ export function formatPointSize(pointSize: number): string {
     if (!Number.isFinite(pointSize)) {
         return '';
     }
-    return String(Math.round(pointSize * 100) / 100);
+    return (Math.round(pointSize * 10) / 10).toFixed(1);
 }
 
 export function parsePointSize(value: string): number | null {

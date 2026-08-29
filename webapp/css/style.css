@@ -1568,6 +1568,40 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
     box-sizing: border-box;
 }
 
+.view-title-field {
+    display: flex;
+    align-items: center;
+    align-self: stretch;
+    box-sizing: border-box;
+    gap: 4px;
+    height: 100%;
+    padding: 0 6px;
+    background: var(--input-bg);
+    border-left: 1px solid var(--border-primary);
+    border-right: 1px solid var(--border-primary);
+}
+
+.view-title-field:focus-within {
+    border-color: var(--accent-primary);
+}
+
+.view-title-field input {
+    height: 100%;
+    min-width: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-size: 12px;
+    font-family: inherit;
+}
+
+.view-title-field input::placeholder {
+    color: var(--text-faint);
+    opacity: 0.5;
+}
+
 .view-title-left {
     display: flex;
     align-items: center;
@@ -2423,6 +2457,93 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
     background-color: var(--autorun-active-focused-bg);
     border-color: var(--autorun-active-focused-bg);
     color: var(--autorun-active-focused-text) !important;
+}
+
+/* Editor text layout (left of edit tools) */
+.editor-text-layout {
+    display: flex;
+    align-items: stretch;
+    height: 100%;
+    flex: 0 0 auto;
+}
+
+#glyph-text-layout-section {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 0;
+    height: 100%;
+}
+
+.text-layout-field + .text-layout-field {
+    margin-left: -1px;
+}
+
+.text-layout-align {
+    display: flex;
+    align-items: stretch;
+    height: 100%;
+    margin-left: -1px;
+}
+
+.text-layout-icon-label {
+    display: flex;
+    align-items: center;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.text-layout-icon-label .material-symbols-outlined {
+    font-size: 16px;
+}
+
+.view-title-field .text-layout-input {
+    font-family: var(--font-families-mono);
+    text-align: right;
+}
+
+.view-title-field #glyph-line-height-input {
+    width: 3ch;
+}
+
+.view-title-field #glyph-point-size-input {
+    width: 5ch;
+}
+
+.text-layout-suffix {
+    color: var(--text-secondary);
+    font-size: 10px;
+}
+
+.text-layout-calibrate-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: 0 4px;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.text-layout-calibrate-btn:hover {
+    background: var(--background-hover);
+}
+
+.text-layout-calibrate-btn .material-symbols-outlined {
+    font-size: 16px;
+}
+
+.view-title-button.text-layout-align-button {
+    min-width: 24px;
+    justify-content: center;
+    padding: 0 6px;
+}
+
+.view-title-button.text-layout-align-button.active {
+    background-color: var(--input-bg);
+    color: var(--accent-cyan) !important;
 }
 
 /* Editor edit tools (left of View / Plugins) */

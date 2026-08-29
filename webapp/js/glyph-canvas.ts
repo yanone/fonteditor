@@ -12465,9 +12465,8 @@ function initCanvas() {
         propertiesSection.id = 'glyph-properties-section';
         leftSidebar.appendChild(propertiesSection);
 
-        // Create text layout controls above variable axes
-        const textLayoutSection = textLayoutControls.createSection();
-        rightSidebarScrollContent.appendChild(textLayoutSection);
+        // Text layout controls in the Editor title bar (left of tools)
+        textLayoutControls.createSection();
 
         // Create variable axes container (initially empty)
         const axesSection = window.glyphCanvas.axesManager!.createAxesSection();
