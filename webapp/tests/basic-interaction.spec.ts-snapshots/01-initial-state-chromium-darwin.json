@@ -14,9 +14,11 @@
         "editor_harfbuzz_glyph_names": "",
         "editor_isAnimating": false,
         "editor_isInterpolating": false,
+        "editor_line_height": 100,
         "editor_mode": "text",
         "editor_opentype_features_in_subset": {},
         "editor_opentype_features_not_in_subset": {},
+        "editor_text_align": "left",
         "editor_text_buffer": "Hamburgevons",
         "editor_variation_location": {},
         "focused_view": "view-editor"

@@ -14,6 +14,7 @@
         "editor_harfbuzz_glyph_names": "h e l l o space fathatan-ar alef-ar.short.fina dotbelow-ar behDotless-ar.medi fatha-ar hah-ar.init reh-ar.fina fatha-ar meem-ar.init",
         "editor_isAnimating": false,
         "editor_isInterpolating": false,
+        "editor_line_height": 100,
         "editor_mode": "text",
         "editor_opentype_features_in_subset": {
             "dlig": false,
@@ -37,6 +38,7 @@
             "sups": false,
             "zero": false
         },
+        "editor_text_align": "left",
         "editor_text_buffer": "hello مَرحَباً",
         "editor_variation_location": {
             "wght": 400
