@@ -2632,9 +2632,10 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
     color: var(--text-secondary);
 }
 
-/* Shared slider styles for both plugin UI and axes sliders */
+/* Shared slider styles for plugin UI, axes, and reusable ui-slider */
 .plugin-ui-slider input[type='range'],
-.editor-axis-slider {
+.editor-axis-slider,
+.ui-slider {
     width: 100%;
     height: 4px;
     background: var(--border-primary);
@@ -2645,7 +2646,8 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
 }
 
 .plugin-ui-slider input[type='range']::-webkit-slider-runnable-track,
-.editor-axis-slider::-webkit-slider-runnable-track {
+.editor-axis-slider::-webkit-slider-runnable-track,
+.ui-slider::-webkit-slider-runnable-track {
     width: 100%;
     height: 4px;
     background: linear-gradient(
@@ -2659,7 +2661,8 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
 }
 
 .plugin-ui-slider input[type='range']::-moz-range-track,
-.editor-axis-slider::-moz-range-track {
+.editor-axis-slider::-moz-range-track,
+.ui-slider::-moz-range-track {
     width: 100%;
     height: 4px;
     background: var(--border-primary);
@@ -2667,14 +2670,16 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
 }
 
 .plugin-ui-slider input[type='range']::-moz-range-progress,
-.editor-axis-slider::-moz-range-progress {
+.editor-axis-slider::-moz-range-progress,
+.ui-slider::-moz-range-progress {
     height: 4px;
     background: var(--text-secondary);
     border-radius: 2px;
 }
 
 .plugin-ui-slider input[type='range']::-webkit-slider-thumb,
-.editor-axis-slider::-webkit-slider-thumb {
+.editor-axis-slider::-webkit-slider-thumb,
+.ui-slider::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
     width: 12px;
@@ -2686,7 +2691,8 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
 }
 
 .plugin-ui-slider input[type='range']::-moz-range-thumb,
-.editor-axis-slider::-moz-range-thumb {
+.editor-axis-slider::-moz-range-thumb,
+.ui-slider::-moz-range-thumb {
     width: 12px;
     height: 12px;
     background: var(--text-primary);
@@ -3843,7 +3849,8 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
     background-color: var(--input-bg);
 }
 
-.plugin-menu-item.plugin-menu-item-disabled {
+.plugin-menu-item.plugin-menu-item-disabled,
+.plugin-menu-setting.plugin-menu-item-disabled {
     opacity: 0.45;
     cursor: default;
     pointer-events: none;
@@ -3874,6 +3881,42 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
     margin-left: auto;
 }
 
+.plugin-menu-item.has-submenu {
+    position: relative;
+}
+
+.plugin-menu-chevron {
+    margin-left: auto;
+}
+
+.plugin-menu-submenu {
+    position: absolute;
+    top: -4px;
+    left: calc(100% + 4px);
+    display: none;
+    min-width: 220px;
+    padding: 4px 0;
+    border: 1px solid var(--border-primary);
+    border-radius: 3px;
+    background: var(--background-secondary);
+    box-shadow: 0 8px 24px var(--modal-overlay);
+    z-index: 1;
+}
+
+.plugin-menu-item.has-submenu:hover > .plugin-menu-submenu,
+.plugin-menu-item.has-submenu:focus-within > .plugin-menu-submenu {
+    display: block;
+}
+
+.plugin-menu:has(.has-submenu) {
+    overflow: visible;
+}
+
+.tippy-box:has(.plugin-menu-item.has-submenu),
+.tippy-box:has(.plugin-menu-item.has-submenu) > .tippy-content {
+    overflow: visible;
+}
+
 .plugin-menu-item .keyboard-shortcut .material-symbols-outlined,
 .plugin-menu-item .plugin-menu-shortcut .material-symbols-outlined {
     font-size: 1.2em;
@@ -3892,6 +3935,30 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
 
 .plugin-menu-setting-label {
     color: var(--text-secondary);
+}
+
+.plugin-menu-fill-setting .ui-slider {
+    height: 12px;
+    background: transparent;
+    cursor: pointer;
+}
+
+.plugin-menu-fill-setting .ui-slider::-webkit-slider-runnable-track {
+    background: linear-gradient(
+        to right,
+        var(--text-secondary) 0%,
+        var(--text-secondary) var(--value-percent, 50%),
+        var(--input-bg) var(--value-percent, 50%),
+        var(--input-bg) 100%
+    );
+}
+
+.plugin-menu-fill-setting .ui-slider::-moz-range-track {
+    background: var(--input-bg);
+}
+
+.plugin-menu-fill-setting .ui-slider::-moz-range-progress {
+    background: var(--text-secondary);
 }
 
 .plugin-menu-segments {
@@ -6855,6 +6922,7 @@ select.glyph-property-input {
     flex-direction: row;
     align-items: stretch;
     justify-content: center;
+    gap: 2px;
 }
 
 .glyph-component-property-grid {

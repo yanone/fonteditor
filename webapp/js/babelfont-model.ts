@@ -272,6 +272,53 @@ function cloneInterpolationValue<T>(value: T): T {
 }
 const GLYPHS_COMPONENT_ALIGNMENT_KEY = 'com.schriftgestalt.Glyphs.alignment';
 const GLYPHS_COMPONENT_ANCHOR_KEY = 'com.schriftgestalt.Glyphs.componentAnchor';
+/** `format_specific` key for non-destructive path boolean operations. */
+export const FIP001_BOOLEAN_KEY = 'fip001-boolean';
+/** Value that marks a path as a subtraction cutter. */
+export const FIP001_BOOLEAN_SUBTRACTION = 'subtraction';
+export const GLYPHS_ATTR_KEY = 'com.schriftgestalt.Glyphs.attr';
+
+export type ShapeZOrderCommand = 'forward' | 'backward' | 'front' | 'back';
+
+type FilteredBooleanFingerprintCacheEntry = {
+    sourceKey: string;
+    layers: Record<string, string>;
+};
+
+const filteredBooleanFingerprintCache = new Map<
+    string,
+    FilteredBooleanFingerprintCacheEntry
+>();
+const filteredBooleanFingerprintInflight = new Map<string, string>();
+
+if (typeof window !== 'undefined') {
+    window.addEventListener('fontLoaded', () => {
+        filteredBooleanFingerprintCache.clear();
+        filteredBooleanFingerprintInflight.clear();
+    });
+}
+
+function glyphsAttrFromFormatSpecific(
+    formatSpecific: Record<string, Unsafe> | null | undefined
+): Record<string, Unsafe> | null {
+    const attr = formatSpecific?.[GLYPHS_ATTR_KEY];
+    if (!attr || typeof attr !== 'object' || Array.isArray(attr)) {
+        return null;
+    }
+    return attr as Record<string, Unsafe>;
+}
+
+export function pathHasSubtractionFlag(
+    formatSpecific: Record<string, Unsafe> | null | undefined
+): boolean {
+    if (formatSpecific?.[FIP001_BOOLEAN_KEY] === FIP001_BOOLEAN_SUBTRACTION) {
+        return true;
+    }
+    return (
+        glyphsAttrFromFormatSpecific(formatSpecific)?.[FIP001_BOOLEAN_KEY] ===
+        FIP001_BOOLEAN_SUBTRACTION
+    );
+}
 const CHAINED_BASE_ENTRY_ANCHOR = '#entry';
 const CHAINED_BASE_EXIT_ANCHOR = '#exit';
 const METRIC_UPDATE_EPSILON = 0.01;
@@ -3407,7 +3454,7 @@ function ensureModelFormatSpecific(
 function setFormatSpecificKey(
     modelObj: ModelBase,
     key: string,
-    value: string | undefined
+    value: string | Record<string, Unsafe> | undefined
 ): void {
     assertModelMutationAllowed();
     const data = modelObj.toJSON() as {
@@ -4502,9 +4549,47 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
         assertModelMutationAllowed();
-        const old = this.data.format_specific;
-        this.data.format_specific = value;
-        recordAndMarkDirty(this, 'format_specific', old, value);
+        this.withLayerFingerprintChangeEvent(() => {
+            const old = this.data.format_specific;
+            this.data.format_specific = value;
+            recordAndMarkDirty(this, 'format_specific', old, value);
+        });
+    }
+
+    /**
+     * Whether this path subtracts from shapes below it (`fip001-boolean`).
+     */
+    get isSubtraction(): boolean {
+        return pathHasSubtractionFlag(this.data.format_specific);
+    }
+
+    set isSubtraction(value: boolean) {
+        assertModelMutationAllowed();
+        if (this.isSubtraction === Boolean(value)) {
+            return;
+        }
+        this.withLayerFingerprintChangeEvent(() => {
+            setFormatSpecificKey(
+                this,
+                FIP001_BOOLEAN_KEY,
+                value ? FIP001_BOOLEAN_SUBTRACTION : undefined
+            );
+            const attr = {
+                ...(glyphsAttrFromFormatSpecific(this.data.format_specific) ||
+                    {})
+            };
+            if (value) {
+                attr[FIP001_BOOLEAN_KEY] = FIP001_BOOLEAN_SUBTRACTION;
+                setFormatSpecificKey(this, GLYPHS_ATTR_KEY, attr);
+            } else {
+                delete attr[FIP001_BOOLEAN_KEY];
+                setFormatSpecificKey(
+                    this,
+                    GLYPHS_ATTR_KEY,
+                    Object.keys(attr).length > 0 ? attr : undefined
+                );
+            }
+        });
     }
 
     /**
@@ -9050,6 +9135,121 @@ export class Layer extends ArrayElementBase {
     }
 
     /**
+     * Move selected shapes as a unit in z-order. Linked layers with a matching
+     * fingerprint receive the same index permutation.
+     *
+     * `backward` / `forward` swap each selected index with the adjacent
+     * unselected neighbor so relative selection order is preserved.
+     * `back` / `front` extract the selection in current order and insert it
+     * at the start or end.
+     *
+     * @returns Map from previous shape index to new shape index.
+     */
+    moveShapes(
+        indexes: number[],
+        command: ShapeZOrderCommand
+    ): Map<number, number> {
+        assertModelMutationAllowed();
+        const linkedLayers = [...this._getLinkedLayers()];
+        const mapping = this.applyShapeZOrderMove(indexes, command);
+        for (const linkedLayer of linkedLayers) {
+            linkedLayer.applyShapeZOrderMove(indexes, command);
+        }
+        return mapping;
+    }
+
+    private applyShapeZOrderMove(
+        indexes: number[],
+        command: ShapeZOrderCommand
+    ): Map<number, number> {
+        return this.withFingerprintChangeEvent(() => {
+            assertModelMutationAllowed();
+            const shapes = this.data.shapes;
+            const identity = new Map<number, number>();
+            if (!Array.isArray(shapes) || shapes.length === 0) {
+                return identity;
+            }
+
+            const selected = [
+                ...new Set(
+                    indexes.filter(
+                        (index) =>
+                            Number.isInteger(index) &&
+                            index >= 0 &&
+                            index < shapes.length
+                    )
+                )
+            ].sort((a, b) => a - b);
+            if (selected.length === 0) {
+                return identity;
+            }
+
+            const order = shapes.map((_, index) => index);
+            const selectedSet = new Set(selected);
+            if (command === 'backward') {
+                for (let i = 1; i < order.length; i++) {
+                    if (
+                        selectedSet.has(order[i]) &&
+                        !selectedSet.has(order[i - 1])
+                    ) {
+                        const swapped = order[i - 1];
+                        order[i - 1] = order[i];
+                        order[i] = swapped;
+                    }
+                }
+            } else if (command === 'forward') {
+                for (let i = order.length - 2; i >= 0; i--) {
+                    if (
+                        selectedSet.has(order[i]) &&
+                        !selectedSet.has(order[i + 1])
+                    ) {
+                        const swapped = order[i + 1];
+                        order[i + 1] = order[i];
+                        order[i] = swapped;
+                    }
+                }
+            } else if (command === 'back') {
+                const extracted = order.filter((index) =>
+                    selectedSet.has(index)
+                );
+                const remaining = order.filter(
+                    (index) => !selectedSet.has(index)
+                );
+                order.length = 0;
+                order.push(...extracted, ...remaining);
+            } else {
+                const extracted = order.filter((index) =>
+                    selectedSet.has(index)
+                );
+                const remaining = order.filter(
+                    (index) => !selectedSet.has(index)
+                );
+                order.length = 0;
+                order.push(...remaining, ...extracted);
+            }
+
+            const mapping = new Map<number, number>();
+            let changed = false;
+            for (let newIndex = 0; newIndex < order.length; newIndex++) {
+                const oldIndex = order[newIndex];
+                mapping.set(oldIndex, newIndex);
+                if (oldIndex !== newIndex) {
+                    changed = true;
+                }
+            }
+            if (!changed) {
+                return mapping;
+            }
+
+            const oldShapes = cloneForHistory(shapes);
+            this.data.shapes = order.map((oldIndex) => shapes[oldIndex]);
+            this._shapeWrappers = null;
+            recordAndMarkDirty(this, 'shapes', oldShapes, this.data.shapes);
+            return mapping;
+        });
+    }
+
+    /**
      * Split an open path into two open paths at an interior on-curve node.
      */
     splitOpenPathAtNode(
@@ -10343,7 +10543,8 @@ export class Layer extends ArrayElementBase {
                 Layer.normalizeSignatureNodeType(node.nodetype)
             );
             const closedFlag = path.closed === false ? '0' : '1';
-            return `P:${closedFlag}:${nodeTypes.length}:${nodeTypes.join(',')}`;
+            const booleanSuffix = path.isSubtraction ? ':subtraction' : '';
+            return `P:${closedFlag}:${nodeTypes.length}:${nodeTypes.join(',')}${booleanSuffix}`;
         });
         const anchorSignatures = (this.anchors || [])
             .map((anchor) => `A:${anchor.name || ''}`)
@@ -10473,6 +10674,72 @@ function canonicalizeFeatureVariationAxisRules(
     };
 
     return JSON.stringify(normalize(axisRules));
+}
+
+function glyphTreeHasSubtraction(
+    glyph: Glyph,
+    visiting: Set<string> = new Set()
+): boolean {
+    const glyphName = glyph?.name;
+    if (!glyphName || visiting.has(glyphName)) {
+        return false;
+    }
+    visiting.add(glyphName);
+    const font = glyph.parent();
+    for (const layer of glyph.layers || []) {
+        if (layer.is_background) {
+            continue;
+        }
+        for (const shape of layer.shapes || []) {
+            if (shape.isPath?.() && shape.asPath().isSubtraction) {
+                return true;
+            }
+            if (shape.isComponent?.()) {
+                const reference = shape.asComponent().reference;
+                const referenced =
+                    font && typeof font.findGlyph === 'function'
+                        ? font.findGlyph(reference)
+                        : null;
+                if (
+                    referenced &&
+                    glyphTreeHasSubtraction(referenced, visiting)
+                ) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+function glyphBooleanSourceKey(glyph: Glyph): string {
+    const parts: string[] = [];
+    const font = glyph.parent();
+    const visit = (current: Glyph, visiting: Set<string>): void => {
+        if (!current?.name || visiting.has(current.name)) {
+            return;
+        }
+        visiting.add(current.name);
+        for (const layer of current.layers || []) {
+            if (layer.is_background) {
+                continue;
+            }
+            parts.push(
+                `${current.name}:${layer.id || ''}:${layer.fingerprint}`
+            );
+            for (const component of layer.components || []) {
+                const referenced =
+                    font && typeof font.findGlyph === 'function'
+                        ? font.findGlyph(component.reference)
+                        : null;
+                if (referenced) {
+                    visit(referenced, visiting);
+                }
+            }
+        }
+    };
+    visit(glyph, new Set());
+    return parts.join('\n');
 }
 
 export class Glyph extends ArrayElementBase {
@@ -11384,8 +11651,9 @@ export class Glyph extends ArrayElementBase {
     /**
      * Compare outline structure across main layers (the same list shown in the UI).
      *
-     * For compatibility checks, mixed shape sequences are normalized by moving
-     * components before paths while preserving their relative order inside each type.
+     * Source fingerprints include path `fip001-boolean` flags. When any path in
+     * this glyph or its component tree is a subtraction cutter, compatibility
+     * also ANDs post-boolean (Linesweeper) fingerprints from the compile worker.
      */
     calculateOutlineCompatibility(): {
         compatible: boolean;
@@ -11418,10 +11686,27 @@ export class Glyph extends ArrayElementBase {
 
         for (let i = 1; i < layers.length; i++) {
             const layer = layers[i];
-            const isCompatible = layer.fingerprint === referenceFingerprint;
-
-            if (!isCompatible) {
+            if (layer.fingerprint !== referenceFingerprint) {
                 incompatibleLayerIds.push(this.getLayerIdentifier(layer));
+            }
+        }
+
+        if (glyphTreeHasSubtraction(this)) {
+            const sourceKey = glyphBooleanSourceKey(this);
+            const cached = filteredBooleanFingerprintCache.get(this.name);
+            if (!cached || cached.sourceKey !== sourceKey) {
+                this.scheduleFilteredBooleanFingerprintRefresh(sourceKey);
+            } else {
+                const referenceFiltered = cached.layers[referenceLayerId];
+                for (let i = 1; i < layers.length; i++) {
+                    const layer = layers[i];
+                    const layerId = this.getLayerIdentifier(layer);
+                    if (cached.layers[layerId] !== referenceFiltered) {
+                        if (!incompatibleLayerIds.includes(layerId)) {
+                            incompatibleLayerIds.push(layerId);
+                        }
+                    }
+                }
             }
         }
 
@@ -11431,6 +11716,92 @@ export class Glyph extends ArrayElementBase {
             referenceLayerId,
             incompatibleLayerIds
         };
+    }
+
+    private scheduleFilteredBooleanFingerprintRefresh(sourceKey: string): void {
+        if (typeof window === 'undefined') {
+            return;
+        }
+        if (window.glyphCanvas?.outlineEditor?.draggingSomething) {
+            return;
+        }
+        const glyphName = this.name;
+        if (!glyphName) {
+            return;
+        }
+        if (filteredBooleanFingerprintInflight.get(glyphName) === sourceKey) {
+            return;
+        }
+        const fontCompilation = window.fontCompilation as
+            | {
+                  requestFilteredBooleanFingerprints?: (
+                      name: string
+                  ) => Promise<Record<string, string>>;
+              }
+            | undefined;
+        if (
+            typeof fontCompilation?.requestFilteredBooleanFingerprints !==
+            'function'
+        ) {
+            return;
+        }
+        filteredBooleanFingerprintInflight.set(glyphName, sourceKey);
+        void fontCompilation
+            .requestFilteredBooleanFingerprints(glyphName)
+            .then((layers) => {
+                if (
+                    filteredBooleanFingerprintInflight.get(glyphName) !==
+                    sourceKey
+                ) {
+                    return;
+                }
+                filteredBooleanFingerprintInflight.delete(glyphName);
+                filteredBooleanFingerprintCache.set(glyphName, {
+                    sourceKey,
+                    layers: layers || {}
+                });
+                const font = window.currentFontModel;
+                const dependents =
+                    font &&
+                    typeof font.collectComponentDependentGlyphs === 'function'
+                        ? font.collectComponentDependentGlyphs([glyphName], {
+                              includeSourceGlyphNames: true
+                          })
+                        : new Set([glyphName]);
+                // Post-boolean VF fingerprints arrived; refresh compatibility UI.
+                window.dispatchEvent(
+                    new CustomEvent('filteredBooleanCompatibilityUpdated', {
+                        detail: {
+                            glyphNames: [...dependents]
+                        }
+                    })
+                );
+                const glyph =
+                    typeof font?.findGlyph === 'function'
+                        ? font.findGlyph(glyphName)
+                        : this;
+                for (const layer of glyph?.layers || []) {
+                    if (!layer?.id) {
+                        continue;
+                    }
+                    window.dispatchEvent(
+                        new CustomEvent('layerFingerprintChanged', {
+                            detail: {
+                                glyphName,
+                                layerId: layer.id
+                            }
+                        })
+                    );
+                }
+            })
+            .catch(() => {
+                if (
+                    filteredBooleanFingerprintInflight.get(glyphName) ===
+                    sourceKey
+                ) {
+                    filteredBooleanFingerprintInflight.delete(glyphName);
+                }
+            });
     }
 
     toString(): string {

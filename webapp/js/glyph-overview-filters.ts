@@ -250,6 +250,29 @@ export class GlyphOverviewFilterManager {
             this.openGeneration += 1;
             this.openRecountPending = true;
         });
+        window.addEventListener(
+            'filteredBooleanCompatibilityUpdated',
+            (event: Event) => {
+                const glyphNames = (
+                    event as CustomEvent<{ glyphNames?: string[] }>
+                ).detail?.glyphNames;
+                if (!Array.isArray(glyphNames) || glyphNames.length === 0) {
+                    return;
+                }
+                void this.enqueueFilterWork(async () => {
+                    const changes = this.collectCompatibilityToggleChanges(
+                        glyphNames,
+                        false
+                    );
+                    if (!changes.length) {
+                        return;
+                    }
+                    await this.handleCommittedGlyphFilterBatch({
+                        changes: dedupeGlyphFilterChanges(changes)
+                    });
+                });
+            }
+        );
     }
 
     private enqueueFilterWork(work: () => Promise<void>): Promise<void> {

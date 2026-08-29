@@ -15813,6 +15813,20 @@ describe('GlyphCanvas property panel', () => {
         expect(html).not.toContain('data-action="reverse-path-direction"');
     });
 
+    test('context menu nests z-order actions in Arrange', () => {
+        canvas.outlineEditor.canReorderSelectedShapes = jest.fn(() => true);
+
+        const html = canvas.outlineEditor.buildCanvasContextMenuHtml(null);
+
+        expect(html).toContain('>Arrange</span>');
+        expect(html).toContain('has-submenu');
+        expect(html).toContain('data-action="bring-to-front"');
+        expect(html).toContain('data-action="bring-forward"');
+        expect(html).toContain('data-action="send-backward"');
+        expect(html).toContain('data-action="send-to-back"');
+        expect(html).not.toContain('plugin-menu-shortcut');
+    });
+
     test('rejects adding an anchor when the name already exists', async () => {
         const layer =
             fontManager.currentFont.fontModel.findGlyph('panelGlyph').layers[0];

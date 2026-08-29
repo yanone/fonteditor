@@ -293,6 +293,11 @@ function deriveShapesSubtreeChanges(
         return { changes, mayAffectCompatibility: true };
     }
 
+    if (shapeProperty === 'format_specific') {
+        pushUniqueChange(changes, 'glyph.paths.changed', meta);
+        return { changes, mayAffectCompatibility: true };
+    }
+
     // Bare wrapped-container write (shapes.0.Component / shapes.0.Path).
     if (shapeProperty === 'Component') {
         pushUniqueChange(changes, 'glyph.components.changed', meta);

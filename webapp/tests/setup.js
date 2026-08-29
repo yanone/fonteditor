@@ -170,6 +170,8 @@ if (typeof APP_SETTINGS === 'undefined') {
     global.APP_SETTINGS = {
         OUTLINE_EDITOR: {
             COMPONENT_STROKE_DARKEN_PERCENT: 60,
+            PATH_FILL_OPACITY: 0.02,
+            SUBTRACTION_OUTLINE_DASH: [4, 4],
             COMPONENT_FILLS: {
                 MANUAL_NORMAL: '#b6936fcc',
                 MANUAL_HOVERED: '#c79461cc',

@@ -1231,6 +1231,34 @@ export class FontCompilation {
     }
 
     /**
+     * Run FIP001 boolean subtraction on the worker font (no DropIncompatiblePaths)
+     * and return per-layer outline fingerprints for `glyphName`.
+     */
+    async requestFilteredBooleanFingerprints(
+        glyphName: string
+    ): Promise<Record<string, string>> {
+        if (!this.isInitialized) {
+            const initialized = await this.initialize();
+            if (!initialized) {
+                throw new Error('Font compilation worker is not initialized');
+            }
+        }
+        const result = await this.sendMessage({
+            type: 'filteredBooleanFingerprints',
+            glyphName
+        });
+        const raw = result?.fingerprints;
+        if (typeof raw === 'string') {
+            const parsed = JSON.parse(raw) as Record<string, string>;
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        }
+        if (raw && typeof raw === 'object') {
+            return raw as Record<string, string>;
+        }
+        return {};
+    }
+
+    /**
      * Compile font directly from .babelfont JSON string
      * This is the NEW direct path: Python → JSON → JavaScript → WASM
      * NO FILE SYSTEM OPERATIONS!

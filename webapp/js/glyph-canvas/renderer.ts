@@ -3,12 +3,19 @@ import APP_SETTINGS, {
     interpolateOutlineChromeScreenSize,
     outlineChromeStateScale
 } from '../settings';
-import { Layer, DecomposedAffineTransform } from '../babelfont-model';
+import {
+    Layer,
+    DecomposedAffineTransform,
+    pathHasSubtractionFlag
+} from '../babelfont-model';
 import { Logger } from '../logger';
+import { getPathFillOpacity } from '../path-fill-opacity-pref';
 import { get_glyph_name } from '../../wasm-dist/babelfont_fontc_web';
 import {
     normalizeAffineTransform,
-    transformPointWithAffine as applyAffineToPoint
+    transformPointWithAffine as applyAffineToPoint,
+    multiplyAffineTransforms,
+    createIdentityAffine
 } from '../glyph-path-geometry';
 
 const console = new Logger('Renderer');
@@ -160,6 +167,41 @@ function getClosedFromOutlineShape(shape: any): boolean {
     return false;
 }
 
+function getOutlineShapeFormatSpecific(
+    shape: any
+): Record<string, unknown> | undefined {
+    if (!shape || typeof shape !== 'object') {
+        return undefined;
+    }
+    if (shape.format_specific && typeof shape.format_specific === 'object') {
+        return shape.format_specific;
+    }
+    if (
+        shape.Path?.format_specific &&
+        typeof shape.Path.format_specific === 'object'
+    ) {
+        return shape.Path.format_specific;
+    }
+    return undefined;
+}
+
+function outlineShapeIsSubtraction(shape: any): boolean {
+    return pathHasSubtractionFlag(
+        getOutlineShapeFormatSpecific(shape) as
+            Record<string, ReturnType<typeof JSON.parse>> | undefined
+    );
+}
+
+function outlineShapeIsComponent(shape: any): boolean {
+    if (!shape || typeof shape !== 'object') {
+        return false;
+    }
+    if ('Component' in shape) {
+        return true;
+    }
+    return typeof shape.reference === 'string' && !Array.isArray(shape.nodes);
+}
+
 /**
  * Calculate bounding box from SVG path data
  * Parses M, L, C, Q, Z commands and resolves curve extrema.
@@ -259,6 +301,7 @@ export class GlyphCanvasRenderer {
     private fpsStartTime: number = 0;
     private fps: number = 0;
     private readonly FPS_UPDATE_INTERVAL = 500; // Update FPS display every 500ms
+    private punchOutScratch: HTMLCanvasElement | null = null;
 
     /**
      *
@@ -2183,6 +2226,285 @@ export class GlyphCanvasRenderer {
         };
     }
 
+    private getPathFillColor(isDarkTheme: boolean): string {
+        const alpha = getPathFillOpacity();
+        return isDarkTheme
+            ? `rgba(255, 255, 255, ${alpha})`
+            : `rgba(0, 0, 0, ${alpha})`;
+    }
+
+    private getSubtractionStrokeColor(): string {
+        const accent = getComputedStyle(document.documentElement)
+            .getPropertyValue('--accent-magenta')
+            .trim();
+        return withColorAlpha(accent, 0.85);
+    }
+
+    private getSubtractionFillColor(): string {
+        const accent = getComputedStyle(document.documentElement)
+            .getPropertyValue('--accent-magenta')
+            .trim();
+        return withColorAlpha(accent, getPathFillOpacity());
+    }
+
+    private subtractionOutlineDash(invScale: number): number[] {
+        const [dash, gap] =
+            APP_SETTINGS.OUTLINE_EDITOR.SUBTRACTION_OUTLINE_DASH;
+        return [dash * invScale, gap * invScale];
+    }
+
+    private getComponentPunchFillStyle(
+        shapeIndex: number,
+        isAutomatic: boolean
+    ): string {
+        const isInterpolated =
+            this.glyphCanvas.outlineEditor.isPaintingInterpolatedPreview();
+        const isHovered =
+            !isInterpolated &&
+            this.glyphCanvas.outlineEditor.hoveredComponentIndex === shapeIndex;
+        const isSelected =
+            !isInterpolated &&
+            this.glyphCanvas.outlineEditor.selectedComponents.includes(
+                shapeIndex
+            );
+        const fills = APP_SETTINGS.OUTLINE_EDITOR.COMPONENT_FILLS;
+        let fillColor = isAutomatic
+            ? isSelected
+                ? fills.AUTO_SELECTED
+                : isHovered
+                  ? fills.AUTO_HOVERED
+                  : fills.AUTO_NORMAL
+            : isSelected
+              ? fills.MANUAL_SELECTED
+              : isHovered
+                ? fills.MANUAL_HOVERED
+                : fills.MANUAL_NORMAL;
+        fillColor = toRgba(fillColor);
+        if (isInterpolated) {
+            fillColor = desaturateColor(fillColor);
+        }
+        return fillColor;
+    }
+
+    private transformOutlineNodes(
+        nodes: Babelfont.Node[],
+        affine: number[]
+    ): Babelfont.Node[] {
+        const isIdentity =
+            affine[0] === 1 &&
+            affine[1] === 0 &&
+            affine[2] === 0 &&
+            affine[3] === 1 &&
+            affine[4] === 0 &&
+            affine[5] === 0;
+        if (isIdentity) {
+            return nodes;
+        }
+        return nodes.map((node) => {
+            const point = applyAffineToPoint(affine, node.x, node.y);
+            return { ...node, x: point.x, y: point.y };
+        });
+    }
+
+    private collectPunchFillContours(
+        shapes: unknown[] | undefined,
+        affine: number[],
+        fillStyle: string,
+        componentFillForIndex?: (shapeIndex: number) => string
+    ): Array<{
+        nodes: Babelfont.Node[];
+        subtract: boolean;
+        fillStyle: string;
+    }> {
+        const contours: Array<{
+            nodes: Babelfont.Node[];
+            subtract: boolean;
+            fillStyle: string;
+        }> = [];
+        if (!Array.isArray(shapes)) {
+            return contours;
+        }
+        for (let index = 0; index < shapes.length; index++) {
+            const shape = shapes[index];
+            if (outlineShapeIsComponent(shape)) {
+                const component = shape as {
+                    Component?: {
+                        transform?: unknown;
+                        layerData?: { shapes?: unknown[] };
+                    };
+                    transform?: unknown;
+                    layerData?: { shapes?: unknown[] };
+                };
+                const inner = component.Component || component;
+                const transformRaw =
+                    inner.transform || DecomposedAffineTransform.identity();
+                const childAffine = multiplyAffineTransforms(
+                    affine,
+                    Array.isArray(transformRaw)
+                        ? transformRaw
+                        : DecomposedAffineTransform.toAffine(transformRaw)
+                );
+                const childFill = componentFillForIndex
+                    ? componentFillForIndex(index)
+                    : fillStyle;
+                contours.push(
+                    ...this.collectPunchFillContours(
+                        inner.layerData?.shapes,
+                        childAffine,
+                        childFill
+                    )
+                );
+                continue;
+            }
+            if (!getClosedFromOutlineShape(shape)) {
+                continue;
+            }
+            const nodes =
+                getNodesFromShape(shape as Babelfont.Shape) ||
+                getNodesFromOutlineShape(shape);
+            if (!nodes?.length) {
+                continue;
+            }
+            contours.push({
+                nodes: this.transformOutlineNodes(nodes, affine),
+                subtract: outlineShapeIsSubtraction(shape),
+                fillStyle
+            });
+        }
+        return contours;
+    }
+
+    private fillPunchFillContoursOnContext(
+        contours: Array<{
+            nodes: Babelfont.Node[];
+            subtract: boolean;
+            fillStyle: string;
+        }>
+    ): void {
+        const punchCoverage = (nodes: Babelfont.Node[]): void => {
+            this.ctx.beginPath();
+            this.buildPathFromNodes(nodes, true);
+            this.ctx.closePath();
+            this.ctx.save();
+            this.ctx.globalCompositeOperation = 'destination-out';
+            this.ctx.fillStyle = 'rgba(0, 0, 0, 1)';
+            this.ctx.fill('nonzero');
+            this.ctx.restore();
+        };
+        const flushPending = (
+            pending: Array<{ nodes: Babelfont.Node[]; fillStyle: string }>
+        ): void => {
+            if (!pending.length) {
+                return;
+            }
+            this.ctx.beginPath();
+            for (const contour of pending) {
+                this.buildPathFromNodes(contour.nodes, true);
+                this.ctx.closePath();
+            }
+            this.ctx.fillStyle = pending[0].fillStyle;
+            this.ctx.fill('nonzero');
+        };
+        const additiveContours = contours.filter(
+            (contour) => !contour.subtract
+        );
+
+        const pending: Array<{ nodes: Babelfont.Node[]; fillStyle: string }> =
+            [];
+        for (const contour of contours) {
+            if (contour.subtract) {
+                flushPending(pending);
+                pending.length = 0;
+                punchCoverage(contour.nodes);
+                this.ctx.beginPath();
+                this.buildPathFromNodes(contour.nodes, true);
+                this.ctx.closePath();
+                this.ctx.fillStyle = this.getSubtractionFillColor();
+                this.ctx.fill('nonzero');
+                if (additiveContours.length) {
+                    this.ctx.save();
+                    this.ctx.beginPath();
+                    this.buildPathFromNodes(contour.nodes, true);
+                    this.ctx.closePath();
+                    this.ctx.clip();
+                    this.ctx.beginPath();
+                    for (const additive of additiveContours) {
+                        this.buildPathFromNodes(additive.nodes, true);
+                        this.ctx.closePath();
+                    }
+                    this.ctx.globalCompositeOperation = 'destination-out';
+                    this.ctx.fillStyle = 'rgba(0, 0, 0, 1)';
+                    this.ctx.fill('nonzero');
+                    this.ctx.restore();
+                }
+                continue;
+            }
+            if (pending.length && pending[0].fillStyle !== contour.fillStyle) {
+                flushPending(pending);
+                pending.length = 0;
+            }
+            pending.push({
+                nodes: contour.nodes,
+                fillStyle: contour.fillStyle
+            });
+        }
+        flushPending(pending);
+    }
+
+    private fillOutlineEditorPunchOut(
+        layerData: { shapes?: unknown[] },
+        localFillStyle: string
+    ): void {
+        const isAutomatic = isAutomaticallyAlignedComponentLayer(
+            layerData as ComponentAlignmentLayerSnapshot
+        );
+        const contours = this.collectPunchFillContours(
+            layerData.shapes,
+            createIdentityAffine(),
+            localFillStyle,
+            (shapeIndex) =>
+                this.getComponentPunchFillStyle(shapeIndex, isAutomatic)
+        );
+        if (!contours.length) {
+            return;
+        }
+
+        const main = this.ctx;
+        const canvas = main.canvas;
+        if (
+            !this.punchOutScratch ||
+            this.punchOutScratch.width !== canvas.width ||
+            this.punchOutScratch.height !== canvas.height
+        ) {
+            this.punchOutScratch = document.createElement('canvas');
+            this.punchOutScratch.width = canvas.width;
+            this.punchOutScratch.height = canvas.height;
+        }
+        const offscreen = this.punchOutScratch;
+        const offscreenCtx = offscreen.getContext('2d');
+        if (!offscreenCtx) {
+            this.fillPunchFillContoursOnContext(contours);
+            return;
+        }
+
+        offscreenCtx.setTransform(1, 0, 0, 1, 0, 0);
+        offscreenCtx.clearRect(0, 0, offscreen.width, offscreen.height);
+        offscreenCtx.setTransform(main.getTransform());
+
+        const previous = this.ctx;
+        this.ctx = offscreenCtx;
+        try {
+            this.fillPunchFillContoursOnContext(contours);
+        } finally {
+            this.ctx = previous;
+        }
+
+        main.save();
+        main.setTransform(1, 0, 0, 1, 0, 0);
+        main.drawImage(offscreen, 0, 0);
+        main.restore();
+    }
+
     drawOutlineEditor() {
         // Validate APP_SETTINGS is available
         if (
@@ -2292,38 +2614,12 @@ export class GlyphCanvasRenderer {
             );
         }
 
-        // Draw filled glyph background in 3% black before everything else
-        // Build a combined path from all contours (not components) to use nonzero winding for counters
-        this.ctx.save();
-        this.ctx.beginPath();
-
-        if (currentLayerData.shapes && Array.isArray(currentLayerData.shapes)) {
-            currentLayerData.shapes.forEach((shape) => {
-                // Only process contours/paths, skip components
-                if ('Component' in shape) {
-                    return;
-                }
-
-                if (!getClosedFromOutlineShape(shape)) {
-                    return;
-                }
-
-                // Get nodes from shape
-                const nodes = getNodesFromShape(shape);
-
-                if (nodes && nodes.length > 0) {
-                    this.buildPathFromNodes(nodes);
-                    this.ctx.closePath();
-                }
-            });
-        }
-
-        // Fill with 3% white (dark theme) or black (light theme) - nonzero winding automatically handles counters
-        this.ctx.fillStyle = isDarkTheme
-            ? 'rgba(255, 255, 255, 0.015)'
-            : 'rgba(0, 0, 0, 0.015)';
-        this.ctx.fill();
-        this.ctx.restore();
+        // Filled glyph background: grouped nonzero compounds, destination-out
+        // cutters, later shapes on top. Original nodes stay editable.
+        this.fillOutlineEditorPunchOut(
+            currentLayerData,
+            this.getPathFillColor(isDarkTheme)
+        );
 
         // Draw parent glyph outlines in background if editing a component
         if (this.glyphCanvas.outlineEditor.isEditingComponent()) {
@@ -2565,7 +2861,8 @@ export class GlyphCanvasRenderer {
                             isAutomaticComponentLayer,
                             !!isInterpolated,
                             invScale,
-                            isDarkTheme
+                            isDarkTheme,
+                            true
                         );
 
                         // Collect component label data for later drawing (on top of everything)
@@ -3212,11 +3509,19 @@ export class GlyphCanvasRenderer {
             segmentId: number;
         }): boolean => hoveredSeg?.segmentId === descriptor.segmentId;
 
-        const unselectedOutline = isDarkTheme
-            ? `rgba(255, 255, 255, ${APP_SETTINGS.OUTLINE_EDITOR.OUTLINE_OPACITY})`
-            : `rgba(0, 0, 0, ${APP_SETTINGS.OUTLINE_EDITOR.OUTLINE_OPACITY})`;
+        const isSubtractionPath = outlineShapeIsSubtraction(shape);
+        const unselectedOutline = isSubtractionPath
+            ? this.getSubtractionStrokeColor()
+            : isDarkTheme
+              ? `rgba(255, 255, 255, ${APP_SETTINGS.OUTLINE_EDITOR.OUTLINE_OPACITY})`
+              : `rgba(0, 0, 0, ${APP_SETTINGS.OUTLINE_EDITOR.OUTLINE_OPACITY})`;
         const outlineWidth =
             APP_SETTINGS.OUTLINE_EDITOR.OUTLINE_STROKE_WIDTH * invScale;
+        const applySubtractionDash = (): void => {
+            this.ctx.setLineDash(
+                isSubtractionPath ? this.subtractionOutlineDash(invScale) : []
+            );
+        };
         const pathDescriptors = Layer.getPathSegmentDescriptors({
             nodes,
             closed
@@ -3254,6 +3559,8 @@ export class GlyphCanvasRenderer {
             );
         };
         if (pathDescriptors.length === 0) {
+            this.ctx.save();
+            applySubtractionDash();
             this.ctx.beginPath();
             this.ctx.strokeStyle = unselectedOutline;
             this.ctx.lineWidth = outlineWidth;
@@ -3262,6 +3569,7 @@ export class GlyphCanvasRenderer {
                 this.ctx.closePath();
             }
             this.ctx.stroke();
+            this.ctx.restore();
         } else {
             const strokeSegment = (
                 descriptor: (typeof pathDescriptors)[number],
@@ -3276,6 +3584,8 @@ export class GlyphCanvasRenderer {
                 if (pieces.length === 0 || pieces[0].points.length < 2) {
                     return;
                 }
+                this.ctx.save();
+                applySubtractionDash();
                 this.ctx.beginPath();
                 this.ctx.moveTo(pieces[0].points[0].x, pieces[0].points[0].y);
                 pieces.forEach((piece) => {
@@ -3284,6 +3594,7 @@ export class GlyphCanvasRenderer {
                 this.ctx.strokeStyle = strokeStyle;
                 this.ctx.lineWidth = lineWidth;
                 this.ctx.stroke();
+                this.ctx.restore();
             };
             pathDescriptors.forEach((descriptor) => {
                 const segmentSelected =
@@ -6339,9 +6650,7 @@ export class GlyphCanvasRenderer {
             }
         });
 
-        this.ctx.fillStyle = isDarkTheme
-            ? 'rgba(255, 255, 255, 0.015)'
-            : 'rgba(0, 0, 0, 0.015)';
+        this.ctx.fillStyle = this.getPathFillColor(isDarkTheme);
         this.ctx.fill();
         this.ctx.restore();
 
@@ -6403,12 +6712,14 @@ export class GlyphCanvasRenderer {
         isAutomatic: boolean,
         isInterpolated: boolean,
         invScale: number,
-        isDarkTheme: boolean
+        isDarkTheme: boolean,
+        skipFill = false
     ): void {
         type FlattenedOutlineShape = {
             nodes: any[];
             transform: number[] | null;
             closed: boolean;
+            subtract: boolean;
         };
 
         // Collect all outline shapes (non-component shapes with nodes) at each nesting level
@@ -6474,7 +6785,8 @@ export class GlyphCanvasRenderer {
                     outlineShapes.push({
                         nodes: componentShape.nodes,
                         transform: transform,
-                        closed: Boolean(componentShape.closed)
+                        closed: Boolean(componentShape.closed),
+                        subtract: outlineShapeIsSubtraction(componentShape)
                     });
                 }
             });
@@ -6512,39 +6824,40 @@ export class GlyphCanvasRenderer {
             -APP_SETTINGS.OUTLINE_EDITOR.COMPONENT_STROKE_DARKEN_PERCENT
         );
 
-        // Fill
         this.ctx.shadowBlur = 0;
         this.ctx.shadowColor = 'transparent';
-        this.ctx.beginPath();
-        outlineShapes.forEach(({ nodes, transform, closed }) => {
-            if (!closed) {
-                return;
-            }
+        if (!skipFill) {
+            this.ctx.beginPath();
+            outlineShapes.forEach(({ nodes, transform, closed }) => {
+                if (!closed) {
+                    return;
+                }
 
-            if (transform) {
-                this.ctx.save();
-                this.ctx.transform(
-                    transform[0],
-                    transform[1],
-                    transform[2],
-                    transform[3],
-                    transform[4],
-                    transform[5]
-                );
-            }
-            this.buildPathFromNodes(nodes, closed);
-            this.ctx.closePath();
-            if (transform) this.ctx.restore();
-        });
-        this.ctx.fillStyle = fillColor;
-        this.ctx.fill();
+                if (transform) {
+                    this.ctx.save();
+                    this.ctx.transform(
+                        transform[0],
+                        transform[1],
+                        transform[2],
+                        transform[3],
+                        transform[4],
+                        transform[5]
+                    );
+                }
+                this.buildPathFromNodes(nodes, closed);
+                this.ctx.closePath();
+                if (transform) this.ctx.restore();
+            });
+            this.ctx.fillStyle = fillColor;
+            this.ctx.fill();
+        }
 
         // Stroke all explicit component paths so manual and automatic components
         // stay visually distinct from neighboring inactive glyph fills.
-        this.ctx.beginPath();
-        outlineShapes.forEach(({ nodes, transform, closed }) => {
+        const subtractionDash = this.subtractionOutlineDash(invScale);
+        outlineShapes.forEach(({ nodes, transform, closed, subtract }) => {
+            this.ctx.save();
             if (transform) {
-                this.ctx.save();
                 this.ctx.transform(
                     transform[0],
                     transform[1],
@@ -6554,14 +6867,16 @@ export class GlyphCanvasRenderer {
                     transform[5]
                 );
             }
+            this.ctx.beginPath();
             this.buildPathFromNodes(nodes, closed);
             if (closed) {
                 this.ctx.closePath();
             }
-            if (transform) this.ctx.restore();
+            this.ctx.strokeStyle = strokeColor;
+            this.ctx.lineWidth = 2 * invScale;
+            this.ctx.setLineDash(subtract ? subtractionDash : []);
+            this.ctx.stroke();
+            this.ctx.restore();
         });
-        this.ctx.strokeStyle = strokeColor;
-        this.ctx.lineWidth = 2 * invScale;
-        this.ctx.stroke();
     }
 }

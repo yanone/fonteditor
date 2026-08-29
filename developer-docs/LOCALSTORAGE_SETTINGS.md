@@ -10,7 +10,7 @@ IndexedDB keys such as directory handles and export destinations are not include
 
 | Keys | Literal | Pattern |
 | ---: | ---: | ---: |
-| 29 | 26 | 3 |
+| 30 | 27 | 3 |
 
 | Key | Purpose | Operations | Files |
 | --- | --- | --- | --- |
@@ -25,6 +25,7 @@ IndexedDB keys such as directory handles and export destinations are not include
 | [`canvasPlugin.ExampleCanvasPlugin.showInfo`](#key-canvasplugin-examplecanvasplugin-showinfo) | Canvas plugin setting for `ExampleCanvasPlugin` parameter `showInfo`. | getItem, setItem | `plugins/canvas/example/example_canvas_plugin/plugin.py` |
 | [`editorNodeSnapping`](#key-editornodesnapping) | Preference: snap outline points while dragging or drawing. | getItem, setItem | `webapp/js/node-snapping-pref.ts` |
 | [`editorPairedLayerVisible`](#key-editorpairedlayervisible) | Preference: show master and layer guidelines on the canvas. | getItem, setItem | `webapp/js/glyph-canvas/outline-editor.ts` |
+| [`editorPathFillOpacity`](#key-editorpathfillopacity) | Preference: opacity of editable outline fills and subtraction cutter fills. | getItem, setItem | `webapp/js/path-fill-opacity-pref.ts` |
 | [`glyphCanvasTextBuffer`](#key-glyphcanvastextbuffer) | Persists glyph canvas text buffer. | getItem, setItem, removeItem | `webapp/js/font-manager.ts`, `webapp/js/glyph-canvas/textrun.ts` |
 | [`lastFilesystemContext`](#key-lastfilesystemcontext) | Persists last filesystem context. | getItem, setItem | `webapp/js/file-browser.ts` |
 | [`preferredTheme`](#key-preferredtheme) | Theme management | getItem, setItem | `webapp/js/font-info.ts`, `webapp/js/script-editor.ts`, `webapp/js/theme-switcher.ts` |
@@ -165,8 +166,19 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Operations: `getItem`, `setItem`
 - Default when unset: `false`
 - Sites:
-  - webapp/js/glyph-canvas/outline-editor.ts:3507 `getItem` via method `loadPairedLayerVisible`
-  - webapp/js/glyph-canvas/outline-editor.ts:3934 `setItem` via method `setPairedLayerVisible`
+  - webapp/js/glyph-canvas/outline-editor.ts:3515 `getItem` via method `loadPairedLayerVisible`
+  - webapp/js/glyph-canvas/outline-editor.ts:3942 `setItem` via method `setPairedLayerVisible`
+
+<a id="key-editorpathfillopacity"></a>
+
+## `editorPathFillOpacity`
+
+- Purpose: Preference: opacity of editable outline fills and subtraction cutter fills.
+- Kind: literal
+- Operations: `getItem`, `setItem`
+- Sites:
+  - webapp/js/path-fill-opacity-pref.ts:32 `getItem` via function `getPathFillOpacity`
+  - webapp/js/path-fill-opacity-pref.ts:46 `setItem` via function `setPathFillOpacity`
 
 <a id="key-glyphcanvastextbuffer"></a>
 
@@ -177,12 +189,12 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Operations: `getItem`, `setItem`, `removeItem`
 - Default when unset: `Hamburgevons`
 - Sites:
-  - webapp/js/font-manager.ts:2111 `removeItem` via method `handleNewFont`
-  - webapp/js/font-manager.ts:2235 `getItem` via method `resolveEditingTextForCompile`
+  - webapp/js/font-manager.ts:2113 `removeItem` via method `handleNewFont`
+  - webapp/js/font-manager.ts:2237 `getItem` via method `resolveEditingTextForCompile`
   - webapp/js/glyph-canvas/textrun.ts:113 `getItem` via constructor `constructor`
   - webapp/js/glyph-canvas/textrun.ts:380 `setItem` via method `setTextBuffer`
-  - webapp/js/glyph-canvas/textrun.ts:1927 `setItem` via method `loadTextBufferFromFont`
-  - webapp/js/glyph-canvas/textrun.ts:1964 `setItem` via method `saveTextBuffer`
+  - webapp/js/glyph-canvas/textrun.ts:1957 `setItem` via method `loadTextBufferFromFont`
+  - webapp/js/glyph-canvas/textrun.ts:1994 `setItem` via method `saveTextBuffer`
 
 <a id="key-lastfilesystemcontext"></a>
 
@@ -192,8 +204,8 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Kind: literal
 - Operations: `getItem`, `setItem`
 - Sites:
-  - webapp/js/file-browser.ts:2280 `setItem` via function `switchContext`
-  - webapp/js/file-browser.ts:3982 `getItem` via function `initFileBrowser`
+  - webapp/js/file-browser.ts:2279 `setItem` via function `switchContext`
+  - webapp/js/file-browser.ts:3981 `getItem` via function `initFileBrowser`
 
 <a id="key-preferredtheme"></a>
 
@@ -205,7 +217,7 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Default when unset: `auto`
 - Sites:
   - webapp/js/font-info.ts:2518 `getItem` via function `getInitialTheme`
-  - webapp/js/script-editor.ts:340 `getItem` via function `getInitialTheme`
+  - webapp/js/script-editor.ts:339 `getItem` via function `getInitialTheme`
   - webapp/js/theme-switcher.ts:56 `getItem` via method `init`
   - webapp/js/theme-switcher.ts:58 `setItem` via method `init`
   - webapp/js/theme-switcher.ts:105 `getItem` via method `init`
@@ -221,11 +233,11 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Operations: `getItem`, `setItem`
 - Default when unset: `# Write your Python script here...`
 - Sites:
-  - webapp/js/script-editor.ts:302 `getItem` via function `init`
-  - webapp/js/script-editor.ts:424 `setItem` via function `init`
-  - webapp/js/script-editor.ts:1159 `setItem` via function `handleNew`
-  - webapp/js/script-editor.ts:1399 `setItem` via function `openFile`
-  - webapp/js/script-editor.ts:1789 `setItem` via function `reloadFileFromDisk`
+  - webapp/js/script-editor.ts:301 `getItem` via function `init`
+  - webapp/js/script-editor.ts:423 `setItem` via function `init`
+  - webapp/js/script-editor.ts:1150 `setItem` via function `handleNew`
+  - webapp/js/script-editor.ts:1390 `setItem` via function `openFile`
+  - webapp/js/script-editor.ts:1780 `setItem` via function `reloadFileFromDisk`
 
 <a id="key-pythonscriptsavedcontent"></a>
 
@@ -235,8 +247,8 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Kind: literal
 - Operations: `getItem`, `setItem`
 - Sites:
-  - webapp/js/script-editor.ts:121 `setItem` via function `persistSavedContent`
-  - webapp/js/script-editor.ts:304 `getItem` via function `init`
+  - webapp/js/script-editor.ts:120 `setItem` via function `persistSavedContent`
+  - webapp/js/script-editor.ts:303 `getItem` via function `init`
 
 <a id="key-pythonscripttimestamp"></a>
 
@@ -246,10 +258,10 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Kind: literal
 - Operations: `getItem`, `setItem`
 - Sites:
-  - webapp/js/script-editor.ts:670 `getItem` via function `tryStartWatcher`
-  - webapp/js/script-editor.ts:1275 `setItem` via function `handleSave`
-  - webapp/js/script-editor.ts:1408 `setItem` via function `openFile`
-  - webapp/js/script-editor.ts:1795 `setItem` via function `reloadFileFromDisk`
+  - webapp/js/script-editor.ts:661 `getItem` via function `tryStartWatcher`
+  - webapp/js/script-editor.ts:1266 `setItem` via function `handleSave`
+  - webapp/js/script-editor.ts:1399 `setItem` via function `openFile`
+  - webapp/js/script-editor.ts:1786 `setItem` via function `reloadFileFromDisk`
 
 <a id="key-pythonscripturi"></a>
 
@@ -259,12 +271,12 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Kind: literal
 - Operations: `getItem`, `setItem`, `removeItem`
 - Sites:
-  - webapp/js/script-editor.ts:232 `setItem` via function `updateFilePath`
-  - webapp/js/script-editor.ts:309 `getItem` via function `init`
-  - webapp/js/script-editor.ts:320 `setItem` via function `init`
-  - webapp/js/script-editor.ts:1158 `removeItem` via function `handleNew`
-  - webapp/js/script-editor.ts:1400 `setItem` via function `openFile`
-  - webapp/js/script-editor.ts:1846 `removeItem` via module `top-level module code`
+  - webapp/js/script-editor.ts:231 `setItem` via function `updateFilePath`
+  - webapp/js/script-editor.ts:308 `getItem` via function `init`
+  - webapp/js/script-editor.ts:319 `setItem` via function `init`
+  - webapp/js/script-editor.ts:1149 `removeItem` via function `handleNew`
+  - webapp/js/script-editor.ts:1391 `setItem` via function `openFile`
+  - webapp/js/script-editor.ts:1837 `removeItem` via module `top-level module code`
 
 <a id="key-runpythonscriptlastrun"></a>
 
@@ -309,7 +321,7 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Default when unset: `false`
 - Sites:
   - webapp/js/tour.ts:107 `getItem` via function `hasCompletedTour`
-  - webapp/js/tour.ts:279 `setItem` via function `completeTour`
+  - webapp/js/tour.ts:357 `setItem` via function `completeTour`
 
 <a id="key-tourlaunchbuttondismissed"></a>
 
@@ -322,7 +334,7 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Sites:
   - webapp/js/tour.ts:98 `getItem` via function `hasDismissedTourLaunchButton`
   - webapp/js/tour.ts:134 `setItem` via function `dismissTourLaunchButton`
-  - webapp/js/tour.ts:280 `setItem` via function `completeTour`
+  - webapp/js/tour.ts:358 `setItem` via function `completeTour`
 
 <a id="key-tourskipped"></a>
 
@@ -346,7 +358,7 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Default when unset: `false`
 - Sites:
   - webapp/js/tour.ts:89 `getItem` via function `hasStartedTour`
-  - webapp/js/tour.ts:270 `setItem` via function `markTourStarted`
+  - webapp/js/tour.ts:348 `setItem` via function `markTourStarted`
 
 <a id="key-welcomedismissedversion"></a>
 
@@ -367,10 +379,10 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Kind: pattern
 - Operations: `getItem`, `setItem`
 - Sites:
-  - webapp/js/file-browser.ts:2339 `getItem` via function `switchContext`
-  - webapp/js/file-browser.ts:3435 `setItem` via function `navigateToPath`
-  - webapp/js/file-browser.ts:4054 `getItem` via function `initFileBrowser`
-  - webapp/js/file-browser.ts:4475 `setItem` via module `top-level module code`
+  - webapp/js/file-browser.ts:2338 `getItem` via function `switchContext`
+  - webapp/js/file-browser.ts:3434 `setItem` via function `navigateToPath`
+  - webapp/js/file-browser.ts:4053 `getItem` via function `initFileBrowser`
+  - webapp/js/file-browser.ts:4474 `setItem` via module `top-level module code`
 
 <a id="key-linkedwindowoccupancy-sessionid-"></a>
 
@@ -392,7 +404,7 @@ IndexedDB keys such as directory handles and export destinations are not include
 - Kind: pattern
 - Operations: `getItem`, `setItem`
 - Sites:
-  - webapp/js/window-ui-state.ts:477 `getItem` via function `ensureWindowUiLoaded`
-  - webapp/js/window-ui-state.ts:490 `setItem` via function `ensureWindowUiLoaded`
-  - webapp/js/window-ui-state.ts:497 `setItem` via function `persistWindowUi`
+  - webapp/js/window-ui-state.ts:648 `getItem` via function `loadSlotIntoRuntime`
+  - webapp/js/window-ui-state.ts:661 `setItem` via function `loadSlotIntoRuntime`
+  - webapp/js/window-ui-state.ts:687 `setItem` via function `persistWindowUi`
 

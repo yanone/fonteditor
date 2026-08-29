@@ -120,6 +120,10 @@ const APP_SETTINGS = {
         // Stroke widths
         OUTLINE_STROKE_WIDTH: 1, // px - width of glyph outline paths
         OUTLINE_OPACITY: 0.4, // opacity of glyph outline paths in editing mode
+        // Shared alpha for editable path fill and subtraction cutter fill.
+        PATH_FILL_OPACITY: 0.02,
+        // Screen-px dash/gap for subtraction path strokes (path and component views).
+        SUBTRACTION_OUTLINE_DASH: [4, 4],
         HANDLE_LINE_OPACITY: 0.2, // idle handle lines (both ends unselected)
         // Canvas component strokes are derived from fill by darkening this much.
         // 100 would be black; keep below that so the hue still reads.

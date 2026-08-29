@@ -36,6 +36,7 @@ import init, {
     get_glyphs_outlines,
     set_debug_font_cache_max_bytes,
     validate_feature_source_with_full_filter_pipeline,
+    filtered_boolean_fingerprints,
     version
 } from '../wasm-dist/babelfont_fontc_web.js';
 import {
@@ -2416,6 +2417,32 @@ self.onmessage = async (event) => {
                 });
             } finally {
                 timelineSpanEnd(dumpSpanId);
+            }
+            return;
+        }
+
+        if (data.type === 'filteredBooleanFingerprints') {
+            const { id, glyphName } = data;
+            try {
+                if (!initialized) {
+                    await initializeWasm();
+                }
+                const fingerprints = filtered_boolean_fingerprints(glyphName);
+                self.postMessage({
+                    id,
+                    type: 'filteredBooleanFingerprints',
+                    fingerprints
+                });
+            } catch (e: any) {
+                console.error(
+                    '[Fontc Worker] filteredBooleanFingerprints error:',
+                    e
+                );
+                self.postMessage({
+                    id,
+                    type: 'filteredBooleanFingerprints',
+                    error: e?.toString?.() || String(e)
+                });
             }
             return;
         }

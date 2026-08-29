@@ -118,6 +118,7 @@ import {
     destroyAutoQaTippy,
     renderAutoQaWidget
 } from './auto-qa/auto-qa-widget';
+import { PATH_FILL_OPACITY_CHANGED_EVENT } from './path-fill-opacity-pref';
 
 let console: Logger = new Logger('GlyphCanvas');
 let latestOpenSessionId: string | null = null;
@@ -1756,6 +1757,9 @@ class GlyphCanvas {
         this.setupEventListeners();
         window.addEventListener(QA_CORPUS_READY_EVENT, () => {
             this.updatePropertyPanel();
+        });
+        window.addEventListener(PATH_FILL_OPACITY_CHANGED_EVENT, () => {
+            this.render();
         });
 
         // Initial render
@@ -10079,6 +10083,66 @@ class GlyphCanvas {
                 control.appendChild(label);
                 control.appendChild(input);
                 content.appendChild(control);
+            }
+
+            const currentLayer = this.getCurrentEditingLayerModel();
+            const selectedPathIndexes = currentLayer
+                ? [
+                      ...new Set(
+                          this.outlineEditor.selectedPoints
+                              .map((point) => point.contourIndex)
+                              .filter((index) =>
+                                  Boolean(
+                                      currentLayer.shapes?.[index]?.isPath?.()
+                                  )
+                              )
+                      )
+                  ]
+                : [];
+            if (
+                selectedPathIndexes.length > 0 &&
+                currentLayer &&
+                !this.outlineEditor.getCurrentLayerDataFromStack()
+                    ?.isInterpolated
+            ) {
+                const allSubtracting = selectedPathIndexes.every((index) =>
+                    Boolean(
+                        currentLayer.shapes?.[index]?.asPath?.().isSubtraction
+                    )
+                );
+                const subtractControl = document.createElement('label');
+                subtractControl.className =
+                    'glyph-component-property-control glyph-component-property-checkbox';
+                subtractControl.dataset.propertyField = 'path-subtraction';
+                subtractControl.title =
+                    'Subtract selected paths from shapes below them';
+
+                const subtractInput = document.createElement('input');
+                subtractInput.type = 'checkbox';
+                subtractInput.className =
+                    'glyph-component-property-checkbox-input';
+                subtractInput.dataset.propertyField = 'path-subtraction';
+                subtractInput.checked = allSubtracting;
+                subtractInput.addEventListener('change', () => {
+                    this.outlineEditor.setSelectedPathsSubtraction(
+                        subtractInput.checked
+                    );
+                    this.canvas!.focus();
+                });
+
+                const subtractLabel = document.createElement('span');
+                subtractLabel.className = 'glyph-property-control-label';
+                subtractLabel.textContent = 'Subtract';
+                subtractLabel.title =
+                    'Subtract selected paths from shapes below them';
+
+                subtractControl.appendChild(subtractLabel);
+                subtractControl.appendChild(subtractInput);
+                content.appendChild(subtractControl);
+            }
+
+            if (content.childNodes.length === 0) {
+                return;
             }
 
             placeholder.appendChild(content);

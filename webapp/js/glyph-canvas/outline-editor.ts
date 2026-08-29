@@ -19,7 +19,8 @@ import {
     DecomposedAffineTransform,
     buildInterpolationRustBatchOperations,
     withSuppressedModelRecording,
-    withSuppressedMetricsKeyRecompute
+    withSuppressedMetricsKeyRecompute,
+    type ShapeZOrderCommand
 } from '../babelfont-model';
 import { beginLoadingCursor, endLoadingCursor } from '../loading-cursor';
 import {
@@ -4024,6 +4025,156 @@ export class OutlineEditor {
             return false;
         }
 
+        this.glyphCanvas.render();
+        return true;
+    }
+
+    private getSelectedShapeIndexes(): number[] {
+        const indexes = new Set<number>();
+        for (const point of this.selectedPoints) {
+            if (Number.isInteger(point.contourIndex)) {
+                indexes.add(point.contourIndex);
+            }
+        }
+        for (const componentIndex of this.selectedComponents) {
+            if (Number.isInteger(componentIndex)) {
+                indexes.add(componentIndex);
+            }
+        }
+        return [...indexes].sort((a, b) => a - b);
+    }
+
+    private remapSelectionAfterShapeMove(mapping: Map<number, number>): void {
+        this.selectedPoints = this.selectedPoints.map((point) => ({
+            ...point,
+            contourIndex: mapping.get(point.contourIndex) ?? point.contourIndex
+        }));
+        this.selectedComponents = this.selectedComponents.map(
+            (index) => mapping.get(index) ?? index
+        );
+    }
+
+    canReorderSelectedShapes(): boolean {
+        if (!this.active) {
+            return false;
+        }
+        const layerData = this.getCurrentLayerDataFromStack();
+        if (!layerData || layerData.isInterpolated) {
+            return false;
+        }
+        return this.getSelectedShapeIndexes().length > 0;
+    }
+
+    moveSelectedShapes(command: ShapeZOrderCommand): boolean {
+        if (!this.canReorderSelectedShapes()) {
+            return false;
+        }
+        const currentLayer = this.getCurrentLayerModel();
+        const currentGlyph = this.getCurrentGlyphModel();
+        if (!currentLayer || !currentGlyph) {
+            return false;
+        }
+        const indexes = this.getSelectedShapeIndexes();
+        const labels: Record<ShapeZOrderCommand, string> = {
+            forward: 'Bring Forward',
+            backward: 'Send Backward',
+            front: 'Bring to Front',
+            back: 'Send to Back'
+        };
+        const label = labels[command];
+        const linkedLayers = currentLayer._getLinkedLayers?.() || [];
+        const layerTargets = normalizeWorkerReplayTargets(
+            [currentLayer, ...linkedLayers].map((layer) => ({
+                glyphName: currentGlyph.name,
+                layerId: String(layer?.id || '')
+            }))
+        );
+        const bridge = window.patchSyncEngine;
+        bridge?.beginTransaction(label);
+        let mapping: Map<number, number> = new Map();
+        try {
+            withSuppressedModelRecording(() => {
+                mapping = currentLayer.moveShapes(indexes, command);
+            });
+            const changed = [...mapping.entries()].some(
+                ([from, to]) => from !== to
+            );
+            if (!changed) {
+                return false;
+            }
+            this.remapSelectionAfterShapeMove(mapping);
+            this.syncCurrentExactLayerDataFromModel();
+            this.commitStructuralOutlineChange(label, {
+                reuseTransaction: true,
+                layerTargets: layerTargets.length ? layerTargets : undefined
+            });
+        } finally {
+            bridge?.endTransaction();
+        }
+        this.performHitDetection(null);
+        this.glyphCanvas.updatePropertyPanel();
+        this.glyphCanvas.render();
+        return true;
+    }
+
+    setSelectedPathsSubtraction(enabled: boolean): boolean {
+        const currentLayer = this.getCurrentLayerModel();
+        const currentGlyph = this.getCurrentGlyphModel();
+        const layerData = this.getCurrentLayerDataFromStack();
+        if (!currentLayer || !currentGlyph || layerData?.isInterpolated) {
+            return false;
+        }
+        const pathShapeIndexes = [
+            ...new Set(
+                this.selectedPoints
+                    .map((point) => point.contourIndex)
+                    .filter((index) => {
+                        const shape = currentLayer.shapes?.[index];
+                        return !!shape?.isPath?.();
+                    })
+            )
+        ];
+        if (pathShapeIndexes.length === 0) {
+            return false;
+        }
+        const linkedLayers = currentLayer._getLinkedLayers?.() || [];
+        const layers = [currentLayer, ...linkedLayers];
+        const label = enabled ? 'Subtract paths' : 'Clear path subtraction';
+        const bridge = window.patchSyncEngine;
+        let changed = false;
+        bridge?.beginTransaction(label);
+        try {
+            for (const layer of layers) {
+                for (const shapeIndex of pathShapeIndexes) {
+                    const shape = layer.shapes?.[shapeIndex];
+                    if (!shape?.isPath?.()) {
+                        continue;
+                    }
+                    const path = shape.asPath();
+                    if (path.isSubtraction === enabled) {
+                        continue;
+                    }
+                    path.isSubtraction = enabled;
+                    changed = true;
+                }
+            }
+            if (!changed) {
+                return false;
+            }
+            this.syncCurrentExactLayerDataFromModel();
+            this.commitStructuralOutlineChange(label, {
+                reuseTransaction: true,
+                layerTargets: normalizeWorkerReplayTargets(
+                    layers.map((layer) => ({
+                        glyphName: currentGlyph.name,
+                        layerId: String(layer?.id || '')
+                    }))
+                )
+            });
+        } finally {
+            bridge?.endTransaction();
+        }
+        this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
         return true;
     }
@@ -17466,6 +17617,10 @@ export class OutlineEditor {
                         return;
                     }
 
+                    if (item.classList.contains('has-submenu')) {
+                        return;
+                    }
+
                     const action = item.getAttribute('data-action');
                     if (!action) {
                         return;
@@ -17901,6 +18056,34 @@ export class OutlineEditor {
             `);
         }
 
+        if (this.canReorderSelectedShapes()) {
+            items.push(`
+                <div class="plugin-menu-item has-submenu">
+                    <span class="material-symbols-outlined">layers</span>
+                    <span>Arrange</span>
+                    <span class="material-symbols-outlined plugin-menu-chevron">chevron_right</span>
+                    <div class="plugin-menu-submenu">
+                        <div class="plugin-menu-item" data-action="bring-to-front">
+                            <span class="material-symbols-outlined">vertical_align_top</span>
+                            <span>Bring to Front</span>
+                        </div>
+                        <div class="plugin-menu-item" data-action="bring-forward">
+                            <span class="material-symbols-outlined">arrow_upward</span>
+                            <span>Bring Forward</span>
+                        </div>
+                        <div class="plugin-menu-item" data-action="send-backward">
+                            <span class="material-symbols-outlined">arrow_downward</span>
+                            <span>Send Backward</span>
+                        </div>
+                        <div class="plugin-menu-item" data-action="send-to-back">
+                            <span class="material-symbols-outlined">vertical_align_bottom</span>
+                            <span>Send to Back</span>
+                        </div>
+                    </div>
+                </div>
+            `);
+        }
+
         if (!items.length) {
             items.push(`
                 <div class="plugin-menu-item">
@@ -18014,6 +18197,23 @@ export class OutlineEditor {
 
         if (action === 'reverse-path-direction') {
             this.reverseContextMenuPathDirection();
+            return;
+        }
+
+        if (action === 'bring-forward') {
+            this.moveSelectedShapes('forward');
+            return;
+        }
+        if (action === 'send-backward') {
+            this.moveSelectedShapes('backward');
+            return;
+        }
+        if (action === 'bring-to-front') {
+            this.moveSelectedShapes('front');
+            return;
+        }
+        if (action === 'send-to-back') {
+            this.moveSelectedShapes('back');
         }
     }
 

@@ -374,6 +374,26 @@ export function dump_worker_cache_state_json() {
 }
 
 /**
+ * Run FIP001 boolean subtraction on the cached font and return per-layer
+ * outline fingerprints for `glyph_name`. Does not run DropIncompatiblePaths.
+ * @param {string} glyph_name
+ * @returns {any}
+ */
+export function filtered_boolean_fingerprints(glyph_name) {
+    const ptr0 = passStringToWasm0(
+        glyph_name,
+        wasm.__wbindgen_malloc,
+        wasm.__wbindgen_realloc
+    );
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.filtered_boolean_fingerprints(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Read-only retained-size walks for Rust worker caches.
  * Does not serialize full font JSON, encode the Y.Doc, or mutate cache state.
  * @returns {string}

@@ -2,11 +2,13 @@
 // Renders glyph outlines directly to canvas elements without data URL conversion
 // Uses a shared offscreen canvas for path building, then draws to target canvases
 
+import { pathHasSubtractionFlag } from './babelfont-model';
 import {
     buildGlyphPathFromNodes,
     calculateGlyphShapeBounds,
     multiplyAffineTransforms,
-    normalizeAffineTransform
+    normalizeAffineTransform,
+    transformPointWithAffine
 } from './glyph-path-geometry';
 import { Logger } from './logger';
 import APP_SETTINGS from './settings';
@@ -33,6 +35,110 @@ interface GlyphOutlineData {
     };
 }
 
+type PunchFillContour = {
+    nodes: any[];
+    subtract: boolean;
+    fillStyle: string;
+};
+
+function isIdentityAffine(affine: number[]): boolean {
+    return (
+        affine[0] === 1 &&
+        affine[1] === 0 &&
+        affine[2] === 0 &&
+        affine[3] === 1 &&
+        affine[4] === 0 &&
+        affine[5] === 0
+    );
+}
+
+function transformOutlineNodes(nodes: any[], affine: number[]): any[] {
+    if (isIdentityAffine(affine)) {
+        return nodes;
+    }
+    return nodes.map((node) => {
+        const point = transformPointWithAffine(affine, node.x, node.y);
+        return { ...node, x: point.x, y: point.y };
+    });
+}
+
+function pathIsClosed(shape: any, data: any): boolean {
+    if (data && 'closed' in data) {
+        return Boolean(data.closed);
+    }
+    if (shape && 'closed' in shape) {
+        return Boolean(shape.closed);
+    }
+    return true;
+}
+
+function pathIsSubtraction(shape: any, data: any): boolean {
+    return (
+        pathHasSubtractionFlag(data?.format_specific) ||
+        pathHasSubtractionFlag(shape?.format_specific)
+    );
+}
+
+/**
+ * Flatten paths and nested components in shape order for overview punch-out.
+ */
+export function collectOverviewPunchFillContours(
+    shapes: any[] | undefined,
+    affine: number[],
+    fillStyle: string,
+    componentFillFor?: (component: any) => string
+): PunchFillContour[] {
+    const contours: PunchFillContour[] = [];
+    if (!Array.isArray(shapes)) {
+        return contours;
+    }
+    for (const shape of shapes) {
+        if (!shape || typeof shape !== 'object') {
+            continue;
+        }
+        if ('reference' in shape || 'Component' in shape) {
+            const inner =
+                shape.Component && typeof shape.Component === 'object'
+                    ? shape.Component
+                    : shape;
+            const childAffine = multiplyAffineTransforms(
+                affine,
+                normalizeAffineTransform(inner.transform)
+            );
+            const childFill = componentFillFor
+                ? componentFillFor(inner)
+                : fillStyle;
+            contours.push(
+                ...collectOverviewPunchFillContours(
+                    inner.layerData?.shapes,
+                    childAffine,
+                    childFill
+                )
+            );
+            continue;
+        }
+        const data =
+            shape.Path && typeof shape.Path === 'object'
+                ? shape.Path
+                : shape.Contour && typeof shape.Contour === 'object'
+                  ? shape.Contour
+                  : shape;
+        if (!pathIsClosed(shape, data)) {
+            continue;
+        }
+        const nodes = data.nodes;
+        if (!nodes?.length) {
+            continue;
+        }
+        contours.push({
+            nodes: transformOutlineNodes(nodes, affine),
+            subtract: pathIsSubtraction(shape, data),
+            fillStyle
+        });
+    }
+    return contours;
+}
+
 class FastGlyphTileRenderer {
     private autoComponentColor: string = '';
     private manualComponentColor: string = '';
@@ -41,48 +147,6 @@ class FastGlyphTileRenderer {
 
     constructor() {
         // Colors will be initialized lazily on first render
-    }
-
-    private normalizeShape(
-        shape: any
-    ): { kind: 'path'; data: any } | { kind: 'component'; data: any } | null {
-        if (!shape || typeof shape !== 'object') {
-            return null;
-        }
-
-        if ('nodes' in shape) {
-            return { kind: 'path', data: shape };
-        }
-
-        if ('reference' in shape) {
-            return { kind: 'component', data: shape };
-        }
-
-        if ('Path' in shape && shape.Path && typeof shape.Path === 'object') {
-            return { kind: 'path', data: shape.Path };
-        }
-
-        if (
-            'Contour' in shape &&
-            shape.Contour &&
-            typeof shape.Contour === 'object'
-        ) {
-            return { kind: 'path', data: shape.Contour };
-        }
-
-        if (
-            'Component' in shape &&
-            shape.Component &&
-            typeof shape.Component === 'object'
-        ) {
-            return { kind: 'component', data: shape.Component };
-        }
-
-        return null;
-    }
-
-    private parseTransform(transformRaw: any): number[] {
-        return normalizeAffineTransform(transformRaw);
     }
 
     /**
@@ -247,9 +311,9 @@ class FastGlyphTileRenderer {
         ctx.translate(offsetX, offsetY);
         ctx.scale(scale, -scale); // Flip Y axis
 
-        // Draw shapes
+        // Draw shapes in layer order so subtraction cutters punch holes.
         const shapes = Array.isArray(glyphData?.shapes) ? glyphData.shapes : [];
-        this.drawShapes(ctx, shapes, this.pathColor, null);
+        this.drawShapes(ctx, shapes);
 
         ctx.restore();
 
@@ -257,37 +321,72 @@ class FastGlyphTileRenderer {
     }
 
     /**
-     * Recursively draw shapes (paths and components)
+     * Draw paths and components in shape order, punching subtraction cutters.
      */
-    private drawShapes(
-        ctx: CanvasRenderingContext2D,
-        shapes: any[],
-        pathColor: string,
-        parentTransform: number[] | null
-    ): void {
+    private drawShapes(ctx: CanvasRenderingContext2D, shapes: any[]): void {
         if (!Array.isArray(shapes) || shapes.length === 0) {
             return;
         }
 
-        ctx.beginPath();
-        this.buildPathsOnly(ctx, shapes);
-        ctx.fillStyle = pathColor;
-        ctx.fill();
+        const contours = collectOverviewPunchFillContours(
+            shapes,
+            [1, 0, 0, 1, 0, 0],
+            this.pathColor,
+            (component) =>
+                this.isAutomaticallyAlignedComponent(component)
+                    ? this.autoComponentColor
+                    : this.manualComponentColor
+        );
+        this.fillPunchFillContours(ctx, contours);
+    }
 
-        this.fillComponents(
-            ctx,
-            shapes,
-            parentTransform,
-            true,
-            this.autoComponentColor
-        );
-        this.fillComponents(
-            ctx,
-            shapes,
-            parentTransform,
-            false,
-            this.manualComponentColor
-        );
+    private fillPunchFillContours(
+        ctx: CanvasRenderingContext2D,
+        contours: PunchFillContour[]
+    ): void {
+        const punchCoverage = (nodes: any[]): void => {
+            ctx.beginPath();
+            buildGlyphPathFromNodes(nodes, ctx);
+            ctx.closePath();
+            ctx.save();
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.fillStyle = 'rgba(0, 0, 0, 1)';
+            ctx.fill('nonzero');
+            ctx.restore();
+        };
+        const flushPending = (
+            pending: Array<{ nodes: any[]; fillStyle: string }>
+        ): void => {
+            if (!pending.length) {
+                return;
+            }
+            ctx.beginPath();
+            for (const contour of pending) {
+                buildGlyphPathFromNodes(contour.nodes, ctx);
+                ctx.closePath();
+            }
+            ctx.fillStyle = pending[0].fillStyle;
+            ctx.fill('nonzero');
+        };
+
+        const pending: Array<{ nodes: any[]; fillStyle: string }> = [];
+        for (const contour of contours) {
+            if (contour.subtract) {
+                flushPending(pending);
+                pending.length = 0;
+                punchCoverage(contour.nodes);
+                continue;
+            }
+            if (pending.length && pending[0].fillStyle !== contour.fillStyle) {
+                flushPending(pending);
+                pending.length = 0;
+            }
+            pending.push({
+                nodes: contour.nodes,
+                fillStyle: contour.fillStyle
+            });
+        }
+        flushPending(pending);
     }
 
     private isAutomaticallyAlignedComponent(component: any): boolean {
@@ -300,115 +399,6 @@ class FastGlyphTileRenderer {
         return (
             component.format_specific?.[GLYPHS_COMPONENT_ALIGNMENT_KEY] === 1
         );
-    }
-
-    private fillComponents(
-        ctx: CanvasRenderingContext2D,
-        shapes: any[],
-        parentTransform: number[] | null,
-        automatic: boolean,
-        fillColor: string
-    ): void {
-        let drewAny = false;
-        ctx.beginPath();
-        for (const shape of shapes) {
-            const normalized = this.normalizeShape(shape);
-            if (normalized?.kind !== 'component') {
-                continue;
-            }
-
-            const component = normalized.data;
-            if (this.isAutomaticallyAlignedComponent(component) !== automatic) {
-                continue;
-            }
-
-            const transform = this.parseTransform(component.transform);
-            const finalTransform = parentTransform
-                ? this.multiplyTransforms(parentTransform, transform)
-                : transform;
-
-            if (!component.layerData?.shapes) {
-                continue;
-            }
-
-            ctx.save();
-            ctx.transform(
-                finalTransform[0],
-                finalTransform[1],
-                finalTransform[2],
-                finalTransform[3],
-                finalTransform[4],
-                finalTransform[5]
-            );
-            this.buildComponentPaths(ctx, component.layerData.shapes);
-            ctx.restore();
-            drewAny = true;
-        }
-
-        if (!drewAny) {
-            return;
-        }
-
-        ctx.fillStyle = fillColor;
-        ctx.fill();
-    }
-
-    /**
-     * Build all paths from component shapes recursively
-     */
-    private buildComponentPaths(
-        ctx: CanvasRenderingContext2D,
-        shapes: any[]
-    ): void {
-        for (const shape of shapes) {
-            const normalized = this.normalizeShape(shape);
-            if (normalized?.kind === 'path') {
-                const nodes = normalized.data.nodes;
-                if (nodes && nodes.length > 0) {
-                    buildGlyphPathFromNodes(nodes, ctx);
-                    ctx.closePath();
-                }
-            } else if (normalized?.kind === 'component') {
-                const component = normalized.data;
-                const transform = this.parseTransform(component.transform);
-                if (component.layerData && component.layerData.shapes) {
-                    ctx.save();
-                    ctx.transform(
-                        transform[0],
-                        transform[1],
-                        transform[2],
-                        transform[3],
-                        transform[4],
-                        transform[5]
-                    );
-                    this.buildComponentPaths(ctx, component.layerData.shapes);
-                    ctx.restore();
-                }
-            }
-        }
-    }
-
-    /**
-     * Build combined path from regular paths only
-     */
-    private buildPathsOnly(ctx: CanvasRenderingContext2D, shapes: any[]): void {
-        for (const shape of shapes) {
-            const normalized = this.normalizeShape(shape);
-            if (normalized?.kind === 'path') {
-                const nodes = normalized.data.nodes;
-                if (nodes && nodes.length > 0) {
-                    buildGlyphPathFromNodes(nodes, ctx);
-                    ctx.closePath();
-                }
-            }
-        }
-    }
-
-    /**
-     * Multiply two transformation matrices
-     */
-    private multiplyTransforms(t1: number[], t2: number[]): number[] {
-        return multiplyAffineTransforms(t1, t2);
     }
 }
 

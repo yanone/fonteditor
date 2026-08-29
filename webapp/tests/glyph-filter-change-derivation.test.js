@@ -162,6 +162,17 @@ describe('deriveGlyphFilterChangesFromCommittedEntry', () => {
         expect(typesOf(result)).toEqual(['glyph.production-name.changed']);
     });
 
+    test('glyph.paths.changed from path subtraction format_specific', () => {
+        const result = deriveGlyphFilterChangesFromCommittedEntry({
+            path: 'glyphs.A.layers.layer-1.shapes.0.format_specific.fip001-boolean',
+            op: 'set',
+            oldValue: undefined,
+            newValue: 'subtraction'
+        });
+        expect(typesOf(result)).toEqual(['glyph.paths.changed']);
+        expect(result.compatibilityCheckGlyphNames).toEqual(['A']);
+    });
+
     test('glyph.paths.changed from node edit', () => {
         const result = deriveGlyphFilterChangesFromCommittedEntry({
             path: 'glyphs.A.layers.layer-1.shapes.0.nodes.2.x',

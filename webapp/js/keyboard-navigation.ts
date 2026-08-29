@@ -1812,9 +1812,18 @@ import {
             return;
         }
 
-        // Cmd+[ - browser back (macOS)
-        if (isMac && cmdKey && key === '[') {
-            console.log('[KeyboardNav]', 'Blocking Cmd+[ browser navigation');
+        // Cmd+[ / Cmd+] - browser history (macOS)
+        if (
+            isMac &&
+            cmdKey &&
+            !shiftKey &&
+            !event.altKey &&
+            (key === '[' || key === ']')
+        ) {
+            console.log(
+                '[KeyboardNav]',
+                'Blocking Cmd+[ / Cmd+] browser navigation'
+            );
             event.preventDefault();
             return;
         }

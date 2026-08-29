@@ -22,6 +22,10 @@ import {
     Font,
     Path,
     DecomposedAffineTransform,
+    FIP001_BOOLEAN_KEY,
+    FIP001_BOOLEAN_SUBTRACTION,
+    GLYPHS_ATTR_KEY,
+    pathHasSubtractionFlag,
     withSuppressedModelRecording
 } from './babelfont-model';
 import { canonicalizeImportedFontJson } from './font-import-canonicalization';
@@ -97,7 +101,7 @@ export async function serializeFontForSourceSave(
     if (extension === 'glyphs') {
         await ensureWasmInitialized();
         const glyphsSerializationInput = JSON.stringify(
-            JSON.parse(babelfontJson)
+            stampPathBooleanFlagsForGlyphsSave(JSON.parse(babelfontJson))
         );
         return save_font_as_glyphs(glyphsSerializationInput);
     }
@@ -105,6 +109,74 @@ export async function serializeFontForSourceSave(
     throw new Error(
         `Cannot save ${path} in its original format: source saving currently supports .babelfont and .glyphs files.`
     );
+}
+
+function stampPathBooleanFlagsForGlyphsSave(data: unknown): unknown {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        return data;
+    }
+
+    const font = data as { glyphs?: unknown };
+    if (!Array.isArray(font.glyphs)) {
+        return data;
+    }
+
+    const stampShape = (shape: unknown): void => {
+        if (!shape || typeof shape !== 'object' || Array.isArray(shape)) {
+            return;
+        }
+        const record = shape as Record<string, unknown>;
+        const pathPayload =
+            record.Path && typeof record.Path === 'object'
+                ? (record.Path as Record<string, unknown>)
+                : 'nodes' in record
+                  ? record
+                  : null;
+        if (!pathPayload) {
+            return;
+        }
+        const formatSpecific = (pathPayload.format_specific || {}) as Record<
+            string,
+            unknown
+        >;
+        if (!pathHasSubtractionFlag(formatSpecific)) {
+            return;
+        }
+        const attr = {
+            ...((formatSpecific[GLYPHS_ATTR_KEY] as
+                Record<string, unknown> | undefined) || {})
+        };
+        attr[FIP001_BOOLEAN_KEY] = FIP001_BOOLEAN_SUBTRACTION;
+        pathPayload.format_specific = {
+            ...formatSpecific,
+            [FIP001_BOOLEAN_KEY]: FIP001_BOOLEAN_SUBTRACTION,
+            [GLYPHS_ATTR_KEY]: attr
+        };
+    };
+
+    for (const glyph of font.glyphs) {
+        if (!glyph || typeof glyph !== 'object') {
+            continue;
+        }
+        const layers = (glyph as { layers?: unknown }).layers;
+        if (!Array.isArray(layers)) {
+            continue;
+        }
+        for (const layer of layers) {
+            if (!layer || typeof layer !== 'object') {
+                continue;
+            }
+            const shapes = (layer as { shapes?: unknown }).shapes;
+            if (!Array.isArray(shapes)) {
+                continue;
+            }
+            for (const shape of shapes) {
+                stampShape(shape);
+            }
+        }
+    }
+
+    return data;
 }
 
 export type GlyphData = {
@@ -485,6 +557,7 @@ class OpenedFont {
      * Save font using the source plugin's adapter
      */
     async save(): Promise<void> {
+        this.syncJsonFromModel();
         const pluginId = this.sourcePlugin.getId();
         const serializedFont = await serializeFontForSourceSave(
             this.path,

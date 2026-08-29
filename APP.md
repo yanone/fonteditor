@@ -348,6 +348,14 @@ Components, like paths, must be of identical structure across the layers of a gl
 
 Decompose (canvas context menu) replaces a component with its recursively flattened outlines at the same shape index, applying the component transform. The action repeats across currently linked sibling layers. On a background layer it stays local to that background layer.
 
+#### Path subtraction and shape order
+
+Closed paths may be marked `format_specific["fip001-boolean"] = "subtraction"` (Path.isSubtraction / the property-panel Subtract checkbox). On `.glyphs` save that flag is stored on the path’s `attr` dictionary and lifted back on open. A subtraction path cuts everything already below it in `layer.shapes` order. Later shapes draw on top of the hole. The canvas preview punches the cutter out of the current fill without rewriting nodes; path fill and cutter fill use the same transparency (Fill slider in Editing View → View), cutter fill omits overlap with additive paths so the hole matches the compiled ink, and cutter strokes are dashed in both path and component views. Glyph-overview tiles use the same shape-order punch so holes show against the tile background. Compile runs the same grouping through Linesweeper NonZero difference. Glyphs whose own paths or component tree contain a cutter are fully decomposed at compile (and for post-boolean VF compatibility), then booleaned; other glyphs keep components/VARC. Open paths and the cutter itself are omitted from the compile result.
+
+Selected shapes (paths and components, including mixed selections) move in z-order as a unit: canvas context menu **Arrange** (Bring Forward / Send Backward / Bring to Front / Send to Back). Linked layers receive the same shape-index permutation. Subtract writes the flag on every selected path at those shape indexes on linked layers.
+
+`Glyph.isCompatible` requires matching source fingerprints (including the subtraction flag) **and**, once the compile worker has returned it, matching post-boolean fingerprints for that glyph. Until that cache arrives, the layer list uses source fingerprints only.
+
 When an automatically aligned component has more than one eligible target anchor in the current composition, the property panel must offer an anchor override control backed by `Component.anchor`. Leaving that control unset keeps the component on the default automatic target selection for its anchor family.
 
 #### Automatic Glyph Composition

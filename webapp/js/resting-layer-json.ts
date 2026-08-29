@@ -304,6 +304,9 @@ export function applyRestingShapeGeometryToEditorLayer(
             if (restingShape.closed !== undefined) {
                 editorShape.closed = restingShape.closed;
             }
+            if ('format_specific' in restingShape) {
+                editorShape.format_specific = restingShape.format_specific;
+            }
         }
     }
 }

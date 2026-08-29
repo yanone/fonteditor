@@ -72,7 +72,10 @@ import {
     type DerivedForwardChange
 } from './collaboration-message';
 import { windowRole } from './window-role';
-import { withSuppressedModelRecording } from './babelfont-model';
+import {
+    withSuppressedModelRecording,
+    pathHasSubtractionFlag
+} from './babelfont-model';
 import { diffFontDataToPatchPairs } from './font-data-diff';
 import { getUndoRedoContext } from './undo-redo-context';
 import {
@@ -440,7 +443,12 @@ function getLayerFingerprintFromJson(layerJson: Unsafe): string | null {
                 normalizeLayerSignatureNodeType((node as Unsafe)?.nodetype)
             );
             const closedFlag = pathShape.closed === false ? '0' : '1';
-            return `P:${closedFlag}:${nodeTypes.length}:${nodeTypes.join(',')}`;
+            const booleanFlag = pathHasSubtractionFlag(
+                pathShape.format_specific
+            )
+                ? ':subtraction'
+                : '';
+            return `P:${closedFlag}:${nodeTypes.length}:${nodeTypes.join(',')}${booleanFlag}`;
         });
 
     const anchorSignatures = anchors
@@ -2163,7 +2171,14 @@ export class PatchSyncEngine {
 
             const record = shape as Record<string, unknown>;
             if (Array.isArray(record.nodes)) {
-                return `path:${record.nodes.length}:${String(record.closed)}`;
+                const booleanFlag = pathHasSubtractionFlag(
+                    record.format_specific as
+                        | Record<string, ReturnType<typeof JSON.parse>>
+                        | undefined
+                )
+                    ? ':subtraction'
+                    : '';
+                return `path:${record.nodes.length}:${String(record.closed)}${booleanFlag}`;
             }
             if (typeof record.reference === 'string') {
                 return 'component';

@@ -24,6 +24,7 @@ import {
     setPreviewArea,
     type PreviewArea
 } from './editor-preview-area-pref';
+import { createPathFillOpacityMenuControl } from './path-fill-opacity-pref';
 import { Logger } from './logger';
 
 const console = new Logger('EditorStackPreviewMenu');
@@ -99,6 +100,8 @@ export function createStackPreviewMenuHtml(): string {
                 ${keyboardShortcutHtml('⌘0 1-2×', 'plugin-menu-shortcut')}
             </div>
             <div class="plugin-menu-separator"></div>
+            <div class="plugin-menu-fill-host"></div>
+            <div class="plugin-menu-separator"></div>
             <div class="plugin-menu-item${viewMenuItemClass(isEditMode)}" data-action="toggle-stack-preview" role="menuitemcheckbox" aria-checked="${stackPreviewActive}"${viewMenuItemDisabledAttr(isEditMode)} tabindex="-1">
                 <span class="plugin-menu-check material-symbols-outlined${stackPreviewActive ? '' : ' empty'}">${stackPreviewCheckmark}</span>
                 <span>Stack Preview</span>
@@ -130,8 +133,21 @@ export function createStackPreviewMenuHtml(): string {
     `;
 }
 
+function mountViewMenuFillSlider(menuRoot: ParentNode | null): void {
+    const host = menuRoot?.querySelector('.plugin-menu-fill-host');
+    if (!(host instanceof HTMLElement)) {
+        return;
+    }
+    host.replaceWith(
+        createPathFillOpacityMenuControl({
+            disabled: !isEditorEditMode()
+        })
+    );
+}
+
 function refreshStackPreviewMenuContent(): void {
     stackPreviewMenuInstance?.setContent(createStackPreviewMenuHtml());
+    mountViewMenuFillSlider(stackPreviewMenuInstance?.popper ?? null);
 }
 
 function toggleStackPreview(): void {
@@ -186,6 +202,7 @@ function initEditorStackPreviewMenu(): void {
         hideOnClick: false,
         zIndex: 9999,
         onCreate: (instance) => {
+            mountViewMenuFillSlider(instance.popper);
             instance.popper.addEventListener('click', (e) => {
                 const segment = (e.target as HTMLElement).closest(
                     '.plugin-menu-segment'

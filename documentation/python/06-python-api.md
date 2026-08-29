@@ -487,8 +487,9 @@ Find a layer by master ID
 #### `calculateOutlineCompatibility() -> { compatible: boolean; layerCount: number; referenceLayerId?: string; incompatibleLayerIds: string[]; }`
 Compare outline structure across main layers (the same list shown in the UI).
 
-For compatibility checks, mixed shape sequences are normalized by moving
-components before paths while preserving their relative order inside each type.
+Source fingerprints include path `fip001-boolean` flags. When any path in
+this glyph or its component tree is a subtraction cutter, compatibility
+also ANDs post-boolean (Linesweeper) fingerprints from the compile worker.
 
 #### `toString() -> str`
 ---
@@ -715,6 +716,15 @@ component = layer.addComponent("acutecomb", [1, 0, 0, 1, 250, 500])
 #### `insertShapeAt(index: float | int, shape: Babelfont.Shape) -> [Shape](#shape)`
 Insert a new shape at the specified index
 
+#### `moveShapes(indexes: list[float | int], command: ShapeZOrderCommand) -> Map<number, number>`
+Move selected shapes as a unit in z-order. Linked layers with a matching
+fingerprint receive the same index permutation.
+
+`backward` / `forward` swap each selected index with the adjacent
+unselected neighbor so relative selection order is preserved.
+`back` / `front` extract the selection in current order and insert it
+at the start or end.
+
 #### `splitOpenPathAtNode(pathOrIndex: float | int | [Shape](#shape) | [Path](#path), nodeIndex: float | int) -> { shapeIndex: number; insertedShapeIndex: number } | None`
 Split an open path into two open paths at an interior on-curve node.
 
@@ -817,6 +827,7 @@ path = layer.paths[0]
 - **`nodes`** (list[[Node](#node)])
 - **`closed`** (bool)
 - **`format_specific`** (dict | None)
+- **`isSubtraction`** (bool): Whether this path subtracts from shapes below it (`fip001-boolean`).
 
 #### Read-Only Properties
 

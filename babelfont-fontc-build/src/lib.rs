@@ -1,10 +1,10 @@
 use babelfont::{
     convertors::fontir::{BabelfontIrSource, CompilationOptions},
     filters::{
-        DropIncompatiblePaths, FontFilter as _, GlyphsBracketLayers, GlyphsData,
-        GlyphsStylisticSetLabel, RetainGlyphs, RewriteSmartAxes,
+        DropIncompatiblePaths, Fip001Boolean, FontFilter as _, GlyphsBracketLayers, GlyphsData,
+        GlyphsStylisticSetLabel, RetainGlyphs, RewriteSmartAxes, path_is_subtraction,
     },
-    BabelfontError, LayerType,
+    BabelfontError, LayerType, NodeType,
 };
 use fea_rs::{
     compile::NopVariationInfo,
@@ -382,6 +382,23 @@ fn prepare_compile_facing_font(
 /// Patch already-filtered subset font with the same visual layer/glyph
 /// snapshots that just landed in `SUBSET_FONT_CACHE`. Skips GlyphsData /
 /// bracket / stylistic-set re-filter when only outlines moved.
+fn json_contains_fip001_boolean(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Object(map) => {
+            map.contains_key("fip001-boolean") || map.values().any(json_contains_fip001_boolean)
+        }
+        serde_json::Value::Array(items) => items.iter().any(json_contains_fip001_boolean),
+        _ => false,
+    }
+}
+
+fn canonical_json_has_fip001_boolean() -> bool {
+    match CANONICAL_JSON_CACHE.lock() {
+        Ok(guard) => guard.as_ref().is_some_and(json_contains_fip001_boolean),
+        Err(_) => false,
+    }
+}
+
 fn patch_filtered_font_cache_for_visual_commit(
     subset_key: &str,
     changed_layer_snapshots: &[(LayerTarget, Option<serde_json::Value>)],
@@ -393,6 +410,9 @@ fn patch_filtered_font_cache_for_visual_commit(
         return Ok(false);
     };
     if entry.subset_key != subset_key {
+        return Ok(false);
+    }
+    if canonical_json_has_fip001_boolean() {
         return Ok(false);
     }
 
@@ -1601,6 +1621,10 @@ fn apply_filter_pipeline_owned(
 ) -> Result<babelfont::Font, JsValue> {
     remove_background_layers_for_generation(&mut filtered);
 
+    Fip001Boolean
+        .apply(&mut filtered)
+        .map_err(|e| JsValue::from_str(&format!("Fip001Boolean failed: {:?}", e)))?;
+
     if options.drop_incompatible_paths {
         DropIncompatiblePaths::new(vec![])
             .apply(&mut filtered)
@@ -2381,6 +2405,101 @@ pub fn compile_glyphs(_glyphs_json: &str) -> Result<Vec<u8>, JsValue> {
 #[wasm_bindgen]
 pub fn version() -> String {
     format!("babelfont-fontc-web v{}", env!("CARGO_PKG_VERSION"))
+}
+
+fn normalize_signature_node_type(node_type: NodeType) -> &'static str {
+    match node_type {
+        NodeType::Move => "Line",
+        NodeType::Line => "Line",
+        NodeType::OffCurve => "OffCurve",
+        NodeType::Curve => "Curve",
+        NodeType::QCurve => "QCurve",
+    }
+}
+
+fn layer_identifier(layer: &babelfont::Layer) -> String {
+    if let Some(id) = &layer.id {
+        if !id.is_empty() {
+            return id.clone();
+        }
+    }
+    match &layer.master {
+        LayerType::DefaultForMaster(master) | LayerType::AssociatedWithMaster(master) => {
+            master.clone()
+        }
+        LayerType::FreeFloating => "[Unsafe-layer]".to_string(),
+    }
+}
+
+fn layer_outline_fingerprint(layer: &babelfont::Layer) -> String {
+    let component_signatures: Vec<String> = layer
+        .components()
+        .map(|component| format!("C:{}", component.reference))
+        .collect();
+    let path_signatures: Vec<String> = layer
+        .paths()
+        .map(|path| {
+            let node_types: Vec<&str> = path
+                .nodes
+                .iter()
+                .map(|node| normalize_signature_node_type(node.nodetype))
+                .collect();
+            let closed_flag = if path.closed { "1" } else { "0" };
+            let boolean_suffix = if path_is_subtraction(path) {
+                ":subtraction"
+            } else {
+                ""
+            };
+            format!(
+                "P:{}:{}:{}{}",
+                closed_flag,
+                node_types.len(),
+                node_types.join(","),
+                boolean_suffix
+            )
+        })
+        .collect();
+    let mut anchor_signatures: Vec<String> = layer
+        .anchors
+        .iter()
+        .map(|anchor| format!("A:{}", anchor.name))
+        .collect();
+    anchor_signatures.sort();
+    format!(
+        "components[{}];paths[{}];anchors[{}]",
+        component_signatures.join("|"),
+        path_signatures.join("|"),
+        anchor_signatures.join("|")
+    )
+}
+
+/// Run FIP001 boolean subtraction on the cached font and return per-layer
+/// outline fingerprints for `glyph_name`. Does not run DropIncompatiblePaths.
+#[wasm_bindgen]
+pub fn filtered_boolean_fingerprints(glyph_name: &str) -> Result<JsValue, JsValue> {
+    let mut font = get_or_rebuild_font_cache()?;
+    Fip001Boolean
+        .apply(&mut font)
+        .map_err(|e| JsValue::from_str(&format!("Fip001Boolean failed: {:?}", e)))?;
+    let glyph = font.glyphs.get(glyph_name).ok_or_else(|| {
+        JsValue::from_str(&format!(
+            "filtered_boolean_fingerprints: glyph '{}' not found",
+            glyph_name
+        ))
+    })?;
+    let mut layers = serde_json::Map::new();
+    for layer in &glyph.layers {
+        if layer.is_background {
+            continue;
+        }
+        layers.insert(
+            layer_identifier(layer),
+            serde_json::Value::String(layer_outline_fingerprint(layer)),
+        );
+    }
+    let json = serde_json::to_string(&layers)
+        .map_err(|e| JsValue::from_str(&format!("JSON serialization error: {}", e)))?;
+    Ok(JsValue::from_str(&json))
 }
 
 // ── Yjs / yrs helpers ────────────────────────────────────────────────────────
@@ -5786,6 +5905,88 @@ mod tests {
         assert!(
             glyph_error.contains("path layers[0].shapes[0]"),
             "glyph error should include serde path, got {glyph_error}"
+        );
+    }
+
+    fn closed_rect_json(x0: f64, y0: f64, x1: f64, y1: f64) -> serde_json::Value {
+        json!({
+            "nodes": [
+                { "x": x0, "y": y0, "nodetype": "Line" },
+                { "x": x1, "y": y0, "nodetype": "Line" },
+                { "x": x1, "y": y1, "nodetype": "Line" },
+                { "x": x0, "y": y1, "nodetype": "Line" }
+            ],
+            "closed": true
+        })
+    }
+
+    fn layer_filled_area(layer: &babelfont::Layer) -> f64 {
+        layer
+            .shapes
+            .iter()
+            .filter_map(babelfont::Shape::as_path)
+            .filter(|path| path.closed)
+            .map(|path| path.signed_area().unwrap_or(0.0))
+            .sum()
+    }
+
+    #[test]
+    fn glyphs_save_reload_preserves_fip001_boolean_and_changes_filtered_outlines() {
+        let mut font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        let mut cutter = closed_rect_json(80.0, 80.0, 200.0, 200.0);
+        cutter["format_specific"] = json!({
+            "fip001-boolean": "subtraction",
+            "com.schriftgestalt.Glyphs.attr": { "fip001-boolean": "subtraction" }
+        });
+        font_json["glyphs"][0]["layers"][0]["shapes"] = json!([
+            closed_rect_json(0.0, 0.0, 400.0, 400.0),
+            cutter
+        ]);
+
+        let font: babelfont::Font = serde_json::from_value(font_json).unwrap();
+        let glyphs_source = font
+            .as_glyphslib()
+            .expect("convert to Glyphs")
+            .to_string()
+            .expect("serialize Glyphs");
+        assert!(
+            glyphs_source.contains("fip001-boolean"),
+            "Glyphs source must persist the boolean attr, got {glyphs_source}"
+        );
+
+        let mut reopened = babelfont::convertors::glyphs3::load_str(
+            &glyphs_source,
+            std::path::PathBuf::from("boolean-roundtrip.glyphs"),
+        )
+        .expect("reload Glyphs source");
+        let cutter_path = reopened.glyphs[0].layers[0]
+            .shapes
+            .iter()
+            .filter_map(babelfont::Shape::as_path)
+            .nth(1)
+            .expect("cutter path");
+        assert!(
+            path_is_subtraction(cutter_path),
+            "reopened cutter must still be subtraction"
+        );
+
+        let before_area = layer_filled_area(&reopened.glyphs[0].layers[0]);
+        Fip001Boolean
+            .apply(&mut reopened)
+            .expect("apply Fip001Boolean after Glyphs round-trip");
+        let after_paths: Vec<_> = reopened.glyphs[0].layers[0]
+            .shapes
+            .iter()
+            .filter_map(babelfont::Shape::as_path)
+            .collect();
+        let after_area = layer_filled_area(&reopened.glyphs[0].layers[0]);
+        assert!(
+            after_paths.iter().all(|path| !path_is_subtraction(path)),
+            "compile filter must consume subtraction flags"
+        );
+        assert!(
+            after_area < before_area - 1_000.0,
+            "boolean filter must cut filled area, before={before_area} after={after_area}"
         );
     }
 

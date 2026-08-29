@@ -1,7 +1,11 @@
 const fs = require('fs');
 const path = require('path');
 const { Bezier } = require('bezier-js');
-const { Font, Layer } = require('../js/babelfont-model');
+const {
+    Font,
+    Layer,
+    pathHasSubtractionFlag
+} = require('../js/babelfont-model');
 const fontManager = require('../js/font-manager').default;
 const {
     open_font_file,
@@ -2617,6 +2621,88 @@ describe('Babelfont Object Model', () => {
                 glyph.layers[1].fingerprint
             );
             expect(glyph.layers[0].fingerprint).not.toContain('guide');
+        });
+
+        test('layer.fingerprint includes path subtraction flags', () => {
+            const testFont = makeFontWithSinglePath(
+                [
+                    { x: 0, y: 0, nodetype: 'Line' },
+                    { x: 100, y: 0, nodetype: 'Line' },
+                    { x: 100, y: 100, nodetype: 'Line' },
+                    { x: 0, y: 100, nodetype: 'Line' }
+                ],
+                true
+            );
+            const layer = testFont.glyphs[0].layers[0];
+            const path = layer.paths[0];
+            const before = layer.fingerprint;
+
+            expect(path.isSubtraction).toBe(false);
+            expect(before).not.toContain(':subtraction');
+
+            path.isSubtraction = true;
+
+            expect(path.isSubtraction).toBe(true);
+            expect(path.format_specific['fip001-boolean']).toBe('subtraction');
+            expect(
+                path.format_specific['com.schriftgestalt.Glyphs.attr'][
+                    'fip001-boolean'
+                ]
+            ).toBe('subtraction');
+            expect(layer.fingerprint).toBe(
+                'components[];paths[P:1:4:Line,Line,Line,Line:subtraction];anchors[]'
+            );
+
+            path.isSubtraction = false;
+            expect(path.isSubtraction).toBe(false);
+            expect(path.format_specific?.['fip001-boolean']).toBeUndefined();
+            expect(
+                path.format_specific?.['com.schriftgestalt.Glyphs.attr']
+            ).toBeUndefined();
+        });
+
+        test('pathHasSubtractionFlag reads Glyphs path attr', () => {
+            expect(
+                pathHasSubtractionFlag({
+                    'com.schriftgestalt.Glyphs.attr': {
+                        'fip001-boolean': 'subtraction'
+                    }
+                })
+            ).toBe(true);
+        });
+
+        test('Layer.moveShapes remaps mixed path and component indexes', () => {
+            const testFont = makeFontWithSinglePath(
+                [
+                    { x: 0, y: 0, nodetype: 'Line' },
+                    { x: 10, y: 0, nodetype: 'Line' }
+                ],
+                true
+            );
+            const layer = testFont.glyphs[0].layers[0];
+            layer.addPath(true);
+            layer.addComponent('acutecomb');
+
+            expect(layer.shapes.map((shape) => shape.isPath())).toEqual([
+                true,
+                true,
+                false
+            ]);
+
+            const mapping = layer.moveShapes([0, 2], 'forward');
+            expect(mapping.get(0)).toBe(1);
+            expect(mapping.get(1)).toBe(0);
+            expect(mapping.get(2)).toBe(2);
+
+            expect(layer.shapes.map((shape) => shape.isPath())).toEqual([
+                true,
+                true,
+                false
+            ]);
+
+            const front = layer.moveShapes([0], 'front');
+            expect(front.get(0)).toBe(2);
+            expect(layer.shapes[2].isPath()).toBe(true);
         });
 
         test('glyph.isCompatible returns true when all main layers share a signature', () => {

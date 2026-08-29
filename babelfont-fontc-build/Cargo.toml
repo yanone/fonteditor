@@ -7,7 +7,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-babelfont = { git = "https://github.com/yanone/babelfont-rs", rev = "e0f5ccff4e6343dcc8d4b94ee339e4690704ce61", features = ["fontir", "glyphs", "ufo", "fontlab", "fontforge"] }
+babelfont = { path = "../../babelfont-rs/babelfont", features = ["fontir", "glyphs", "ufo", "fontlab", "fontforge"] }
 fontc = { git = "https://github.com/googlefonts/fontc", rev = "484e26c", default-features = false }
 fontbe = { git = "https://github.com/googlefonts/fontc", rev = "484e26c", default-features = false }
 fontir = { git = "https://github.com/googlefonts/fontc", rev = "484e26c" }

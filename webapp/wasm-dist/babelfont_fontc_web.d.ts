@@ -153,6 +153,12 @@ export function dump_layer_state_json(layer_targets_json: string): string;
 export function dump_worker_cache_state_json(): string;
 
 /**
+ * Run FIP001 boolean subtraction on the cached font and return per-layer
+ * outline fingerprints for `glyph_name`. Does not run DropIncompatiblePaths.
+ */
+export function filtered_boolean_fingerprints(glyph_name: string): any;
+
+/**
  * Read-only retained-size walks for Rust worker caches.
  * Does not serialize full font JSON, encode the Y.Doc, or mutate cache state.
  */
@@ -534,6 +540,10 @@ export interface InitOutput {
         number,
         number
     ];
+    readonly filtered_boolean_fingerprints: (
+        a: number,
+        b: number
+    ) => [number, number, number];
     readonly get_cache_memory_stats: () => [number, number, number, number];
     readonly get_debug_cached_font_bytes: (
         a: number,
@@ -615,30 +625,6 @@ export interface InitOutput {
         a: any
     ) => [number, number];
     readonly version: () => [number, number];
-    readonly add_master_with_interpolated_layers_yjs: (
-        a: number,
-        b: number
-    ) => [number, number, number];
-    readonly refine_layer_snapshots_yjs: (
-        a: number,
-        b: number,
-        c: number,
-        d: number
-    ) => [number, number, number];
-    readonly reinterpolate_layer_yjs: (
-        a: number,
-        b: number,
-        c: number,
-        d: number
-    ) => [number, number, number];
-    readonly reinterpolate_master_layers_yjs: (
-        a: number,
-        b: number
-    ) => [number, number, number];
-    readonly remove_masters_yjs: (
-        a: number,
-        b: number
-    ) => [number, number, number];
     readonly get_font_axes: (
         a: number,
         b: number
@@ -664,6 +650,30 @@ export interface InitOutput {
         a: number,
         b: number
     ) => [number, number, number, number];
+    readonly add_master_with_interpolated_layers_yjs: (
+        a: number,
+        b: number
+    ) => [number, number, number];
+    readonly refine_layer_snapshots_yjs: (
+        a: number,
+        b: number,
+        c: number,
+        d: number
+    ) => [number, number, number];
+    readonly reinterpolate_layer_yjs: (
+        a: number,
+        b: number,
+        c: number,
+        d: number
+    ) => [number, number, number];
+    readonly reinterpolate_master_layers_yjs: (
+        a: number,
+        b: number
+    ) => [number, number, number];
+    readonly remove_masters_yjs: (
+        a: number,
+        b: number
+    ) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (
         a: number,

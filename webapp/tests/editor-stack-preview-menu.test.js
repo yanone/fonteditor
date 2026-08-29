@@ -43,6 +43,7 @@ describe('editor View menu', () => {
         expect(html).not.toMatch(
             /data-action="toggle-follow-stack-scroll"[^>]*aria-disabled="true"/
         );
+        expect(html).toContain('class="plugin-menu-fill-host"');
         expect(html).toContain('data-action="zoom-in"');
         expect(html).toContain('data-action="zoom-out"');
         expect(html).toContain('data-action="zoom-to-fit"');
@@ -76,5 +77,6 @@ describe('editor View menu', () => {
         expect(html).toMatch(
             /data-action="toggle-node-snapping"[^>]*aria-checked="false"/
         );
+        expect(html).toContain('class="plugin-menu-fill-host"');
     });
 });
