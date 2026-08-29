@@ -2405,13 +2405,10 @@ export class GlyphCanvasRenderer {
             this.ctx.fillStyle = pending[0].fillStyle;
             this.ctx.fill('nonzero');
         };
-        const additiveContours = contours.filter(
-            (contour) => !contour.subtract
-        );
-
         const pending: Array<{ nodes: Babelfont.Node[]; fillStyle: string }> =
             [];
-        for (const contour of contours) {
+        for (let index = 0; index < contours.length; index++) {
+            const contour = contours[index];
             if (contour.subtract) {
                 flushPending(pending);
                 pending.length = 0;
@@ -2421,14 +2418,17 @@ export class GlyphCanvasRenderer {
                 this.ctx.closePath();
                 this.ctx.fillStyle = this.getSubtractionFillColor();
                 this.ctx.fill('nonzero');
-                if (additiveContours.length) {
+                const coveringAdditives = contours
+                    .slice(index + 1)
+                    .filter((item) => !item.subtract);
+                if (coveringAdditives.length) {
                     this.ctx.save();
                     this.ctx.beginPath();
                     this.buildPathFromNodes(contour.nodes, true);
                     this.ctx.closePath();
                     this.ctx.clip();
                     this.ctx.beginPath();
-                    for (const additive of additiveContours) {
+                    for (const additive of coveringAdditives) {
                         this.buildPathFromNodes(additive.nodes, true);
                         this.ctx.closePath();
                     }
@@ -2615,7 +2615,8 @@ export class GlyphCanvasRenderer {
         }
 
         // Filled glyph background: grouped nonzero compounds, destination-out
-        // cutters, later shapes on top. Original nodes stay editable.
+        // cutters for shapes below, later additives on top. Cutter fill covers
+        // the hole; only later solids punch the cutter fill (compiled coverage).
         this.fillOutlineEditorPunchOut(
             currentLayerData,
             this.getPathFillColor(isDarkTheme)
