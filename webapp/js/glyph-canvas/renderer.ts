@@ -6873,7 +6873,8 @@ export class GlyphCanvasRenderer {
                 this.ctx.closePath();
             }
             this.ctx.strokeStyle = strokeColor;
-            this.ctx.lineWidth = 2 * invScale;
+            this.ctx.lineWidth =
+                APP_SETTINGS.OUTLINE_EDITOR.COMPONENT_STROKE_WIDTH * invScale;
             this.ctx.setLineDash(subtract ? subtractionDash : []);
             this.ctx.stroke();
             this.ctx.restore();

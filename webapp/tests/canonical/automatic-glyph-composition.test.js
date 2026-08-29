@@ -2037,8 +2037,8 @@ describe('Automatic component editing canonical behavior', () => {
         expect(automaticStroke).not.toBe(manualStroke);
         expect(manualStroke).not.toBe(manualFill);
         expect(automaticStroke).not.toBe(automaticFill);
-        expect(manualLineWidth).toBe(2);
-        expect(automaticLineWidth).toBe(2);
+        expect(manualLineWidth).toBe(1);
+        expect(automaticLineWidth).toBe(1);
         expect(automaticFill).toContain('93, 129, 182');
         expect(APP_SETTINGS.OUTLINE_EDITOR.COMPONENT_FILLS.AUTO_NORMAL).toBe(
             '#5d81b6cc'

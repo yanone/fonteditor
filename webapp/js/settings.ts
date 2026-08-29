@@ -119,6 +119,8 @@ const APP_SETTINGS = {
 
         // Stroke widths
         OUTLINE_STROKE_WIDTH: 1, // px - width of glyph outline paths
+        // Component instance outlines (same screen px as editable paths).
+        COMPONENT_STROKE_WIDTH: 1,
         OUTLINE_OPACITY: 0.4, // opacity of glyph outline paths in editing mode
         // Shared alpha for editable path fill and subtraction cutter fill.
         PATH_FILL_OPACITY: 0.02,
