@@ -363,6 +363,7 @@ import { showNamedUnsavedChangesDialog } from './ui/confirm-dialog';
         container.style.marginTop = '11px';
 
         // Configure editor options
+        window.ace.require('ace/ext/language_tools');
         editor.setOptions({
             fontSize: '12px',
             fontFamily: "'IBM Plex Mono', monospace",

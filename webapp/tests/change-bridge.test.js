@@ -4534,6 +4534,8 @@ describe('Model setter change recording', () => {
                 spec.property === 'automaticAlignment';
             const isMasterRtlKerning =
                 spec.className === 'Master' && spec.property === 'kerning_rtl';
+            const isPathIsSubtraction =
+                spec.className === 'Path' && spec.property === 'isSubtraction';
             const oldValue = cloneValue(
                 isComponentAutomaticAlignment
                     ? target.format_specific
@@ -4600,6 +4602,42 @@ describe('Model setter change recording', () => {
                         getYPath(bridge.fontMap, ['format_specific'])
                     )
                 ).toEqual(cloneValue(font.format_specific));
+            } else if (isPathIsSubtraction) {
+                expect(log).toHaveLength(2);
+                expect(log[0].transactionId).toBe(log[1].transactionId);
+                expect(log[0].transactionLabel).toBe(log[1].transactionLabel);
+                expect(log.map((entry) => entry.property).sort()).toEqual([
+                    'attr',
+                    'fip001-boolean'
+                ]);
+                expect(target.isSubtraction).toEqual(expectedValue);
+                expect(
+                    normalizeYValue(
+                        getYPath(
+                            bridge.fontMap,
+                            target
+                                .getPath()
+                                .concat(['format_specific', 'fip001-boolean'])
+                        )
+                    )
+                ).toBe(expectedValue ? 'subtraction' : undefined);
+                expect(
+                    normalizeYValue(
+                        getYPath(
+                            bridge.fontMap,
+                            target
+                                .getPath()
+                                .concat([
+                                    'format_specific',
+                                    'com.schriftgestalt.Glyphs.attr'
+                                ])
+                        )
+                    )
+                ).toEqual(
+                    expectedValue
+                        ? { 'fip001-boolean': 'subtraction' }
+                        : undefined
+                );
             } else if (spec.className === 'Node') {
                 expect(log).toHaveLength(1);
                 expect(log[0].property).toBe('nodes');

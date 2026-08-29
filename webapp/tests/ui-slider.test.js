@@ -1,7 +1,3 @@
-/**
- * @jest-environment jsdom
- */
-
 const { createUiSlider, updateUiSliderFill } = require('../js/ui/slider');
 const {
     createPropertySliderWidget

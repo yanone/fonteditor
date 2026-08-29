@@ -2,7 +2,7 @@
 // Renders glyph outlines directly to canvas elements without data URL conversion
 // Uses a shared offscreen canvas for path building, then draws to target canvases
 
-import { pathHasSubtractionFlag } from './babelfont-model';
+import { pathHasSubtractionFlag } from './path-boolean-flag';
 import {
     buildGlyphPathFromNodes,
     calculateGlyphShapeBounds,

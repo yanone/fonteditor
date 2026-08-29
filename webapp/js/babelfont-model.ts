@@ -20,6 +20,20 @@ import {
     toGlyphQaMessages,
     type GlyphQaMessage
 } from './auto-qa/auto-qa-matcher';
+import {
+    FIP001_BOOLEAN_KEY,
+    FIP001_BOOLEAN_SUBTRACTION,
+    GLYPHS_ATTR_KEY,
+    glyphsAttrFromFormatSpecific,
+    pathHasSubtractionFlag
+} from './path-boolean-flag';
+
+export {
+    FIP001_BOOLEAN_KEY,
+    FIP001_BOOLEAN_SUBTRACTION,
+    GLYPHS_ATTR_KEY,
+    pathHasSubtractionFlag
+};
 import { assertModelMutationAllowed } from './model-mutation-policy';
 import { applyGlyphRenameUiContext } from './rename-glyphs-ui-context';
 import { assertGlyphRenamePreflight } from './rename-glyphs-preflight';
@@ -272,11 +286,6 @@ function cloneInterpolationValue<T>(value: T): T {
 }
 const GLYPHS_COMPONENT_ALIGNMENT_KEY = 'com.schriftgestalt.Glyphs.alignment';
 const GLYPHS_COMPONENT_ANCHOR_KEY = 'com.schriftgestalt.Glyphs.componentAnchor';
-/** `format_specific` key for non-destructive path boolean operations. */
-export const FIP001_BOOLEAN_KEY = 'fip001-boolean';
-/** Value that marks a path as a subtraction cutter. */
-export const FIP001_BOOLEAN_SUBTRACTION = 'subtraction';
-export const GLYPHS_ATTR_KEY = 'com.schriftgestalt.Glyphs.attr';
 
 export type ShapeZOrderCommand = 'forward' | 'backward' | 'front' | 'back';
 
@@ -298,27 +307,6 @@ if (typeof window !== 'undefined') {
     });
 }
 
-function glyphsAttrFromFormatSpecific(
-    formatSpecific: Record<string, Unsafe> | null | undefined
-): Record<string, Unsafe> | null {
-    const attr = formatSpecific?.[GLYPHS_ATTR_KEY];
-    if (!attr || typeof attr !== 'object' || Array.isArray(attr)) {
-        return null;
-    }
-    return attr as Record<string, Unsafe>;
-}
-
-export function pathHasSubtractionFlag(
-    formatSpecific: Record<string, Unsafe> | null | undefined
-): boolean {
-    if (formatSpecific?.[FIP001_BOOLEAN_KEY] === FIP001_BOOLEAN_SUBTRACTION) {
-        return true;
-    }
-    return (
-        glyphsAttrFromFormatSpecific(formatSpecific)?.[FIP001_BOOLEAN_KEY] ===
-        FIP001_BOOLEAN_SUBTRACTION
-    );
-}
 const CHAINED_BASE_ENTRY_ANCHOR = '#entry';
 const CHAINED_BASE_EXIT_ANCHOR = '#exit';
 const METRIC_UPDATE_EPSILON = 0.01;
@@ -4550,6 +4538,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
     set format_specific(value: Record<string, Unsafe> | undefined) {
         assertModelMutationAllowed();
         this.withLayerFingerprintChangeEvent(() => {
+            assertModelMutationAllowed();
             const old = this.data.format_specific;
             this.data.format_specific = value;
             recordAndMarkDirty(this, 'format_specific', old, value);
@@ -4569,26 +4558,32 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
             return;
         }
         this.withLayerFingerprintChangeEvent(() => {
-            setFormatSpecificKey(
-                this,
-                FIP001_BOOLEAN_KEY,
-                value ? FIP001_BOOLEAN_SUBTRACTION : undefined
+            withBridgeTransaction(
+                value ? 'Subtract paths' : 'Clear path subtraction',
+                () => {
+                    setFormatSpecificKey(
+                        this,
+                        FIP001_BOOLEAN_KEY,
+                        value ? FIP001_BOOLEAN_SUBTRACTION : undefined
+                    );
+                    const attr = {
+                        ...(glyphsAttrFromFormatSpecific(
+                            this.data.format_specific
+                        ) || {})
+                    };
+                    if (value) {
+                        attr[FIP001_BOOLEAN_KEY] = FIP001_BOOLEAN_SUBTRACTION;
+                        setFormatSpecificKey(this, GLYPHS_ATTR_KEY, attr);
+                    } else {
+                        delete attr[FIP001_BOOLEAN_KEY];
+                        setFormatSpecificKey(
+                            this,
+                            GLYPHS_ATTR_KEY,
+                            Object.keys(attr).length > 0 ? attr : undefined
+                        );
+                    }
+                }
             );
-            const attr = {
-                ...(glyphsAttrFromFormatSpecific(this.data.format_specific) ||
-                    {})
-            };
-            if (value) {
-                attr[FIP001_BOOLEAN_KEY] = FIP001_BOOLEAN_SUBTRACTION;
-                setFormatSpecificKey(this, GLYPHS_ATTR_KEY, attr);
-            } else {
-                delete attr[FIP001_BOOLEAN_KEY];
-                setFormatSpecificKey(
-                    this,
-                    GLYPHS_ATTR_KEY,
-                    Object.keys(attr).length > 0 ? attr : undefined
-                );
-            }
         });
     }
 

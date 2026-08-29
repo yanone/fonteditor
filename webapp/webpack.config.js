@@ -137,7 +137,8 @@ module.exports = {
                 'change-bridge*.ts',
                 'change-log.ts',
                 'window-sync.ts',
-                'window-buttons.ts'
+                'window-buttons.ts',
+                'ui/property-slider-widget.ts'
             ],
             root: __dirname
         }),

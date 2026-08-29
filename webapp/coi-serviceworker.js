@@ -85,6 +85,7 @@ const CDN_PRECACHE = [
     'https://cdn.jsdelivr.net/npm/harfbuzzjs@0.8.0/hb.js',
     'https://cdn.jsdelivr.net/npm/harfbuzzjs@0.8.0/hbjs.js',
     'https://cdn.jsdelivr.net/npm/ace-builds@1.32.2/src-min-noconflict/ace.js',
+    'https://cdn.jsdelivr.net/npm/ace-builds@1.32.2/src-min-noconflict/ext-language_tools.js',
     'https://cdn.jsdelivr.net/npm/ace-builds@1.32.2/src-min-noconflict/mode-python.js',
     'https://cdn.jsdelivr.net/npm/ace-builds@1.32.2/src-min-noconflict/theme-monokai.js',
     'https://cdn.jsdelivr.net/npm/ace-builds@1.32.2/src-min-noconflict/theme-tomorrow.js',

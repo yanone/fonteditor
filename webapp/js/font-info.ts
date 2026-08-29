@@ -2512,6 +2512,7 @@ class FontInfoManager {
 
         // Create Ace editor
         this.featuresEditor = window.ace.edit('features-editor');
+        window.ace.require('ace/ext/language_tools');
 
         // Set theme based on current theme preference
         const getInitialTheme = () => {

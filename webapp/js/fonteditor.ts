@@ -138,7 +138,7 @@ async function initFontEditor() {
             './py/fonteditor.py?rev=glyph-filter-batch-1'
         );
         const fonteditorCode = await fonteditorModule.text();
-        await window.pyodide.runPython(fonteditorCode);
+        await window.pyodide.runPythonAsync(fonteditorCode);
         timelineSpanEnd(fonteditorModuleSpanId);
         console.log('[FontEditor]', 'fonteditor.py module loaded');
 

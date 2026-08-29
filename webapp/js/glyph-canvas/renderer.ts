@@ -3,11 +3,8 @@ import APP_SETTINGS, {
     interpolateOutlineChromeScreenSize,
     outlineChromeStateScale
 } from '../settings';
-import {
-    Layer,
-    DecomposedAffineTransform,
-    pathHasSubtractionFlag
-} from '../babelfont-model';
+import { Layer, DecomposedAffineTransform } from '../babelfont-model';
+import { pathHasSubtractionFlag } from '../path-boolean-flag';
 import { Logger } from '../logger';
 import { getPathFillOpacity } from '../path-fill-opacity-pref';
 import { get_glyph_name } from '../../wasm-dist/babelfont_fontc_web';
