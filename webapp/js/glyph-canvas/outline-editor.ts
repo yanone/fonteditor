@@ -106,6 +106,7 @@ import {
     addTippyBackdropSupport,
     getOrCreateBackdrop,
     getTheme,
+    pluginMenuSubmenuHtml,
     setupMenuKeyboardNav
 } from '../tippy-utils';
 
@@ -15718,8 +15719,7 @@ export class OutlineEditor {
                 <div class="plugin-menu-item has-submenu">
                     <span class="material-symbols-outlined">layers</span>
                     <span>Arrange</span>
-                    <span class="material-symbols-outlined plugin-menu-chevron">chevron_right</span>
-                    <div class="plugin-menu-submenu">
+                    ${pluginMenuSubmenuHtml(`
                         <div class="plugin-menu-item" data-action="bring-to-front">
                             <span class="material-symbols-outlined">vertical_align_top</span>
                             <span>Bring to Front</span>
@@ -15736,7 +15736,7 @@ export class OutlineEditor {
                             <span class="material-symbols-outlined">vertical_align_bottom</span>
                             <span>Send to Back</span>
                         </div>
-                    </div>
+                    `)}
                 </div>
             `);
         }

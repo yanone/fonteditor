@@ -15813,6 +15813,9 @@ describe('GlyphCanvas property panel', () => {
 
         expect(html).toContain('>Arrange</span>');
         expect(html).toContain('has-submenu');
+        expect(html).toContain('plugin-menu-submenu');
+        expect(html).toContain('plugin-menu-chevron');
+        expect(html).not.toContain('toolbar-menu-submenu');
         expect(html).toContain('data-action="bring-to-front"');
         expect(html).toContain('data-action="bring-forward"');
         expect(html).toContain('data-action="send-backward"');

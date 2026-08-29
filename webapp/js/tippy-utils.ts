@@ -154,6 +154,16 @@ export function getTheme(): string {
 }
 
 /**
+ * Flyout markup for a `.plugin-menu-item.has-submenu` parent.
+ * `itemsHtml` must be `.plugin-menu-item` rows and separators only —
+ * never wrap another `.plugin-menu`. Shared CSS overlaps the parent
+ * row and keeps a hover bridge; do not add a left offset gap.
+ */
+export function pluginMenuSubmenuHtml(itemsHtml: string): string {
+    return `<span class="material-symbols-outlined plugin-menu-chevron" aria-hidden="true">chevron_right</span><div class="plugin-menu-submenu">${itemsHtml}</div>`;
+}
+
+/**
  * Add backdrop and keyboard support to a Tippy instance
  */
 export function addTippyBackdropSupport(

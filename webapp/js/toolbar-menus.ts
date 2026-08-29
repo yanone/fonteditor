@@ -6,6 +6,7 @@ import {
     getTheme,
     keyboardShortcutHtml,
     MENU_SHIFT_SYMBOL,
+    pluginMenuSubmenuHtml,
     setupMenuKeyboardNav
 } from './tippy-utils';
 import { Logger } from './logger';
@@ -50,8 +51,8 @@ function escapeHtml(text: string): string {
     return div.innerHTML;
 }
 
-function createMenuHtml(items: ToolbarMenuItem[], prefix = ''): string {
-    const renderedItems = items
+function createMenuItemsHtml(items: ToolbarMenuItem[], prefix = ''): string {
+    return items
         .map((item, index) => {
             if (item.separator) {
                 return '<div class="plugin-menu-separator"></div>';
@@ -65,7 +66,9 @@ function createMenuHtml(items: ToolbarMenuItem[], prefix = ''): string {
                 ? keyboardShortcutHtml(item.shortcut, 'plugin-menu-shortcut')
                 : '';
             const renderedSubmenu = item.children
-                ? `<div class="toolbar-menu-submenu">${createMenuHtml(item.children, `${menuId}.`)}</div><span class="material-symbols-outlined toolbar-menu-chevron">chevron_right</span>`
+                ? pluginMenuSubmenuHtml(
+                      createMenuItemsHtml(item.children, `${menuId}.`)
+                  )
                 : '';
 
             const iconHtml = `<span class="material-symbols-outlined">${escapeHtml(item.icon)}</span>`;
@@ -81,8 +84,10 @@ function createMenuHtml(items: ToolbarMenuItem[], prefix = ''): string {
             `;
         })
         .join('');
+}
 
-    return `<div class="plugin-menu toolbar-menu">${renderedItems}</div>`;
+function createMenuHtml(items: ToolbarMenuItem[], prefix = ''): string {
+    return `<div class="plugin-menu toolbar-menu">${createMenuItemsHtml(items, prefix)}</div>`;
 }
 
 function getItemByMenuId(

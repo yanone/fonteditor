@@ -70,3 +70,16 @@ describe('tippy menu focus restore', () => {
         expect(window.restoreFocusedViewDomFocus).toHaveBeenCalled();
     });
 });
+
+describe('pluginMenuSubmenuHtml', () => {
+    it('wraps item rows without a nested plugin-menu shell', () => {
+        const { pluginMenuSubmenuHtml } = require('../js/tippy-utils');
+        const html = pluginMenuSubmenuHtml(
+            '<div class="plugin-menu-item" data-action="one">One</div>'
+        );
+        expect(html).toContain('plugin-menu-chevron');
+        expect(html).toContain('class="plugin-menu-submenu"');
+        expect(html).toContain('data-action="one"');
+        expect(html).not.toMatch(/class="plugin-menu"/);
+    });
+});

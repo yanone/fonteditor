@@ -289,6 +289,11 @@ addTippyBackdropSupport(tippyInstance, backdrop, {
 - Duplicate `getOrCreateBackdrop`, `addTippyBackdropSupport`, or `getTheme` functions
 - Implement custom backdrop click handlers separately
 - Create tippy menus without backdrop support
+- Create a second submenu skin (for example `.toolbar-menu-submenu`) or offset a flyout with `left: calc(100% + Npx)` — that gap drops `:hover` while the pointer crosses it
+
+**Nested submenus:**
+
+Flyouts stay in the same Tippy content (CSS positioning, not a nested Tippy). Parent row: `.plugin-menu-item.has-submenu`. Build the chevron + `.plugin-menu-submenu` with `pluginMenuSubmenuHtml()` from `tippy-utils.ts`. Inner markup is `.plugin-menu-item` rows and separators only — never wrap another `.plugin-menu`. Shared CSS overlaps the parent by 1px and paints an 8px `::before` hover bridge. Optional click-to-pin: toggle `.submenu-open` on the parent (toolbar Font Destinations). Keep Tippy `overflow` visible when a menu contains `.has-submenu` (already in `style.css`).
 
 **Modals & Overlays:**
 

@@ -3885,14 +3885,26 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
     position: relative;
 }
 
+.plugin-menu-item.has-submenu:hover,
+.plugin-menu-item.has-submenu:focus-within,
+.plugin-menu-item.has-submenu.submenu-open {
+    z-index: 2;
+}
+
 .plugin-menu-chevron {
     margin-left: auto;
 }
 
+/*
+ * Nested flyouts (AGENTS.md: Tippy nested submenus).
+ * Overlap the parent row and keep an 8px ::before hover bridge so the
+ * pointer never hits a dead zone between parent and flyout.
+ */
 .plugin-menu-submenu {
     position: absolute;
-    top: -4px;
-    left: calc(100% + 4px);
+    top: -1px;
+    left: calc(100% - 1px);
+    z-index: 1;
     display: none;
     min-width: 220px;
     padding: 4px 0;
@@ -3900,11 +3912,20 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
     border-radius: 3px;
     background: var(--background-secondary);
     box-shadow: 0 8px 24px var(--modal-overlay);
-    z-index: 1;
+}
+
+.plugin-menu-submenu::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 100%;
+    width: 8px;
 }
 
 .plugin-menu-item.has-submenu:hover > .plugin-menu-submenu,
-.plugin-menu-item.has-submenu:focus-within > .plugin-menu-submenu {
+.plugin-menu-item.has-submenu:focus-within > .plugin-menu-submenu,
+.plugin-menu-item.has-submenu.submenu-open > .plugin-menu-submenu {
     display: block;
 }
 
@@ -6175,35 +6196,8 @@ html[data-command-modifier='ctrl'] .shortcut-option-modifier::before {
     /* Extends .dialog-button */
     min-width: 78px;
 }
-.toolbar-menu-item.has-submenu {
-    position: relative;
-}
-
 .toolbar-menu {
     overflow: visible;
-}
-
-.toolbar-menu-chevron {
-    margin-left: auto;
-}
-
-.toolbar-menu-submenu {
-    position: absolute;
-    top: -5px;
-    left: calc(100% + 5px);
-    display: none;
-    min-width: 210px;
-    padding: 5px;
-    border: 1px solid var(--border-primary);
-    border-radius: 4px;
-    background: var(--modal-bg);
-    box-shadow: 0 8px 24px var(--modal-overlay);
-}
-
-.toolbar-menu-item.has-submenu:hover > .toolbar-menu-submenu,
-.toolbar-menu-item.has-submenu:focus-within > .toolbar-menu-submenu,
-.toolbar-menu-item.has-submenu.submenu-open > .toolbar-menu-submenu {
-    display: block;
 }
 
 .feature-variation-settings-coordinate-note {
