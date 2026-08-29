@@ -28,7 +28,7 @@ import bidiFactory from 'bidi-js';
 
 import {
     applyLineLayoutToGlyphs,
-    computeTypoLineHeightUnit,
+    computeEmLineHeightUnit,
     computeUsedLineHeight,
     DEFAULT_LINE_HEIGHT_PERCENT,
     DEFAULT_TEXT_ALIGN,
@@ -435,7 +435,7 @@ export class TextRunEditor {
 
     getUsedLineHeight(): number {
         return computeUsedLineHeight(
-            computeTypoLineHeightUnit(this.getSelectedMasterMetrics()),
+            computeEmLineHeightUnit(window.currentFontModel?.upm),
             this.lineHeightPercent
         );
     }
@@ -457,29 +457,6 @@ export class TextRunEditor {
             this.getLineRangeAt(this.cursorPosition).lineIndex,
             this.getUsedLineHeight()
         );
-    }
-
-    private getSelectedMasterMetrics(): Record<string, number> | null {
-        const fontModel = window.currentFontModel;
-        const master =
-            (this.selectedMasterId &&
-                fontModel?.masters?.find(
-                    (candidate: { id?: string }) =>
-                        candidate.id === this.selectedMasterId
-                )) ||
-            fontModel?.masters?.[0] ||
-            null;
-        const rawMetrics = master?.metrics;
-        if (!rawMetrics || typeof rawMetrics !== 'object') {
-            return null;
-        }
-        const metrics: Record<string, number> = {};
-        for (const [key, value] of Object.entries(rawMetrics)) {
-            if (typeof value === 'number' && Number.isFinite(value)) {
-                metrics[key] = value;
-            }
-        }
-        return Object.keys(metrics).length > 0 ? metrics : null;
     }
 
     relayoutLines() {

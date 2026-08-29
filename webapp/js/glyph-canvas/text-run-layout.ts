@@ -89,39 +89,13 @@ export function lineRangeAt(text: string, position: number): TextLineRange {
     return lines[lines.length - 1];
 }
 
-export function computeTypoLineHeightUnit(
-    metrics: Record<string, number> | null | undefined
-): number {
-    if (!metrics) {
-        return 0;
+export function computeEmLineHeightUnit(upm: unknown): number {
+    const numeric =
+        typeof upm === 'number' ? upm : Number.parseFloat(String(upm));
+    if (Number.isFinite(numeric) && numeric > 0) {
+        return numeric;
     }
-
-    const typoAscender = metrics.TypoAscender;
-    const typoDescender = metrics.TypoDescender;
-    const typoLineGap = metrics.TypoLineGap;
-    const hasTypo =
-        Number.isFinite(typoAscender) ||
-        Number.isFinite(typoDescender) ||
-        Number.isFinite(typoLineGap);
-
-    if (hasTypo) {
-        return (
-            (Number.isFinite(typoAscender) ? typoAscender : 0) +
-            Math.abs(Number.isFinite(typoDescender) ? typoDescender : 0) +
-            (Number.isFinite(typoLineGap) ? typoLineGap : 0)
-        );
-    }
-
-    const ascender = metrics.Ascender ?? metrics.ascender;
-    const descender = metrics.Descender ?? metrics.descender;
-    if (!Number.isFinite(ascender) && !Number.isFinite(descender)) {
-        return 0;
-    }
-
-    return (
-        (Number.isFinite(ascender) ? (ascender as number) : 0) +
-        Math.abs(Number.isFinite(descender) ? (descender as number) : 0)
-    );
+    return 1000;
 }
 
 export function computeUsedLineHeight(unit: number, percent: number): number {

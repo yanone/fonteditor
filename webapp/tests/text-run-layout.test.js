@@ -1,6 +1,6 @@
 const {
     applyLineLayoutToGlyphs,
-    computeTypoLineHeightUnit,
+    computeEmLineHeightUnit,
     computeUsedLineHeight,
     getShapedGlyphPosition,
     lineBaselineY,
@@ -21,25 +21,14 @@ describe('text-run-layout', () => {
         ]);
     });
 
-    test('typo stack is ascender plus abs descender plus line gap', () => {
-        expect(
-            computeTypoLineHeightUnit({
-                TypoAscender: 800,
-                TypoDescender: -200,
-                TypoLineGap: 50
-            })
-        ).toBe(1050);
-        expect(computeUsedLineHeight(1050, 120)).toBe(1260);
-        expect(lineBaselineY(1, 1260)).toBe(-1260);
-    });
-
-    test('falls back to Ascender/Descender when typo metrics are missing', () => {
-        expect(
-            computeTypoLineHeightUnit({
-                Ascender: 700,
-                Descender: -250
-            })
-        ).toBe(950);
+    test('100 percent line height is one em', () => {
+        expect(computeEmLineHeightUnit(1000)).toBe(1000);
+        expect(computeEmLineHeightUnit(2048)).toBe(2048);
+        expect(computeEmLineHeightUnit(0)).toBe(1000);
+        expect(computeEmLineHeightUnit(undefined)).toBe(1000);
+        expect(computeUsedLineHeight(1000, 100)).toBe(1000);
+        expect(computeUsedLineHeight(1000, 120)).toBe(1200);
+        expect(lineBaselineY(1, 1000)).toBe(-1000);
     });
 
     test('aligns lines to the longest width', () => {

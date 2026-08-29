@@ -65,7 +65,8 @@ test.describe('multiline text', () => {
                 text: textRun.textBuffer,
                 lineCount: textRun.getLineCount(),
                 baselines,
-                usedLineHeight: textRun.getUsedLineHeight()
+                usedLineHeight: textRun.getUsedLineHeight(),
+                upm: (window as any).currentFontModel?.upm
             };
         });
 
@@ -75,6 +76,7 @@ test.describe('multiline text', () => {
         expect(result.search).not.toMatch(/%0A/);
         expect(result.baselines.length).toBeGreaterThanOrEqual(2);
         expect(result.baselines[0]).toBe(0);
+        expect(result.usedLineHeight).toBe(result.upm);
         expect(result.baselines[1]).toBeCloseTo(-result.usedLineHeight, 0);
     });
 });
