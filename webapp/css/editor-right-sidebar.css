@@ -72,6 +72,28 @@
     font-size: 12px;
 }
 
+.text-layout-calibrate-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    background: var(--button-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.text-layout-calibrate-btn:hover {
+    background: var(--background-hover);
+}
+
+.text-layout-calibrate-btn .material-symbols-outlined {
+    font-size: 16px;
+}
+
 .text-layout-align {
     display: flex;
     gap: 4px;

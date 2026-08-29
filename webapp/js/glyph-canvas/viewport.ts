@@ -4,6 +4,7 @@ import { Point, RectWithWidthHeight } from '../basictypes';
 import APP_SETTINGS from '../settings';
 import { ShapedGlyph } from './textrun';
 import { getShapedGlyphPosition } from './text-run-layout';
+import { MAX_VIEWPORT_SCALE, MIN_VIEWPORT_SCALE } from './point-size';
 
 export interface ViewportPanLockTarget {
     panX: number;
@@ -60,7 +61,7 @@ export function applyFontPointScreenLock(
 }
 
 export class ViewportManager {
-    scale: number;
+    private _scale: number;
     panX: number;
     panY: number;
     lastWheelTime: number;
@@ -69,7 +70,7 @@ export class ViewportManager {
     deviceLockDuration: number;
 
     constructor(initialScale: number, panX: number = 0, panY: number = 0) {
-        this.scale = initialScale;
+        this._scale = initialScale;
         this.panX = panX;
         this.panY = panY;
 
@@ -78,6 +79,23 @@ export class ViewportManager {
         this.wheelTimeout = null;
         this.detectedDevice = null; // 'trackpad' or 'mouse'
         this.deviceLockDuration = 200; // Lock device type for 200ms after detection
+    }
+
+    get scale(): number {
+        return this._scale;
+    }
+
+    set scale(value: number) {
+        if (this._scale === value) {
+            return;
+        }
+        this._scale = value;
+        // Canvas zoom (viewport.scale) changed. Detail keys: scale.
+        window.dispatchEvent(
+            new CustomEvent('glyphCanvasViewportChanged', {
+                detail: { scale: value }
+            })
+        );
     }
 
     getTransformMatrix() {
@@ -177,7 +195,8 @@ export class ViewportManager {
         const newScale = this.scale * zoomFactor;
 
         // Limit zoom range
-        if (newScale < 0.01 || newScale > 100) return false;
+        if (newScale < MIN_VIEWPORT_SCALE || newScale > MAX_VIEWPORT_SCALE)
+            return false;
 
         // Adjust pan to zoom toward mouse position
         this.panX = mouseX - (mouseX - this.panX) * zoomFactor;

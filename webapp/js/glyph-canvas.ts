@@ -11,6 +11,10 @@ import { TextRunEditor } from './glyph-canvas/textrun';
 import { lineBaselineY } from './glyph-canvas/text-run-layout';
 import { textLayoutControls } from './glyph-canvas/text-layout-controls';
 import {
+    MAX_VIEWPORT_SCALE,
+    MIN_VIEWPORT_SCALE
+} from './glyph-canvas/point-size';
+import {
     applyFontPointScreenLock,
     ViewportManager,
     viewportFrameBottom,
@@ -11469,6 +11473,57 @@ class GlyphCanvas {
                 window.autoCompileManager.checkAndSchedule();
             }
         }, 500);
+    }
+
+    /**
+     * Zoom so the given printer-point size matches on-screen em height.
+     * Locks the same caret/glyph focus point as Cmd/Ctrl +/−.
+     */
+    setScaleTowardFocus(targetScale: number): void {
+        if (!this.viewportManager) {
+            return;
+        }
+
+        const clamped = Math.min(
+            MAX_VIEWPORT_SCALE,
+            Math.max(MIN_VIEWPORT_SCALE, targetScale)
+        );
+        const currentScale = this.viewportManager.scale;
+        if (!Number.isFinite(clamped) || clamped === currentScale) {
+            return;
+        }
+
+        this.clearCmdZeroStage1();
+
+        const rect = this.getCanvasContentFrame();
+        const fontPos = this.getKeyboardResizeContentAnchorFontPosition();
+        let centerX = viewportFrameCenterX(rect);
+        let centerY = viewportFrameCenterY(rect);
+        let lockFontPoint = false;
+
+        if (fontPos) {
+            const screenPoint = this.viewportManager.fontToScreenCoordinates(
+                fontPos.x,
+                fontPos.y
+            );
+            centerX = screenPoint.x;
+            centerY = screenPoint.y;
+            lockFontPoint = true;
+        }
+
+        const zoomFactor = clamped / currentScale;
+        this.viewportManager.zoom(zoomFactor, centerX, centerY);
+        if (lockFontPoint && fontPos) {
+            applyFontPointScreenLock(
+                this.viewportManager,
+                { x: centerX, y: centerY },
+                fontPos.x,
+                fontPos.y,
+                { lockY: true }
+            );
+        }
+
+        this.render();
     }
 
     startKeyboardZoom(zoomIn: boolean): void {

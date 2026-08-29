@@ -451,3 +451,51 @@
     padding: 12px 14px;
     overflow: visible;
 }
+
+.info-popup.screen-calibration-popup {
+    max-width: max(500px, calc(10cm + 40px));
+}
+
+.screen-calibration-ruler-wrap {
+    margin: 16px 0;
+}
+
+.screen-calibration-ruler {
+    height: 8px;
+    flex-shrink: 0;
+    background: var(--text-primary);
+    border-radius: 1px;
+}
+
+.screen-calibration-ruler-label {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.screen-calibration-measure-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.screen-calibration-measure-label {
+    color: var(--text-primary);
+    font-size: 13px;
+}
+
+.screen-calibration-measured-input {
+    width: 6em;
+    background: var(--input-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 3px;
+    padding: 4px 8px;
+    font-size: 13px;
+}
+
+.screen-calibration-unit-toggle {
+    display: flex;
+    gap: 4px;
+}
