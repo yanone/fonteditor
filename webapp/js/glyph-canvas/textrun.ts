@@ -24,8 +24,26 @@ import {
     resolvePreferredKerningPairValue,
     type KerningContainer
 } from '../kerning-utils';
-
 import bidiFactory from 'bidi-js';
+
+import {
+    applyLineLayoutToGlyphs,
+    computeTypoLineHeightUnit,
+    computeUsedLineHeight,
+    DEFAULT_LINE_HEIGHT_PERCENT,
+    DEFAULT_TEXT_ALIGN,
+    findLineIndexForFontY,
+    getShapedGlyphPosition,
+    isTextAlign,
+    lineBaselineY,
+    lineOriginX,
+    lineRangeAt,
+    normalizeTextNewlines,
+    parseLineHeightPercent,
+    splitTextLines,
+    type TextAlign
+} from './text-run-layout';
+import { textLayoutControls } from './text-layout-controls';
 
 let console: Logger = new Logger('TextRun');
 
@@ -39,6 +57,9 @@ export interface ShapedGlyph {
     explicitGlyphName?: string;
     explicitTokenStart?: number;
     explicitTokenEnd?: number;
+    lineIndex?: number;
+    lineOriginX?: number;
+    baselineY?: number;
 }
 
 interface ExplicitGlyphToken {
@@ -90,7 +111,10 @@ export class TextRunEditor {
     cursorVisible: boolean;
     cursorBlinkInterval: any;
     cursorX: number;
+    cursorY: number;
     clusterMap: any[];
+    lineHeightPercent: number;
+    textAlign: TextAlign;
     layoutVersion: number;
     embeddingLevels: any;
     callbacks: Record<string, Function[]>;
@@ -148,6 +172,9 @@ export class TextRunEditor {
         this.cursorVisible = true;
         this.cursorBlinkInterval = null;
         this.cursorX = 0; // Visual X position for rendering
+        this.cursorY = 0;
+        this.lineHeightPercent = DEFAULT_LINE_HEIGHT_PERCENT;
+        this.textAlign = DEFAULT_TEXT_ALIGN;
         this.clusterMap = []; // Maps logical char positions to visual glyph info
         this.embeddingLevels = null; // BiDi embedding levels for cursor logic
 
@@ -166,6 +193,7 @@ export class TextRunEditor {
         this.selectedMasterId = null; // No master selected by default
 
         this.callbacks = {}; // For notifying GlyphCanvas of updates
+        this.applyLayoutSettingsFromState();
     }
 
     on(event: string, callback: Function) {
@@ -371,8 +399,99 @@ export class TextRunEditor {
         window.stateManager.editor_text_buffer = this.textBuffer;
     }
 
+    applyLayoutSettingsFromState(): void {
+        const lineHeight = parseLineHeightPercent(
+            window.stateManager?.editor_line_height
+        );
+        this.lineHeightPercent =
+            lineHeight === null ? DEFAULT_LINE_HEIGHT_PERCENT : lineHeight;
+        const align = window.stateManager?.editor_text_align;
+        this.textAlign = isTextAlign(align) ? align : DEFAULT_TEXT_ALIGN;
+    }
+
+    setLineHeightPercent(percent: number, options?: { skipShape?: boolean }) {
+        const numeric = parseLineHeightPercent(percent);
+        this.lineHeightPercent =
+            numeric === null ? DEFAULT_LINE_HEIGHT_PERCENT : numeric;
+        if (window.stateManager) {
+            window.stateManager.editor_line_height = this.lineHeightPercent;
+        }
+        if (!options?.skipShape) {
+            this.relayoutLines();
+        }
+        textLayoutControls.render();
+    }
+
+    setTextAlign(align: TextAlign, options?: { skipShape?: boolean }) {
+        this.textAlign = isTextAlign(align) ? align : DEFAULT_TEXT_ALIGN;
+        if (window.stateManager) {
+            window.stateManager.editor_text_align = this.textAlign;
+        }
+        if (!options?.skipShape) {
+            this.relayoutLines();
+        }
+        textLayoutControls.render();
+    }
+
+    getUsedLineHeight(): number {
+        return computeUsedLineHeight(
+            computeTypoLineHeightUnit(this.getSelectedMasterMetrics()),
+            this.lineHeightPercent
+        );
+    }
+
+    getLineCount(): number {
+        return splitTextLines(this.textBuffer || '').length;
+    }
+
+    getLineRangeAt(position: number) {
+        return lineRangeAt(this.textBuffer || '', position);
+    }
+
+    getActiveBaselineY(): number {
+        const selectedIndex = this.selectedGlyphIndex;
+        if (selectedIndex >= 0 && selectedIndex < this.shapedGlyphs.length) {
+            return this.shapedGlyphs[selectedIndex].baselineY ?? 0;
+        }
+        return lineBaselineY(
+            this.getLineRangeAt(this.cursorPosition).lineIndex,
+            this.getUsedLineHeight()
+        );
+    }
+
+    private getSelectedMasterMetrics(): Record<string, number> | null {
+        const fontModel = window.currentFontModel;
+        const master =
+            (this.selectedMasterId &&
+                fontModel?.masters?.find(
+                    (candidate: { id?: string }) =>
+                        candidate.id === this.selectedMasterId
+                )) ||
+            fontModel?.masters?.[0] ||
+            null;
+        const rawMetrics = master?.metrics;
+        if (!rawMetrics || typeof rawMetrics !== 'object') {
+            return null;
+        }
+        const metrics: Record<string, number> = {};
+        for (const [key, value] of Object.entries(rawMetrics)) {
+            if (typeof value === 'number' && Number.isFinite(value)) {
+                metrics[key] = value;
+            }
+        }
+        return Object.keys(metrics).length > 0 ? metrics : null;
+    }
+
+    relayoutLines() {
+        this.applyMultilineLayout();
+        this.buildClusterMap();
+        this.updateCursorVisualPosition();
+        this.call('render');
+        this.call('cursormoved');
+    }
+
     setTextBuffer(text: string) {
-        this.textBuffer = text || '';
+        this.textBuffer = normalizeTextNewlines(text || '');
         this.syncTextBufferToStateManager();
 
         // Save to localStorage
@@ -493,10 +612,29 @@ export class TextRunEditor {
         return glyphIndex;
     }
 
-    getGlyphIndexAtClick(glyphX: number, _glyphY?: number) {
+    getGlyphIndexAtClick(glyphX: number, glyphY?: number) {
         if (!this.clusterMap || this.clusterMap.length === 0) {
             return 0;
         }
+
+        const usedLineHeight = this.getUsedLineHeight();
+        const lineIndex =
+            typeof glyphY === 'number' && Number.isFinite(glyphY)
+                ? findLineIndexForFontY(
+                      glyphY,
+                      this.getLineCount(),
+                      usedLineHeight
+                  )
+                : findLineIndexForFontY(
+                      this.cursorY,
+                      this.getLineCount(),
+                      usedLineHeight
+                  );
+        const lineClusters = this.clusterMap.filter(
+            (cluster) => (cluster.lineIndex ?? 0) === lineIndex
+        );
+        const clusters =
+            lineClusters.length > 0 ? lineClusters : this.clusterMap;
 
         // Find closest cursor position accounting for RTL. Clicks far left/right
         // of the run snap to the nearest end — same as a normal text editor.
@@ -504,7 +642,7 @@ export class TextRunEditor {
         let closestDist = Infinity;
 
         // Check each cluster
-        for (const cluster of this.clusterMap) {
+        for (const cluster of clusters) {
             if (cluster.isRTL) {
                 // RTL: start position is at RIGHT edge, end position is at LEFT edge
                 const rightEdge = cluster.x + cluster.width;
@@ -592,6 +730,51 @@ export class TextRunEditor {
         }
 
         return closestPos;
+    }
+
+    moveCursorToBufferEdge(position: number, withSelection: boolean) {
+        if (withSelection) {
+            this.extendSelectionTo(position);
+        } else {
+            this.clearSelection();
+            this.cursorPosition = position;
+            this.updateCursorVisualPosition();
+            this.call('cursormoved');
+        }
+    }
+
+    moveCursorToLineEdge(edge: 'start' | 'end', withSelection: boolean) {
+        const line = this.getLineRangeAt(this.cursorPosition);
+        const position = edge === 'start' ? line.start : line.end;
+        if (withSelection) {
+            this.extendSelectionTo(position);
+        } else {
+            this.clearSelection();
+            this.cursorPosition = position;
+            this.updateCursorVisualPosition();
+            this.call('cursormoved');
+        }
+    }
+
+    moveCursorVertically(direction: -1 | 1, withSelection: boolean) {
+        const lines = splitTextLines(this.textBuffer || '');
+        const currentLine = this.getLineRangeAt(this.cursorPosition);
+        const nextIndex = currentLine.lineIndex + direction;
+        if (nextIndex < 0 || nextIndex >= lines.length) {
+            return;
+        }
+        const target = this.getGlyphIndexAtClick(
+            this.cursorX,
+            lineBaselineY(nextIndex, this.getUsedLineHeight())
+        );
+        if (withSelection) {
+            this.extendSelectionTo(target);
+        } else {
+            this.clearSelection();
+            this.cursorPosition = target;
+            this.updateCursorVisualPosition();
+            this.call('cursormoved');
+        }
     }
 
     moveCursorLogicalBackward() {
@@ -995,6 +1178,18 @@ export class TextRunEditor {
         this.call('cursormoved');
     }
 
+    extendSelectionTo(position: number) {
+        const clamped = Math.max(0, Math.min(position, this.textBuffer.length));
+        if (!this.hasSelection() && this.selectionStart === null) {
+            this.selectionStart = this.cursorPosition;
+        }
+        this.cursorPosition = clamped;
+        this.selectionEnd = clamped;
+        this.updateCursorVisualPosition();
+        this.call('cursormoved');
+        this.call('render');
+    }
+
     // ==================== Clipboard Methods ====================
 
     async copySelection() {
@@ -1105,11 +1300,12 @@ export class TextRunEditor {
         }
 
         // Insert text at cursor position
+        const inserted = normalizeTextNewlines(text);
         this.textBuffer =
             this.textBuffer.slice(0, this.cursorPosition) +
-            text +
+            inserted +
             this.textBuffer.slice(this.cursorPosition);
-        this.cursorPosition += text.length;
+        this.cursorPosition += inserted.length;
 
         this.reshapeAndRender();
     }
@@ -1329,6 +1525,7 @@ export class TextRunEditor {
         if (this.textBuffer.length === 0) {
             this.cursorPosition = 0;
             this.cursorX = 0;
+            this.cursorY = 0;
         }
 
         this.call('cursormoved', cursorMoveReason);
@@ -1351,97 +1548,140 @@ export class TextRunEditor {
     }
 
     buildClusterMap() {
-        // Build a map from logical character positions to visual glyphs
-        // Group glyphs by cluster to handle multi-glyph clusters correctly
         this.clusterMap = [];
         this.layoutVersion++;
 
-        if (!this.shapedGlyphs || this.shapedGlyphs.length === 0) {
-            return;
+        const lines = splitTextLines(this.textBuffer || '');
+        const usedLineHeight = this.getUsedLineHeight();
+        const glyphsByLine = new Map<number, ShapedGlyph[]>();
+        for (const glyph of this.shapedGlyphs || []) {
+            const lineIndex = glyph.lineIndex ?? 0;
+            const lineGlyphs = glyphsByLine.get(lineIndex) || [];
+            lineGlyphs.push(glyph);
+            glyphsByLine.set(lineIndex, lineGlyphs);
         }
+
+        const lineWidths = lines.map((_, lineIndex) => {
+            const lineGlyphs = glyphsByLine.get(lineIndex) || [];
+            return lineGlyphs.reduce((sum, glyph) => sum + (glyph.ax || 0), 0);
+        });
+        const maxWidth = lineWidths.reduce(
+            (max, width) => Math.max(max, width),
+            0
+        );
 
         console.log('=== Building Cluster Map ===');
         console.log('Text buffer:', this.textBuffer);
-        console.log(
-            '[TextRun]',
-            'Shaped glyphs count:',
-            this.shapedGlyphs.length
-        );
 
-        // First pass: collect all unique cluster values to determine proper boundaries
-        const clusterValues = new Set<number>();
-        for (const glyph of this.shapedGlyphs) {
-            clusterValues.add(glyph.cl || 0);
-        }
-        const sortedClusters = Array.from(clusterValues).sort((a, b) => a - b);
-
-        // Create a map from cluster start to cluster end
-        const clusterBounds = new Map();
-        for (let i = 0; i < sortedClusters.length; i++) {
-            const start = sortedClusters[i];
-            const end =
-                i < sortedClusters.length - 1
-                    ? sortedClusters[i + 1]
-                    : this.textBuffer.length;
-            clusterBounds.set(start, end);
-        }
-
-        // Group consecutive glyphs with the same cluster value
-        let xPosition = 0;
-        let i = 0;
-
-        while (i < this.shapedGlyphs.length) {
-            const glyph = this.shapedGlyphs[i];
-            const clusterStart = glyph.cl || 0;
-            const isExplicitToken = !!glyph.explicitGlyphName;
-
-            // Find all glyphs that belong to this cluster
-            let clusterWidth = 0;
-            let j = i;
-            while (
-                j < this.shapedGlyphs.length &&
-                (this.shapedGlyphs[j].cl || 0) === clusterStart
-            ) {
-                clusterWidth += this.shapedGlyphs[j].ax || 0;
-                j++;
+        for (const line of lines) {
+            const lineGlyphs = glyphsByLine.get(line.lineIndex) || [];
+            const baselineY = lineBaselineY(line.lineIndex, usedLineHeight);
+            const originX =
+                lineGlyphs[0]?.lineOriginX ??
+                lineOriginX(
+                    this.textAlign,
+                    lineWidths[line.lineIndex] ?? 0,
+                    maxWidth
+                );
+            const clusterValues = new Set<number>();
+            for (const glyph of lineGlyphs) {
+                clusterValues.add(glyph.cl || 0);
             }
-
-            // Get the proper cluster end from our bounds map
-            let clusterEnd =
-                clusterBounds.get(clusterStart) || clusterStart + 1;
-
-            if (
-                isExplicitToken &&
-                typeof glyph.explicitTokenEnd === 'number' &&
-                glyph.explicitTokenEnd > clusterStart
-            ) {
-                clusterEnd = glyph.explicitTokenEnd;
-            }
-
-            // Determine the RTL status based on the cluster start position
-            const isRTL = this.isPositionRTL(clusterStart);
-
-            console.log(
-                '[TextRun]',
-                `Cluster [${clusterStart}-${clusterEnd}): ${j - i} glyphs, x=${xPosition.toFixed(0)}, width=${clusterWidth.toFixed(0)}, RTL=${isRTL}`
+            const sortedClusters = Array.from(clusterValues).sort(
+                (a, b) => a - b
             );
+            const clusterBounds = new Map<number, number>();
+            for (let i = 0; i < sortedClusters.length; i++) {
+                const start = sortedClusters[i];
+                const nextStart =
+                    i < sortedClusters.length - 1
+                        ? sortedClusters[i + 1]
+                        : line.end;
+                clusterBounds.set(start, Math.min(nextStart, line.end));
+            }
 
-            this.clusterMap.push({
-                glyphIndex: i,
-                glyphCount: j - i,
-                start: clusterStart,
-                end: clusterEnd,
-                x: xPosition,
-                width: clusterWidth,
-                isRTL: isRTL,
-                isExplicitToken: isExplicitToken,
-                isAtomicCluster:
-                    isExplicitToken ||
-                    this.isEscapedSlashRange(clusterStart, clusterEnd)
-            });
+            let xPosition = originX;
+            let glyphOffset = 0;
+            while (glyphOffset < lineGlyphs.length) {
+                const glyph = lineGlyphs[glyphOffset];
+                const clusterStart = glyph.cl || 0;
+                const isExplicitToken = !!glyph.explicitGlyphName;
+                let clusterWidth = 0;
+                let j = glyphOffset;
+                while (
+                    j < lineGlyphs.length &&
+                    (lineGlyphs[j].cl || 0) === clusterStart
+                ) {
+                    clusterWidth += lineGlyphs[j].ax || 0;
+                    j++;
+                }
 
-            xPosition += clusterWidth;
-            i = j; // Move to next cluster
+                let clusterEnd =
+                    clusterBounds.get(clusterStart) || clusterStart + 1;
+                if (
+                    isExplicitToken &&
+                    typeof glyph.explicitTokenEnd === 'number' &&
+                    glyph.explicitTokenEnd > clusterStart
+                ) {
+                    clusterEnd = Math.min(glyph.explicitTokenEnd, line.end);
+                }
+                clusterEnd = Math.min(clusterEnd, line.end);
+
+                const isRTL = this.isPositionRTL(clusterStart);
+                const globalGlyphIndex = this.shapedGlyphs.indexOf(glyph);
+                this.clusterMap.push({
+                    glyphIndex: globalGlyphIndex,
+                    glyphCount: j - glyphOffset,
+                    start: clusterStart,
+                    end: clusterEnd,
+                    x: xPosition,
+                    y: baselineY,
+                    width: clusterWidth,
+                    lineIndex: line.lineIndex,
+                    isRTL: isRTL,
+                    isExplicitToken: isExplicitToken,
+                    isAtomicCluster:
+                        isExplicitToken ||
+                        this.isEscapedSlashRange(clusterStart, clusterEnd)
+                });
+                xPosition += clusterWidth;
+                glyphOffset = j;
+            }
+
+            if (line.newlineIndex !== null) {
+                const lastCluster =
+                    this.clusterMap[this.clusterMap.length - 1] || null;
+                const isRTL = lastCluster?.isRTL || false;
+                const newlineX = isRTL ? originX : xPosition;
+                this.clusterMap.push({
+                    glyphIndex: -1,
+                    glyphCount: 0,
+                    start: line.newlineIndex,
+                    end: line.newlineIndex + 1,
+                    x: newlineX,
+                    y: baselineY,
+                    width: 0,
+                    lineIndex: line.lineIndex,
+                    isRTL,
+                    isExplicitToken: false,
+                    isAtomicCluster: true,
+                    isNewline: true
+                });
+            } else if (lineGlyphs.length === 0) {
+                this.clusterMap.push({
+                    glyphIndex: -1,
+                    glyphCount: 0,
+                    start: line.start,
+                    end: line.start,
+                    x: originX,
+                    y: baselineY,
+                    width: 0,
+                    lineIndex: line.lineIndex,
+                    isRTL: false,
+                    isExplicitToken: false,
+                    isAtomicCluster: true
+                });
+            }
         }
 
         console.log('===========================');
@@ -1455,6 +1695,11 @@ export class TextRunEditor {
             this.cursorPosition
         );
         this.cursorX = 0;
+        const caretLine = this.getLineRangeAt(this.cursorPosition);
+        this.cursorY = lineBaselineY(
+            caretLine.lineIndex,
+            this.getUsedLineHeight()
+        );
 
         if (!this.clusterMap || this.clusterMap.length === 0) {
             console.log('No cluster map');
@@ -1481,12 +1726,16 @@ export class TextRunEditor {
         });
         console.log('Cluster map:', clusterWithNames);
 
+        const lineClusters = this.clusterMap.filter(
+            (cluster) => (cluster.lineIndex ?? 0) === caretLine.lineIndex
+        );
+
         // Find the cluster that contains or is adjacent to this position
         // Priority: Check if position is the START of a cluster FIRST (more important than END)
         let found = false;
 
         // First pass: Check if this position is at the START of any cluster
-        for (const cluster of this.clusterMap) {
+        for (const cluster of lineClusters) {
             if (this.cursorPosition === cluster.start) {
                 console.log(
                     '[TextRun]',
@@ -1517,7 +1766,7 @@ export class TextRunEditor {
 
         // Second pass: Check if this position is at the END of any cluster
         if (!found) {
-            for (const cluster of this.clusterMap) {
+            for (const cluster of lineClusters) {
                 if (
                     this.cursorPosition === cluster.end &&
                     this.cursorPosition > cluster.start
@@ -1552,7 +1801,7 @@ export class TextRunEditor {
 
         // Third pass: Check if position is INSIDE a cluster
         if (!found) {
-            for (const cluster of this.clusterMap) {
+            for (const cluster of lineClusters) {
                 if (
                     this.cursorPosition > cluster.start &&
                     this.cursorPosition < cluster.end
@@ -1694,6 +1943,24 @@ export class TextRunEditor {
             return;
         }
 
+        if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey) {
+            e.preventDefault();
+            this.insertText('\n');
+            return;
+        }
+
+        if (e.key === 'ArrowUp' && !e.metaKey && !e.ctrlKey) {
+            e.preventDefault();
+            this.moveCursorVertically(-1, e.shiftKey);
+            return;
+        }
+
+        if (e.key === 'ArrowDown' && !e.metaKey && !e.ctrlKey) {
+            e.preventDefault();
+            this.moveCursorVertically(1, e.shiftKey);
+            return;
+        }
+
         // Backspace and Delete
         if (e.key === 'Backspace') {
             e.preventDefault();
@@ -1710,27 +1977,21 @@ export class TextRunEditor {
         // Home and End keys
         if (e.key === 'Home') {
             e.preventDefault();
-            if (e.shiftKey) {
-                this.moveToStartWithSelection();
-            } else {
-                this.clearSelection();
-                this.cursorPosition = 0;
-                this.updateCursorVisualPosition();
-                this.call('cursormoved');
+            if (e.metaKey || e.ctrlKey) {
+                this.moveCursorToBufferEdge(0, e.shiftKey);
+                return;
             }
+            this.moveCursorToLineEdge('start', e.shiftKey);
             return;
         }
 
         if (e.key === 'End') {
             e.preventDefault();
-            if (e.shiftKey) {
-                this.moveToEndWithSelection();
-            } else {
-                this.clearSelection();
-                this.cursorPosition = this.textBuffer.length;
-                this.updateCursorVisualPosition();
-                this.call('cursormoved');
+            if (e.metaKey || e.ctrlKey) {
+                this.moveCursorToBufferEdge(this.textBuffer.length, e.shiftKey);
+                return;
             }
+            this.moveCursorToLineEdge('end', e.shiftKey);
             return;
         }
 
@@ -2045,6 +2306,8 @@ export class TextRunEditor {
             this.bidiRuns = [];
             this.explicitGlyphTokens = [];
             this.intrinsicGlyphAdvances.clear();
+            this.buildClusterMap();
+            this.updateCursorVisualPosition();
             this.call('render');
             return;
         }
@@ -2074,11 +2337,7 @@ export class TextRunEditor {
                         this.hbFont.setVariations(location);
                     }
                 }
-                if (this.bidi) {
-                    this.shapeTextWithBidi(shapingFont);
-                } else {
-                    this.shapeTextSimple(shapingFont);
-                }
+                this.shapeLines(shapingFont);
             } else {
                 // Explicit /.glyph tokens can still layout and paint from the
                 // source model + getGlyphOutlines without a compiled binary.
@@ -2090,6 +2349,7 @@ export class TextRunEditor {
             // those pairs). Rebuild clusters after so positions match.
             this.rebuildIntrinsicGlyphAdvanceCache();
             if (this.applyModelKerningForExplicitTokenAdjacencies()) {
+                this.applyMultilineLayout();
                 this.buildClusterMap();
                 this.updateCursorVisualPosition();
             }
@@ -2179,6 +2439,9 @@ export class TextRunEditor {
             if (leftIsRTL !== rightIsRTL) {
                 continue;
             }
+            if ((leftGlyph.lineIndex ?? 0) !== (rightGlyph.lineIndex ?? 0)) {
+                continue;
+            }
 
             const leftName =
                 leftGlyph.explicitGlyphName || this.glyphNameBuffer[i] || null;
@@ -2245,12 +2508,16 @@ export class TextRunEditor {
             return;
         }
 
-        this.shapedGlyphs = this.explicitGlyphTokens.map((token) =>
-            this.buildExplicitTokenGlyph(token)
-        );
+        this.shapedGlyphs = this.explicitGlyphTokens.map((token) => {
+            const glyph = this.buildExplicitTokenGlyph(token);
+            const line = this.getLineRangeAt(token.start);
+            glyph.lineIndex = line.lineIndex;
+            return glyph;
+        });
         this.glyphNameBuffer = this.explicitGlyphTokens.map(
             (token) => token.name
         );
+        this.applyMultilineLayout();
         this.buildClusterMap();
         this.updateCursorVisualPosition();
     }
@@ -2366,6 +2633,11 @@ export class TextRunEditor {
 
         let rawIndex = 0;
         while (rawIndex < rawText.length) {
+            if (rawText[rawIndex] === '\n') {
+                rawIndex += 1;
+                continue;
+            }
+
             if (
                 rawText[rawIndex] === '/' &&
                 rawIndex + 1 < rawText.length &&
@@ -2508,155 +2780,12 @@ export class TextRunEditor {
             return;
         }
 
-        // Apply variation settings to editing font
         if (Object.keys(this.axesManager.variationSettings).length > 0) {
             this.hbFont.setVariations(this.axesManager.variationSettings);
         }
 
-        console.log(
-            'Stage 2: BiDi-aware shaping with editing font (GSUB+GPOS)'
-        );
-
-        const displayText = this.displayTextBuffer;
-
-        // Get embedding levels from bidi-js
-        const embedLevels = this.bidi.getEmbeddingLevels(displayText);
-        this.embeddingLevels = embedLevels;
-
-        // Split into runs by embedding level
-        const runs: any[] = [];
-        let currentLevel = embedLevels.levels[0];
-        let runStart = 0;
-
-        for (let i = 1; i <= displayText.length; i++) {
-            if (
-                i === displayText.length ||
-                embedLevels.levels[i] !== currentLevel
-            ) {
-                const runText = displayText.substring(runStart, i);
-                const direction = currentLevel % 2 === 0 ? 'ltr' : 'rtl';
-                runs.push({
-                    text: runText,
-                    level: currentLevel,
-                    direction: direction,
-                    displayStart: runStart,
-                    displayEnd: i,
-                    start: this.mapDisplayStartToRaw(runStart),
-                    end: this.mapDisplayStartToRaw(i)
-                });
-                if (i < displayText.length) {
-                    currentLevel = embedLevels.levels[i];
-                    runStart = i;
-                }
-            }
-        }
-
-        console.log(
-            '[TextRun]',
-            'Stage 2 logical runs:',
-            runs.map((r: any) => `${r.direction}:${r.level}:"${r.text}"`)
-        );
-
-        // Shape each run with HarfBuzz in its logical direction
-        const features = this.featuresManager.getHarfBuzzFeatures();
-        const shapedRuns: any[] = [];
-
-        for (const run of runs) {
-            const buffer = this.hb.createBuffer();
-            buffer.addText(run.text);
-            buffer.setDirection(run.direction);
-            buffer.guessSegmentProperties();
-
-            if (features) {
-                this.hb.shape(this.hbFont, buffer, features);
-            } else {
-                this.hb.shape(this.hbFont, buffer);
-            }
-
-            const glyphs = buffer.json();
-            buffer.destroy();
-
-            // Adjust cluster values to be relative to the full display string
-            for (const glyph of glyphs) {
-                glyph.cl = (glyph.cl || 0) + run.displayStart;
-            }
-
-            shapedRuns.push({
-                ...run,
-                glyphs: glyphs
-            });
-        }
-
-        // Reorder runs using bidi-js
-        const reorderedIndices = this.bidi.getReorderedIndices(
-            displayText,
-            embedLevels
-        );
-
-        // Build visual glyph order
-        const logicalPosToGlyphs = new Map();
-        for (const run of shapedRuns) {
-            for (const glyph of run.glyphs) {
-                const clusterPos = glyph.cl || 0;
-                if (!logicalPosToGlyphs.has(clusterPos)) {
-                    logicalPosToGlyphs.set(clusterPos, []);
-                }
-                logicalPosToGlyphs.get(clusterPos).push(glyph);
-            }
-        }
-
-        const addedClusters = new Set();
-        const allGlyphs: any[] = [];
-
-        for (const charIdx of reorderedIndices) {
-            let clusterStart = charIdx;
-
-            // Find the cluster that contains this character
-            for (const [clusterPos, glyphs] of logicalPosToGlyphs) {
-                if (clusterPos <= charIdx) {
-                    let nextClusterPos = displayText.length;
-                    for (const [otherPos, _] of logicalPosToGlyphs) {
-                        if (
-                            otherPos > clusterPos &&
-                            otherPos < nextClusterPos
-                        ) {
-                            nextClusterPos = otherPos;
-                        }
-                    }
-
-                    if (charIdx >= clusterPos && charIdx < nextClusterPos) {
-                        clusterStart = clusterPos;
-                        break;
-                    }
-                }
-            }
-
-            if (
-                !addedClusters.has(clusterStart) &&
-                logicalPosToGlyphs.has(clusterStart)
-            ) {
-                const glyphs = logicalPosToGlyphs.get(clusterStart);
-                allGlyphs.push(...glyphs);
-                addedClusters.add(clusterStart);
-            }
-        }
-
-        for (const glyph of allGlyphs) {
-            const displayCluster = glyph.cl || 0;
-            glyph.cl = this.mapDisplayStartToRaw(displayCluster);
-        }
-
-        this.shapedGlyphs = allGlyphs;
-        this.shapedGlyphs = this.mergeExplicitGlyphTokensIntoShapedGlyphs(
-            this.shapedGlyphs
-        );
-        this.bidiRuns = shapedRuns;
-        this.rebuildGlyphNameBufferFromShapedGlyphs();
-
-        // Build cluster map for cursor positioning
-        this.buildClusterMap();
-        this.updateCursorVisualPosition();
-
+        this.buildDisplayTextMapping();
+        this.shapeLines(this.hbFont);
         console.log('Stage 2 shaped glyphs:', this.shapedGlyphs.length);
     }
 
@@ -3401,57 +3530,137 @@ export class TextRunEditor {
         return merged;
     }
 
-    shapeTextSimple(hbFont: any) {
-        // Simple shaping without BiDi support (old behavior, uses editing font)
-        const displayText = this.displayTextBuffer;
+    displayRangeForRawRange(
+        rawStart: number,
+        rawEnd: number
+    ): { start: number; end: number } {
+        let start = this.displayIndexToRawStart.length;
+        let end = this.displayIndexToRawStart.length;
+        for (let i = 0; i < this.displayIndexToRawStart.length; i++) {
+            const raw = this.displayIndexToRawStart[i];
+            if (raw >= rawStart && raw < rawEnd) {
+                if (start === this.displayIndexToRawStart.length) {
+                    start = i;
+                }
+                end = i + 1;
+            }
+        }
+        if (start > end) {
+            return { start: 0, end: 0 };
+        }
+        return { start, end };
+    }
+
+    applyMultilineLayout() {
+        const lines = splitTextLines(this.textBuffer || '');
+        applyLineLayoutToGlyphs(
+            this.shapedGlyphs,
+            lines.length,
+            this.getUsedLineHeight(),
+            this.textAlign
+        );
+    }
+
+    shapeLines(hbFont: any) {
+        const lines = splitTextLines(this.textBuffer || '');
+        const allGlyphs: ShapedGlyph[] = [];
+        const allBidiRuns: any[] = [];
+        this.embeddingLevels = {
+            levels: new Array(this.displayTextBuffer.length).fill(0)
+        };
+
+        for (const line of lines) {
+            const displayRange = this.displayRangeForRawRange(
+                line.start,
+                line.end
+            );
+            const lineGlyphs = this.bidi
+                ? this.shapeDisplaySliceWithBidi(
+                      hbFont,
+                      displayRange.start,
+                      displayRange.end,
+                      allBidiRuns
+                  )
+                : this.shapeDisplaySliceSimple(
+                      hbFont,
+                      displayRange.start,
+                      displayRange.end
+                  );
+            for (const glyph of lineGlyphs) {
+                glyph.lineIndex = line.lineIndex;
+            }
+            allGlyphs.push(...lineGlyphs);
+        }
+
+        this.shapedGlyphs =
+            this.mergeExplicitGlyphTokensIntoShapedGlyphs(allGlyphs);
+        for (const glyph of this.shapedGlyphs) {
+            if (glyph.lineIndex === undefined) {
+                glyph.lineIndex = this.getLineRangeAt(glyph.cl || 0).lineIndex;
+            }
+        }
+        this.bidiRuns = allBidiRuns;
+        this.rebuildGlyphNameBufferFromShapedGlyphs();
+        this.applyMultilineLayout();
+        this.buildClusterMap();
+        this.updateCursorVisualPosition();
+    }
+
+    shapeDisplaySliceSimple(
+        hbFont: any,
+        displayStart: number,
+        displayEnd: number
+    ): ShapedGlyph[] {
+        const displayText = this.displayTextBuffer.slice(
+            displayStart,
+            displayEnd
+        );
+        if (!displayText) {
+            return [];
+        }
+
         const buffer = this.hb.createBuffer();
         buffer.addText(displayText);
         buffer.guessSegmentProperties();
-
-        // Shape the text with features
         const features = this.featuresManager.getHarfBuzzFeatures();
         if (features) {
             this.hb.shape(hbFont, buffer, features);
         } else {
             this.hb.shape(hbFont, buffer);
         }
-
-        // Log the glyph buffer after shaping
-        console.log('[HarfBuzz]', 'Glyph buffer after shaping:', buffer.json());
-
-        // Get glyph information
-        this.shapedGlyphs = buffer.json();
-        for (const glyph of this.shapedGlyphs) {
-            const displayCluster = glyph.cl || 0;
-            glyph.cl = this.mapDisplayStartToRaw(displayCluster);
-        }
-        this.shapedGlyphs = this.mergeExplicitGlyphTokensIntoShapedGlyphs(
-            this.shapedGlyphs
-        );
-        this.bidiRuns = [];
-        this.rebuildGlyphNameBufferFromShapedGlyphs();
-
-        // Clean up
+        const glyphs = buffer.json() as ShapedGlyph[];
         buffer.destroy();
-
-        // Build cluster map for cursor positioning
-        this.buildClusterMap();
-        this.updateCursorVisualPosition();
+        for (const glyph of glyphs) {
+            glyph.cl = this.mapDisplayStartToRaw(
+                (glyph.cl || 0) + displayStart
+            );
+        }
+        return glyphs;
     }
 
-    shapeTextWithBidi(hbFont: any) {
-        const displayText = this.displayTextBuffer;
-        // Get embedding levels from bidi-js
-        const embedLevels = this.bidi.getEmbeddingLevels(displayText);
-        this.embeddingLevels = embedLevels; // Store for cursor logic
-        console.log('Embedding levels:', embedLevels);
+    shapeDisplaySliceWithBidi(
+        hbFont: any,
+        displayStart: number,
+        displayEnd: number,
+        allBidiRuns: any[]
+    ): ShapedGlyph[] {
+        const displayText = this.displayTextBuffer.slice(
+            displayStart,
+            displayEnd
+        );
+        if (!displayText) {
+            return [];
+        }
 
-        // First, shape the text in LOGICAL order with proper direction per run
-        // Split into runs by embedding level
+        const embedLevels = this.bidi.getEmbeddingLevels(displayText);
+        for (let i = 0; i < embedLevels.levels.length; i++) {
+            this.embeddingLevels.levels[displayStart + i] =
+                embedLevels.levels[i];
+        }
+
         const runs: any[] = [];
         let currentLevel = embedLevels.levels[0];
         let runStart = 0;
-
         for (let i = 1; i <= displayText.length; i++) {
             if (
                 i === displayText.length ||
@@ -3459,14 +3668,16 @@ export class TextRunEditor {
             ) {
                 const runText = displayText.substring(runStart, i);
                 const direction = currentLevel % 2 === 0 ? 'ltr' : 'rtl';
+                const absoluteStart = displayStart + runStart;
+                const absoluteEnd = displayStart + i;
                 runs.push({
                     text: runText,
                     level: currentLevel,
                     direction: direction,
-                    displayStart: runStart,
-                    displayEnd: i,
-                    start: this.mapDisplayStartToRaw(runStart),
-                    end: this.mapDisplayStartToRaw(i)
+                    displayStart: absoluteStart,
+                    displayEnd: absoluteEnd,
+                    start: this.mapDisplayStartToRaw(absoluteStart),
+                    end: this.mapDisplayStartToRaw(absoluteEnd)
                 });
                 if (i < displayText.length) {
                     currentLevel = embedLevels.levels[i];
@@ -3475,13 +3686,6 @@ export class TextRunEditor {
             }
         }
 
-        console.log(
-            '[TextRun]',
-            'Logical runs:',
-            runs.map((r) => `${r.direction}:${r.level}:"${r.text}"`)
-        );
-
-        // Shape each run with HarfBuzz in its logical direction
         const features = this.featuresManager.getHarfBuzzFeatures();
         const shapedRuns: any[] = [];
         for (const run of runs) {
@@ -3489,41 +3693,28 @@ export class TextRunEditor {
             buffer.addText(run.text);
             buffer.setDirection(run.direction);
             buffer.guessSegmentProperties();
-
             if (features) {
                 this.hb.shape(hbFont, buffer, features);
             } else {
                 this.hb.shape(hbFont, buffer);
             }
             const glyphs = buffer.json();
-            console.log(
-                '[HarfBuzz]',
-                `Glyph buffer for ${run.direction} run "${run.text}":`,
-                glyphs
-            );
             buffer.destroy();
-
-            // Adjust cluster values to be relative to the full string, not the run
             for (const glyph of glyphs) {
                 glyph.cl = (glyph.cl || 0) + run.displayStart;
             }
-
             shapedRuns.push({
                 ...run,
-                glyphs: glyphs
+                glyphs
             });
         }
 
-        // Now reorder the runs using bidi-js
         const reorderedIndices = this.bidi.getReorderedIndices(
             displayText,
             embedLevels
         );
-
-        // For each run, create a map from logical position to glyphs
         const logicalPosToGlyphs = new Map();
         for (const run of shapedRuns) {
-            // Group glyphs by their cluster value within this run
             for (const glyph of run.glyphs) {
                 const clusterPos = glyph.cl || 0;
                 if (!logicalPosToGlyphs.has(clusterPos)) {
@@ -3533,23 +3724,15 @@ export class TextRunEditor {
             }
         }
 
-        // Build visual glyph order by following reordered character indices
-        // Track which clusters we've already added to avoid duplicates
         const addedClusters = new Set();
         const allGlyphs: any[] = [];
-
-        for (const charIdx of reorderedIndices) {
-            // Find the cluster that contains this character position
-            // by looking for glyphs with cluster values <= charIdx
+        for (const localIdx of reorderedIndices) {
+            const charIdx = displayStart + localIdx;
             let clusterStart = charIdx;
-
-            // Find the actual cluster start for this character
-            for (const [clusterPos, glyphs] of logicalPosToGlyphs) {
+            for (const [clusterPos] of logicalPosToGlyphs) {
                 if (clusterPos <= charIdx) {
-                    // Check if this cluster might contain our character
-                    // by finding the next cluster position
-                    let nextClusterPos = displayText.length;
-                    for (const [otherPos, _] of logicalPosToGlyphs) {
+                    let nextClusterPos = displayEnd;
+                    for (const [otherPos] of logicalPosToGlyphs) {
                         if (
                             otherPos > clusterPos &&
                             otherPos < nextClusterPos
@@ -3557,77 +3740,32 @@ export class TextRunEditor {
                             nextClusterPos = otherPos;
                         }
                     }
-
                     if (charIdx >= clusterPos && charIdx < nextClusterPos) {
                         clusterStart = clusterPos;
                         break;
                     }
                 }
             }
-
-            // Add glyphs for this cluster if we haven't already
             if (
                 !addedClusters.has(clusterStart) &&
                 logicalPosToGlyphs.has(clusterStart)
             ) {
-                const glyphs = logicalPosToGlyphs.get(clusterStart);
-                allGlyphs.push(...glyphs);
+                allGlyphs.push(...logicalPosToGlyphs.get(clusterStart));
                 addedClusters.add(clusterStart);
             }
         }
 
         for (const glyph of allGlyphs) {
-            const displayCluster = glyph.cl || 0;
-            glyph.cl = this.mapDisplayStartToRaw(displayCluster);
+            glyph.cl = this.mapDisplayStartToRaw(glyph.cl || 0);
         }
-
-        this.shapedGlyphs = allGlyphs;
-        this.shapedGlyphs = this.mergeExplicitGlyphTokensIntoShapedGlyphs(
-            this.shapedGlyphs
-        );
-        this.bidiRuns = shapedRuns;
-        this.rebuildGlyphNameBufferFromShapedGlyphs();
-
-        // Build cluster map for cursor positioning
-        this.buildClusterMap();
-        this.updateCursorVisualPosition();
-
-        console.log(
-            '[TextRun]',
-            'Final shaped glyphs:',
-            this.shapedGlyphs.length
-        );
+        allBidiRuns.push(...shapedRuns);
+        return allGlyphs;
     }
+
     _getGlyphPosition(glyphIndex: number) {
-        if (
-            !Array.isArray(this.shapedGlyphs) ||
-            this.shapedGlyphs.length === 0
-        ) {
-            return { xPosition: 0, xOffset: 0, yOffset: 0 };
-        }
-
-        const safeGlyphIndex = Math.max(0, glyphIndex);
-        let xPosition = 0;
-        const maxAdvanceIndex = Math.min(
-            safeGlyphIndex,
-            this.shapedGlyphs.length
-        );
-        for (let i = 0; i < maxAdvanceIndex; i++) {
-            const previousGlyph = this.shapedGlyphs[i];
-            xPosition += previousGlyph?.ax || 0;
-        }
-        const glyph = this.shapedGlyphs[safeGlyphIndex];
-        const xOffset = glyph?.dx || 0;
-        const yOffset = glyph?.dy || 0;
-        return { xPosition, xOffset, yOffset };
+        return getShapedGlyphPosition(this.shapedGlyphs, glyphIndex);
     }
 
-    /**
-     * Compute the total advance-width delta for all glyphs preceding the
-     * selected glyph in the buffer, given a map of new advance widths.
-     * Must be called BEFORE refreshGlyphAdvancesLive so the current ax
-     * values still reflect the pre-update state.
-     */
     computePrecedingAdvanceDelta(
         glyphAdvances: Record<string, number>
     ): number {
@@ -3639,6 +3777,8 @@ export class TextRunEditor {
             return 0;
         }
 
+        const selectedLine =
+            this.shapedGlyphs[this.selectedGlyphIndex]?.lineIndex ?? 0;
         let delta = 0;
         const limit = Math.min(
             this.selectedGlyphIndex,
@@ -3646,6 +3786,9 @@ export class TextRunEditor {
         );
         for (let i = 0; i < limit; i++) {
             const glyph = this.shapedGlyphs[i];
+            if ((glyph.lineIndex ?? 0) !== selectedLine) {
+                continue;
+            }
             const name = glyph.explicitGlyphName || this.glyphNameBuffer[i];
             if (!name) continue;
 

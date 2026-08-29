@@ -3,6 +3,7 @@
 import { Point, RectWithWidthHeight } from '../basictypes';
 import APP_SETTINGS from '../settings';
 import { ShapedGlyph } from './textrun';
+import { getShapedGlyphPosition } from './text-run-layout';
 
 export interface ViewportPanLockTarget {
     panX: number;
@@ -155,17 +156,12 @@ export class ViewportManager {
             return { glyphX, glyphY };
         }
 
-        // Adjust for the selected glyph's position in the run
-        let xPosition = 0;
-        for (let i = 0; i < selectedGlyphIndex; i++) {
-            xPosition += shapedGlyphs[i].ax || 0;
-        }
-        const glyph = shapedGlyphs[selectedGlyphIndex];
-        const xOffset = glyph.dx || 0;
-        const yOffset = glyph.dy || 0;
-
-        glyphX -= xPosition + xOffset;
-        glyphY -= yOffset;
+        const position = getShapedGlyphPosition(
+            shapedGlyphs,
+            selectedGlyphIndex
+        );
+        glyphX -= position.xPosition + position.xOffset;
+        glyphY -= position.yOffset;
 
         return { glyphX, glyphY };
     }
@@ -753,20 +749,17 @@ export class ViewportManager {
         let maxX = 0;
         let minY = boundMinY;
         let maxY = boundMaxY;
-        let xPosition = 0;
 
-        for (const glyph of shapedGlyphs) {
-            const xOffset = glyph.dx || 0;
-            const yOffset = glyph.dy || 0;
+        for (let i = 0; i < shapedGlyphs.length; i++) {
+            const glyph = shapedGlyphs[i];
+            const position = getShapedGlyphPosition(shapedGlyphs, i);
             const xAdvance = glyph.ax || 0;
-            const glyphX = xPosition + xOffset;
+            const glyphX = position.xPosition + position.xOffset;
 
             minX = Math.min(minX, glyphX);
             maxX = Math.max(maxX, glyphX + xAdvance);
-            minY = Math.min(minY, boundMinY + yOffset);
-            maxY = Math.max(maxY, boundMaxY + yOffset);
-
-            xPosition += xAdvance;
+            minY = Math.min(minY, boundMinY + (glyph.dy || 0));
+            maxY = Math.max(maxY, boundMaxY + (glyph.dy || 0));
         }
 
         return this.fitFontBounds(

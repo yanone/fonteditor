@@ -64,6 +64,9 @@ Each view title bar shows the same shortcut.
 - `Space` — preview outline fill in one paint according to Editing View → View → Preview Area, and a dotted rectangle marks the canvas viewport (property panel deducted) so you can pan the drawing onto it (grab cursor; drag to pan). Medium hides the editor title bar, sidebar, and property panel but keeps the focused view border; Full hides toolbar and app shell. Medium and Full make the canvas pannable in that same frame. Release Space to restore chrome in one paint.
 - `Tab` — measurement tool; click and drag for a custom line
 - `T` — text mode (leave glyph editing)
+- `Enter` — insert a line break (text mode)
+- Arrow Up / Down — move the caret by line (text mode)
+- Home / End — line start / end (text mode); `Cmd/Ctrl+Home` / `Cmd/Ctrl+End` — start / end of the run
 - `V` — select tool
 - `P` — draw path (pen)
 - `I` — insert a node on a segment

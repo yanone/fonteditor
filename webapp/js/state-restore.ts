@@ -6,6 +6,7 @@ import { Logger } from './logger';
 import type { GlyphCanvas } from './glyph-canvas';
 import type { UserspaceLocation } from './locations';
 import { enableSync, initStateSync, disableSync } from './state-sync';
+import { textLayoutControls } from './glyph-canvas/text-layout-controls';
 
 const console = new Logger('StateRestore');
 let startupStateReady = false;
@@ -167,6 +168,14 @@ export async function restoreStateFromUrl(
             window.stateManager.editor_mode = urlState.mode;
         }
 
+        if (urlState.lineheight !== null && urlState.lineheight !== undefined) {
+            window.stateManager.editor_line_height = urlState.lineheight;
+        }
+
+        if (urlState.align) {
+            window.stateManager.editor_text_align = urlState.align;
+        }
+
         const restoredMode =
             urlState.mode === 'edit' || urlState.mode === 'text'
                 ? urlState.mode
@@ -265,6 +274,10 @@ async function applyStateToManagers(glyphCanvas: GlyphCanvas): Promise<void> {
 
     // 3. Apply text buffer
     const textBuffer = window.stateManager.editor_text_buffer;
+    if (glyphCanvas.textRunEditor) {
+        glyphCanvas.textRunEditor.applyLayoutSettingsFromState();
+        textLayoutControls.render();
+    }
     if (textBuffer && glyphCanvas.textRunEditor) {
         console.log('Applying text:', textBuffer);
         glyphCanvas.textRunEditor.setTextBuffer(textBuffer);

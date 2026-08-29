@@ -3,8 +3,15 @@
 
 import { Logger } from './logger';
 import type { UserspaceLocation } from './locations';
+import {
+    isTextAlign,
+    parseLineHeightPercent,
+    type TextAlign
+} from './glyph-canvas/text-run-layout';
 
 const console = new Logger('URLState');
+
+export type { TextAlign };
 
 export interface AppState {
     file?: string | null;
@@ -13,6 +20,8 @@ export interface AppState {
     cursor?: number | null;
     location?: string | null; // JSON-encoded userspace location
     features?: string | null; // Comma-separated list of active features
+    lineheight?: number | null;
+    align?: TextAlign | null;
 }
 
 function mustPercentEncodeQueryChar(ch: string, isKey: boolean): boolean {
@@ -37,6 +46,49 @@ function mustPercentEncodeQueryChar(ch: string, isKey: boolean): boolean {
  * ASCII space becomes `+` in values so `text=hello+world` stays readable;
  * a literal `+` becomes `%2B`.
  */
+/**
+ * Store newlines as the two-character sequence `\n` in URL query values.
+ * Backslashes are doubled so a typed `\n` round-trips.
+ */
+export function encodeTextForUrl(text: string): string {
+    let encoded = '';
+    for (const ch of text) {
+        if (ch === '\\') {
+            encoded += '\\\\';
+            continue;
+        }
+        if (ch === '\n') {
+            encoded += '\\n';
+            continue;
+        }
+        encoded += ch;
+    }
+    return encoded;
+}
+
+/** Inverse of `encodeTextForUrl`; also keeps a real newline from `%0A`. */
+export function decodeTextFromUrl(text: string): string {
+    let decoded = '';
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (ch === '\\' && i + 1 < text.length) {
+            const next = text[i + 1];
+            if (next === 'n') {
+                decoded += '\n';
+                i += 1;
+                continue;
+            }
+            if (next === '\\') {
+                decoded += '\\';
+                i += 1;
+                continue;
+            }
+        }
+        decoded += ch;
+    }
+    return decoded;
+}
+
 export function encodeQueryComponent(value: string, isKey = false): string {
     let encoded = '';
     for (const ch of value) {
@@ -79,6 +131,8 @@ export function updateUrlState(state: AppState): void {
     for (const [key, value] of Object.entries(state)) {
         if (value === null || value === undefined) {
             searchParams.delete(key);
+        } else if (key === 'text') {
+            searchParams.set(key, encodeTextForUrl(String(value)));
         } else {
             searchParams.set(key, String(value));
         }
@@ -107,9 +161,9 @@ export function readUrlState(): AppState {
     const mode = urlParams.get('mode');
     if (mode === 'text' || mode === 'edit') state.mode = mode;
 
-    // Text (`+` is a space; `%2B` is a literal plus)
+    // Text (`+` is a space; `%2B` is a literal plus; `\n` is a line break)
     const text = urlParams.get('text');
-    if (text) state.text = text;
+    if (text) state.text = decodeTextFromUrl(text);
 
     // Cursor
     const cursor = urlParams.get('cursor');
@@ -125,6 +179,12 @@ export function readUrlState(): AppState {
     // Features
     const features = urlParams.get('features');
     if (features) state.features = features;
+
+    const lineheight = parseLineHeightPercent(urlParams.get('lineheight'));
+    if (lineheight !== null) state.lineheight = lineheight;
+
+    const align = urlParams.get('align');
+    if (isTextAlign(align)) state.align = align;
 
     console.log('Read state from URL:', state);
     return state;

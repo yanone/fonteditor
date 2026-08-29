@@ -478,6 +478,8 @@ declare global {
             editor_opentype_features_not_in_subset: Record<string, boolean>;
             editor_variation_location: import('./locations').UserspaceLocation;
             editor_active_canvas_plugins: string[];
+            editor_line_height: number;
+            editor_text_align: 'left' | 'center' | 'right';
             syncUrlNow: () => void;
             [key: string]: any;
         };

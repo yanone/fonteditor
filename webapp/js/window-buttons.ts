@@ -9,7 +9,18 @@
 import { Logger } from './logger';
 import { runBridgeUndoRedo } from './change-bridge-init';
 import { getUndoRedoContext } from './undo-redo-context';
-import { encodeFeatures, encodeLocation, formatUrl } from './url-state';
+import {
+    encodeFeatures,
+    encodeLocation,
+    encodeTextForUrl,
+    formatUrl
+} from './url-state';
+import {
+    DEFAULT_LINE_HEIGHT_PERCENT,
+    DEFAULT_TEXT_ALIGN,
+    isTextAlign,
+    parseLineHeightPercent
+} from './glyph-canvas/text-run-layout';
 import { windowRole } from './window-role';
 
 const console = new Logger('WindowButtons');
@@ -198,7 +209,7 @@ function applyCurrentEditorStateToUrl(url: URL): void {
     }
 
     if (typeof textBuffer === 'string') {
-        url.searchParams.set('text', textBuffer);
+        url.searchParams.set('text', encodeTextForUrl(textBuffer));
     } else {
         url.searchParams.delete('text');
     }
@@ -229,6 +240,22 @@ function applyCurrentEditorStateToUrl(url: URL): void {
         url.searchParams.set('features', encodeFeatures(activeFeatures));
     } else {
         url.searchParams.delete('features');
+    }
+
+    const lineHeight = parseLineHeightPercent(
+        window.stateManager?.editor_line_height
+    );
+    if (lineHeight !== null && lineHeight !== DEFAULT_LINE_HEIGHT_PERCENT) {
+        url.searchParams.set('lineheight', String(lineHeight));
+    } else {
+        url.searchParams.delete('lineheight');
+    }
+
+    const textAlign = window.stateManager?.editor_text_align;
+    if (isTextAlign(textAlign) && textAlign !== DEFAULT_TEXT_ALIGN) {
+        url.searchParams.set('align', textAlign);
+    } else {
+        url.searchParams.delete('align');
     }
 }
 

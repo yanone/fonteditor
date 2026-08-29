@@ -487,18 +487,12 @@ export class GlyphCanvasRenderer {
             return null;
         }
 
-        let xPosition = 0;
-        for (let i = 0; i < this.textRunEditor.selectedGlyphIndex; i++) {
-            xPosition += this.textRunEditor.shapedGlyphs[i].ax || 0;
-        }
-
-        const glyph =
-            this.textRunEditor.shapedGlyphs[
-                this.textRunEditor.selectedGlyphIndex
-            ];
+        const pos = this.textRunEditor._getGlyphPosition(
+            this.textRunEditor.selectedGlyphIndex
+        );
         return {
-            baseX: xPosition + (glyph.dx || 0),
-            baseY: glyph.dy || 0
+            baseX: pos.xPosition + (pos.xOffset || 0),
+            baseY: pos.yOffset
         };
     }
 
@@ -741,7 +735,6 @@ export class GlyphCanvasRenderer {
         }
 
         const invScale = 1 / this.viewportManager.scale;
-        let xPosition = 0;
 
         // Clear glyph bounds for hit testing
         this.glyphCanvas.glyphBounds = [];
@@ -759,13 +752,11 @@ export class GlyphCanvasRenderer {
         this.textRunEditor.shapedGlyphs.forEach(
             (glyph: any, glyphIndex: number) => {
                 const glyphId = glyph.g;
-                const xOffset = glyph.dx || 0;
-                const yOffset = glyph.dy || 0;
                 const xAdvance = glyph.ax || 0;
                 const explicitGlyphName = glyph.explicitGlyphName;
-
-                const x = xPosition + xOffset;
-                const y = yOffset;
+                const pos = this.textRunEditor._getGlyphPosition(glyphIndex);
+                const x = pos.xPosition + (glyph.dx || 0);
+                const y = pos.yOffset;
 
                 const glyphData = this.textRunEditor.hbFont
                     ? this.textRunEditor.hbFont.glyphToPath(glyphId)
@@ -822,7 +813,6 @@ export class GlyphCanvasRenderer {
                 });
 
                 if (featureChangeDraw) {
-                    xPosition += xAdvance;
                     return;
                 }
 
@@ -963,8 +953,6 @@ export class GlyphCanvasRenderer {
                         paintFill(fillColor, fillAlpha);
                     }
                 }
-
-                xPosition += xAdvance;
             }
         );
 
@@ -1150,6 +1138,10 @@ export class GlyphCanvasRenderer {
         return glyphPosition.xPosition + glyphPosition.xOffset;
     }
 
+    private getActiveLineBaselineY(): number {
+        return this.textRunEditor.getActiveBaselineY();
+    }
+
     private drawBackgroundEditingTint(): void {
         const outlineEditor = this.glyphCanvas.outlineEditor;
         if (
@@ -1181,8 +1173,9 @@ export class GlyphCanvasRenderer {
             return;
         }
 
-        const topY = Math.max(...metricValues);
-        const bottomY = Math.min(...metricValues);
+        const topY = Math.max(...metricValues) + this.getActiveLineBaselineY();
+        const bottomY =
+            Math.min(...metricValues) + this.getActiveLineBaselineY();
         const accentYellow = getComputedStyle(document.documentElement)
             .getPropertyValue('--accent-yellow')
             .trim();
@@ -1210,16 +1203,20 @@ export class GlyphCanvasRenderer {
             return;
         }
 
+        const baselineY = this.getActiveLineBaselineY();
         const uniqueMetricValues =
             getVisibleVerticalMetricValues(verticalMetrics);
         const coreMetricValues = getCoreVerticalMetricValues(verticalMetrics);
         const additionalEntries = isShowAllMetricsEnabled()
-            ? getAdditionalDrawableMetricLineEntries(verticalMetrics).filter(
-                  (entry) =>
-                      !coreMetricValues.some(
-                          (coreValue) => Math.abs(coreValue - entry.y) < 0.25
-                      )
-              )
+            ? getAdditionalDrawableMetricLineEntries(verticalMetrics)
+                  .filter(
+                      (entry) =>
+                          !coreMetricValues.some(
+                              (coreValue) =>
+                                  Math.abs(coreValue - entry.y) < 0.25
+                          )
+                  )
+                  .map((entry) => ({ ...entry, y: entry.y + baselineY }))
             : [];
         const additionalMetricValues = [
             ...new Set(
@@ -1243,8 +1240,8 @@ export class GlyphCanvasRenderer {
             uniqueMetricValues.length > 0
                 ? uniqueMetricValues
                 : coreMetricValues;
-        const topY = Math.max(...extentValues);
-        const bottomY = Math.min(...extentValues);
+        const topY = Math.max(...extentValues) + baselineY;
+        const bottomY = Math.min(...extentValues) + baselineY;
 
         const isDarkTheme =
             document.documentElement.getAttribute('data-theme') !== 'light';
@@ -1286,7 +1283,12 @@ export class GlyphCanvasRenderer {
                 if (height < 1e-8) {
                     continue;
                 }
-                this.ctx.fillRect(lineExtents.minX, yMin, bandWidth, height);
+                this.ctx.fillRect(
+                    lineExtents.minX,
+                    yMin + baselineY,
+                    bandWidth,
+                    height
+                );
             }
         }
 
@@ -1294,8 +1296,8 @@ export class GlyphCanvasRenderer {
             const isBaseline = Math.abs(metricValue) < 1e-8;
             this.ctx.strokeStyle = isBaseline ? baselineColor : underlayColor;
             this.ctx.beginPath();
-            this.ctx.moveTo(lineExtents.minX, metricValue);
-            this.ctx.lineTo(lineExtents.maxX, metricValue);
+            this.ctx.moveTo(lineExtents.minX, metricValue + baselineY);
+            this.ctx.lineTo(lineExtents.maxX, metricValue + baselineY);
             this.ctx.stroke();
         }
 
@@ -2171,7 +2173,9 @@ export class GlyphCanvasRenderer {
                     this.glyphCanvas.outlineEditor.hoveredGlyphIndex
                 ];
             const glyphWidth = shapedGlyph.ax || 0;
-            const glyphYOffset = shapedGlyph.dy || 0; // Y offset from HarfBuzz shaping
+            const glyphOriginY =
+                glyphBounds?.y ??
+                this.textRunEditor._getGlyphPosition(hoveredIndex).yOffset;
             const isEmptyGlyph = !!glyphBounds?.isEmpty;
 
             // Use visual bounding box for positioning. Empty glyphs have no ink,
@@ -2186,7 +2190,7 @@ export class GlyphCanvasRenderer {
             // In font coordinates: Y increases upward, so negative Y is below baseline
             const tooltipX =
                 (glyphBounds?.x ?? 0) + (visualMinX + visualMaxX) / 2;
-            const tooltipY = glyphYOffset + visualMinY - 100; // 100 units below bottom of visual bounding box / baseline
+            const tooltipY = glyphOriginY + visualMinY - 100; // 100 units below bottom of visual bounding box / baseline
 
             const invScale = 1 / this.viewportManager.scale;
             this.drawHoverLabel(glyphName, tooltipX, tooltipY, invScale);
@@ -2566,21 +2570,19 @@ export class GlyphCanvasRenderer {
             this.textRunEditor.shapedGlyphs[
                 this.textRunEditor.selectedGlyphIndex
             ];
-        let xPosition = 0;
+        const layout = this.textRunEditor._getGlyphPosition(
+            this.textRunEditor.selectedGlyphIndex
+        );
+        let xPosition = layout.xPosition;
         let xOffset = glyph.dx || 0;
-        const yOffset = glyph.dy || 0;
         const animatedOriginX =
             this.glyphCanvas.featureChangeAnimator?.getSelectedGlyphOriginX();
         if (animatedOriginX !== null && animatedOriginX !== undefined) {
             xPosition = animatedOriginX;
             xOffset = 0;
-        } else {
-            for (let i = 0; i < this.textRunEditor.selectedGlyphIndex; i++) {
-                xPosition += this.textRunEditor.shapedGlyphs[i].ax || 0;
-            }
         }
         const x = xPosition + xOffset;
-        const y = yOffset;
+        const y = layout.yOffset;
         const invScale = 1 / this.viewportManager.scale;
         const isDarkTheme =
             document.documentElement.getAttribute('data-theme') !== 'light';
@@ -4436,17 +4438,10 @@ export class GlyphCanvasRenderer {
             glyphName
         );
 
-        // Calculate glyph position in text run (same as drawOutlineEditor does)
-        let xPosition = 0;
-        for (let i = 0; i < selectedGlyphIndex; i++) {
-            xPosition += this.textRunEditor.shapedGlyphs[i].ax || 0;
-        }
-
+        const layout = this.textRunEditor._getGlyphPosition(selectedGlyphIndex);
         const glyph = this.textRunEditor.shapedGlyphs[selectedGlyphIndex];
-        const xOffset = glyph.dx || 0;
-        const yOffset = glyph.dy || 0;
-        const x = xPosition + xOffset;
-        const y = yOffset;
+        const x = layout.xPosition + (glyph.dx || 0);
+        const y = layout.yOffset;
 
         // Save context and translate to glyph position
         this.ctx.save();
@@ -4547,17 +4542,15 @@ export class GlyphCanvasRenderer {
             ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
             : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
 
-        // Compute active glyph world offset (same as drawOutlineEditor)
-        let xPosition = 0;
-        for (let i = 0; i < this.textRunEditor.selectedGlyphIndex; i++) {
-            xPosition += this.textRunEditor.shapedGlyphs[i].ax || 0;
-        }
+        const layout = this.textRunEditor._getGlyphPosition(
+            this.textRunEditor.selectedGlyphIndex
+        );
         const glyph =
             this.textRunEditor.shapedGlyphs[
                 this.textRunEditor.selectedGlyphIndex
             ];
-        const x = xPosition + (glyph.dx || 0);
-        const y = glyph.dy || 0;
+        const x = layout.xPosition + (glyph.dx || 0);
+        const y = layout.yOffset;
 
         const invScale = 1 / this.viewportManager.scale;
 
@@ -4956,20 +4949,16 @@ export class GlyphCanvasRenderer {
         // Calculate dot radius in font units (inverse of scale to keep constant screen size)
         const dotRadius = 5 / this.viewportManager.scale;
 
-        // Get glyph world position
-        let xPosition = 0;
-        for (let i = 0; i < this.textRunEditor.selectedGlyphIndex; i++) {
-            xPosition += this.textRunEditor.shapedGlyphs[i].ax || 0;
-        }
-
+        const layout = this.textRunEditor._getGlyphPosition(
+            this.textRunEditor.selectedGlyphIndex
+        );
         const glyph =
             this.textRunEditor.shapedGlyphs[
                 this.textRunEditor.selectedGlyphIndex
             ];
         const xOffset = glyph.dx || 0;
-        const yOffset = glyph.dy || 0;
-        const glyphWorldX = xPosition + xOffset;
-        const glyphWorldY = yOffset;
+        const glyphWorldX = layout.xPosition + xOffset;
+        const glyphWorldY = layout.yOffset;
 
         // If we're in component editing mode, apply the accumulated component transform
         // to convert from component-local coords to glyph-local coords
@@ -5454,8 +5443,8 @@ export class GlyphCanvasRenderer {
         this.ctx.strokeStyle = cursorColor;
         this.ctx.lineWidth = 2 * invScale;
         this.ctx.beginPath();
-        this.ctx.moveTo(cursorX, 1000); // Top (above cap height, positive Y is up in font space)
-        this.ctx.lineTo(cursorX, -300); // Bottom (below baseline, negative Y is down)
+        this.ctx.moveTo(cursorX, (this.textRunEditor.cursorY || 0) + 1000);
+        this.ctx.lineTo(cursorX, (this.textRunEditor.cursorY || 0) - 300);
         this.ctx.stroke();
     }
 
@@ -5475,7 +5464,6 @@ export class GlyphCanvasRenderer {
         }
 
         const invScale = 1 / this.viewportManager.scale;
-        let xPosition = 0;
 
         // Clear glyph bounds for hit testing
         this.glyphCanvas.glyphBounds = [];
@@ -5489,12 +5477,10 @@ export class GlyphCanvasRenderer {
         this.textRunEditor.shapedGlyphs.forEach(
             (glyph: any, glyphIndex: number) => {
                 const glyphId = glyph.g;
-                const xOffset = glyph.dx || 0;
-                const yOffset = glyph.dy || 0;
                 const xAdvance = glyph.ax || 0;
-
-                const x = xPosition + xOffset;
-                const y = yOffset;
+                const pos = this.textRunEditor._getGlyphPosition(glyphIndex);
+                const x = pos.xPosition + (glyph.dx || 0);
+                const y = pos.yOffset;
 
                 const glyphData = this.textRunEditor.hbFont
                     ? this.textRunEditor.hbFont.glyphToPath(glyphId)
@@ -5549,8 +5535,6 @@ export class GlyphCanvasRenderer {
                         this.ctx.restore();
                     }
                 }
-
-                xPosition += xAdvance;
             }
         );
     }
@@ -5691,7 +5675,12 @@ export class GlyphCanvasRenderer {
             }
 
             // Draw highlight rectangle
-            this.ctx.fillRect(highlightX, -300, highlightWidth, 1300);
+            this.ctx.fillRect(
+                highlightX,
+                (cluster.y ?? 0) - 300,
+                highlightWidth,
+                1300
+            );
         }
 
         console.log('[Renderer]', '========================');
@@ -5811,7 +5800,6 @@ export class GlyphCanvasRenderer {
         }
 
         // Process each glyph in the text line
-        let xPosition = 0;
         const invScale = 1 / this.viewportManager.scale;
 
         // Track previous right label position for overlap detection
@@ -5826,13 +5814,10 @@ export class GlyphCanvasRenderer {
 
         this.textRunEditor.shapedGlyphs.forEach(
             (glyph: any, glyphIndex: number) => {
-                const xOffset = glyph.dx || 0;
-                const yOffset = glyph.dy || 0;
                 const xAdvance = glyph.ax || 0;
-
-                // Glyph position in font space
-                const glyphX = xPosition + xOffset;
-                const glyphY = yOffset;
+                const pos = this.textRunEditor._getGlyphPosition(glyphIndex);
+                const glyphX = pos.xPosition + (glyph.dx || 0);
+                const glyphY = pos.yOffset;
 
                 // Get glyph name from glyphNameBuffer (current shaped output)
                 // instead of looking up GID in font manager (which uses full font glyph order)
@@ -5842,7 +5827,6 @@ export class GlyphCanvasRenderer {
                 console.log('[TextMeasure] Found glyph name:', glyphName);
                 if (!glyphName) {
                     console.log('[TextMeasure] No glyph name, skipping');
-                    xPosition += xAdvance;
                     return;
                 }
 
@@ -5850,7 +5834,6 @@ export class GlyphCanvasRenderer {
                 const fontModel = window.currentFontModel;
                 if (!fontModel) {
                     console.log('[TextMeasure] No font model, skipping');
-                    xPosition += xAdvance;
                     return;
                 }
 
@@ -5865,14 +5848,12 @@ export class GlyphCanvasRenderer {
                     console.log(
                         '[TextMeasure] No glyph wrapper or layers, skipping'
                     );
-                    xPosition += xAdvance;
                     return;
                 }
 
                 // Find the layer for the selected master
                 // Use the masterId determined at the start of this function
                 if (!masterId) {
-                    xPosition += xAdvance;
                     return;
                 }
 
@@ -5898,7 +5879,6 @@ export class GlyphCanvasRenderer {
                     console.log(
                         `[TextMeasure] ${glyphName}: No layer available!`
                     );
-                    xPosition += xAdvance;
                     return;
                 }
 
@@ -5916,10 +5896,10 @@ export class GlyphCanvasRenderer {
                 // Calculate measurement Y in glyph-local space
                 // mouseGlyphY is in font space (absolute Y), yOffset is the glyph's Y position
                 // To get the Y coordinate within the glyph's own coordinate system, subtract yOffset
-                const lineY = mouseGlyphY - yOffset;
+                const lineY = mouseGlyphY - glyphY;
 
                 console.log(
-                    `[TextMeasure] ${glyphName}: yOffset=${yOffset}, mouseGlyphY=${mouseGlyphY.toFixed(1)}, lineY=${lineY.toFixed(1)}, bbox=`,
+                    `[TextMeasure] ${glyphName}: yOffset=${glyphY}, mouseGlyphY=${mouseGlyphY.toFixed(1)}, lineY=${lineY.toFixed(1)}, bbox=`,
                     (actualLayer as any).getBoundingBox(false)
                 );
 
@@ -6049,8 +6029,6 @@ export class GlyphCanvasRenderer {
 
                     this.ctx.restore();
                 }
-
-                xPosition += xAdvance;
             }
         );
     }

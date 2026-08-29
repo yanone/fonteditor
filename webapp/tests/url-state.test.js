@@ -56,6 +56,30 @@ describe('minimal query encoding', () => {
         expect(state.features).toBe('liga,kern');
     });
 
+    test('stores newlines as literal \\n and round-trips', () => {
+        window.history.replaceState(null, '', '/');
+        updateUrlState({
+            text: 'Hello\nWorld',
+            lineheight: 120,
+            align: 'center'
+        });
+
+        expect(window.location.search).toContain('text=Hello\\nWorld');
+        expect(window.location.search).not.toMatch(/%0A/);
+        expect(window.location.search).toContain('lineheight=120');
+        expect(window.location.search).toContain('align=center');
+
+        const state = readUrlState();
+        expect(state.text).toBe('Hello\nWorld');
+        expect(state.lineheight).toBe(120);
+        expect(state.align).toBe('center');
+    });
+
+    test('decodes a typed backslash-n after doubled backslashes', () => {
+        window.history.replaceState(null, '', '/?text=a\\\\n b');
+        expect(readUrlState().text).toBe('a\\n b');
+    });
+
     test('readUrlState treats + as space and %2B as plus', () => {
         window.history.replaceState(null, '', '/?text=hello+world');
         expect(readUrlState().text).toBe('hello world');

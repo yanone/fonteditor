@@ -377,15 +377,11 @@ export class StackPreviewAnimator {
             return;
         }
 
-        // Calculate base glyph position
-        let xPosition = 0;
-        for (let i = 0; i < textRunEditor.selectedGlyphIndex; i++) {
-            xPosition += textRunEditor.shapedGlyphs[i].ax || 0;
-        }
-        const glyph =
-            textRunEditor.shapedGlyphs[textRunEditor.selectedGlyphIndex];
-        const baseX = xPosition + (glyph.dx || 0);
-        const baseY = glyph.dy || 0;
+        const position = textRunEditor._getGlyphPosition(
+            textRunEditor.selectedGlyphIndex
+        );
+        const baseX = position.xPosition + position.xOffset;
+        const baseY = position.yOffset;
 
         const diagonalAngleRad =
             (this.config.diagonalOffsetAngle * Math.PI) / 180;

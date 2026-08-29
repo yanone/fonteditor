@@ -8,9 +8,12 @@ import {
 import { AxesManager } from './glyph-canvas/variations';
 import { FeaturesManager } from './glyph-canvas/features';
 import { TextRunEditor } from './glyph-canvas/textrun';
+import { lineBaselineY } from './glyph-canvas/text-run-layout';
+import { textLayoutControls } from './glyph-canvas/text-layout-controls';
 import {
     applyFontPointScreenLock,
     ViewportManager,
+    viewportFrameBottom,
     viewportFrameCenterX,
     viewportFrameCenterY,
     viewportFrameRight,
@@ -238,8 +241,11 @@ type TextRunClusterInfo = {
     start: number;
     end: number;
     x: number;
+    y?: number;
     width: number;
+    lineIndex?: number;
     isRTL: boolean;
+    isNewline?: boolean;
 };
 
 type TextModeKerningOperand = {
@@ -3848,16 +3854,13 @@ class GlyphCanvas {
         const metricsBand = this.getTextModeVerticalMetricsBand();
 
         // Pass 1: drawable outline / explicit-outline path hits (ink wins).
-        let xPosition = 0;
         for (let i = 0; i < this.textRunEditor!.shapedGlyphs.length; i++) {
             const glyph = this.textRunEditor!.shapedGlyphs[i];
             const glyphId = glyph.g;
-            const xOffset = glyph.dx || 0;
-            const yOffset = glyph.dy || 0;
             const xAdvance = glyph.ax || 0;
-
-            const x = xPosition + xOffset;
-            const y = yOffset;
+            const pos = this.textRunEditor!._getGlyphPosition(i);
+            const x = pos.xPosition + (glyph.dx || 0);
+            const y = pos.yOffset;
 
             if (!this.isShapedGlyphVisuallyEmpty(i)) {
                 try {
@@ -3905,24 +3908,20 @@ class GlyphCanvas {
                     // Skip this glyph if path extraction fails
                 }
             }
-
-            xPosition += xAdvance;
         }
 
         // Pass 2: empty glyphs (no outlines/components to draw) use the full
         // advance width × metrics band so they can still be double-clicked.
         if (foundIndex < 0) {
-            xPosition = 0;
             for (let i = 0; i < this.textRunEditor!.shapedGlyphs.length; i++) {
                 const glyph = this.textRunEditor!.shapedGlyphs[i];
-                const xOffset = glyph.dx || 0;
-                const yOffset = glyph.dy || 0;
                 const xAdvance = glyph.ax || 0;
-                const x = xPosition + xOffset;
+                const pos = this.textRunEditor!._getGlyphPosition(i);
+                const x = pos.xPosition + (glyph.dx || 0);
 
                 if (this.isShapedGlyphVisuallyEmpty(i) && xAdvance > 0) {
-                    const yMin = metricsBand.lowest + yOffset;
-                    const yMax = metricsBand.highest + yOffset;
+                    const yMin = metricsBand.lowest + pos.yOffset;
+                    const yMax = metricsBand.highest + pos.yOffset;
                     if (
                         fontSpace.x >= x &&
                         fontSpace.x <= x + xAdvance &&
@@ -3933,8 +3932,6 @@ class GlyphCanvas {
                         break;
                     }
                 }
-
-                xPosition += xAdvance;
             }
         }
 
@@ -8068,6 +8065,7 @@ class GlyphCanvas {
         }
 
         this.textRunEditor.selectedMasterId = nextMasterId;
+        this.textRunEditor.relayoutLines();
         this.invalidateTextModeKerningOverlayCache();
         this.textModeKerningSelectionPinned = false;
         this.clearTextModeKerningDraft();
@@ -8365,6 +8363,15 @@ class GlyphCanvas {
             return defaultContext;
         }
 
+        if (
+            firstCluster.isNewline ||
+            secondCluster.isNewline ||
+            (firstCluster.lineIndex ?? 0) !== (secondCluster.lineIndex ?? 0)
+        ) {
+            this.syncTextModeKerningSelectionScope(null);
+            return defaultContext;
+        }
+
         if (firstCluster.isRTL !== secondCluster.isRTL) {
             return {
                 ...defaultContext,
@@ -8527,13 +8534,13 @@ class GlyphCanvas {
         );
         const fontUpm = Number(fontManager.currentFont?.fontModel?.upm) || 1000;
         const topY =
-            metricValues.length > 0
+            (metricValues.length > 0
                 ? Math.max(...metricValues, 0)
-                : fontUpm * 0.8;
+                : fontUpm * 0.8) + (secondCluster.y ?? 0);
         const bottomY =
-            metricValues.length > 0
+            (metricValues.length > 0
                 ? Math.min(...metricValues, 0)
-                : -fontUpm * 0.2;
+                : -fontUpm * 0.2) + (secondCluster.y ?? 0);
 
         return {
             minX,
@@ -9009,12 +9016,22 @@ class GlyphCanvas {
         const clusterMap = this.textRunEditor?.clusterMap as
             TextRunClusterInfo[] | undefined;
         const shapedGlyphs = this.textRunEditor?.shapedGlyphs;
-        if (!clusterMap?.length || !shapedGlyphs?.length) {
+        if (
+            !clusterMap?.length ||
+            !shapedGlyphs?.length ||
+            !this.textRunEditor
+        ) {
             return [];
         }
 
+        const caretLine =
+            this.textRunEditor.getLineRangeAt(this.textRunEditor.cursorPosition)
+                .lineIndex ?? 0;
         const indices: number[] = [];
         for (const cluster of clusterMap) {
+            if ((cluster.lineIndex ?? 0) !== caretLine) {
+                continue;
+            }
             if (cluster.x >= caretFontX) {
                 continue;
             }
@@ -11886,9 +11903,19 @@ class GlyphCanvas {
     }
 
     private isFontYInTextInteractionBand(glyphY: number): boolean {
-        return (
-            glyphY <= TEXT_INTERACTION_Y_MAX && glyphY >= TEXT_INTERACTION_Y_MIN
-        );
+        const textRun = this.textRunEditor;
+        const lineCount = textRun?.getLineCount?.() ?? 1;
+        const usedLineHeight = textRun?.getUsedLineHeight?.() ?? 0;
+        for (let i = 0; i < Math.max(1, lineCount); i++) {
+            const baseline = lineBaselineY(i, usedLineHeight);
+            if (
+                glyphY <= baseline + TEXT_INTERACTION_Y_MAX &&
+                glyphY >= baseline + TEXT_INTERACTION_Y_MIN
+            ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -11964,16 +11991,21 @@ class GlyphCanvas {
 
     isCursorVisible(
         leftMargin: number = CURSOR_VIEW_MARGIN,
-        rightMargin: number = CURSOR_VIEW_MARGIN
+        rightMargin: number = CURSOR_VIEW_MARGIN,
+        topMargin: number = CURSOR_VIEW_MARGIN,
+        bottomMargin: number = CURSOR_VIEW_MARGIN
     ): boolean {
         const rect = this.getCanvasContentFrame();
-        const screenX =
-            this.textRunEditor!.cursorX * this.viewportManager!.scale +
-            this.viewportManager!.panX;
+        const screen = this.viewportManager!.fontToScreenCoordinates(
+            this.textRunEditor!.cursorX,
+            this.textRunEditor!.cursorY || 0
+        );
 
         return (
-            screenX >= rect.left + leftMargin &&
-            screenX <= viewportFrameRight(rect) - rightMargin
+            screen.x >= rect.left + leftMargin &&
+            screen.x <= viewportFrameRight(rect) - rightMargin &&
+            screen.y >= rect.top + topMargin &&
+            screen.y <= viewportFrameBottom(rect) - bottomMargin
         );
     }
 
@@ -12058,23 +12090,30 @@ class GlyphCanvas {
             return;
         }
 
-        const screenX =
-            this.textRunEditor!.cursorX * scale + this.viewportManager!.panX;
+        const screen = this.viewportManager!.fontToScreenCoordinates(
+            this.textRunEditor!.cursorX,
+            this.textRunEditor!.cursorY || 0
+        );
+        const topMargin = CURSOR_VIEW_MARGIN;
+        const bottomMargin = CURSOR_VIEW_MARGIN;
+        let targetPanX = this.viewportManager!.panX;
+        let targetPanY = this.viewportManager!.panY;
 
-        let targetPanX;
-        if (screenX < rect.left + leftMargin) {
-            targetPanX =
-                rect.left + leftMargin - this.textRunEditor!.cursorX * scale;
-        } else {
-            targetPanX =
-                viewportFrameRight(rect) -
-                rightMargin -
-                this.textRunEditor!.cursorX * scale;
+        if (screen.x < rect.left + leftMargin) {
+            targetPanX += rect.left + leftMargin - screen.x;
+        } else if (screen.x > viewportFrameRight(rect) - rightMargin) {
+            targetPanX += viewportFrameRight(rect) - rightMargin - screen.x;
+        }
+
+        if (screen.y < rect.top + topMargin) {
+            targetPanY += rect.top + topMargin - screen.y;
+        } else if (screen.y > viewportFrameBottom(rect) - bottomMargin) {
+            targetPanY += viewportFrameBottom(rect) - bottomMargin - screen.y;
         }
 
         this.viewportManager!.animatePan(
             targetPanX,
-            this.viewportManager!.panY,
+            targetPanY,
             this.render.bind(this)
         );
     }
@@ -12248,7 +12287,15 @@ class GlyphCanvas {
         }
 
         const band = this.getTextModeVerticalMetricsBand();
-        const verticalBounds = { minY: band.lowest, maxY: band.highest };
+        const extraLines = Math.max(
+            0,
+            (this.textRunEditor.getLineCount?.() ?? 1) - 1
+        );
+        const usedLineHeight = this.textRunEditor.getUsedLineHeight?.() ?? 0;
+        const verticalBounds = {
+            minY: band.lowest - extraLines * usedLineHeight,
+            maxY: band.highest
+        };
         const glyphs = this.textRunEditor.shapedGlyphs;
         if (glyphs && glyphs.length > 0) {
             return this.viewportManager.zoomToFitText(
@@ -12362,6 +12409,10 @@ function initCanvas() {
         const propertiesSection = document.createElement('div');
         propertiesSection.id = 'glyph-properties-section';
         leftSidebar.appendChild(propertiesSection);
+
+        // Create text layout controls above variable axes
+        const textLayoutSection = textLayoutControls.createSection();
+        rightSidebarScrollContent.appendChild(textLayoutSection);
 
         // Create variable axes container (initially empty)
         const axesSection = window.glyphCanvas.axesManager!.createAxesSection();

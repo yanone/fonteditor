@@ -4,6 +4,7 @@ import {
     type ViewportPanLockTarget
 } from './viewport';
 import type { ShapedGlyph } from './textrun';
+import { getShapedGlyphPosition } from './text-run-layout';
 
 const console = new Logger('FeatureChangeAnimator');
 
@@ -68,15 +69,15 @@ export function shapedRunHorizontalExtents(
         return null;
     }
 
-    let xPosition = 0;
     let minX = Infinity;
     let maxX = -Infinity;
 
     for (let glyphIndex = 0; glyphIndex < glyphs.length; glyphIndex++) {
         const shapedGlyph = glyphs[glyphIndex];
+        const position = getShapedGlyphPosition(glyphs, glyphIndex);
         const xOffset = shapedGlyph.dx || 0;
         const xAdvance = shapedGlyph.ax || 0;
-        const glyphStartX = xPosition + xOffset;
+        const glyphStartX = position.xPosition + xOffset;
         const glyphVisualAdvance =
             glyphIndex === selectedIndex &&
             selectedVisualWidth !== null &&
@@ -86,7 +87,6 @@ export function shapedRunHorizontalExtents(
         const glyphEndX = glyphStartX + glyphVisualAdvance;
         minX = Math.min(minX, glyphStartX, glyphEndX);
         maxX = Math.max(maxX, glyphStartX, glyphEndX);
-        xPosition += xAdvance;
     }
 
     if (!Number.isFinite(minX) || !Number.isFinite(maxX) || maxX <= minX) {

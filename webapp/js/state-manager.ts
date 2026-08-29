@@ -10,6 +10,12 @@ import {
     decodeLocation,
     decodeFeatures
 } from './url-state';
+import {
+    DEFAULT_LINE_HEIGHT_PERCENT,
+    DEFAULT_TEXT_ALIGN,
+    isTextAlign,
+    parseLineHeightPercent
+} from './glyph-canvas/text-run-layout';
 import { mapStackTrace } from './stack-mapper';
 import { resolveWebsiteURL } from './website-url';
 
@@ -61,6 +67,8 @@ export interface EditorState {
     opentype_features_not_in_subset: Record<string, boolean>;
     variation_location: UserspaceLocation;
     active_canvas_plugins: string[];
+    line_height: number;
+    text_align: 'left' | 'center' | 'right';
 }
 
 const HISTORY_RETENTION_MS = 10000; // 10 seconds
@@ -229,6 +237,8 @@ export class StateManager {
         this._state.editor_opentype_features_not_in_subset = {};
         this._state.editor_variation_location = {};
         this._state.editor_active_canvas_plugins = [];
+        this._state.editor_line_height = DEFAULT_LINE_HEIGHT_PERCENT;
+        this._state.editor_text_align = DEFAULT_TEXT_ALIGN;
 
         console.log('StateManager initialized');
 
@@ -381,6 +391,22 @@ export class StateManager {
             urlState.location = encodeLocation(varLocation);
         } else {
             urlState.location = null;
+        }
+
+        const lineHeight = parseLineHeightPercent(
+            this._state.editor_line_height
+        );
+        if (lineHeight !== null && lineHeight !== DEFAULT_LINE_HEIGHT_PERCENT) {
+            urlState.lineheight = lineHeight;
+        } else {
+            urlState.lineheight = null;
+        }
+
+        const textAlign = this._state.editor_text_align;
+        if (isTextAlign(textAlign) && textAlign !== DEFAULT_TEXT_ALIGN) {
+            urlState.align = textAlign;
+        } else {
+            urlState.align = null;
         }
 
         updateUrlState(urlState);
