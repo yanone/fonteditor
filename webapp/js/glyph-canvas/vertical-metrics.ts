@@ -132,11 +132,30 @@ export function getAdditionalDrawableVerticalMetricValues(
 export type AdditionalMetricFamily =
     'hhea' | 'hhealinegap' | 'typo' | 'typolinegap' | 'win';
 
-export interface AdditionalMetricLineEntry {
-    family: AdditionalMetricFamily;
+export type CoreMetricFamily =
+    'ascender' | 'capheight' | 'xheight' | 'baseline' | 'descender';
+
+export type MetricLineFamily = CoreMetricFamily | AdditionalMetricFamily;
+
+export interface MetricLineEntry {
+    family: MetricLineFamily;
     y: number;
     key: string;
 }
+
+export type AdditionalMetricLineEntry = MetricLineEntry & {
+    family: AdditionalMetricFamily;
+};
+
+const CORE_METRIC_KEY_TO_FAMILY: Record<string, CoreMetricFamily> = {
+    Ascender: 'ascender',
+    ascender: 'ascender',
+    CapHeight: 'capheight',
+    XHeight: 'xheight',
+    xHeight: 'xheight',
+    Descender: 'descender',
+    descender: 'descender'
+};
 
 const ADDITIONAL_METRIC_KEY_TO_FAMILY: Record<string, AdditionalMetricFamily> =
     {
@@ -207,9 +226,14 @@ export function getAdditionalDrawableMetricLineEntries(
 }
 
 export function formatAdditionalMetricFamiliesLabel(
-    families: Iterable<AdditionalMetricFamily>
+    families: Iterable<MetricLineFamily>
 ): string {
-    const order: AdditionalMetricFamily[] = [
+    const order: MetricLineFamily[] = [
+        'ascender',
+        'capheight',
+        'xheight',
+        'baseline',
+        'descender',
         'hhea',
         'hhealinegap',
         'typo',
@@ -218,6 +242,38 @@ export function formatAdditionalMetricFamiliesLabel(
     ];
     const present = new Set(families);
     return order.filter((family) => present.has(family)).join('+');
+}
+
+/**
+ * Core metric lines always drawn in edit mode (includes baseline at 0).
+ */
+export function getCoreDrawableMetricLineEntries(
+    verticalMetrics: Record<string, number> | null | undefined
+): MetricLineEntry[] {
+    if (!verticalMetrics) {
+        return [];
+    }
+
+    const entries: MetricLineEntry[] = [];
+    for (const [metricKey, family] of Object.entries(
+        CORE_METRIC_KEY_TO_FAMILY
+    )) {
+        const rawValue = verticalMetrics[metricKey];
+        if (!Number.isFinite(rawValue)) {
+            continue;
+        }
+        entries.push({
+            family,
+            y: Number(rawValue),
+            key: metricKey
+        });
+    }
+
+    if (!entries.some((entry) => entry.family === 'baseline')) {
+        entries.push({ family: 'baseline', y: 0, key: 'baseline' });
+    }
+
+    return entries;
 }
 
 /**

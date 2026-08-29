@@ -2,6 +2,7 @@ const {
     formatAdditionalMetricFamiliesLabel,
     getAdditionalDrawableMetricLineEntries,
     getAdditionalDrawableVerticalMetricValues,
+    getCoreDrawableMetricLineEntries,
     getMetricOvershootBands
 } = require('../js/glyph-canvas/vertical-metrics');
 
@@ -44,12 +45,41 @@ describe('additional vertical metric labels', () => {
         ).toBe('hhea+typo+win');
         expect(formatAdditionalMetricFamiliesLabel(['typo'])).toBe('typo');
         expect(
+            formatAdditionalMetricFamiliesLabel(['typo', 'ascender', 'hhea'])
+        ).toBe('ascender+hhea+typo');
+        expect(
+            formatAdditionalMetricFamiliesLabel([
+                'descender',
+                'baseline',
+                'xheight'
+            ])
+        ).toBe('xheight+baseline+descender');
+        expect(
             formatAdditionalMetricFamiliesLabel([
                 'typolinegap',
                 'hhea',
                 'hhealinegap'
             ])
         ).toBe('hhea+hhealinegap+typolinegap');
+    });
+
+    test('emits core metric families including baseline', () => {
+        const entries = getCoreDrawableMetricLineEntries({
+            Ascender: 800,
+            CapHeight: 700,
+            XHeight: 500,
+            Descender: -200
+        });
+
+        expect(entries).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ family: 'ascender', y: 800 }),
+                expect.objectContaining({ family: 'capheight', y: 700 }),
+                expect.objectContaining({ family: 'xheight', y: 500 }),
+                expect.objectContaining({ family: 'descender', y: -200 }),
+                expect.objectContaining({ family: 'baseline', y: 0 })
+            ])
+        );
     });
 
     test('draws non-zero Typo/Hhea line gaps under their descenders', () => {

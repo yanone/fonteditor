@@ -30,11 +30,12 @@ import {
 import {
     formatAdditionalMetricFamiliesLabel,
     getAdditionalDrawableMetricLineEntries,
+    getCoreDrawableMetricLineEntries,
     getCoreVerticalMetricValues,
     getMetricOvershootBands,
     getVisibleVerticalMetricValues,
-    type AdditionalMetricFamily,
-    type AdditionalMetricLineEntry
+    type MetricLineEntry,
+    type MetricLineFamily
 } from './vertical-metrics';
 import { isShowAllMetricsEnabled } from '../show-all-metrics-pref';
 import type { Babelfont } from '../babelfont';
@@ -1207,30 +1208,30 @@ export class GlyphCanvasRenderer {
         const uniqueMetricValues =
             getVisibleVerticalMetricValues(verticalMetrics);
         const coreMetricValues = getCoreVerticalMetricValues(verticalMetrics);
-        const additionalEntries = isShowAllMetricsEnabled()
-            ? getAdditionalDrawableMetricLineEntries(verticalMetrics)
-                  .filter(
-                      (entry) =>
-                          !coreMetricValues.some(
-                              (coreValue) =>
-                                  Math.abs(coreValue - entry.y) < 0.25
-                          )
-                  )
-                  .map((entry) => ({ ...entry, y: entry.y + baselineY }))
+        const showAllMetrics = isShowAllMetricsEnabled();
+        const coreEntries = getCoreDrawableMetricLineEntries(
+            verticalMetrics
+        ).map((entry) => ({ ...entry, y: entry.y + baselineY }));
+        const additionalEntries = showAllMetrics
+            ? getAdditionalDrawableMetricLineEntries(verticalMetrics).map(
+                  (entry) => ({ ...entry, y: entry.y + baselineY })
+              )
             : [];
-        const additionalMetricValues = [
-            ...new Set(
-                additionalEntries.map((entry) => {
-                    // Preserve unique Ys with the same tolerance used elsewhere.
-                    return entry.y;
-                })
-            )
-        ].filter(
-            (metricValue, index, values) =>
-                values.findIndex(
-                    (candidate) => Math.abs(candidate - metricValue) < 0.25
-                ) === index
+        const additionalStrokeEntries = additionalEntries.filter(
+            (entry) =>
+                !coreMetricValues.some(
+                    (coreValue) =>
+                        Math.abs(coreValue - (entry.y - baselineY)) < 0.25
+                )
         );
+        const additionalMetricValues = additionalStrokeEntries
+            .map((entry) => entry.y)
+            .filter(
+                (metricValue, index, values) =>
+                    values.findIndex(
+                        (candidate) => Math.abs(candidate - metricValue) < 0.25
+                    ) === index
+            );
 
         if (uniqueMetricValues.length === 0 && coreMetricValues.length === 0) {
             return;
@@ -1261,7 +1262,7 @@ export class GlyphCanvasRenderer {
             ? `rgba(${parsedBaseColor.r}, ${parsedBaseColor.g}, ${parsedBaseColor.b}, 0.08)`
             : underlayColor;
         const additionalLabelColor = parsedBaseColor
-            ? `rgba(${parsedBaseColor.r}, ${parsedBaseColor.g}, ${parsedBaseColor.b}, 0.14)`
+            ? `rgba(${parsedBaseColor.r}, ${parsedBaseColor.g}, ${parsedBaseColor.b}, 0.4)`
             : additionalUnderlayColor;
         const overshootFillColor = parsedBaseColor
             ? `rgba(${parsedBaseColor.r}, ${parsedBaseColor.g}, ${parsedBaseColor.b}, 0.05)`
@@ -1272,7 +1273,7 @@ export class GlyphCanvasRenderer {
 
         const overshootBands = getMetricOvershootBands(
             verticalMetrics,
-            isShowAllMetricsEnabled()
+            showAllMetrics
         );
         if (overshootBands.length > 0) {
             this.ctx.fillStyle = overshootFillColor;
@@ -1309,13 +1310,13 @@ export class GlyphCanvasRenderer {
                 this.ctx.lineTo(lineExtents.maxX, metricValue);
                 this.ctx.stroke();
             }
-
-            this.drawAdditionalMetricLabels(
-                additionalEntries,
-                lineExtents.minX,
-                additionalLabelColor
-            );
         }
+
+        this.drawMetricLineLabels(
+            [...coreEntries, ...additionalEntries],
+            lineExtents.minX,
+            additionalLabelColor
+        );
 
         const selectedGlyphIndex = this.textRunEditor.selectedGlyphIndex;
         if (
@@ -1364,14 +1365,13 @@ export class GlyphCanvasRenderer {
     }
 
     /**
-     * Label additional metric lines with short family names
-     * (hhea / hhealinegap / typo / typolinegap / win).
-     * Nearby labels merge ("hhea+typo") until zoom gives each its own space.
+     * Label metric lines with short family names (ascender, xheight, typo, …).
+     * Nearby labels merge ("ascender+hhea+typo") until zoom gives each space.
      * Labels sit left of the line start, or pin to the left viewport edge when
-     * that start is off-screen.
+     * that start is off-screen or the concatenated text would clip.
      */
-    private drawAdditionalMetricLabels(
-        entries: AdditionalMetricLineEntry[],
+    private drawMetricLineLabels(
+        entries: MetricLineEntry[],
         lineStartX: number,
         labelColor: string
     ): void {
@@ -1388,7 +1388,7 @@ export class GlyphCanvasRenderer {
         // Collapse exact/near-coincident Ys, collecting families per line.
         type LineGroup = {
             y: number;
-            families: Set<AdditionalMetricFamily>;
+            families: Set<MetricLineFamily>;
         };
         const lineGroups: LineGroup[] = [];
         const sortedEntries = [...entries].sort(
@@ -1414,7 +1414,7 @@ export class GlyphCanvasRenderer {
         // Merge labels that would vertically collide at the current zoom.
         type LabelCluster = {
             y: number;
-            families: Set<AdditionalMetricFamily>;
+            families: Set<MetricLineFamily>;
             count: number;
         };
         const clusters: LabelCluster[] = [];
@@ -1439,13 +1439,15 @@ export class GlyphCanvasRenderer {
             }
         }
 
+        const contentFrame = this.glyphCanvas.getCanvasContentFrame();
+        const pinScreenX = contentFrame.left + edgeMarginPx;
         const lineStartScreen = this.viewportManager.fontToScreenCoordinates(
             lineStartX,
             0
         );
-        const lineStartVisible = lineStartScreen.x >= edgeMarginPx;
+        const lineStartVisible = lineStartScreen.x >= pinScreenX;
         const viewportLeftFontX = this.viewportManager.getFontSpaceCoordinates(
-            edgeMarginPx,
+            pinScreenX,
             0
         ).x;
 
@@ -1460,15 +1462,18 @@ export class GlyphCanvasRenderer {
                 continue;
             }
 
+            const textWidth = this.ctx.measureText(text).width;
+            const rightAlignedLeft = lineStartX - lineGapFont - textWidth;
+            const pinToViewportLeft =
+                !lineStartVisible || rightAlignedLeft < viewportLeftFontX;
+
             this.ctx.save();
-            if (lineStartVisible) {
-                // Outside the metrics band, immediately left of the line start.
+            if (!pinToViewportLeft) {
                 this.ctx.translate(lineStartX, cluster.y);
                 this.ctx.scale(1, -1);
                 this.ctx.textAlign = 'right';
                 this.ctx.fillText(text, -lineGapFont, 0);
             } else {
-                // Line starts off-screen left: pin to the left viewport edge.
                 this.ctx.translate(viewportLeftFontX, cluster.y);
                 this.ctx.scale(1, -1);
                 this.ctx.textAlign = 'left';
