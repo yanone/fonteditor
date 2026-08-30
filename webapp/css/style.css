@@ -7275,11 +7275,11 @@ select.glyph-property-input {
 }
 
 .glyph-property-control-label[data-kerning-side='first'] {
-    color: var(--glyph-kerning-first-accent);
+    color: var(--glyph-kerning-first-accent, var(--kerning-accent-first));
 }
 
 .glyph-property-control-label[data-kerning-side='second'] {
-    color: var(--glyph-kerning-second-accent);
+    color: var(--glyph-kerning-second-accent, var(--kerning-accent-second));
 }
 
 .glyph-kerning-pill.selected-glyph-group {

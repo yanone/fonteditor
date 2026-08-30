@@ -4502,6 +4502,7 @@ class GlyphOverview {
 
         const label = document.createElement('span');
         label.className = 'glyph-property-control-label';
+        label.dataset.kerningSide = side === 'left' ? 'second' : 'first';
         label.textContent = shortLabel;
         label.title =
             side === 'left' ? 'Left sidebearing' : 'Right sidebearing';

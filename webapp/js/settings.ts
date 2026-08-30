@@ -87,8 +87,8 @@ const APP_SETTINGS = {
         // Hover / selection enlarge outline chrome (nodes, off-curve, sidebearings, guides)
         HANDLE_HOVER_SCALE: 1.22,
         HANDLE_SELECTED_SCALE: 1.38,
-        // Idle sidebearing handles fill white at this alpha; hover/select
-        // fills the current border color at the same alpha.
+        // Idle sidebearing handles fill white at this alpha; hover fills the
+        // matching LSB/RSB accent at the same alpha; selection fills solid.
         SIDEBEARING_HANDLE_FILL_ALPHA: 0.3,
         // Hover paints related chrome halfway from rest to selected.
         // Segment hover mixes the path stroke the same way; in-segment
@@ -219,9 +219,8 @@ const APP_SETTINGS = {
             HANDLE_LINE_SELECTED: '#000000',
             OUTLINE_SELECTED: '#000000',
 
-            // Sidebearing handles. Rest/selected hue is --view-console (light).
-            // Fill is white at SIDEBEARING_HANDLE_FILL_ALPHA when idle, and
-            // the current border color at that alpha when hovered/selected.
+            // Sidebearing handles. Stroke is --kerning-accent-second (LSB)
+            // and --kerning-accent-first (RSB) at rest, hover, and select.
             SIDEBEARING_NORMAL: '#e0b41c',
             SIDEBEARING_HOVERED: '#e0b41c',
             SIDEBEARING_SELECTED: '#e0b41c',
@@ -311,9 +310,8 @@ const APP_SETTINGS = {
             HANDLE_LINE_SELECTED: '#ffffff',
             OUTLINE_SELECTED: '#ffffff',
 
-            // Sidebearing handles. Rest/selected hue is --view-console (dark).
-            // Fill is white at SIDEBEARING_HANDLE_FILL_ALPHA when idle, and
-            // the current border color at that alpha when hovered/selected.
+            // Sidebearing handles. Stroke is --kerning-accent-second (LSB)
+            // and --kerning-accent-first (RSB) at rest, hover, and select.
             SIDEBEARING_NORMAL: '#fbc540',
             SIDEBEARING_HOVERED: '#fbc540',
             SIDEBEARING_SELECTED: '#fbc540',

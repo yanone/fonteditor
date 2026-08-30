@@ -1860,6 +1860,28 @@ export class GlyphCanvasRenderer {
         this.ctx.restore();
     }
 
+    /**
+     * LSB/RSB handle accents match property-panel kerning-side colors
+     * (second = orange/left, first = blue/right).
+     */
+    private getSidebearingAccentColors(): { left: string; right: string } {
+        const computed = getComputedStyle(document.documentElement);
+        const left = computed
+            .getPropertyValue('--kerning-accent-second')
+            .trim();
+        const right = computed
+            .getPropertyValue('--kerning-accent-first')
+            .trim();
+        const fallback =
+            document.documentElement.getAttribute('data-theme') === 'light'
+                ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT.SIDEBEARING_SELECTED
+                : APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK.SIDEBEARING_SELECTED;
+        return {
+            left: left || fallback,
+            right: right || fallback
+        };
+    }
+
     private getCurrentLayerAdvanceWidth(): number {
         const overlayWidth =
             this.glyphCanvas.outlineEditor.getLiveSidebearingOverlayWidth();
@@ -3013,6 +3035,7 @@ export class GlyphCanvasRenderer {
             const colors = isDarkTheme
                 ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
                 : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
+            const sideAccents = this.getSidebearingAccentColors();
 
             sidebearingHandles.forEach((handle) => {
                 const isHovered =
@@ -3021,19 +3044,20 @@ export class GlyphCanvasRenderer {
                 const isSelected =
                     this.glyphCanvas.outlineEditor.selectedSidebearingHandle
                         ?.side === handle.side;
-                const isActive = isHovered || isSelected;
+                const sideColor =
+                    handle.side === 'left'
+                        ? sideAccents.left
+                        : sideAccents.right;
                 const strokeColor = handle.editable
-                    ? isSelected
-                        ? colors.SIDEBEARING_SELECTED
-                        : isHovered
-                          ? colors.SIDEBEARING_HOVERED
-                          : colors.SIDEBEARING_NORMAL
+                    ? sideColor
                     : colors.SIDEBEARING_DISABLED;
                 const fillAlpha =
                     APP_SETTINGS.OUTLINE_EDITOR.SIDEBEARING_HANDLE_FILL_ALPHA;
-                const fillColor = isActive
-                    ? withColorAlpha(strokeColor, fillAlpha)
-                    : `rgba(255, 255, 255, ${fillAlpha})`;
+                const fillColor = isSelected
+                    ? strokeColor
+                    : isHovered
+                      ? withColorAlpha(strokeColor, fillAlpha)
+                      : `rgba(255, 255, 255, ${fillAlpha})`;
                 const handleRadius =
                     baseHandleRadius *
                     outlineChromeStateScale(isSelected, isHovered);

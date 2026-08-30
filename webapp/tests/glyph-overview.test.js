@@ -1394,6 +1394,18 @@ describe('GlyphOverview property panel kerning groups', () => {
         ).map((element) => element.textContent);
         // Widget sides wrap the center: LKG, then LSB/Name/Unicode/RSB, then RKG.
         expect(labels).toEqual(['LKG', 'LSB', 'Name', 'Unicode', 'RSB', 'RKG']);
+        const lsbLabel = Array.from(
+            document.querySelectorAll(
+                '#overview-property-panel .glyph-property-control-label'
+            )
+        ).find((element) => element.textContent === 'LSB');
+        const rsbLabel = Array.from(
+            document.querySelectorAll(
+                '#overview-property-panel .glyph-property-control-label'
+            )
+        ).find((element) => element.textContent === 'RSB');
+        expect(lsbLabel?.getAttribute('data-kerning-side')).toBe('second');
+        expect(rsbLabel?.getAttribute('data-kerning-side')).toBe('first');
 
         const sides = document.querySelectorAll('.glyph-kerning-side');
         expect(
