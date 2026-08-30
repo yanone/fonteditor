@@ -3,7 +3,7 @@
 //
 // Type definitions for babelfont
 // Project: https://github.com/simoncozens/babelfont-rs
-// Definitions extracted from babelfont-ts@e0f5ccf
+// Definitions extracted from babelfont-ts@df18a2f
 
 export namespace Babelfont {
     /** A dictionary for internationalized strings. */
