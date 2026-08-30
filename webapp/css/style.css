@@ -7282,7 +7282,8 @@ select.glyph-property-input {
     color: var(--glyph-kerning-second-accent, var(--kerning-accent-second));
 }
 
-.glyph-kerning-pill.selected-glyph-group {
+.glyph-kerning-pill.selected-glyph-group,
+.glyph-kerning-pill.active.selected-glyph-group {
     border-color: var(--text-primary);
 }
 

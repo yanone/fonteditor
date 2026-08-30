@@ -17491,6 +17491,34 @@ describe('Text-mode kerning property panel', () => {
         expect(activePills).toEqual(['A', '@VSecond']);
     });
 
+    test('outlines chips with a defined kerning value while they stay selected', () => {
+        setTextRunState();
+
+        canvas.updatePropertyPanel();
+
+        const definedActive = document.querySelector(
+            '.glyph-kerning-pill[data-kerning-side="first"][data-kerning-key="A"]'
+        );
+        const definedIdle = document.querySelector(
+            '.glyph-kerning-pill[data-kerning-side="first"][data-kerning-key="@AFirst"]'
+        );
+        const undefinedIdle = document.querySelector(
+            '.glyph-kerning-pill[data-kerning-side="second"][data-kerning-key="V"]'
+        );
+
+        expect(definedActive.classList.contains('active')).toBe(true);
+        expect(definedActive.classList.contains('selected-glyph-group')).toBe(
+            true
+        );
+        expect(definedIdle.classList.contains('active')).toBe(false);
+        expect(definedIdle.classList.contains('selected-glyph-group')).toBe(
+            true
+        );
+        expect(undefinedIdle.classList.contains('selected-glyph-group')).toBe(
+            false
+        );
+    });
+
     test('renders a single RTL ValueRecord field', () => {
         fontModel.masters[0].kerning_rtl = {
             '@AFirst:@VSecond': -120

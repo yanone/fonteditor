@@ -318,7 +318,7 @@ function createSide(
         if (chip.participates) {
             button.classList.add('glyph-kerning-pill-participates');
         }
-        if (chip.compatible && !chip.active) {
+        if (chip.compatible) {
             button.classList.add('selected-glyph-group');
         }
         if (chip.active) {

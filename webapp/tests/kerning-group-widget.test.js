@@ -99,6 +99,82 @@ describe('kerning-group widget multi-glyph membership', () => {
         ).toBe(false);
     });
 
+    test('outlines chips that have a kerning value even when selected', () => {
+        const parent = document.createElement('div');
+        const center = document.createElement('div');
+
+        renderKerningGroupWidget(parent, {
+            startSide: {
+                pairSide: 'first',
+                title: 'First (RKG)',
+                glyphNames: ['A'],
+                missingGlyphNames: [],
+                chips: [
+                    {
+                        pairSide: 'first',
+                        kind: 'glyph',
+                        name: 'A',
+                        key: 'A',
+                        label: 'A',
+                        removable: false,
+                        compatible: true,
+                        active: true
+                    },
+                    {
+                        pairSide: 'first',
+                        kind: 'group',
+                        name: 'AFirst',
+                        key: '@AFirst',
+                        label: '@AFirst',
+                        removable: true,
+                        compatible: true,
+                        active: false
+                    }
+                ]
+            },
+            endSide: {
+                pairSide: 'second',
+                title: 'Second (LKG)',
+                glyphNames: ['V'],
+                missingGlyphNames: [],
+                chips: [
+                    {
+                        pairSide: 'second',
+                        kind: 'glyph',
+                        name: 'V',
+                        key: 'V',
+                        label: 'V',
+                        removable: false,
+                        compatible: false,
+                        active: false
+                    }
+                ]
+            },
+            center
+        });
+
+        const definedActive = parent.querySelector(
+            '.glyph-kerning-pill[data-kerning-key="A"]'
+        );
+        const definedIdle = parent.querySelector(
+            '.glyph-kerning-pill[data-kerning-key="@AFirst"]'
+        );
+        const undefinedIdle = parent.querySelector(
+            '.glyph-kerning-pill[data-kerning-key="V"]'
+        );
+
+        expect(definedActive.classList.contains('active')).toBe(true);
+        expect(definedActive.classList.contains('selected-glyph-group')).toBe(
+            true
+        );
+        expect(definedIdle.classList.contains('selected-glyph-group')).toBe(
+            true
+        );
+        expect(undefinedIdle.classList.contains('selected-glyph-group')).toBe(
+            false
+        );
+    });
+
     test('keeps two-chip sides stacked instead of wrapping', () => {
         const parent = document.createElement('div');
         const center = document.createElement('div');
