@@ -9175,6 +9175,14 @@ export class OutlineEditor {
             getHighestVisibleVerticalMetricValue(this.renderVerticalMetrics) ??
             lowestMetricY;
         const panY = this.glyphCanvas.viewportManager!.panY;
+        const originY =
+            this.glyphCanvas.textRunEditor?._getGlyphPosition?.(
+                this.glyphCanvas.textRunEditor.selectedGlyphIndex
+            )?.yOffset ?? 0;
+        const fontYToScreenY = (fontY: number): number =>
+            -(fontY + originY) * scale + panY;
+        const screenYToFontY = (screenY: number): number =>
+            -(screenY - panY) / scale - originY;
         const frame = this.glyphCanvas.getCanvasContentFrame?.();
         const contentHeight = frame?.height ?? 0;
         const contentBottom =
@@ -9188,8 +9196,8 @@ export class OutlineEditor {
                 : fallbackHeight > 0
                   ? fallbackHeight
                   : null;
-        const desiredHandleScreenY = -lowestMetricY * scale + panY;
-        const highestMetricScreenY = -highestMetricY * scale + panY;
+        const desiredHandleScreenY = fontYToScreenY(lowestMetricY);
+        const highestMetricScreenY = fontYToScreenY(highestMetricY);
         const handleViewportInset = 10;
         const bottomClampedHandleScreenY =
             canvasHeight === null
@@ -9202,7 +9210,7 @@ export class OutlineEditor {
             highestMetricScreenY,
             bottomClampedHandleScreenY
         );
-        const handleY = -(clampedHandleScreenY - panY) / scale;
+        const handleY = screenYToFontY(clampedHandleScreenY);
         const width = Number(currentLayerData.width);
         const handles: VisibleSidebearingHandle[] = [];
         const automaticLayer = currentLayerModel.isAutomaticAlignedLayer();

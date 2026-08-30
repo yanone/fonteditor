@@ -6767,6 +6767,37 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         expect(handle.metricY).toBeCloseTo(-200, 5);
     });
 
+    test('snaps the handle to the viewport on a lower text-run line', () => {
+        canvas.outlineEditor.renderVerticalMetrics = {
+            Ascender: 700,
+            Descender: -200
+        };
+        canvas.outlineEditor.canvas = canvas.canvas;
+        canvas.canvas.height = 600 * (window.devicePixelRatio || 1);
+        canvas.textRunEditor.shapedGlyphs = [
+            { ax: 500, dx: 0, dy: 0, g: 0, baselineY: 0, lineIndex: 0 },
+            { ax: 500, dx: 0, dy: 0, g: 0, baselineY: -1200, lineIndex: 1 }
+        ];
+        canvas.textRunEditor.selectedGlyphIndex = 1;
+
+        const originalScale = canvas.viewportManager.scale;
+        const originalPanY = canvas.viewportManager.panY;
+
+        canvas.viewportManager.scale = 1;
+        canvas.viewportManager.panY = 0;
+
+        const handle = canvas.outlineEditor.getVisibleSidebearingHandles()[0];
+        const originY = -1200;
+        const handleScreenY = -(handle.y + originY);
+
+        canvas.viewportManager.scale = originalScale;
+        canvas.viewportManager.panY = originalPanY;
+
+        expect(handleScreenY).toBeCloseTo(590, 5);
+        expect(handle.metricY).toBeCloseTo(-200, 5);
+        expect(handle.y).toBeGreaterThan(-200);
+    });
+
     test('snaps the handle above the overlay property panel', () => {
         canvas.outlineEditor.renderVerticalMetrics = {
             Ascender: 700,
@@ -15131,7 +15162,9 @@ describe('GlyphCanvas panToCursor', () => {
         canvas.outlineEditor.active = false;
         canvas.viewportManager.scale = 1;
         canvas.viewportManager.panX = 0;
-        canvas.viewportManager.panY = 0;
+        // Baseline caret (font y=0) maps to screen y=panY. Multiline keep-in-view
+        // requires a 30px vertical margin, so park the caret mid-frame.
+        canvas.viewportManager.panY = 400;
         canvas.viewportManager.animatePan = jest.fn();
         mockCanvasRect();
     });
@@ -15147,7 +15180,7 @@ describe('GlyphCanvas panToCursor', () => {
 
         expect(canvas.viewportManager.animatePan).toHaveBeenCalledWith(
             1000 - 30 - 2000,
-            0,
+            400,
             expect.any(Function)
         );
     });
@@ -15160,7 +15193,7 @@ describe('GlyphCanvas panToCursor', () => {
 
         expect(canvas.viewportManager.animatePan).toHaveBeenCalledWith(
             0,
-            0,
+            400,
             expect.any(Function)
         );
     });
@@ -15173,7 +15206,7 @@ describe('GlyphCanvas panToCursor', () => {
 
         expect(canvas.viewportManager.animatePan).toHaveBeenCalledWith(
             200 - 800,
-            0,
+            400,
             expect.any(Function)
         );
     });

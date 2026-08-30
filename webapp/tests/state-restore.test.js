@@ -121,7 +121,8 @@ describe('ensureStartupStateReady', () => {
                 selectedGlyphIndex: -1,
                 setTextBuffer,
                 updateCursorVisualPosition,
-                selectGlyphByIndex
+                selectGlyphByIndex,
+                applyLayoutSettingsFromState: jest.fn()
             },
             outlineEditor: {
                 active: false,
@@ -295,7 +296,8 @@ describe('ensureStartupStateReady', () => {
                 cursorPosition: 0,
                 setTextBuffer: jest.fn(),
                 updateCursorVisualPosition: jest.fn(),
-                selectGlyphByIndex
+                selectGlyphByIndex,
+                applyLayoutSettingsFromState: jest.fn()
             },
             outlineEditor: {
                 active: false,
@@ -383,7 +385,8 @@ describe('ensureStartupStateReady', () => {
             cursorPosition: 0,
             setTextBuffer: jest.fn(),
             updateCursorVisualPosition,
-            selectGlyphByIndex
+            selectGlyphByIndex,
+            applyLayoutSettingsFromState: jest.fn()
         };
         glyphCanvas.outlineEditor.active = true;
         window.stateManager.editor_mode = 'edit';
