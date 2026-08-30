@@ -7,7 +7,8 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-babelfont = { path = "../../babelfont-rs/babelfont", features = ["fontir", "glyphs", "ufo", "fontlab", "fontforge"] }
+# Git pin (not a sibling path) so CI can resolve without a local checkout.
+babelfont = { git = "https://github.com/yanone/babelfont-rs", rev = "df18a2f6ab348e71d7d91f96090ff0ee8638776c", features = ["fontir", "glyphs", "ufo", "fontlab", "fontforge"] }
 fontc = { git = "https://github.com/googlefonts/fontc", rev = "484e26c", default-features = false }
 fontbe = { git = "https://github.com/googlefonts/fontc", rev = "484e26c", default-features = false }
 fontir = { git = "https://github.com/googlefonts/fontc", rev = "484e26c" }
